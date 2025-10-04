@@ -1,0 +1,59 @@
+# Go build artifacts
+bin/
+build/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go caches
+.gocache/
+
+# Binaries at repo root
+/grimnirradio
+
+# Coverage
+coverage/
+coverage.out
+*.coverprofile
+
+# Logs and temp files
+logs/
+*.log
+tmp/
+.tmp/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Databases and local state
+*.db
+*.sqlite
+*.sqlite3
+
+# App data
+media/
+
+# Web frontend (if used)
+web/node_modules/
+web/dist/
+web/build/
+
+# IDE/editor junk
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.history/
+*.code-workspace
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

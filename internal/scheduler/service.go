@@ -1,0 +1,235 @@
+package scheduler
+
+import (
+	"context"
+	"errors"
+	"time"
+
+    "github.com/example/grimnirradio/internal/clock"
+    "github.com/example/grimnirradio/internal/models"
+    "github.com/example/grimnirradio/internal/scheduler/state"
+    "github.com/example/grimnirradio/internal/smartblock"
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+	"gorm.io/gorm"
+)
+
+// Service orchestrates the rolling playout plan.
+type Service struct {
+	db         *gorm.DB
+	planner    *clock.Planner
+	engine     *smartblock.Engine
+	stateStore *state.Store
+	logger     zerolog.Logger
+	lookahead  time.Duration
+}
+
+// New constructs the scheduler service.
+func New(db *gorm.DB, planner *clock.Planner, engine *smartblock.Engine, stateStore *state.Store, lookahead time.Duration, logger zerolog.Logger) *Service {
+	if lookahead <= 0 {
+		lookahead = 24 * time.Hour
+	}
+	return &Service{db: db, planner: planner, engine: engine, stateStore: stateStore, lookahead: lookahead, logger: logger}
+}
+
+// Run executes the scheduler loop until the context is cancelled.
+func (s *Service) Run(ctx context.Context) error {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	s.logger.Info().Msg("scheduler loop started")
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info().Msg("scheduler loop stopped")
+			return ctx.Err()
+		case <-ticker.C:
+			s.tick(ctx)
+		}
+	}
+}
+
+func (s *Service) tick(ctx context.Context) {
+	var stations []models.Station
+	if err := s.db.WithContext(ctx).Find(&stations).Error; err != nil {
+		s.logger.Error().Err(err).Msg("scheduler failed to load stations")
+		return
+	}
+
+	for _, station := range stations {
+		if err := s.scheduleStation(ctx, station.ID); err != nil {
+			s.logger.Warn().Err(err).Str("station", station.ID).Msg("station scheduling failed")
+		}
+	}
+}
+
+func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
+	start := time.Now().UTC()
+	plans, err := s.planner.Compile(stationID, start, s.lookahead)
+	if err != nil {
+		return err
+	}
+
+	if len(plans) == 0 {
+		s.logger.Debug().Str("station", stationID).Msg("no plans to generate")
+		return nil
+	}
+
+	for _, plan := range plans {
+		if plan.StartsAt.Before(start) {
+			continue
+		}
+
+		alreadyScheduled, err := s.slotAlreadyScheduled(ctx, stationID, plan)
+		if err != nil {
+			return err
+		}
+		if alreadyScheduled {
+			continue
+		}
+
+		switch plan.SlotType {
+		case string(models.SlotTypeSmartBlock):
+			if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
+				return err
+			}
+		case string(models.SlotTypeHardItem), string(models.SlotTypeStopset):
+			if err := s.createPlaceholderEntry(ctx, stationID, plan); err != nil {
+				return err
+			}
+		default:
+			s.logger.Debug().Str("slot_type", plan.SlotType).Msg("unhandled slot type")
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) slotAlreadyScheduled(ctx context.Context, stationID string, plan clock.SlotPlan) (bool, error) {
+	mountID := stringValue(plan.Payload["mount_id"])
+	var count int64
+	err := s.db.WithContext(ctx).
+		Model(&models.ScheduleEntry{}).
+		Where("station_id = ?", stationID).
+		Where("starts_at = ?", plan.StartsAt).
+		Where("mount_id = ?", mountID).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, plan clock.SlotPlan) error {
+	blockID := stringValue(plan.Payload["smart_block_id"])
+	mountID := stringValue(plan.Payload["mount_id"])
+	if blockID == "" || mountID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Msg("smart block slot missing identifiers")
+		return nil
+	}
+
+	targetDuration := plan.Duration
+	if targetDuration <= 0 {
+		targetDuration = plan.EndsAt.Sub(plan.StartsAt)
+	}
+
+	result, err := s.engine.Generate(ctx, smartblock.GenerateRequest{
+		SmartBlockID: blockID,
+		Seed:         plan.StartsAt.Unix(),
+		Duration:     targetDuration.Milliseconds(),
+		StationID:    stationID,
+		MountID:      mountID,
+	})
+	if err != nil {
+		if errors.Is(err, smartblock.ErrUnresolved) {
+			s.logger.Warn().Str("smart_block", blockID).Msg("smart block unresolved")
+			return nil
+		}
+		return err
+	}
+
+	entries := make([]models.ScheduleEntry, 0, len(result.Items))
+	for _, item := range result.Items {
+		entry := models.ScheduleEntry{
+			ID:         uuid.NewString(),
+			StationID:  stationID,
+			MountID:    mountID,
+			StartsAt:   plan.StartsAt.Add(time.Duration(item.StartsAtMS) * time.Millisecond),
+			EndsAt:     plan.StartsAt.Add(time.Duration(item.EndsAtMS) * time.Millisecond),
+			SourceType: "media",
+			SourceID:   item.MediaID,
+			Metadata: map[string]any{
+				"smart_block_id": blockID,
+				"intro_end":      item.IntroEnd,
+				"outro_in":       item.OutroIn,
+				"energy":         item.Energy,
+			},
+		}
+		entries = append(entries, entry)
+	}
+
+	if len(entries) == 0 {
+		return nil
+	}
+
+	return s.db.WithContext(ctx).Create(&entries).Error
+}
+
+func (s *Service) createPlaceholderEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {
+	mountID := stringValue(plan.Payload["mount_id"])
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		StartsAt:   plan.StartsAt,
+		EndsAt:     plan.EndsAt,
+		SourceType: plan.SlotType,
+		Metadata:   plan.Payload,
+	}
+	return s.db.WithContext(ctx).Create(&entry).Error
+}
+
+// Materialize exposes smart block generation for APIs.
+func (s *Service) Materialize(ctx context.Context, req smartblock.GenerateRequest) (smartblock.GenerateResult, error) {
+	return s.engine.Generate(ctx, req)
+}
+
+// RefreshStation triggers immediate scheduling for a station.
+func (s *Service) RefreshStation(ctx context.Context, stationID string) error {
+	return s.scheduleStation(ctx, stationID)
+}
+
+// Upcoming returns upcoming schedule entries within horizon.
+// Simulate returns slot plans calculated by the planner.
+func (s *Service) Simulate(ctx context.Context, stationID string, start time.Time, horizon time.Duration) ([]clock.SlotPlan, error) {
+	return s.planner.Compile(stationID, start, horizon)
+}
+
+func (s *Service) SimulateClock(ctx context.Context, clockID string, start time.Time, horizon time.Duration) ([]clock.SlotPlan, error) {
+	return s.planner.CompileForClock(clockID, start, horizon)
+}
+
+func (s *Service) Upcoming(ctx context.Context, stationID string, from time.Time, horizon time.Duration) ([]models.ScheduleEntry, error) {
+	if horizon <= 0 {
+		horizon = 24 * time.Hour
+	}
+	var entries []models.ScheduleEntry
+	err := s.db.WithContext(ctx).
+		Where("station_id = ?", stationID).
+		Where("starts_at >= ?", from).
+		Where("starts_at <= ?", from.Add(horizon)).
+		Order("starts_at ASC").
+		Find(&entries).Error
+	return entries, err
+}
+
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return ""
+	}
+}

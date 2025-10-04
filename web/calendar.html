@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Station Schedule Calendar</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css">
+  <style>
+    body { background-color: #f7f9fb; }
+    #calendar { min-height: 720px; }
+  </style>
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="/">Smart Blocks</a>
+      <div class="d-flex gap-2">
+        <a class="btn btn-link" href="/">Dashboard</a>
+        <a class="btn btn-link" href="/calendar.html">Calendar</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container py-4">
+    <div class="row g-4">
+      <section class="col-lg-3">
+        <div class="card shadow-sm">
+          <div class="card-header">Sign In</div>
+          <div class="card-body">
+            <form id="login-form" class="needs-validation" novalidate>
+              <div class="mb-3">
+                <label class="form-label" for="login-email">Email</label>
+                <input class="form-control" id="login-email" type="email" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="login-password">Password</label>
+                <input class="form-control" id="login-password" type="password" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="login-station">Default station (ID)</label>
+                <input class="form-control" id="login-station" type="text" placeholder="Optional">
+              </div>
+              <button class="btn btn-primary w-100" type="submit">Login</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="card shadow-sm mt-4">
+          <div class="card-header">Calendar Filters</div>
+          <div class="card-body">
+            <form id="filter-form" class="row g-2">
+              <div class="col-12">
+                <label class="form-label" for="filter-station">Station ID</label>
+                <input class="form-control" id="filter-station" type="text" required>
+              </div>
+              <div class="col-12">
+                <label class="form-label" for="filter-hours">Hours ahead</label>
+                <input class="form-control" id="filter-hours" type="number" value="48" min="1" max="168">
+              </div>
+              <div class="col-12 d-grid">
+                <button class="btn btn-success" type="submit">Load Schedule</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="alert alert-info mt-4" role="alert">
+          Drag and drop items to adjust start times, or stretch to change durations. Changes are saved immediately and broadcast to listeners.
+        </div>
+      </section>
+
+      <section class="col-lg-9">
+        <div class="card shadow-sm">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Schedule Calendar</span>
+            <div>
+              <button class="btn btn-outline-primary btn-sm" id="today-btn" type="button">Today</button>
+              <button class="btn btn-outline-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div id="calendar"></div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm mt-4">
+          <div class="card-header">Live Status</div>
+          <div class="card-body">
+            <div id="status-empty" class="text-muted">Connect a station to see now playing details.</div>
+            <ul id="status-list" class="list-group list-group-flush d-none"></ul>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="position-fixed top-0 end-0 p-3" style="z-index: 1080">
+    <div id="toast" class="toast align-items-center text-white bg-success" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div class="toast-body" id="toast-message"></div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+  <script>
+    const calendarEl = document.getElementById('calendar');
+    const toastEl = document.getElementById('toast');
+    const toastMessage = document.getElementById('toast-message');
+    const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+
+    let token = localStorage.getItem('rlmToken');
+    let currentStation = '';
+    let calendar;
+    let eventsSocket;
+    let playingByMount = {};
+    const statusList = document.getElementById('status-list');
+    const statusEmpty = document.getElementById('status-empty');
+    const nowPlayingByMount = new Map();
+
+    const renderStatus = () => {
+      if (nowPlayingByMount.size === 0) {
+        statusEmpty.classList.remove('d-none');
+        statusList.classList.add('d-none');
+        statusList.innerHTML = '';
+        return;
+      }
+
+      statusEmpty.classList.add('d-none');
+      statusList.classList.remove('d-none');
+      statusList.innerHTML = '';
+
+      const entries = Array.from(nowPlayingByMount.values()).sort((a, b) => a.mount.localeCompare(b.mount));
+      entries.forEach((info) => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex justify-content-between align-items-start';
+        const body = document.createElement('div');
+        body.className = 'ms-2 me-auto';
+        const title = document.createElement('div');
+        title.className = 'fw-semibold';
+        title.textContent = `${info.mount} • ${info.title || info.sourceType || 'Item'}`;
+        body.appendChild(title);
+        if (info.artist) {
+          const artist = document.createElement('div');
+          artist.textContent = info.artist;
+          body.appendChild(artist);
+        }
+        const time = document.createElement('small');
+        time.className = 'text-muted';
+        if (info.startedAt) {
+          const startStr = new Date(info.startedAt).toLocaleTimeString();
+          const endStr = info.endsAt ? new Date(info.endsAt).toLocaleTimeString() : 'TBD';
+          time.textContent = `${startStr} – ${endStr}`;
+        } else {
+          time.textContent = info.status || 'updating';
+        }
+        body.appendChild(time);
+
+        const badge = document.createElement('span');
+        badge.className = `badge rounded-pill ${info.status === 'playing' ? 'bg-success' : 'bg-secondary'}`;
+        badge.textContent = info.status === 'playing' ? 'ON AIR' : (info.status || 'IDLE');
+
+        li.appendChild(body);
+        li.appendChild(badge);
+        statusList.appendChild(li);
+      });
+    };
+
+    const PLAYING_COLOR = '#198754';
+    const BASE_COLORS = {
+      media: '#0d6efd',
+      hard_item: '#6f42c1',
+      stopset: '#6c757d',
+      smart_block: '#0dcaf0'
+    };
+
+    const showToast = (message, success = true) => {
+      toastEl.classList.remove('bg-success', 'bg-danger');
+      toastEl.classList.add(success ? 'bg-success' : 'bg-danger');
+      toastMessage.textContent = message;
+      toast.show();
+    };
+
+    const colorForSource = (source) => {
+      if (!source) return BASE_COLORS.media;
+      const key = source.toLowerCase();
+      return BASE_COLORS[key] || BASE_COLORS.media;
+    };
+
+    const eventTitle = (data) => {
+      if (!data) return 'Item';
+      if (data.metadata && data.metadata.title) return data.metadata.title;
+      if (data.title) return data.title;
+      if (data.source_type) return data.source_type;
+      return 'Item';
+    };
+
+    const authorizedHeaders = () => ({
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    });
+
+    const ensureCalendar = () => {
+      if (calendar) {
+        return calendar;
+      }
+      calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        editable: true,
+        droppable: false,
+        selectable: false,
+        nowIndicator: true,
+        eventOverlap: false,
+        eventDidMount(info) {
+          info.el.title = `${info.event.title}\n${new Date(info.event.start).toLocaleString()}`;
+          info.el.dataset.bsToggle = 'tooltip';
+          info.el.dataset.bsTitle = `${info.event.title}\n${info.event.extendedProps.source_type || ''}`;
+        },
+        eventDrop(info) {
+          updateSchedule(info.event, info);
+        },
+        eventResize(info) {
+          updateSchedule(info.event, info);
+        }
+      });
+      calendar.render();
+      return calendar;
+    };
+
+    const applyBaseAppearance = (event) => {
+      const baseColor = event.extendedProps.baseColor || colorForSource(event.extendedProps.source_type);
+      event.setExtendedProp('baseColor', baseColor);
+      if (!event.extendedProps.isPlaying) {
+        event.setProp('backgroundColor', baseColor);
+        event.setProp('borderColor', baseColor);
+        event.setProp('textColor', '#fff');
+      }
+    };
+
+    const setPlayingForMount = (mountId, event) => {
+      if (!event) return;
+      const previousId = playingByMount[mountId];
+      if (previousId && previousId !== event.id) {
+        const previous = ensureCalendar().getEventById(previousId);
+        if (previous) {
+          previous.setExtendedProp('isPlaying', false);
+          applyBaseAppearance(previous);
+        }
+      }
+      playingByMount[mountId] = event.id;
+      event.setExtendedProp('isPlaying', true);
+      event.setProp('backgroundColor', PLAYING_COLOR);
+      event.setProp('borderColor', PLAYING_COLOR);
+      event.setProp('textColor', '#fff');
+    };
+
+    const clearPlayingForMount = (mountId) => {
+      const previousId = playingByMount[mountId];
+      if (!previousId) return;
+      const previous = ensureCalendar().getEventById(previousId);
+      if (previous) {
+        previous.setExtendedProp('isPlaying', false);
+        applyBaseAppearance(previous);
+      }
+      delete playingByMount[mountId];
+    };
+
+    const upsertEventFromPayload = (payload) => {
+      const calendarInstance = ensureCalendar();
+      const id = payload.entry_id || payload.id;
+      if (!id || !payload.starts_at) {
+        return calendarInstance.getEventById(id || '');
+      }
+
+      const metadata = payload.metadata || {};
+      const sourceType = payload.source_type || metadata.source_type || 'media';
+      const baseColor = colorForSource(sourceType);
+      const title = eventTitle({ metadata, title: payload.title, source_type: sourceType });
+
+      let event = calendarInstance.getEventById(id);
+      if (event) {
+        event.setStart(payload.starts_at);
+        if (payload.ends_at) {
+          event.setEnd(payload.ends_at);
+        }
+        event.setProp('title', title);
+        event.setExtendedProp('metadata', metadata);
+        event.setExtendedProp('station_id', payload.station_id || event.extendedProps.station_id || currentStation);
+        event.setExtendedProp('mount_id', payload.mount_id || event.extendedProps.mount_id || '');
+        event.setExtendedProp('source_type', sourceType);
+        event.setExtendedProp('baseColor', baseColor);
+        if (!event.extendedProps.isPlaying) {
+          applyBaseAppearance(event);
+        }
+        return event;
+      }
+
+      event = calendarInstance.addEvent({
+        id,
+        title,
+        start: payload.starts_at,
+        end: payload.ends_at,
+        backgroundColor: baseColor,
+        borderColor: baseColor,
+        textColor: '#fff',
+        extendedProps: {
+          metadata,
+          station_id: payload.station_id || currentStation,
+          mount_id: payload.mount_id || '',
+          source_type: sourceType,
+          baseColor,
+          isPlaying: false
+        }
+      });
+      return event;
+    };
+
+    const fetchSchedule = async () => {
+      const stationInput = document.getElementById('filter-station');
+      const hoursInput = document.getElementById('filter-hours');
+      const station = stationInput.value.trim();
+      const hours = hoursInput.value || 48;
+
+      if (!station) {
+        showToast('Station ID is required', false);
+        return;
+      }
+      currentStation = station;
+
+      const response = await fetch(`/api/v1/schedule?station_id=${encodeURIComponent(station)}&hours=${hours}`, {
+        headers: authorizedHeaders()
+      });
+      if (!response.ok) {
+        showToast('Failed to load schedule', false);
+        return;
+      }
+      const entries = await response.json();
+      const calendarInstance = ensureCalendar();
+      calendarInstance.removeAllEvents();
+      playingByMount = {};
+
+      entries.forEach(entry => {
+        upsertEventFromPayload({
+          entry_id: entry.id,
+          starts_at: entry.starts_at,
+          ends_at: entry.ends_at,
+          station_id: entry.station_id || station,
+          mount_id: entry.mount_id,
+          source_type: entry.source_type,
+          metadata: entry.metadata || {}
+        });
+      });
+
+      nowPlayingByMount.clear();
+      renderStatus();
+
+      showToast('Schedule loaded');
+      connectEvents();
+    };
+
+    const updateSchedule = async (event, info) => {
+      if (!token) {
+        showToast('Login required', false);
+        info.revert();
+        return;
+      }
+
+      const payload = {
+        starts_at: event.start.toISOString(),
+        ends_at: event.end ? event.end.toISOString() : null,
+        mount_id: event.extendedProps.mount_id || '',
+        metadata: event.extendedProps.metadata || {}
+      };
+
+      const response = await fetch(`/api/v1/schedule/${event.id}`, {
+        method: 'PATCH',
+        headers: authorizedHeaders(),
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        showToast('Unable to update schedule', false);
+        info.revert();
+        return;
+      }
+
+      const updated = await response.json();
+      const wasPlaying = event.extendedProps.isPlaying;
+
+      event.setStart(updated.starts_at);
+      event.setEnd(updated.ends_at);
+      event.setExtendedProp('metadata', updated.metadata || {});
+      event.setExtendedProp('station_id', updated.station_id || currentStation);
+      event.setExtendedProp('mount_id', updated.mount_id || event.extendedProps.mount_id || '');
+      event.setExtendedProp('source_type', updated.source_type || event.extendedProps.source_type);
+      event.setExtendedProp('baseColor', colorForSource(updated.source_type || event.extendedProps.source_type));
+      if (updated.metadata && updated.metadata.title) {
+        event.setProp('title', updated.metadata.title);
+      }
+
+      if (wasPlaying) {
+        setPlayingForMount(event.extendedProps.mount_id, event);
+      } else {
+        applyBaseAppearance(event);
+      }
+
+      showToast('Schedule updated');
+    };
+
+    const handleScheduleEvent = (payload) => {
+      payload.starts_at = payload.starts_at || payload.start;
+      payload.ends_at = payload.ends_at || payload.end;
+      const event = upsertEventFromPayload(payload);
+      if (event && !event.extendedProps.isPlaying) {
+        applyBaseAppearance(event);
+      }
+      showToast('Schedule updated by another operator');
+    };
+
+    const handleNowPlayingEvent = (payload) => {
+      payload.starts_at = payload.starts_at || payload.started_at;
+      const event = upsertEventFromPayload(payload);
+      if (event) {
+        setPlayingForMount(payload.mount_id || event.extendedProps.mount_id, event);
+        const meta = event.extendedProps.metadata || {};
+        nowPlayingByMount.set(event.extendedProps.mount_id, {
+          mount: event.extendedProps.mount_id,
+          title: meta.title || event.title,
+          artist: meta.artist || meta.performer,
+          sourceType: event.extendedProps.source_type,
+          startedAt: payload.starts_at,
+          endsAt: payload.ends_at,
+          status: 'playing'
+        });
+        renderStatus();
+      }
+    };
+
+    const handleHealthEvent = (payload) => {
+      if (payload.event === 'crossfade') {
+        showToast('Crossfade to next element', true);
+      }
+
+      if (payload.status === 'playing') {
+        payload.starts_at = payload.starts_at || payload.started_at;
+        const event = upsertEventFromPayload(payload);
+        if (event) {
+          setPlayingForMount(payload.mount_id || event.extendedProps.mount_id, event);
+          const meta = event.extendedProps.metadata || {};
+          nowPlayingByMount.set(event.extendedProps.mount_id, {
+            mount: event.extendedProps.mount_id,
+            title: meta.title || event.title,
+            artist: meta.artist || meta.performer,
+            sourceType: event.extendedProps.source_type,
+            startedAt: payload.starts_at,
+            endsAt: payload.ends_at,
+            status: payload.status || 'playing'
+          });
+          renderStatus();
+        }
+      }
+
+      if (payload.event === 'ended' || payload.status === 'ended') {
+        clearPlayingForMount(payload.mount_id);
+        nowPlayingByMount.delete(payload.mount_id);
+        renderStatus();
+      }
+    };
+
+    const connectEvents = () => {
+      if (!token || !currentStation) {
+        return;
+      }
+
+      if (eventsSocket) {
+        eventsSocket.close();
+      }
+
+      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const types = ['schedule_update', 'now_playing', 'health'];
+      const url = `${scheme}://${window.location.host}/api/v1/events?types=${types.join(',')}&token=${encodeURIComponent(token)}`;
+      eventsSocket = new WebSocket(url);
+
+      eventsSocket.onopen = () => {
+        showToast('Live updates connected');
+      };
+
+      eventsSocket.onclose = () => {
+        eventsSocket = null;
+        setTimeout(connectEvents, 5000);
+      };
+
+      eventsSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (!data || data.type === 'ping') {
+            return;
+          }
+
+          const payload = data.payload || {};
+          if (payload.station_id && payload.station_id !== currentStation) {
+            return;
+          }
+
+          switch (data.type) {
+            case 'schedule_update':
+              handleScheduleEvent(payload);
+              break;
+            case 'now_playing':
+              handleNowPlayingEvent(payload);
+              break;
+            case 'health':
+              handleHealthEvent(payload);
+              break;
+            default:
+              break;
+          }
+        } catch (err) {
+          console.error('Failed to parse event message', err);
+        }
+      };
+    };
+
+    document.getElementById('login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const body = {
+        email: document.getElementById('login-email').value,
+        password: document.getElementById('login-password').value,
+        station_id: document.getElementById('login-station').value
+      };
+
+      const response = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        showToast('Login failed', false);
+        return;
+      }
+
+      const data = await response.json();
+      token = data.access_token;
+      localStorage.setItem('rlmToken', token);
+      showToast('Login successful');
+      connectEvents();
+    });
+
+    document.getElementById('filter-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await fetchSchedule();
+    });
+
+    document.getElementById('refresh-btn').addEventListener('click', fetchSchedule);
+    document.getElementById('today-btn').addEventListener('click', () => {
+      ensureCalendar().today();
+    });
+
+    const savedStation = document.getElementById('login-station').value;
+    if (savedStation) {
+      document.getElementById('filter-station').value = savedStation;
+    }
+
+    if (token) {
+      connectEvents();
+    }
+  </script>
+</body>
+</html>

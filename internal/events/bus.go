@@ -1,0 +1,68 @@
+package events
+
+import "sync"
+
+// EventType enumerates event categories.
+type EventType string
+
+const (
+	EventNowPlaying    EventType = "now_playing"
+	EventHealth        EventType = "health"
+	EventDJConnect     EventType = "dj_connect"
+	EventDJDisconnect  EventType = "dj_disconnect"
+	EventScheduleUpdate EventType = "schedule_update"
+)
+
+// Payload generic event payload.
+type Payload map[string]any
+
+// Subscriber receives event payloads.
+type Subscriber chan Payload
+
+// Bus implements a simple in-process pubsub.
+type Bus struct {
+	mu   sync.RWMutex
+	subs map[EventType][]Subscriber
+}
+
+// NewBus creates an event bus.
+func NewBus() *Bus {
+	return &Bus{subs: make(map[EventType][]Subscriber)}
+}
+
+// Subscribe registers a subscriber for event type.
+func (b *Bus) Subscribe(eventType EventType) Subscriber {
+	ch := make(Subscriber, 8)
+	b.mu.Lock()
+	b.subs[eventType] = append(b.subs[eventType], ch)
+	b.mu.Unlock()
+	return ch
+}
+
+// Publish sends payload to subscribers.
+func (b *Bus) Publish(eventType EventType, payload Payload) {
+	b.mu.RLock()
+	subs := append([]Subscriber(nil), b.subs[eventType]...)
+	b.mu.RUnlock()
+	for _, sub := range subs {
+		select {
+		case sub <- payload:
+		default:
+		}
+	}
+}
+
+// Unsubscribe removes the subscriber.
+func (b *Bus) Unsubscribe(eventType EventType, sub Subscriber) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	subs := b.subs[eventType]
+	for i, candidate := range subs {
+		if candidate == sub {
+			subs = append(subs[:i], subs[i+1:]...)
+			break
+		}
+	}
+	b.subs[eventType] = subs
+	close(sub)
+}
