@@ -1,0 +1,64 @@
+[Unit]
+Description=Grimnir Radio Control Plane
+Documentation=https://github.com/friendsincode/grimnir_radio
+After=network-online.target mediaengine.service postgresql.service mysql.service
+Wants=network-online.target
+Requires=mediaengine.service
+
+[Service]
+Type=simple
+User=grimnir
+Group=grimnir
+WorkingDirectory=/opt/grimnir/control
+
+# Executable
+ExecStart=/opt/grimnir/control/bin/grimnirradio
+
+# Environment configuration
+Environment="HTTP_BIND=0.0.0.0"
+Environment="HTTP_PORT=8080"
+Environment="DB_DRIVER=postgres"
+Environment="DB_DSN=host=localhost user=grimnir password=changeme dbname=grimnir sslmode=disable"
+Environment="JWT_SECRET_FILE=/etc/grimnir/jwt.secret"
+Environment="MEDIA_ENGINE_GRPC_ADDR=localhost:9091"
+Environment="MEDIA_STORAGE_PATH=/opt/grimnir/media"
+Environment="LOG_LEVEL=info"
+
+# Additional environment can be loaded from file
+EnvironmentFile=-/etc/grimnir/grimnirradio.env
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=1024
+
+# Memory limits (adjust based on station count)
+MemoryLimit=1G
+MemoryHigh=768M
+
+# CPU quota (adjust as needed)
+CPUQuota=100%
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/grimnir/control/data /opt/grimnir/media
+ReadOnlyPaths=/etc/grimnir
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=grimnirradio
+
+# Graceful shutdown timeout
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target

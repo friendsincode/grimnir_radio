@@ -10,6 +10,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
+	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
@@ -29,6 +30,7 @@ type Executor struct {
 	stateManager  *StateManager
 	prioritySvc   *priority.Service
 	bus           *events.Bus
+	mediaCtrl     *MediaController
 	logger        zerolog.Logger
 
 	mu            sync.Mutex
@@ -38,13 +40,14 @@ type Executor struct {
 }
 
 // New creates a new executor for a station.
-func New(stationID string, db *gorm.DB, stateManager *StateManager, prioritySvc *priority.Service, bus *events.Bus, logger zerolog.Logger) *Executor {
+func New(stationID string, db *gorm.DB, stateManager *StateManager, prioritySvc *priority.Service, bus *events.Bus, mediaCtrl *MediaController, logger zerolog.Logger) *Executor {
 	return &Executor{
 		stationID:    stationID,
 		db:           db,
 		stateManager: stateManager,
 		prioritySvc:  prioritySvc,
 		bus:          bus,
+		mediaCtrl:    mediaCtrl,
 		logger:       logger.With().Str("station_id", stationID).Logger(),
 	}
 }
@@ -71,6 +74,11 @@ func (e *Executor) Start(ctx context.Context) error {
 
 	// Start priority listener goroutine
 	go e.priorityEventLoop()
+
+	// Start telemetry streaming if media controller is available
+	if e.mediaCtrl != nil && e.mediaCtrl.IsConnected() {
+		go e.telemetryStreamLoop()
+	}
 
 	e.logger.Info().Msg("executor started")
 	return nil
@@ -344,8 +352,23 @@ func (e *Executor) handlePriorityEvent(payload events.Payload) {
 		Interface("payload", payload).
 		Msg("priority event received")
 
-	// TODO: Implement priority change handling
-	// This will be completed in the next phase when integrating with media engine
+	// Get source information from payload
+	sourceID, _ := payload["source_id"].(string)
+	priority, _ := payload["priority"].(models.PriorityLevel)
+
+	if sourceID == "" {
+		e.logger.Warn().Msg("priority event missing source_id")
+		return
+	}
+
+	// Handle priority change through media engine
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Start playback with new priority
+	if err := e.Play(ctx, sourceID, priority); err != nil {
+		e.logger.Error().Err(err).Msg("failed to handle priority change")
+	}
 }
 
 func (e *Executor) handleEmergencyEvent(payload events.Payload) {
@@ -358,6 +381,71 @@ func (e *Executor) handleEmergencyEvent(payload events.Payload) {
 		Interface("payload", payload).
 		Msg("emergency event received")
 
-	// TODO: Implement emergency handling
-	// This will be completed in the next phase
+	// Get emergency source information
+	sourceID, _ := payload["source_id"].(string)
+	path, _ := payload["path"].(string)
+
+	if sourceID == "" || path == "" {
+		e.logger.Error().Msg("emergency event missing source_id or path")
+		return
+	}
+
+	// Insert emergency content through media engine
+	if e.mediaCtrl != nil && e.mediaCtrl.IsConnected() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if _, err := e.mediaCtrl.InsertEmergency(ctx, sourceID, path); err != nil {
+			e.logger.Error().Err(err).Msg("failed to insert emergency content")
+			return
+		}
+	}
+
+	// Update executor state
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := e.TransitionTo(ctx, models.ExecutorStateEmergency); err != nil {
+		e.logger.Error().Err(err).Msg("failed to transition to emergency state")
+	}
+}
+
+func (e *Executor) telemetryStreamLoop() {
+	e.logger.Info().Msg("starting telemetry stream")
+
+	callback := func(telemetry *pb.TelemetryData) error {
+		// Update executor state with telemetry
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		err := e.UpdateTelemetry(ctx, Telemetry{
+			AudioLevelL:   float64(telemetry.AudioLevelL),
+			AudioLevelR:   float64(telemetry.AudioLevelR),
+			LoudnessLUFS:  float64(telemetry.LoudnessLufs),
+			BufferDepthMS: telemetry.BufferDepthMs,
+		})
+
+		if err != nil {
+			e.logger.Error().Err(err).Msg("failed to update telemetry")
+		}
+
+		// Log additional telemetry data for debugging
+		e.logger.Debug().
+			Int64("position_ms", telemetry.PositionMs).
+			Int64("duration_ms", telemetry.DurationMs).
+			Int64("underrun_count", telemetry.UnderrunCount).
+			Msg("telemetry received")
+
+		return nil
+	}
+
+	// Stream telemetry with 1-second intervals
+	if err := e.mediaCtrl.StreamTelemetry(e.ctx, 1000, callback); err != nil {
+		if e.ctx.Err() == nil {
+			// Only log error if context wasn't cancelled (normal shutdown)
+			e.logger.Error().Err(err).Msg("telemetry stream error")
+		}
+	}
+
+	e.logger.Info().Msg("telemetry stream ended")
 }
