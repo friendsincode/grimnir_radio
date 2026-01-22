@@ -86,6 +86,25 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	c.logger.Info().Msg("connected to media engine")
 
+	// Wait for connection to be ready
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Force connection by waiting for state to become ready
+	conn.Connect()
+	for {
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			break
+		}
+		if state == connectivity.Shutdown || state == connectivity.TransientFailure {
+			return fmt.Errorf("connection failed, state: %v", state)
+		}
+		if !conn.WaitForStateChange(ctx, state) {
+			return fmt.Errorf("timeout waiting for connection")
+		}
+	}
+
 	// Start connection monitoring
 	go c.monitorConnection()
 

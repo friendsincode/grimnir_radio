@@ -43,7 +43,7 @@ type PrioritySource struct {
 	Priority   PriorityLevel `gorm:"type:int;index:idx_station_active"`
 	SourceType SourceType    `gorm:"type:varchar(32)"`
 	SourceID   string        `gorm:"type:uuid"` // ID of media, webstream, etc.
-	Metadata   map[string]any `gorm:"type:jsonb"`
+	Metadata   map[string]any `gorm:"serializer:json"`
 	Active     bool          `gorm:"index:idx_station_active"` // Is this source currently active?
 	ActivatedAt time.Time
 	DeactivatedAt *time.Time // NULL if still active
@@ -84,7 +84,7 @@ type ExecutorState struct {
 	BufferDepthMS   int64   `gorm:"type:bigint"` // Milliseconds of buffered audio
 
 	// Metadata from currently playing item
-	Metadata        map[string]any `gorm:"type:jsonb"`
+	Metadata        map[string]any `gorm:"serializer:json"`
 
 	CreatedAt       time.Time
 	UpdatedAt       time.Time

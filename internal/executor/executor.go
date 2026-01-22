@@ -64,9 +64,14 @@ func (e *Executor) Start(ctx context.Context) error {
 	e.ctx, e.cancel = context.WithCancel(ctx)
 	e.running = true
 
-	// Initialize state
-	if err := e.stateManager.SetState(e.ctx, e.stationID, models.ExecutorStateIdle); err != nil {
+	// Initialize state - GetState will create the record if it doesn't exist
+	if _, err := e.stateManager.GetState(e.ctx, e.stationID); err != nil {
 		return fmt.Errorf("initialize state: %w", err)
+	}
+
+	// Set state to idle
+	if err := e.stateManager.SetState(e.ctx, e.stationID, models.ExecutorStateIdle); err != nil {
+		return fmt.Errorf("set idle state: %w", err)
 	}
 
 	// Start heartbeat goroutine
