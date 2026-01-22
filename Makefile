@@ -3,8 +3,10 @@ PKG ?= ./...
 BIN ?= grimnirradio
 GOFLAGS ?=
 RACE ?= 1
+PROTO_DIR ?= proto
+PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test build verify ci
+.PHONY: help fmt fmt-check vet lint tidy test build verify ci proto proto-clean
 
 help:
 	@echo "Common targets:"
@@ -43,4 +45,14 @@ build:
 verify: tidy fmt vet lint test
 
 ci: verify fmt-check
+
+proto:
+	@echo "Generating protobuf code..."
+	@PATH="$$PATH:$$HOME/go/bin" protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		$(PROTO_DIR)/mediaengine/v1/*.proto
+
+proto-clean:
+	@find $(PROTO_OUT) -name '*.pb.go' -delete
+	@echo "Cleaned generated protobuf files"
 

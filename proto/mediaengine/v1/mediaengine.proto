@@ -1,0 +1,262 @@
+syntax = "proto3";
+
+package mediaengine.v1;
+
+option go_package = "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1;mediaenginev1";
+
+import "google/protobuf/timestamp.proto";
+
+// MediaEngine service controls audio playback, DSP processing, and output encoding.
+service MediaEngine {
+  // LoadGraph loads a DSP processing graph configuration
+  rpc LoadGraph(LoadGraphRequest) returns (LoadGraphResponse);
+
+  // Play starts playback of a media source
+  rpc Play(PlayRequest) returns (PlayResponse);
+
+  // Stop halts playback
+  rpc Stop(StopRequest) returns (StopResponse);
+
+  // Fade initiates a crossfade between sources
+  rpc Fade(FadeRequest) returns (FadeResponse);
+
+  // InsertEmergency immediately plays emergency content
+  rpc InsertEmergency(InsertEmergencyRequest) returns (InsertEmergencyResponse);
+
+  // RouteLive routes a live input stream
+  rpc RouteLive(RouteLiveRequest) returns (RouteLiveResponse);
+
+  // StreamTelemetry streams real-time audio telemetry
+  rpc StreamTelemetry(TelemetryRequest) returns (stream TelemetryData);
+
+  // GetStatus returns current engine status
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+}
+
+// LoadGraphRequest contains DSP graph configuration
+message LoadGraphRequest {
+  string station_id = 1;
+  string mount_id = 2;
+  DSPGraph graph = 3;
+}
+
+message LoadGraphResponse {
+  string graph_handle = 1; // Unique identifier for the loaded graph
+  bool success = 2;
+  string error = 3;
+}
+
+// PlayRequest initiates playback
+message PlayRequest {
+  string station_id = 1;
+  string mount_id = 2;
+  SourceConfig source = 3;
+  CuePoints cue_points = 4;
+  FadeConfig fade = 5;
+  int32 priority = 6; // Priority level (0-4)
+}
+
+message PlayResponse {
+  bool success = 1;
+  string playback_id = 2;
+  string error = 3;
+}
+
+// StopRequest halts playback
+message StopRequest {
+  string station_id = 1;
+  string mount_id = 2;
+  bool immediate = 3; // If true, stop without fade
+}
+
+message StopResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// FadeRequest initiates crossfade
+message FadeRequest {
+  string station_id = 1;
+  string mount_id = 2;
+  SourceConfig next_source = 3;
+  CuePoints next_cue_points = 4;
+  FadeConfig fade_config = 5;
+}
+
+message FadeResponse {
+  bool success = 1;
+  string fade_id = 2;
+  int64 estimated_duration_ms = 3;
+  string error = 4;
+}
+
+// InsertEmergencyRequest for emergency broadcasts
+message InsertEmergencyRequest {
+  string station_id = 1;
+  string mount_id = 2;
+  SourceConfig source = 3;
+}
+
+message InsertEmergencyResponse {
+  bool success = 1;
+  string emergency_id = 2;
+  string error = 3;
+}
+
+// RouteLiveRequest routes live input
+message RouteLiveRequest {
+  string station_id = 1;
+  string mount_id = 2;
+  LiveInputConfig input = 3;
+}
+
+message RouteLiveResponse {
+  bool success = 1;
+  string live_id = 2;
+  string error = 3;
+}
+
+// TelemetryRequest for streaming telemetry
+message TelemetryRequest {
+  string station_id = 1;
+  string mount_id = 2;
+  int32 interval_ms = 3; // Update interval in milliseconds
+}
+
+// TelemetryData contains real-time audio metrics
+message TelemetryData {
+  string station_id = 1;
+  string mount_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+
+  // Audio levels
+  float audio_level_l = 4;  // Left channel RMS (-60 to 0 dBFS)
+  float audio_level_r = 5;  // Right channel RMS
+  float peak_level_l = 6;   // Left channel peak
+  float peak_level_r = 7;   // Right channel peak
+
+  // Loudness
+  float loudness_lufs = 8;  // Integrated loudness (LUFS)
+  float momentary_lufs = 9; // Momentary loudness
+  float short_term_lufs = 10; // Short-term loudness
+
+  // Buffer state
+  int64 buffer_depth_ms = 11;
+  int32 buffer_fill_percent = 12;
+  int64 underrun_count = 13;
+
+  // Playback state
+  PlaybackState state = 14;
+  int64 position_ms = 15; // Current playback position
+  int64 duration_ms = 16; // Total duration (if known)
+}
+
+// StatusRequest queries engine status
+message StatusRequest {
+  string station_id = 1;
+  string mount_id = 2;
+}
+
+message StatusResponse {
+  bool running = 1;
+  PlaybackState state = 2;
+  string current_source_id = 3;
+  int64 uptime_seconds = 4;
+  string graph_handle = 5;
+  map<string, string> metadata = 6;
+}
+
+// SourceConfig describes an audio source
+message SourceConfig {
+  SourceType type = 1;
+  string source_id = 2; // Media ID, webstream URL, etc.
+  string path = 3;      // File path for media sources
+  map<string, string> metadata = 4;
+}
+
+// CuePoints for seamless mixing
+message CuePoints {
+  float intro_end = 1;  // End of intro in seconds
+  float outro_in = 2;   // Start of outro in seconds
+}
+
+// FadeConfig for crossfades
+message FadeConfig {
+  int32 fade_in_ms = 1;
+  int32 fade_out_ms = 2;
+  FadeCurve curve = 3;
+}
+
+// LiveInputConfig for live streaming
+message LiveInputConfig {
+  string input_url = 1;      // Harbor/HTTP input URL
+  string auth_token = 2;     // Authentication token
+  int32 buffer_ms = 3;       // Input buffer size
+  bool apply_processing = 4; // Apply DSP graph to live input
+}
+
+// DSPGraph defines audio processing chain
+message DSPGraph {
+  repeated DSPNode nodes = 1;
+  repeated DSPConnection connections = 2;
+}
+
+// Enums
+
+enum SourceType {
+  SOURCE_TYPE_UNSPECIFIED = 0;
+  SOURCE_TYPE_MEDIA = 1;
+  SOURCE_TYPE_WEBSTREAM = 2;
+  SOURCE_TYPE_LIVE = 3;
+  SOURCE_TYPE_FALLBACK = 4;
+  SOURCE_TYPE_EMERGENCY = 5;
+}
+
+enum PlaybackState {
+  PLAYBACK_STATE_UNSPECIFIED = 0;
+  PLAYBACK_STATE_IDLE = 1;
+  PLAYBACK_STATE_LOADING = 2;
+  PLAYBACK_STATE_PLAYING = 3;
+  PLAYBACK_STATE_FADING = 4;
+  PLAYBACK_STATE_PAUSED = 5;
+  PLAYBACK_STATE_ERROR = 6;
+}
+
+enum FadeCurve {
+  FADE_CURVE_UNSPECIFIED = 0;
+  FADE_CURVE_LINEAR = 1;
+  FADE_CURVE_LOGARITHMIC = 2;
+  FADE_CURVE_EXPONENTIAL = 3;
+  FADE_CURVE_SCURVE = 4; // S-curve (smooth)
+}
+
+// DSPNode represents a processing element
+message DSPNode {
+  string id = 1;
+  NodeType type = 2;
+  map<string, string> params = 3;
+}
+
+// DSPConnection links nodes
+message DSPConnection {
+  string from_node = 1;
+  string to_node = 2;
+  int32 from_pad = 3;
+  int32 to_pad = 4;
+}
+
+enum NodeType {
+  NODE_TYPE_UNSPECIFIED = 0;
+  NODE_TYPE_INPUT = 1;
+  NODE_TYPE_OUTPUT = 2;
+  NODE_TYPE_LOUDNESS_NORMALIZE = 3;
+  NODE_TYPE_AGC = 4;
+  NODE_TYPE_COMPRESSOR = 5;
+  NODE_TYPE_LIMITER = 6;
+  NODE_TYPE_EQUALIZER = 7;
+  NODE_TYPE_GATE = 8;
+  NODE_TYPE_SILENCE_DETECTOR = 9;
+  NODE_TYPE_LEVEL_METER = 10;
+  NODE_TYPE_MIX = 11;
+  NODE_TYPE_DUCK = 12; // Audio ducking
+}

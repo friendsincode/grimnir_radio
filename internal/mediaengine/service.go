@@ -1,0 +1,492 @@
+package mediaengine
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/friendsincode/grimnir_radio/internal/mediaengine/dsp"
+	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
+)
+
+// Service implements the MediaEngine gRPC service.
+type Service struct {
+	pb.UnimplementedMediaEngineServer
+
+	cfg             *Config
+	logger          zerolog.Logger
+	pipelineManager *PipelineManager
+	dspBuilder      *dsp.Builder
+	supervisor      *Supervisor
+
+	mu       sync.RWMutex
+	stations map[string]*StationEngine // station_id -> engine
+	graphs   map[string]*dsp.Graph    // graph_handle -> graph
+	uptime   time.Time
+}
+
+// Config contains media engine configuration.
+type Config struct {
+	GRPCBind     string
+	GRPCPort     int
+	LogLevel     string
+	GStreamerBin string
+}
+
+// StationEngine manages playback for a single station.
+type StationEngine struct {
+	StationID     string
+	MountID       string
+	State         pb.PlaybackState
+	CurrentSource *pb.SourceConfig
+	GraphHandle   string
+	StartedAt     time.Time
+	Position      int64
+	Duration      int64
+
+	// Telemetry
+	AudioLevelL   float32
+	AudioLevelR   float32
+	LoudnessLUFS  float32
+	BufferDepthMS int64
+	UnderrunCount int64
+
+	// Internal state
+	mu sync.RWMutex
+}
+
+// New creates a new media engine service.
+func New(cfg *Config, logger zerolog.Logger) *Service {
+	pipelineManager := NewPipelineManager(cfg, logger)
+	supervisor := NewSupervisor(cfg, logger, pipelineManager)
+
+	svc := &Service{
+		cfg:             cfg,
+		logger:          logger,
+		pipelineManager: pipelineManager,
+		dspBuilder:      dsp.NewBuilder(logger),
+		supervisor:      supervisor,
+		stations:        make(map[string]*StationEngine),
+		graphs:          make(map[string]*dsp.Graph),
+		uptime:          time.Now(),
+	}
+
+	// Start supervisor
+	supervisor.Start()
+
+	return svc
+}
+
+// LoadGraph loads a DSP processing graph configuration.
+func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.LoadGraphResponse, error) {
+	s.logger.Info().
+		Str("station_id", req.StationId).
+		Str("mount_id", req.MountId).
+		Int("node_count", len(req.Graph.Nodes)).
+		Msg("loading DSP graph")
+
+	// Build DSP graph from protobuf
+	graph, err := s.dspBuilder.Build(req.Graph)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("failed to build DSP graph")
+		return &pb.LoadGraphResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to build graph: %v", err),
+		}, nil
+	}
+
+	graphHandle := uuid.NewString()
+	graph.ID = graphHandle
+
+	s.mu.Lock()
+	s.graphs[graphHandle] = graph
+	engine := s.getOrCreateStation(req.StationId, req.MountId)
+	engine.GraphHandle = graphHandle
+	s.mu.Unlock()
+
+	// Create pipeline with graph
+	_, err = s.pipelineManager.CreatePipeline(ctx, req.StationId, req.MountId, graph)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("failed to create pipeline")
+		return &pb.LoadGraphResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to create pipeline: %v", err),
+		}, nil
+	}
+
+	// Start monitoring pipeline
+	s.supervisor.MonitorPipeline(req.StationId)
+
+	s.logger.Info().
+		Str("graph_handle", graphHandle).
+		Str("pipeline", graph.Pipeline).
+		Msg("DSP graph loaded successfully")
+
+	return &pb.LoadGraphResponse{
+		GraphHandle: graphHandle,
+		Success:     true,
+	}, nil
+}
+
+// Play starts playback of a media source.
+func (s *Service) Play(ctx context.Context, req *pb.PlayRequest) (*pb.PlayResponse, error) {
+	s.logger.Info().
+		Str("station_id", req.StationId).
+		Str("mount_id", req.MountId).
+		Str("source_type", req.Source.Type.String()).
+		Str("source_id", req.Source.SourceId).
+		Msg("starting playback")
+
+	// Get pipeline
+	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("pipeline not found")
+		return &pb.PlayResponse{
+			Success: false,
+			Error:   fmt.Sprintf("pipeline not found: %v", err),
+		}, nil
+	}
+
+	// Start playback
+	if err := pipeline.Play(ctx, req.Source, req.CuePoints); err != nil {
+		s.logger.Error().Err(err).Msg("failed to start playback")
+		return &pb.PlayResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to start playback: %v", err),
+		}, nil
+	}
+
+	// Update station engine state
+	s.mu.Lock()
+	engine := s.getOrCreateStation(req.StationId, req.MountId)
+	engine.mu.Lock()
+	engine.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
+	engine.CurrentSource = req.Source
+	engine.StartedAt = time.Now()
+	engine.mu.Unlock()
+	s.mu.Unlock()
+
+	playbackID := uuid.NewString()
+
+	return &pb.PlayResponse{
+		Success:    true,
+		PlaybackId: playbackID,
+	}, nil
+}
+
+// Stop halts playback.
+func (s *Service) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopResponse, error) {
+	s.logger.Info().
+		Str("station_id", req.StationId).
+		Str("mount_id", req.MountId).
+		Bool("immediate", req.Immediate).
+		Msg("stopping playback")
+
+	// Get pipeline
+	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("pipeline not found")
+		return &pb.StopResponse{
+			Success: false,
+			Error:   fmt.Sprintf("pipeline not found: %v", err),
+		}, nil
+	}
+
+	// Stop pipeline
+	if err := pipeline.Stop(); err != nil {
+		s.logger.Error().Err(err).Msg("failed to stop pipeline")
+		return &pb.StopResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to stop: %v", err),
+		}, nil
+	}
+
+	// Update station engine state
+	s.mu.Lock()
+	engine := s.getStation(req.StationId)
+	if engine != nil {
+		engine.mu.Lock()
+		engine.State = pb.PlaybackState_PLAYBACK_STATE_IDLE
+		engine.CurrentSource = nil
+		engine.mu.Unlock()
+	}
+	s.mu.Unlock()
+
+	return &pb.StopResponse{
+		Success: true,
+	}, nil
+}
+
+// Fade initiates a crossfade between sources.
+func (s *Service) Fade(ctx context.Context, req *pb.FadeRequest) (*pb.FadeResponse, error) {
+	s.logger.Info().
+		Str("station_id", req.StationId).
+		Str("mount_id", req.MountId).
+		Str("next_source", req.NextSource.SourceId).
+		Msg("starting crossfade")
+
+	// Get pipeline
+	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("pipeline not found")
+		return &pb.FadeResponse{
+			Success: false,
+			Error:   fmt.Sprintf("pipeline not found: %v", err),
+		}, nil
+	}
+
+	// Start crossfade
+	if err := pipeline.Fade(ctx, req.NextSource, req.NextCuePoints, req.FadeConfig); err != nil {
+		s.logger.Error().Err(err).Msg("failed to start crossfade")
+		return &pb.FadeResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to fade: %v", err),
+		}, nil
+	}
+
+	// Update station engine state
+	s.mu.Lock()
+	engine := s.getOrCreateStation(req.StationId, req.MountId)
+	engine.mu.Lock()
+	engine.State = pb.PlaybackState_PLAYBACK_STATE_FADING
+	engine.mu.Unlock()
+	s.mu.Unlock()
+
+	fadeID := uuid.NewString()
+
+	// Estimate duration based on fade config
+	estimatedDuration := int64(0)
+	if req.FadeConfig != nil {
+		estimatedDuration = int64(req.FadeConfig.FadeOutMs + req.FadeConfig.FadeInMs)
+	}
+
+	return &pb.FadeResponse{
+		Success:             true,
+		FadeId:              fadeID,
+		EstimatedDurationMs: estimatedDuration,
+	}, nil
+}
+
+// InsertEmergency immediately plays emergency content.
+func (s *Service) InsertEmergency(ctx context.Context, req *pb.InsertEmergencyRequest) (*pb.InsertEmergencyResponse, error) {
+	s.logger.Warn().
+		Str("station_id", req.StationId).
+		Str("mount_id", req.MountId).
+		Str("source_id", req.Source.SourceId).
+		Msg("inserting emergency broadcast")
+
+	// Get pipeline
+	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("pipeline not found")
+		return &pb.InsertEmergencyResponse{
+			Success: false,
+			Error:   fmt.Sprintf("pipeline not found: %v", err),
+		}, nil
+	}
+
+	// Insert emergency content
+	if err := pipeline.InsertEmergency(ctx, req.Source); err != nil {
+		s.logger.Error().Err(err).Msg("failed to insert emergency")
+		return &pb.InsertEmergencyResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to insert emergency: %v", err),
+		}, nil
+	}
+
+	// Update station engine state
+	s.mu.Lock()
+	engine := s.getOrCreateStation(req.StationId, req.MountId)
+	engine.mu.Lock()
+	engine.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
+	engine.CurrentSource = req.Source
+	engine.mu.Unlock()
+	s.mu.Unlock()
+
+	emergencyID := uuid.NewString()
+
+	return &pb.InsertEmergencyResponse{
+		Success:     true,
+		EmergencyId: emergencyID,
+	}, nil
+}
+
+// RouteLive routes a live input stream.
+func (s *Service) RouteLive(ctx context.Context, req *pb.RouteLiveRequest) (*pb.RouteLiveResponse, error) {
+	s.logger.Info().
+		Str("station_id", req.StationId).
+		Str("mount_id", req.MountId).
+		Str("input_url", req.Input.InputUrl).
+		Bool("apply_processing", req.Input.ApplyProcessing).
+		Msg("routing live input")
+
+	// Get pipeline
+	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("pipeline not found")
+		return &pb.RouteLiveResponse{
+			Success: false,
+			Error:   fmt.Sprintf("pipeline not found: %v", err),
+		}, nil
+	}
+
+	// Route live input
+	if err := pipeline.RouteLive(ctx, req.Input); err != nil {
+		s.logger.Error().Err(err).Msg("failed to route live input")
+		return &pb.RouteLiveResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to route live: %v", err),
+		}, nil
+	}
+
+	// Update station engine state
+	s.mu.Lock()
+	engine := s.getOrCreateStation(req.StationId, req.MountId)
+	engine.mu.Lock()
+	engine.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
+	engine.mu.Unlock()
+	s.mu.Unlock()
+
+	liveID := uuid.NewString()
+
+	return &pb.RouteLiveResponse{
+		Success: true,
+		LiveId:  liveID,
+	}, nil
+}
+
+// StreamTelemetry streams real-time audio telemetry.
+func (s *Service) StreamTelemetry(req *pb.TelemetryRequest, stream pb.MediaEngine_StreamTelemetryServer) error {
+	s.logger.Debug().
+		Str("station_id", req.StationId).
+		Str("mount_id", req.MountId).
+		Int32("interval_ms", req.IntervalMs).
+		Msg("streaming telemetry")
+
+	interval := time.Duration(req.IntervalMs) * time.Millisecond
+	if interval < 100*time.Millisecond {
+		interval = 1 * time.Second // Default interval
+	}
+
+	// Get pipeline
+	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "pipeline not found: %v", err)
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case <-ticker.C:
+			// Get telemetry from pipeline
+			telemetry := pipeline.GetTelemetry()
+
+			if err := stream.Send(telemetry); err != nil {
+				return status.Errorf(codes.Internal, "failed to send telemetry: %v", err)
+			}
+		}
+	}
+}
+
+// GetStatus returns current engine status.
+func (s *Service) GetStatus(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
+	s.mu.RLock()
+	engine := s.getStation(req.StationId)
+	s.mu.RUnlock()
+
+	if engine == nil {
+		return &pb.StatusResponse{
+			Running: false,
+		}, nil
+	}
+
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+
+	metadata := make(map[string]string)
+	if engine.CurrentSource != nil && engine.CurrentSource.Metadata != nil {
+		metadata = engine.CurrentSource.Metadata
+	}
+
+	return &pb.StatusResponse{
+		Running:         true,
+		State:           engine.State,
+		CurrentSourceId: getSourceID(engine.CurrentSource),
+		UptimeSeconds:   int64(time.Since(s.uptime).Seconds()),
+		GraphHandle:     engine.GraphHandle,
+		Metadata:        metadata,
+	}, nil
+}
+
+// Shutdown gracefully shuts down the media engine.
+func (s *Service) Shutdown(ctx context.Context) error {
+	s.logger.Info().Msg("shutting down media engine")
+
+	// Stop supervisor first
+	s.supervisor.Stop()
+
+	s.mu.Lock()
+	stationIDs := make([]string, 0, len(s.stations))
+	for stationID := range s.stations {
+		stationIDs = append(stationIDs, stationID)
+	}
+	s.mu.Unlock()
+
+	// Destroy all pipelines
+	for _, stationID := range stationIDs {
+		if err := s.pipelineManager.DestroyPipeline(stationID); err != nil {
+			s.logger.Error().Err(err).Str("station_id", stationID).Msg("failed to destroy pipeline")
+		}
+	}
+
+	// Update station engine states
+	s.mu.Lock()
+	for _, engine := range s.stations {
+		engine.mu.Lock()
+		engine.State = pb.PlaybackState_PLAYBACK_STATE_IDLE
+		engine.CurrentSource = nil
+		engine.mu.Unlock()
+	}
+	s.mu.Unlock()
+
+	s.logger.Info().Msg("media engine shutdown complete")
+
+	return nil
+}
+
+// Helper methods
+
+func (s *Service) getOrCreateStation(stationID, mountID string) *StationEngine {
+	engine := s.stations[stationID]
+	if engine == nil {
+		engine = &StationEngine{
+			StationID: stationID,
+			MountID:   mountID,
+			State:     pb.PlaybackState_PLAYBACK_STATE_IDLE,
+			StartedAt: time.Now(),
+		}
+		s.stations[stationID] = engine
+	}
+	return engine
+}
+
+func (s *Service) getStation(stationID string) *StationEngine {
+	return s.stations[stationID]
+}
+
+func getSourceID(source *pb.SourceConfig) string {
+	if source == nil {
+		return ""
+	}
+	return source.SourceId
+}
