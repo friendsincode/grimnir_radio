@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-    "github.com/example/grimnirradio/internal/config"
+    "github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/rs/zerolog"
 )
 

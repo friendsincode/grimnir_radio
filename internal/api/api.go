@@ -16,34 +16,50 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-    "github.com/example/grimnirradio/internal/analyzer"
-    "github.com/example/grimnirradio/internal/auth"
-    "github.com/example/grimnirradio/internal/events"
-    "github.com/example/grimnirradio/internal/live"
-    "github.com/example/grimnirradio/internal/media"
-    "github.com/example/grimnirradio/internal/models"
-    "github.com/example/grimnirradio/internal/playout"
-    "github.com/example/grimnirradio/internal/scheduler"
-    "github.com/example/grimnirradio/internal/smartblock"
+    "github.com/friendsincode/grimnir_radio/internal/analyzer"
+    "github.com/friendsincode/grimnir_radio/internal/auth"
+    "github.com/friendsincode/grimnir_radio/internal/events"
+    "github.com/friendsincode/grimnir_radio/internal/executor"
+    "github.com/friendsincode/grimnir_radio/internal/live"
+    "github.com/friendsincode/grimnir_radio/internal/media"
+    "github.com/friendsincode/grimnir_radio/internal/models"
+    "github.com/friendsincode/grimnir_radio/internal/playout"
+    "github.com/friendsincode/grimnir_radio/internal/priority"
+    "github.com/friendsincode/grimnir_radio/internal/scheduler"
+    "github.com/friendsincode/grimnir_radio/internal/smartblock"
 	ws "nhooyr.io/websocket"
 )
 
 // API exposes HTTP handlers.
 type API struct {
-	db        *gorm.DB
-	scheduler *scheduler.Service
-	analyzer  *analyzer.Service
-	media     *media.Service
-	live      *live.Service
-	playout   *playout.Manager
-	bus       *events.Bus
-	logger    zerolog.Logger
-	jwtSecret []byte
+	db               *gorm.DB
+	scheduler        *scheduler.Service
+	analyzer         *analyzer.Service
+	media            *media.Service
+	live             *live.Service
+	playout          *playout.Manager
+	prioritySvc      *priority.Service
+	executorStateMgr *executor.StateManager
+	bus              *events.Bus
+	logger           zerolog.Logger
+	jwtSecret        []byte
 }
 
 // New creates the API router wrapper.
-func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, playout *playout.Manager, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
-	return &API{db: db, scheduler: scheduler, analyzer: analyzer, media: media, live: live, playout: playout, bus: bus, logger: logger, jwtSecret: jwtSecret}
+func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
+	return &API{
+		db:               db,
+		scheduler:        scheduler,
+		analyzer:         analyzer,
+		media:            media,
+		live:             live,
+		playout:          playout,
+		prioritySvc:      prioritySvc,
+		executorStateMgr: executorStateMgr,
+		bus:              bus,
+		logger:           logger,
+		jwtSecret:        jwtSecret,
+	}
 }
 
 type loginRequest struct {
@@ -192,6 +208,12 @@ func (a *API) Routes(r chi.Router) {
 			pr.Route("/webhooks", func(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin)).Post("/track-start", a.handleWebhookTrackStart)
 			})
+
+			// Priority management routes
+			a.AddPriorityRoutes(pr)
+
+			// Executor state routes
+			a.AddExecutorRoutes(pr)
 
 			pr.Get("/events", a.handleEvents)
 		})

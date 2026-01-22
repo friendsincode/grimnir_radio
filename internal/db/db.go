@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-    "github.com/example/grimnirradio/internal/config"
+    "github.com/friendsincode/grimnir_radio/internal/config"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"

@@ -13,19 +13,21 @@ import (
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
-    "github.com/example/grimnirradio/internal/analyzer"
-    "github.com/example/grimnirradio/internal/api"
-    "github.com/example/grimnirradio/internal/clock"
-    "github.com/example/grimnirradio/internal/config"
-    "github.com/example/grimnirradio/internal/db"
-    "github.com/example/grimnirradio/internal/events"
-    "github.com/example/grimnirradio/internal/live"
-    "github.com/example/grimnirradio/internal/media"
-    "github.com/example/grimnirradio/internal/playout"
-    "github.com/example/grimnirradio/internal/scheduler"
-    schedulerstate "github.com/example/grimnirradio/internal/scheduler/state"
-    "github.com/example/grimnirradio/internal/smartblock"
-    "github.com/example/grimnirradio/internal/telemetry"
+    "github.com/friendsincode/grimnir_radio/internal/analyzer"
+    "github.com/friendsincode/grimnir_radio/internal/api"
+    "github.com/friendsincode/grimnir_radio/internal/clock"
+    "github.com/friendsincode/grimnir_radio/internal/config"
+    "github.com/friendsincode/grimnir_radio/internal/db"
+    "github.com/friendsincode/grimnir_radio/internal/events"
+    "github.com/friendsincode/grimnir_radio/internal/executor"
+    "github.com/friendsincode/grimnir_radio/internal/live"
+    "github.com/friendsincode/grimnir_radio/internal/media"
+    "github.com/friendsincode/grimnir_radio/internal/playout"
+    "github.com/friendsincode/grimnir_radio/internal/priority"
+    "github.com/friendsincode/grimnir_radio/internal/scheduler"
+    schedulerstate "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
+    "github.com/friendsincode/grimnir_radio/internal/smartblock"
+    "github.com/friendsincode/grimnir_radio/internal/telemetry"
 )
 
 // Server bundles HTTP and supporting services.
@@ -106,9 +108,13 @@ func (s *Server) initDependencies() error {
 	s.director = playout.NewDirector(database, s.playout, s.bus, s.logger)
 	liveService := live.NewService(s.logger)
 
+	// Priority and executor services
+	priorityService := priority.NewService(database, s.bus, s.logger)
+	executorStateMgr := executor.NewStateManager(database, s.logger)
+
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
-	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, s.playout, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
+	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, s.playout, priorityService, executorStateMgr, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
 
 	return nil
 }

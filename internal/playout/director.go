@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-    "github.com/example/grimnirradio/internal/events"
-    "github.com/example/grimnirradio/internal/models"
+    "github.com/friendsincode/grimnir_radio/internal/events"
+    "github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )

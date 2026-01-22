@@ -6,11 +6,15 @@ import "sync"
 type EventType string
 
 const (
-	EventNowPlaying    EventType = "now_playing"
-	EventHealth        EventType = "health"
-	EventDJConnect     EventType = "dj_connect"
-	EventDJDisconnect  EventType = "dj_disconnect"
-	EventScheduleUpdate EventType = "schedule_update"
+	EventNowPlaying      EventType = "now_playing"
+	EventHealth          EventType = "health"
+	EventDJConnect       EventType = "dj_connect"
+	EventDJDisconnect    EventType = "dj_disconnect"
+	EventScheduleUpdate  EventType = "schedule_update"
+	EventPriorityEmergency EventType = "priority.emergency"
+	EventPriorityOverride  EventType = "priority.override"
+	EventPriorityReleased  EventType = "priority.released"
+	EventPriorityChange    EventType = "priority.change"
 )
 
 // Payload generic event payload.

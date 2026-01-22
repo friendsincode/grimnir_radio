@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"time"
 
-    "github.com/example/grimnirradio/internal/models"
+    "github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"

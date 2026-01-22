@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/example/grimnirradio/internal/config"
-	"github.com/example/grimnirradio/internal/logging"
-	"github.com/example/grimnirradio/internal/server"
+	"github.com/friendsincode/grimnir_radio/internal/config"
+	"github.com/friendsincode/grimnir_radio/internal/logging"
+	"github.com/friendsincode/grimnir_radio/internal/server"
 )
 
 func main() {

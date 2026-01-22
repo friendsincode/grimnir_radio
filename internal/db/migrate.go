@@ -1,7 +1,7 @@
 package db
 
 import (
-    "github.com/example/grimnirradio/internal/models"
+    "github.com/friendsincode/grimnir_radio/internal/models"
 	"gorm.io/gorm"
 )
 
@@ -21,5 +21,7 @@ func Migrate(database *gorm.DB) error {
 		&models.ScheduleEntry{},
 		&models.PlayHistory{},
 		&models.AnalysisJob{},
+		&models.PrioritySource{},
+		&models.ExecutorState{},
 	)
 }

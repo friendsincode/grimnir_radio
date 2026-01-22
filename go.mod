@@ -1,4 +1,4 @@
-module github.com/example/grimnirradio
+module github.com/friendsincode/grimnir_radio
 
 go 1.22.2
 
