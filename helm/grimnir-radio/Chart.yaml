@@ -2,8 +2,8 @@ apiVersion: v2
 name: grimnir-radio
 description: A Helm chart for Grimnir Radio - Modern broadcast automation platform
 type: application
-version: 0.1.0
-appVersion: "0.0.1-alpha"
+version: 1.0.0
+appVersion: "1.0.0"
 keywords:
   - radio
   - broadcast

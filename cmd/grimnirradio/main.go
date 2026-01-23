@@ -78,7 +78,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Initialize OpenTelemetry tracing
 	tracerProvider, err := telemetry.InitTracer(context.Background(), telemetry.TracerConfig{
 		ServiceName:    "grimnir-radio",
-		ServiceVersion: "0.0.1-alpha",
+		ServiceVersion: "1.0.0",
 		OTLPEndpoint:   cfg.OTLPEndpoint,
 		Enabled:        cfg.TracingEnabled,
 		SampleRate:     cfg.TracingSampleRate,
