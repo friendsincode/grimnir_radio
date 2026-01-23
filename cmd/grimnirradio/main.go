@@ -9,20 +9,63 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+	"gorm.io/gorm"
+
 	"github.com/friendsincode/grimnir_radio/internal/config"
+	"github.com/friendsincode/grimnir_radio/internal/db"
 	"github.com/friendsincode/grimnir_radio/internal/logging"
 	"github.com/friendsincode/grimnir_radio/internal/server"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 )
 
+var (
+	logger zerolog.Logger
+	cfg    *config.Config
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "grimnirradio",
+	Short: "Grimnir Radio - Modern broadcast automation system",
+	Long:  "Grimnir Radio is a modern, cloud-native broadcast automation system with advanced scheduling and playout capabilities.",
+}
+
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start the Grimnir Radio server",
+	Long:  "Start the HTTP API server and scheduler for broadcast automation",
+	RunE:  runServe,
+}
+
+func init() {
+	rootCmd.AddCommand(serveCmd)
+}
+
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
 
-	logger := logging.Setup(cfg.Environment)
+// loadConfig loads configuration (called by commands that need it)
+func loadConfig() error {
+	var err error
+	cfg, err = config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	logger = logging.Setup(cfg.Environment)
+	return nil
+}
+
+func runServe(cmd *cobra.Command, args []string) error {
+	if err := loadConfig(); err != nil {
+		return err
+	}
+
 	logger.Info().Msg("Grimnir Radio starting")
 
 	// Initialize OpenTelemetry tracing
@@ -34,7 +77,7 @@ func main() {
 		SampleRate:     cfg.TracingSampleRate,
 	}, logger)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("failed to initialize tracer")
+		return fmt.Errorf("initialize tracer: %w", err)
 	}
 	defer func() {
 		if err := tracerProvider.Shutdown(context.Background()); err != nil {
@@ -44,7 +87,7 @@ func main() {
 
 	srv, err := server.New(cfg, logger)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("failed to initialize server")
+		return fmt.Errorf("initialize server: %w", err)
 	}
 
 	httpServer := srv.HTTPServer()
@@ -61,6 +104,8 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
+	logger.Info().Msg("shutting down gracefully...")
+
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -73,5 +118,11 @@ func main() {
 	}
 
 	logger.Info().Msg("Grimnir Radio stopped")
+	return nil
+}
+
+// initDatabase initializes the database connection (used by import commands)
+func initDatabase() (*gorm.DB, error) {
+	return db.Connect(cfg)
 }
 

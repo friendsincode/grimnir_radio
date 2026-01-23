@@ -23,11 +23,12 @@ type Pipeline struct {
 	CurrentTrack *Track
 	NextTrack    *Track
 
-	cmd         *exec.Cmd
-	mu          sync.RWMutex
-	logger      zerolog.Logger
-	cancelFunc  context.CancelFunc
-	telemetry   *TelemetryCollector
+	cmd             *exec.Cmd
+	crossfadeMgr    *CrossfadeManager
+	mu              sync.RWMutex
+	logger          zerolog.Logger
+	cancelFunc      context.CancelFunc
+	telemetry       *TelemetryCollector
 }
 
 // Track represents a media source being played
@@ -90,15 +91,18 @@ func (pm *PipelineManager) CreatePipeline(ctx context.Context, stationID, mountI
 
 	_, cancel := context.WithCancel(ctx)
 
+	pipelineLogger := pm.logger.With().Str("pipeline_id", stationID+"-"+mountID).Logger()
+
 	pipeline := &Pipeline{
-		ID:         stationID + "-" + mountID,
-		StationID:  stationID,
-		MountID:    mountID,
-		Graph:      graph,
-		State:      pb.PlaybackState_PLAYBACK_STATE_IDLE,
-		logger:     pm.logger.With().Str("pipeline_id", stationID+"-"+mountID).Logger(),
-		cancelFunc: cancel,
-		telemetry:  &TelemetryCollector{},
+		ID:           stationID + "-" + mountID,
+		StationID:    stationID,
+		MountID:      mountID,
+		Graph:        graph,
+		State:        pb.PlaybackState_PLAYBACK_STATE_IDLE,
+		logger:       pipelineLogger,
+		cancelFunc:   cancel,
+		telemetry:    &TelemetryCollector{},
+		crossfadeMgr: NewCrossfadeManager(stationID, mountID, pipelineLogger),
 	}
 
 	pm.pipelines[stationID] = pipeline
@@ -203,6 +207,13 @@ func (p *Pipeline) Stop() error {
 
 	p.logger.Info().Msg("stopping playback")
 
+	// Stop crossfade mixer if running
+	if p.crossfadeMgr != nil {
+		if err := p.crossfadeMgr.Stop(); err != nil {
+			p.logger.Error().Err(err).Msg("failed to stop crossfade manager")
+		}
+	}
+
 	// Stop GStreamer process
 	if p.cmd != nil && p.cmd.Process != nil {
 		if err := p.cmd.Process.Kill(); err != nil {
@@ -212,6 +223,7 @@ func (p *Pipeline) Stop() error {
 	}
 
 	p.CurrentTrack = nil
+	p.NextTrack = nil
 	p.State = pb.PlaybackState_PLAYBACK_STATE_IDLE
 
 	return nil
@@ -220,10 +232,15 @@ func (p *Pipeline) Stop() error {
 // Fade initiates a crossfade to a new source
 func (p *Pipeline) Fade(ctx context.Context, nextSource *pb.SourceConfig, cuePoints *pb.CuePoints, fadeConfig *pb.FadeConfig) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	currentTrack := p.CurrentTrack
+	p.mu.Unlock()
+
+	if currentTrack == nil {
+		return fmt.Errorf("cannot fade when no track is playing")
+	}
 
 	if p.State != pb.PlaybackState_PLAYBACK_STATE_PLAYING {
-		return fmt.Errorf("cannot fade when not playing")
+		return fmt.Errorf("cannot fade when not playing (state: %v)", p.State)
 	}
 
 	nextTrack := &Track{
@@ -235,36 +252,58 @@ func (p *Pipeline) Fade(ctx context.Context, nextSource *pb.SourceConfig, cuePoi
 	}
 
 	p.logger.Info().
-		Str("current_source", p.CurrentTrack.SourceID).
+		Str("current_source", currentTrack.SourceID).
 		Str("next_source", nextTrack.SourceID).
 		Int32("fade_in_ms", fadeConfig.FadeInMs).
 		Int32("fade_out_ms", fadeConfig.FadeOutMs).
 		Msg("starting crossfade")
 
+	// Update pipeline state
+	p.mu.Lock()
 	p.NextTrack = nextTrack
 	p.State = pb.PlaybackState_PLAYBACK_STATE_FADING
+	p.mu.Unlock()
 
-	// TODO: Implement actual crossfade using GStreamer audiomixer
-	// This would involve:
-	// 1. Preload next track in parallel pipeline
-	// 2. Use audiomixer to blend current and next
-	// 3. Apply fade curves based on fadeConfig.Curve
-	// 4. Use cue points to determine optimal fade timing
-	// 5. Transition state back to PLAYING when fade completes
-
-	// For now, simulate fade completion after fade duration
-	fadeDuration := time.Duration(fadeConfig.FadeOutMs) * time.Millisecond
-	go func() {
-		time.Sleep(fadeDuration)
+	// Use CrossfadeManager for actual crossfade with cue-point awareness
+	if err := p.crossfadeMgr.StartCrossfade(ctx, currentTrack, nextTrack, fadeConfig); err != nil {
 		p.mu.Lock()
-		p.CurrentTrack = p.NextTrack
+		p.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING // Revert state on error
 		p.NextTrack = nil
-		p.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
 		p.mu.Unlock()
-		p.logger.Info().Msg("crossfade completed")
-	}()
+		return fmt.Errorf("crossfade failed: %w", err)
+	}
+
+	// Monitor crossfade completion and update pipeline state
+	go p.monitorCrossfadeCompletion()
 
 	return nil
+}
+
+// monitorCrossfadeCompletion waits for crossfade to finish and updates state
+func (p *Pipeline) monitorCrossfadeCompletion() {
+	// Poll fade state until complete
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			state := p.crossfadeMgr.GetFadeState()
+			if state == FadeStateIdle {
+				// Crossfade completed
+				p.mu.Lock()
+				p.CurrentTrack = p.crossfadeMgr.GetCurrentTrack()
+				p.NextTrack = nil
+				p.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
+				p.mu.Unlock()
+
+				p.logger.Info().
+					Str("current_track", p.CurrentTrack.SourceID).
+					Msg("crossfade completed, transition successful")
+				return
+			}
+		}
+	}
 }
 
 // InsertEmergency immediately preempts current playback

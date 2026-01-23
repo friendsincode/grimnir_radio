@@ -42,6 +42,7 @@ type API struct {
 	playout          *playout.Manager
 	prioritySvc      *priority.Service
 	executorStateMgr *executor.StateManager
+	migrationHandler *MigrationHandler
 	bus              *events.Bus
 	logger           zerolog.Logger
 	jwtSecret        []byte
@@ -49,6 +50,8 @@ type API struct {
 
 // New creates the API router wrapper.
 func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
+	migrationHandler := NewMigrationHandler(db, logger)
+
 	return &API{
 		db:               db,
 		scheduler:        scheduler,
@@ -59,6 +62,7 @@ func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, 
 		playout:          playout,
 		prioritySvc:      prioritySvc,
 		executorStateMgr: executorStateMgr,
+		migrationHandler: migrationHandler,
 		bus:              bus,
 		logger:           logger,
 		jwtSecret:        jwtSecret,
@@ -248,6 +252,12 @@ func (a *API) Routes(r chi.Router) {
 
 			// Executor state routes
 			a.AddExecutorRoutes(pr)
+
+			// Migration routes (admin only)
+			pr.Group(func(mr chi.Router) {
+				mr.Use(a.requireRoles(models.RoleAdmin))
+				a.migrationHandler.RegisterRoutes(mr)
+			})
 
 			pr.Get("/events", a.handleEvents)
 		})
