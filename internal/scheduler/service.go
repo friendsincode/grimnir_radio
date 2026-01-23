@@ -9,6 +9,7 @@ import (
     "github.com/friendsincode/grimnir_radio/internal/models"
     "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
     "github.com/friendsincode/grimnir_radio/internal/smartblock"
+    "github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -50,31 +51,40 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (s *Service) tick(ctx context.Context) {
+	telemetry.SchedulerTicksTotal.Inc()
+
 	var stations []models.Station
 	if err := s.db.WithContext(ctx).Find(&stations).Error; err != nil {
 		s.logger.Error().Err(err).Msg("scheduler failed to load stations")
+		telemetry.SchedulerErrorsTotal.WithLabelValues("", "load_stations").Inc()
 		return
 	}
 
 	for _, station := range stations {
 		if err := s.scheduleStation(ctx, station.ID); err != nil {
 			s.logger.Warn().Err(err).Str("station", station.ID).Msg("station scheduling failed")
+			telemetry.SchedulerErrorsTotal.WithLabelValues(station.ID, "schedule_station").Inc()
 		}
 	}
 }
 
 func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
-	start := time.Now().UTC()
+	startTime := time.Now()
+	start := startTime.UTC()
+
 	plans, err := s.planner.Compile(stationID, start, s.lookahead)
 	if err != nil {
+		telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "compile").Inc()
 		return err
 	}
 
 	if len(plans) == 0 {
 		s.logger.Debug().Str("station", stationID).Msg("no plans to generate")
+		telemetry.ScheduleBuildDuration.WithLabelValues(stationID).Observe(time.Since(startTime).Seconds())
 		return nil
 	}
 
+	entriesCreated := 0
 	for _, plan := range plans {
 		if plan.StartsAt.Before(start) {
 			continue
@@ -82,6 +92,7 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 
 		alreadyScheduled, err := s.slotAlreadyScheduled(ctx, stationID, plan)
 		if err != nil {
+			telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "check_scheduled").Inc()
 			return err
 		}
 		if alreadyScheduled {
@@ -91,16 +102,25 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 		switch plan.SlotType {
 		case string(models.SlotTypeSmartBlock):
 			if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
+				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "materialize_smart_block").Inc()
 				return err
 			}
+			entriesCreated++
 		case string(models.SlotTypeHardItem), string(models.SlotTypeStopset), string(models.SlotTypeWebstream):
 			if err := s.createPlaceholderEntry(ctx, stationID, plan); err != nil {
+				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "create_placeholder").Inc()
 				return err
 			}
+			entriesCreated++
 		default:
 			s.logger.Debug().Str("slot_type", plan.SlotType).Msg("unhandled slot type")
 		}
 	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.ScheduleBuildDuration.WithLabelValues(stationID).Observe(duration)
+	telemetry.ScheduleEntriesTotal.WithLabelValues(stationID).Add(float64(entriesCreated))
 
 	return nil
 }
@@ -121,6 +141,8 @@ func (s *Service) slotAlreadyScheduled(ctx context.Context, stationID string, pl
 }
 
 func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, plan clock.SlotPlan) error {
+	startTime := time.Now()
+
 	blockID := stringValue(plan.Payload["smart_block_id"])
 	mountID := stringValue(plan.Payload["mount_id"])
 	if blockID == "" || mountID == "" {
@@ -140,6 +162,11 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		StationID:    stationID,
 		MountID:      mountID,
 	})
+
+	// Record smart block materialization duration
+	duration := time.Since(startTime).Seconds()
+	telemetry.SmartBlockMaterializeDuration.WithLabelValues(stationID, blockID).Observe(duration)
+
 	if err != nil {
 		if errors.Is(err, smartblock.ErrUnresolved) {
 			s.logger.Warn().Str("smart_block", blockID).Msg("smart block unresolved")

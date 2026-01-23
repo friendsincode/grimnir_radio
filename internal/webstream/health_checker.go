@@ -8,6 +8,7 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
@@ -95,8 +96,10 @@ func (hc *HealthChecker) performHealthCheck(ws *models.Webstream) {
 
 	if err != nil {
 		hc.handleFailedCheck(ws, err)
+		telemetry.WebstreamHealthChecksTotal.WithLabelValues(ws.ID, "failed").Inc()
 	} else {
 		hc.handleSuccessfulCheck(ws)
+		telemetry.WebstreamHealthChecksTotal.WithLabelValues(ws.ID, "success").Inc()
 	}
 }
 
@@ -112,6 +115,9 @@ func (hc *HealthChecker) handleSuccessfulCheck(ws *models.Webstream) {
 		hc.logger.Error().Err(err).Msg("failed to update health status")
 		return
 	}
+
+	// Update health status metric (2=healthy)
+	telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(2)
 
 	hc.logger.Debug().Str("url", ws.GetCurrentURL()).Msg("health check passed")
 
@@ -161,6 +167,8 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 		if err := hc.db.Save(ws).Error; err != nil {
 			hc.logger.Error().Err(err).Msg("failed to update health status")
 		}
+		// Update health status metric (1=degraded)
+		telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(1)
 		return
 	}
 
@@ -174,6 +182,8 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 		if err := hc.db.Save(ws).Error; err != nil {
 			hc.logger.Error().Err(err).Msg("failed to update health status")
 		}
+		// Update health status metric (0=unhealthy)
+		telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(0)
 	}
 }
 
@@ -226,6 +236,12 @@ func (hc *HealthChecker) triggerFailover(ws *models.Webstream) {
 			hc.logger.Error().Err(err).Msg("failed to save failover state")
 			return
 		}
+
+		// Update health status metric (2=healthy after failover)
+		telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(2)
+
+		// Increment failover counter
+		telemetry.WebstreamFailoversTotal.WithLabelValues(ws.ID, ws.StationID, oldURL, ws.CurrentURL).Inc()
 
 		hc.logger.Warn().
 			Str("from_url", oldURL).

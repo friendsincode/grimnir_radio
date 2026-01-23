@@ -59,6 +59,7 @@ func New(cfg *config.Config, logger zerolog.Logger) (*Server, error) {
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
+	router.Use(telemetry.MetricsMiddleware) // Add Prometheus metrics
 	router.Use(middleware.Timeout(60 * time.Second))
 
 	srv := &Server{

@@ -11,6 +11,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -235,6 +236,9 @@ func (s *Service) HandleConnect(ctx context.Context, req ConnectRequest) (*model
 		Bool("preempted", result.Preempted).
 		Msg("live DJ connected")
 
+	// Increment active sessions metric
+	telemetry.LiveSessionsActive.WithLabelValues(session.StationID).Inc()
+
 	// Publish connect event
 	s.bus.Publish(events.EventDJConnect, events.Payload{
 		"session_id": session.ID,
@@ -286,6 +290,12 @@ func (s *Service) HandleDisconnect(ctx context.Context, sessionID string) error 
 		Str("username", session.Username).
 		Dur("duration", duration).
 		Msg("live DJ disconnected")
+
+	// Decrement active sessions metric
+	telemetry.LiveSessionsActive.WithLabelValues(session.StationID).Dec()
+
+	// Record session duration metric
+	telemetry.LiveSessionDuration.WithLabelValues(session.StationID, session.UserID).Observe(duration.Seconds())
 
 	// Publish disconnect event
 	s.bus.Publish(events.EventDJDisconnect, events.Payload{
