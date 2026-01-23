@@ -1,5 +1,139 @@
 # Changelog
 
+## 1.0.0 (Production Release) — 2026-01-22
+
+**🎉 Grimnir Radio 1.0 is production-ready!**
+
+All planned implementation phases are complete. Grimnir Radio is a modern, production-grade broadcast automation system with multi-instance scaling, comprehensive observability, and multiple deployment options.
+
+---
+
+## 1.0.0-rc1 (Phase 7 Complete) — 2026-01-22
+
+### Phase 7: Nix Integration (100% Complete)
+**Reproducible Builds and Three Deployment Flavors**
+
+#### Nix Flake Infrastructure
+- Created `flake.nix` with three distinct deployment flavors
+  - **Basic**: Just the binaries (`nix run github:friendsincode/grimnir_radio`)
+  - **Full**: Turn-key NixOS module with PostgreSQL, Redis, Icecast2
+  - **Dev**: Complete development environment with all dependencies
+- Implemented reproducible builds with locked dependencies
+- Cross-platform support (Linux, macOS for control plane)
+- Overlays for custom package builds
+
+#### Basic Package (For Nerds)
+- Created `nix/package.nix` - Control plane binary
+  - Go build with protobuf code generation
+  - Stripped binaries with version info
+  - Cross-compilation support
+  - Zero runtime dependencies
+- Created `nix/mediaengine-package.nix` - Media engine binary
+  - GStreamer 1.0 with all plugin packages
+  - Wrapped binary with GST_PLUGIN_PATH configuration
+  - pkg-config integration for native dependencies
+  - Linux-only (GStreamer requirement)
+- Command-line usage:
+  ```bash
+  nix run github:friendsincode/grimnir_radio        # Run control plane
+  nix run github:friendsincode/grimnir_radio#mediaengine  # Run media engine
+  nix profile install github:friendsincode/grimnir_radio  # Install to profile
+  ```
+
+#### Full Turn-Key Installation (White Glove Treatment)
+- Created `nix/module.nix` - Complete NixOS module
+  - Auto-configured PostgreSQL with database and user creation
+  - Auto-configured Redis for event bus and caching
+  - Auto-configured Icecast2 streaming server
+  - systemd services for both binaries (auto-start, auto-restart)
+  - Security hardening (PrivateTmp, ProtectSystem, NoNewPrivileges)
+  - Resource limits (MemoryMax, CPUQuota)
+  - Dedicated system user and group
+  - Automatic firewall rules
+  - Media storage directory creation
+- Configuration options (25+ options):
+  - HTTP bind address and port
+  - Database URL (auto-generated if using built-in PostgreSQL)
+  - Redis URL (auto-generated if using built-in Redis)
+  - Media engine gRPC address
+  - JWT secret
+  - Media storage path
+  - Tracing configuration (OTLP endpoint, sample rate)
+  - Icecast password
+  - User/group customization
+  - Toggle switches for database/Redis/Icecast (enable/disable)
+- Integration with NixOS configuration.nix
+- Optional Nginx reverse proxy with TLS
+- Automatic service dependencies and ordering
+- Journal logging with syslog identifiers
+
+#### Development Environment (For Hacking)
+- Created `nix/dev-shell.nix` - Complete dev environment
+  - **Go development**: Go 1.22+, gopls, gotools, go-tools
+  - **Protocol Buffers**: protoc, protoc-gen-go, protoc-gen-go-grpc
+  - **GStreamer**: Full stack with plugins, dev tools, pkg-config
+  - **Infrastructure**: PostgreSQL, Redis, Icecast (for local dev)
+  - **Container tools**: Docker Compose, kubectl, k9s
+  - **Build tools**: GNU Make, Git
+  - **Utilities**: jq, yq, curl
+  - **Load testing**: k6
+- Shell hook with welcome message and instructions
+- Automatic environment variable setup
+  - GOPATH configuration
+  - GST_PLUGIN_PATH configuration
+  - Default DATABASE_URL and REDIS_URL
+  - Auto-create .env from template
+- IDE integration (VSCode, GoLand)
+- Direnv support for automatic shell activation
+- Usage:
+  ```bash
+  nix develop  # Enter development shell
+  make build   # Build binaries
+  make test    # Run tests
+  make proto   # Generate protobuf code
+  ```
+
+#### Documentation
+- Created `docs/NIX_INSTALLATION.md` (600+ lines)
+  - Quick start guide for all three flavors
+  - Prerequisites and Nix installation
+  - **Basic flavor**: Installation, configuration, manual setup
+  - **Full flavor**: NixOS module integration, automatic setup
+  - **Dev flavor**: Development workflow, IDE integration
+  - Advanced usage: Custom builds, multi-instance, cross-compilation
+  - Troubleshooting: Common issues and solutions
+  - Migration guide: From Docker and bare metal
+  - Performance tuning: PostgreSQL, Redis, systemd limits
+  - Uninstallation procedures
+- Three complete usage examples with code snippets
+- Environment variable reference
+- Service management commands
+- Security best practices
+
+**Files Added:**
+- `flake.nix` - Main flake with three flavors (91 lines)
+- `nix/package.nix` - Control plane package (60 lines)
+- `nix/mediaengine-package.nix` - Media engine package (72 lines)
+- `nix/module.nix` - NixOS module for full installation (347 lines)
+- `nix/dev-shell.nix` - Development environment (120 lines)
+- `docs/NIX_INSTALLATION.md` - Comprehensive guide (650+ lines)
+
+**Code Statistics:**
+- ~690 lines of Nix code
+- 650+ lines of documentation
+- Total: ~1,340 lines for Phase 7
+
+**Benefits:**
+- **Reproducible builds**: Exact same binary every time
+- **Declarative configuration**: Infrastructure as code
+- **Zero dependency conflicts**: Nix isolation
+- **Rollback support**: Revert to previous generations
+- **Development-production parity**: Same environment everywhere
+- **Easy updates**: `nix flake update` to get latest
+- **Multi-version support**: Run different versions side-by-side
+
+---
+
 ## 0.0.1-alpha (Phase 5 Complete) — 2026-01-22
 
 ### Phase 5: Observability & Multi-Instance (100% Complete)
