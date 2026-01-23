@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -29,6 +30,11 @@ type Config struct {
 	SchedulerLookahead time.Duration
 	JWTSigningKey      string
 	MetricsBind        string
+
+	// Tracing configuration
+	TracingEnabled    bool
+	OTLPEndpoint      string
+	TracingSampleRate float64
 }
 
 // Load reads environment variables, applies defaults, and validates the result.
@@ -45,6 +51,11 @@ func Load() (*Config, error) {
         SchedulerLookahead: time.Duration(getEnvIntAny([]string{"GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES", "RLM_SCHEDULER_LOOKAHEAD_MINUTES"}, 48)) * time.Hour,
         JWTSigningKey:      getEnvAny([]string{"GRIMNIR_JWT_SIGNING_KEY", "RLM_JWT_SIGNING_KEY"}, ""),
         MetricsBind:        getEnvAny([]string{"GRIMNIR_METRICS_BIND", "RLM_METRICS_BIND"}, "127.0.0.1:9000"),
+
+        // Tracing configuration
+        TracingEnabled:    getEnvBoolAny([]string{"GRIMNIR_TRACING_ENABLED", "RLM_TRACING_ENABLED"}, false),
+        OTLPEndpoint:      getEnvAny([]string{"GRIMNIR_OTLP_ENDPOINT", "RLM_OTLP_ENDPOINT"}, "localhost:4317"),
+        TracingSampleRate: getEnvFloatAny([]string{"GRIMNIR_TRACING_SAMPLE_RATE", "RLM_TRACING_SAMPLE_RATE"}, 1.0),
     }
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {
@@ -93,6 +104,34 @@ func getEnvIntAny(keys []string, def int) int {
     for _, k := range keys {
         if v := os.Getenv(k); v != "" {
             if parsed, err := strconv.Atoi(v); err == nil {
+                return parsed
+            }
+        }
+    }
+    return def
+}
+
+// getEnvBoolAny returns the first set boolean environment variable value from keys, or def.
+func getEnvBoolAny(keys []string, def bool) bool {
+    for _, k := range keys {
+        if v := os.Getenv(k); v != "" {
+            v = strings.ToLower(strings.TrimSpace(v))
+            if v == "true" || v == "1" || v == "yes" {
+                return true
+            }
+            if v == "false" || v == "0" || v == "no" {
+                return false
+            }
+        }
+    }
+    return def
+}
+
+// getEnvFloatAny returns the first set float environment variable value from keys, or def.
+func getEnvFloatAny(keys []string, def float64) float64 {
+    for _, k := range keys {
+        if v := os.Getenv(k); v != "" {
+            if parsed, err := strconv.ParseFloat(v, 64); err == nil {
                 return parsed
             }
         }

@@ -69,11 +69,19 @@ func (s *Service) tick(ctx context.Context) {
 }
 
 func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
+	// Start tracing span
+	ctx, span := telemetry.StartSpan(ctx, "scheduler", "scheduleStation")
+	defer span.End()
+	telemetry.AddSpanAttributes(span, map[string]any{
+		"station_id": stationID,
+	})
+
 	startTime := time.Now()
 	start := startTime.UTC()
 
 	plans, err := s.planner.Compile(stationID, start, s.lookahead)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "compile").Inc()
 		return err
 	}

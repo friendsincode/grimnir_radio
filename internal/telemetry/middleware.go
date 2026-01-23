@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code.
@@ -72,4 +73,19 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 			statusCode,
 		).Inc()
 	})
+}
+
+// TracingMiddleware wraps HTTP handlers with OpenTelemetry tracing.
+func TracingMiddleware(serviceName string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return otelhttp.NewHandler(next, serviceName,
+			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+				// Use route pattern if available, otherwise use path
+				if routeCtx := chi.RouteContext(r.Context()); routeCtx != nil {
+					return r.Method + " " + routeCtx.RoutePattern()
+				}
+				return r.Method + " " + r.URL.Path
+			}),
+		)
+	}
 }

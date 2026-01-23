@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -65,6 +66,25 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to load configuration")
 	}
 
+	// Initialize OpenTelemetry tracing
+	tracingEnabled := getEnv("MEDIAENGINE_TRACING_ENABLED", "false") == "true"
+	otlpEndpoint := getEnv("MEDIAENGINE_OTLP_ENDPOINT", "localhost:4317")
+	tracerProvider, err := telemetry.InitTracer(context.Background(), telemetry.TracerConfig{
+		ServiceName:    "grimnir-media-engine",
+		ServiceVersion: version,
+		OTLPEndpoint:   otlpEndpoint,
+		Enabled:        tracingEnabled,
+		SampleRate:     1.0,
+	}, logger)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to initialize tracer")
+	}
+	defer func() {
+		if err := tracerProvider.Shutdown(context.Background()); err != nil {
+			logger.Error().Err(err).Msg("failed to shutdown tracer provider")
+		}
+	}()
+
 	// Setup signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -91,8 +111,9 @@ func main() {
 		}
 	}()
 
-	// Create gRPC server
+	// Create gRPC server with OpenTelemetry instrumentation
 	grpcServer := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.MaxRecvMsgSize(10*1024*1024), // 10MB max message size
 		grpc.MaxSendMsgSize(10*1024*1024),
 		grpc.ConnectionTimeout(30*time.Second),

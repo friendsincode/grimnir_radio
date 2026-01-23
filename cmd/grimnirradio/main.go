@@ -12,6 +12,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/friendsincode/grimnir_radio/internal/logging"
 	"github.com/friendsincode/grimnir_radio/internal/server"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 )
 
 func main() {
@@ -23,6 +24,23 @@ func main() {
 
 	logger := logging.Setup(cfg.Environment)
 	logger.Info().Msg("Grimnir Radio starting")
+
+	// Initialize OpenTelemetry tracing
+	tracerProvider, err := telemetry.InitTracer(context.Background(), telemetry.TracerConfig{
+		ServiceName:    "grimnir-radio",
+		ServiceVersion: "0.0.1-alpha",
+		OTLPEndpoint:   cfg.OTLPEndpoint,
+		Enabled:        cfg.TracingEnabled,
+		SampleRate:     cfg.TracingSampleRate,
+	}, logger)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to initialize tracer")
+	}
+	defer func() {
+		if err := tracerProvider.Shutdown(context.Background()); err != nil {
+			logger.Error().Err(err).Msg("failed to shutdown tracer provider")
+		}
+	}()
 
 	srv, err := server.New(cfg, logger)
 	if err != nil {
