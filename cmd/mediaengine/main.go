@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	version = "0.0.1-alpha"
+	version = "1.0.0"
 )
 
 // loadConfig creates and loads configuration for the media engine
