@@ -1,0 +1,212 @@
+# Default values for grimnir-radio.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global settings
+global:
+  # Image pull secrets for private registries
+  imagePullSecrets: []
+
+# Grimnir Radio control plane configuration
+grimnir:
+  replicaCount: 3
+
+  image:
+    repository: grimnir-radio
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  service:
+    type: LoadBalancer
+    httpPort: 80
+    metricsPort: 9000
+    annotations: {}
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "1000m"
+
+  # Leader election for multi-instance deployments
+  leaderElection:
+    enabled: true
+
+  # Environment variables
+  env:
+    logLevel: "info"
+    environment: "production"
+    jwtTTLMinutes: 15
+    schedulerLookahead: "48h"
+    schedulerTickInterval: "30s"
+    mediaBackend: "filesystem"
+
+  # Autoscaling configuration
+  autoscaling:
+    enabled: false
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+# Media engine configuration
+mediaengine:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: grimnir-mediaengine
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  service:
+    type: ClusterIP
+    grpcPort: 9091
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "2000m"
+
+  # Shared memory size for GStreamer
+  shmSize: "256Mi"
+
+# PostgreSQL database configuration
+postgresql:
+  enabled: true
+  auth:
+    username: grimnir
+    database: grimnir
+    # Password is set via existingSecret or generated
+    existingSecret: "grimnir-secrets"
+    secretKeys:
+      adminPasswordKey: POSTGRES_PASSWORD
+
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+  # Metrics for Prometheus
+  metrics:
+    enabled: true
+
+# Redis configuration
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    existingSecret: "grimnir-secrets"
+    existingSecretPasswordKey: REDIS_PASSWORD
+
+  master:
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "256Mi"
+        cpu: "250m"
+
+  # Metrics for Prometheus
+  metrics:
+    enabled: true
+
+# Persistent storage for media files
+persistence:
+  enabled: true
+  storageClass: ""  # Use default storage class
+  accessMode: ReadWriteMany
+  size: 50Gi
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/websocket-services: "grimnir-radio"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+  hosts:
+    - host: radio.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+  tls:
+    - secretName: grimnir-radio-tls
+      hosts:
+        - radio.example.com
+
+# Secrets configuration
+secrets:
+  # Create secrets (set to false if managing externally)
+  create: true
+  # External secret name (if create: false)
+  existingSecret: ""
+  # Secret values (only used if create: true)
+  postgresPassword: "CHANGE_ME"
+  redisPassword: "CHANGE_ME"
+  jwtSigningKey: "CHANGE_ME_TO_RANDOM_256_BIT_KEY"
+
+# Observability
+monitoring:
+  # Prometheus ServiceMonitor
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+
+  # Grafana dashboards
+  grafanaDashboard:
+    enabled: false
+
+# OpenTelemetry tracing
+tracing:
+  enabled: false
+  otlpEndpoint: ""
+  sampleRate: 0.1
+
+# Pod security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
