@@ -45,6 +45,11 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	sqlDB.SetMaxOpenConns(50)
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
+	// Register telemetry callbacks
+	if err := RegisterCallbacks(db); err != nil {
+		return nil, fmt.Errorf("register telemetry callbacks: %w", err)
+	}
+
 	return db, nil
 }
 
