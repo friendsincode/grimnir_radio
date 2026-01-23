@@ -15,6 +15,8 @@ const (
 	EventPriorityOverride  EventType = "priority.override"
 	EventPriorityReleased  EventType = "priority.released"
 	EventPriorityChange    EventType = "priority.change"
+	EventLiveHandover    EventType = "live.handover"
+	EventLiveReleased    EventType = "live.released"
 	EventWebstreamFailover EventType = "webstream.failover"
 	EventWebstreamRecovered EventType = "webstream.recovered"
 )

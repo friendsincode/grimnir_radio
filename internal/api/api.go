@@ -211,6 +211,10 @@ func (a *API) Routes(r chi.Router) {
 				r.Get("/sessions", a.handleListLiveSessions)
 				r.Get("/sessions/{session_id}", a.handleGetLiveSession)
 
+				// Handover management (admin/manager/DJ)
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager, models.RoleDJ)).Post("/sessions/handover", a.handleLiveStartHandover)
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager, models.RoleDJ)).Delete("/sessions/{session_id}/handover", a.handleLiveReleaseHandover)
+
 				// Legacy handover endpoint (deprecated, kept for compatibility)
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/handover", a.handleLiveHandover)
 			})

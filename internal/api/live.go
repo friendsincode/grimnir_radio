@@ -264,3 +264,139 @@ func (a *API) handleGetLiveSession(w http.ResponseWriter, r *http.Request) {
 		Metadata:       session.Metadata,
 	})
 }
+
+// Live handover request/response types
+
+type liveStartHandoverRequest struct {
+	SessionID       string `json:"session_id"`
+	StationID       string `json:"station_id"`
+	MountID         string `json:"mount_id"`
+	UserID          string `json:"user_id"`
+	Priority        int    `json:"priority"`                   // 1 = override, 2 = scheduled
+	Immediate       bool   `json:"immediate,omitempty"`         // Default: false
+	FadeTimeMs      int    `json:"fade_time_ms,omitempty"`      // 0 = use default
+	RollbackOnError bool   `json:"rollback_on_error,omitempty"` // Default: true
+}
+
+type liveHandoverResponse struct {
+	Success        bool                    `json:"success"`
+	SessionID      string                  `json:"session_id"`
+	HandoverAt     time.Time               `json:"handover_at"`
+	TransitionType string                  `json:"transition_type"` // "immediate", "faded", "delayed"
+	PreviousSource *prioritySourceInfo     `json:"previous_source,omitempty"`
+	NewSource      *prioritySourceInfo     `json:"new_source,omitempty"`
+	Error          string                  `json:"error,omitempty"`
+}
+
+type prioritySourceInfo struct {
+	Priority   int            `json:"priority"`
+	SourceType string         `json:"source_type"`
+	SourceID   string         `json:"source_id"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+}
+
+func (a *API) handleLiveStartHandover(w http.ResponseWriter, r *http.Request) {
+	var req liveStartHandoverRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	// Validate required fields
+	if req.SessionID == "" || req.StationID == "" || req.MountID == "" || req.UserID == "" {
+		writeError(w, http.StatusBadRequest, "session_station_mount_user_required")
+		return
+	}
+
+	// Validate priority
+	priority := models.PriorityLevel(req.Priority)
+	if priority != models.PriorityLiveOverride && priority != models.PriorityLiveScheduled {
+		writeError(w, http.StatusBadRequest, "invalid_priority")
+		return
+	}
+
+	// Default rollback behavior
+	rollbackOnError := true
+	if !req.RollbackOnError {
+		rollbackOnError = false
+	}
+
+	// Start handover
+	result, err := a.live.StartHandover(r.Context(), live.HandoverRequest{
+		SessionID:       req.SessionID,
+		StationID:       req.StationID,
+		MountID:         req.MountID,
+		UserID:          req.UserID,
+		Priority:        priority,
+		Immediate:       req.Immediate,
+		FadeTimeMs:      req.FadeTimeMs,
+		RollbackOnError: rollbackOnError,
+	})
+
+	if err != nil {
+		a.logger.Error().Err(err).Msg("live handover failed")
+
+		// Return handover result with error
+		if result != nil {
+			writeJSON(w, http.StatusInternalServerError, liveHandoverResponse{
+				Success:    false,
+				SessionID:  result.SessionID,
+				HandoverAt: result.HandoverAt,
+				Error:      result.Error,
+			})
+			return
+		}
+
+		writeError(w, http.StatusInternalServerError, "handover_failed")
+		return
+	}
+
+	// Convert result to response format
+	response := liveHandoverResponse{
+		Success:        result.Success,
+		SessionID:      result.SessionID,
+		HandoverAt:     result.HandoverAt,
+		TransitionType: result.TransitionType,
+		Error:          result.Error,
+	}
+
+	if result.PreviousSource != nil {
+		response.PreviousSource = &prioritySourceInfo{
+			Priority:   int(result.PreviousSource.Priority),
+			SourceType: string(result.PreviousSource.SourceType),
+			SourceID:   result.PreviousSource.SourceID,
+			Metadata:   result.PreviousSource.Metadata,
+		}
+	}
+
+	if result.NewSource != nil {
+		response.NewSource = &prioritySourceInfo{
+			Priority:   int(result.NewSource.Priority),
+			SourceType: string(result.NewSource.SourceType),
+			SourceID:   result.NewSource.SourceID,
+			Metadata:   result.NewSource.Metadata,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (a *API) handleLiveReleaseHandover(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "session_id")
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id_required")
+		return
+	}
+
+	if err := a.live.ReleaseHandover(r.Context(), sessionID); err != nil {
+		if err == live.ErrSessionNotFound {
+			writeError(w, http.StatusNotFound, "session_not_found")
+			return
+		}
+		a.logger.Error().Err(err).Msg("live release failed")
+		writeError(w, http.StatusInternalServerError, "release_failed")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "released"})
+}
