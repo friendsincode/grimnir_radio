@@ -27,6 +27,7 @@ import (
     "github.com/friendsincode/grimnir_radio/internal/priority"
     "github.com/friendsincode/grimnir_radio/internal/scheduler"
     "github.com/friendsincode/grimnir_radio/internal/smartblock"
+    "github.com/friendsincode/grimnir_radio/internal/webstream"
 	ws "nhooyr.io/websocket"
 )
 
@@ -37,6 +38,7 @@ type API struct {
 	analyzer         *analyzer.Service
 	media            *media.Service
 	live             *live.Service
+	webstreamSvc     *webstream.Service
 	playout          *playout.Manager
 	prioritySvc      *priority.Service
 	executorStateMgr *executor.StateManager
@@ -46,13 +48,14 @@ type API struct {
 }
 
 // New creates the API router wrapper.
-func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
+func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
 	return &API{
 		db:               db,
 		scheduler:        scheduler,
 		analyzer:         analyzer,
 		media:            media,
 		live:             live,
+		webstreamSvc:     webstreamSvc,
 		playout:          playout,
 		prioritySvc:      prioritySvc,
 		executorStateMgr: executorStateMgr,
@@ -207,6 +210,23 @@ func (a *API) Routes(r chi.Router) {
 				// Legacy handover endpoint (deprecated, kept for compatibility)
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/handover", a.handleLiveHandover)
 			})
+		pr.Route("/webstreams", func(r chi.Router) {
+			// List and create webstreams (admin/manager)
+			r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/", a.handleListWebstreams)
+			r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/", a.handleCreateWebstream)
+
+			// Individual webstream operations
+			r.Route("/{id}", func(r chi.Router) {
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/", a.handleGetWebstream)
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Put("/", a.handleUpdateWebstream)
+				r.With(a.requireRoles(models.RoleAdmin)).Delete("/", a.handleDeleteWebstream)
+
+				// Failover operations
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/failover", a.handleTriggerWebstreamFailover)
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/reset", a.handleResetWebstreamToPrimary)
+			})
+		})
+
 
 			pr.Route("/playout", func(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/reload", a.handlePlayoutReload)

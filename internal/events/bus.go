@@ -15,6 +15,8 @@ const (
 	EventPriorityOverride  EventType = "priority.override"
 	EventPriorityReleased  EventType = "priority.released"
 	EventPriorityChange    EventType = "priority.change"
+	EventWebstreamFailover EventType = "webstream.failover"
+	EventWebstreamRecovered EventType = "webstream.recovered"
 )
 
 // Payload generic event payload.

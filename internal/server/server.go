@@ -28,6 +28,7 @@ import (
     schedulerstate "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
     "github.com/friendsincode/grimnir_radio/internal/smartblock"
     "github.com/friendsincode/grimnir_radio/internal/telemetry"
+    "github.com/friendsincode/grimnir_radio/internal/webstream"
 )
 
 // Server bundles HTTP and supporting services.
@@ -114,9 +115,13 @@ func (s *Server) initDependencies() error {
 	// Live service depends on priority service
 	liveService := live.NewService(database, priorityService, s.bus, s.logger)
 
+	// Webstream service with health checking
+	webstreamService := webstream.NewService(database, s.bus, s.logger)
+	s.DeferClose(func() error { return webstreamService.Shutdown() })
+
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
-	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, s.playout, priorityService, executorStateMgr, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
+	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
 
 	return nil
 }

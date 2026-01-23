@@ -25,6 +25,7 @@ type Service struct {
 	dspBuilder      *dsp.Builder
 	supervisor      *Supervisor
 	liveInputMgr    *LiveInputManager
+	webstreamMgr    *WebstreamManager
 
 	mu       sync.RWMutex
 	stations map[string]*StationEngine // station_id -> engine
@@ -67,6 +68,7 @@ func New(cfg *Config, logger zerolog.Logger) *Service {
 	pipelineManager := NewPipelineManager(cfg, logger)
 	supervisor := NewSupervisor(cfg, logger, pipelineManager)
 	liveInputMgr := NewLiveInputManager(logger)
+	webstreamMgr := NewWebstreamManager(logger)
 
 	svc := &Service{
 		cfg:             cfg,
@@ -75,6 +77,7 @@ func New(cfg *Config, logger zerolog.Logger) *Service {
 		dspBuilder:      dsp.NewBuilder(logger),
 		supervisor:      supervisor,
 		liveInputMgr:    liveInputMgr,
+		webstreamMgr:    webstreamMgr,
 		stations:        make(map[string]*StationEngine),
 		graphs:          make(map[string]*dsp.Graph),
 		uptime:          time.Now(),
@@ -451,6 +454,11 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	// Shutdown live input manager
 	if err := s.liveInputMgr.Shutdown(); err != nil {
 		s.logger.Error().Err(err).Msg("failed to shutdown live input manager")
+	}
+
+	// Shutdown webstream manager
+	if err := s.webstreamMgr.Shutdown(); err != nil {
+		s.logger.Error().Err(err).Msg("failed to shutdown webstream manager")
 	}
 
 	s.logger.Info().Msg("media engine shutdown complete")
