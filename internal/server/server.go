@@ -227,6 +227,25 @@ func (s *Server) startBackgroundWorkers() {
 			}
 		}()
 	}
+
+	// Start database metrics updater
+	if s.db != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					db.UpdateConnectionMetrics(s.db)
+				}
+			}
+		}()
+	}
 }
 
 func (s *Server) stopBackgroundWorkers() {
