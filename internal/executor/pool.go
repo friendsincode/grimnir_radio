@@ -53,7 +53,8 @@ func (r *consistentHashRing) addNode(instanceID string) {
 	defer r.mu.Unlock()
 
 	for i := 0; i < r.replicas; i++ {
-		hash := hashKey(fmt.Sprintf("%s-%d", instanceID, i))
+		// Use multiple hash variations for better distribution
+		hash := hashKey(fmt.Sprintf("%s:%d:vnode", instanceID, i))
 		r.nodes = append(r.nodes, hash)
 		r.nodeMap[hash] = instanceID
 	}
@@ -69,7 +70,7 @@ func (r *consistentHashRing) removeNode(instanceID string) {
 	defer r.mu.Unlock()
 
 	for i := 0; i < r.replicas; i++ {
-		hash := hashKey(fmt.Sprintf("%s-%d", instanceID, i))
+		hash := hashKey(fmt.Sprintf("%s:%d:vnode", instanceID, i))
 		delete(r.nodeMap, hash)
 	}
 
@@ -117,7 +118,7 @@ func hashKey(key string) uint32 {
 
 // NewPool creates a new executor pool.
 func NewPool(instanceID string, db *gorm.DB, stateManager *StateManager, prioritySvc *priority.Service, bus *events.Bus, logger zerolog.Logger) *Pool {
-	ring := newConsistentHashRing(100) // 100 virtual nodes per instance
+	ring := newConsistentHashRing(150) // 150 virtual nodes per instance for better distribution
 	ring.addNode(instanceID)
 
 	return &Pool{
@@ -175,7 +176,8 @@ func (p *Pool) StartExecutor(ctx context.Context, stationID string) error {
 
 	// Create media controller (this would need to be passed in or created properly)
 	// For now, we'll create it with nil (would need proper initialization)
-	mediaCtrl := NewMediaController("", p.logger) // TODO: Proper media engine connection
+	// TODO: Proper media engine client connection
+	mediaCtrl := NewMediaController(nil, stationID, "", p.logger)
 
 	// Create and start executor
 	executor := New(stationID, p.db, p.stateManager, p.prioritySvc, p.bus, mediaCtrl, p.logger)
@@ -203,7 +205,7 @@ func (p *Pool) StopExecutor(ctx context.Context, stationID string) error {
 		return ErrExecutorNotRunning
 	}
 
-	if err := executor.Stop(ctx); err != nil {
+	if err := executor.Stop(); err != nil {
 		return fmt.Errorf("stop executor: %w", err)
 	}
 
@@ -226,7 +228,7 @@ func (p *Pool) Stop(ctx context.Context) error {
 
 	var lastErr error
 	for stationID, executor := range p.executors {
-		if err := executor.Stop(ctx); err != nil {
+		if err := executor.Stop(); err != nil {
 			p.logger.Error().Err(err).Str("station_id", stationID).Msg("failed to stop executor")
 			lastErr = err
 		}
@@ -310,7 +312,7 @@ func (p *Pool) rebalanceExecutors(ctx context.Context) error {
 	for stationID := range p.executors {
 		if !shouldRun[stationID] {
 			executor := p.executors[stationID]
-			if err := executor.Stop(ctx); err != nil {
+			if err := executor.Stop(); err != nil {
 				p.logger.Error().Err(err).Str("station_id", stationID).Msg("failed to stop executor during rebalance")
 			}
 			delete(p.executors, stationID)
