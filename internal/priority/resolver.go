@@ -217,7 +217,7 @@ func (r *Resolver) Release(ctx context.Context, stationID, sourceID string) (*Tr
 
 	// Find and deactivate the specified source
 	var source models.PrioritySource
-	err := tx.Where("id = ?", sourceID).Where("station_id = ?", stationID).First(&source).Error
+	err := tx.Where("source_id = ?", sourceID).Where("station_id = ?", stationID).First(&source).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		tx.Rollback()
 		return nil, ErrSourceNotFound

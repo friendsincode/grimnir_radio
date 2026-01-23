@@ -279,10 +279,6 @@ func (s *Service) updateSessionMetadata(ctx context.Context, sessionID string, m
 		session.Metadata[k] = v
 	}
 
-	// Update in database
-	return s.db.WithContext(ctx).
-		Model(&models.LiveSession{}).
-		Where("id = ?", sessionID).
-		Update("metadata", session.Metadata).
-		Error
+	// Update in database using Save to ensure proper JSON serialization
+	return s.db.WithContext(ctx).Save(&session).Error
 }
