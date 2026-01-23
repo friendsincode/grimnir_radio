@@ -1,0 +1,78 @@
+# Build stage
+FROM golang:1.22-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /build
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy protobuf files and generated code
+COPY proto/ proto/
+COPY internal/ internal/
+COPY cmd/mediaengine/ cmd/mediaengine/
+
+# Build binary with optimizations
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev') -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -a -installsuffix cgo \
+    -o mediaengine \
+    ./cmd/mediaengine
+
+# Runtime stage - GStreamer environment
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install GStreamer and required plugins
+RUN apt-get update && apt-get install -y \
+    gstreamer1.0-tools \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav \
+    gstreamer1.0-alsa \
+    gstreamer1.0-pulseaudio \
+    # Additional codecs and filters
+    libgstreamer-plugins-bad1.0-0 \
+    # Icecast client
+    libshout3 \
+    # SRT support
+    libsrt1.4-gnutls \
+    # Tools
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r mediaengine && useradd -r -g mediaengine mediaengine
+
+# Copy binary from builder
+COPY --from=builder /build/mediaengine /usr/local/bin/mediaengine
+
+# Create necessary directories
+RUN mkdir -p /var/lib/mediaengine/cache \
+    && mkdir -p /etc/mediaengine \
+    && chown -R mediaengine:mediaengine /var/lib/mediaengine
+
+# Switch to non-root user
+USER mediaengine
+
+# Expose gRPC port
+EXPOSE 9091
+
+# Health check (gRPC health check)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD /usr/local/bin/mediaengine health || exit 1
+
+# Set working directory
+WORKDIR /var/lib/mediaengine
+
+# Run the binary
+ENTRYPOINT ["/usr/local/bin/mediaengine"]
+CMD ["--grpc-port", "9091"]
