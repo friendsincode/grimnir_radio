@@ -4,9 +4,47 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog"
+	"gorm.io/gorm"
 )
+
+// MigrationHandler handles migration-related HTTP endpoints.
+type MigrationHandler struct {
+	service *migration.Service
+	logger  zerolog.Logger
+}
+
+// NewMigrationHandler creates a new migration handler.
+func NewMigrationHandler(db *gorm.DB, bus *events.Bus, logger zerolog.Logger) *MigrationHandler {
+	service := migration.NewService(db, bus, logger)
+
+	// Register importers
+	service.RegisterImporter(migration.SourceTypeAzuraCast, migration.NewAzuraCastImporter(db, logger))
+	service.RegisterImporter(migration.SourceTypeLibreTime, migration.NewLibreTimeImporter(db, logger))
+
+	return &MigrationHandler{
+		service: service,
+		logger:  logger.With().Str("handler", "migration").Logger(),
+	}
+}
+
+// RegisterRoutes registers migration routes on the provided router.
+func (h *MigrationHandler) RegisterRoutes(r chi.Router) {
+	r.Route("/migrations", func(r chi.Router) {
+		r.Post("/", h.handleCreateMigrationJob)
+		r.Get("/", h.handleListMigrationJobs)
+
+		r.Route("/{id}", func(r chi.Router) {
+			r.Post("/start", h.handleStartMigrationJob)
+			r.Get("/", h.handleGetMigrationJob)
+			r.Post("/cancel", h.handleCancelMigrationJob)
+			r.Delete("/", h.handleDeleteMigrationJob)
+		})
+	})
+}
 
 // CreateMigrationJobRequest represents a request to create a migration job.
 type CreateMigrationJobRequest struct {
@@ -20,20 +58,20 @@ type CreateMigrationJobResponse struct {
 }
 
 // handleCreateMigrationJob creates a new migration job.
-func (a *API) handleCreateMigrationJob(w http.ResponseWriter, r *http.Request) {
+func (h *MigrationHandler) handleCreateMigrationJob(w http.ResponseWriter, r *http.Request) {
 	var req CreateMigrationJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, "invalid_json")
 		return
 	}
 
-	job, err := a.migrationSvc.CreateJob(r.Context(), req.SourceType, req.Options)
+	job, err := h.service.CreateJob(r.Context(), req.SourceType, req.Options)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusCreated, CreateMigrationJobResponse{Job: job})
+	writeJSON(w, http.StatusCreated, CreateMigrationJobResponse{Job: job})
 }
 
 // StartMigrationJobRequest represents a request to start a migration job.
@@ -45,15 +83,15 @@ type StartMigrationJobResponse struct {
 }
 
 // handleStartMigrationJob starts a migration job.
-func (a *API) handleStartMigrationJob(w http.ResponseWriter, r *http.Request) {
+func (h *MigrationHandler) handleStartMigrationJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
-	if err := a.migrationSvc.StartJob(r.Context(), jobID); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+	if err := h.service.StartJob(r.Context(), jobID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, StartMigrationJobResponse{
+	writeJSON(w, http.StatusOK, StartMigrationJobResponse{
 		Message: "migration job started",
 	})
 }
@@ -64,16 +102,16 @@ type GetMigrationJobResponse struct {
 }
 
 // handleGetMigrationJob retrieves a migration job.
-func (a *API) handleGetMigrationJob(w http.ResponseWriter, r *http.Request) {
+func (h *MigrationHandler) handleGetMigrationJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
-	job, err := a.migrationSvc.GetJob(r.Context(), jobID)
+	job, err := h.service.GetJob(r.Context(), jobID)
 	if err != nil {
-		respondError(w, http.StatusNotFound, "job not found")
+		writeError(w, http.StatusNotFound, "job_not_found")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, GetMigrationJobResponse{Job: job})
+	writeJSON(w, http.StatusOK, GetMigrationJobResponse{Job: job})
 }
 
 // ListMigrationJobsResponse represents the response for listing migration jobs.
@@ -82,14 +120,14 @@ type ListMigrationJobsResponse struct {
 }
 
 // handleListMigrationJobs lists all migration jobs.
-func (a *API) handleListMigrationJobs(w http.ResponseWriter, r *http.Request) {
-	jobs, err := a.migrationSvc.ListJobs(r.Context())
+func (h *MigrationHandler) handleListMigrationJobs(w http.ResponseWriter, r *http.Request) {
+	jobs, err := h.service.ListJobs(r.Context())
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list jobs")
+		writeError(w, http.StatusInternalServerError, "failed_to_list_jobs")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, ListMigrationJobsResponse{Jobs: jobs})
+	writeJSON(w, http.StatusOK, ListMigrationJobsResponse{Jobs: jobs})
 }
 
 // CancelMigrationJobResponse represents the response for cancelling a migration job.
@@ -98,15 +136,15 @@ type CancelMigrationJobResponse struct {
 }
 
 // handleCancelMigrationJob cancels a running migration job.
-func (a *API) handleCancelMigrationJob(w http.ResponseWriter, r *http.Request) {
+func (h *MigrationHandler) handleCancelMigrationJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
-	if err := a.migrationSvc.CancelJob(r.Context(), jobID); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+	if err := h.service.CancelJob(r.Context(), jobID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, CancelMigrationJobResponse{
+	writeJSON(w, http.StatusOK, CancelMigrationJobResponse{
 		Message: "migration job cancelled",
 	})
 }
@@ -117,15 +155,15 @@ type DeleteMigrationJobResponse struct {
 }
 
 // handleDeleteMigrationJob deletes a migration job.
-func (a *API) handleDeleteMigrationJob(w http.ResponseWriter, r *http.Request) {
+func (h *MigrationHandler) handleDeleteMigrationJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
-	if err := a.migrationSvc.DeleteJob(r.Context(), jobID); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+	if err := h.service.DeleteJob(r.Context(), jobID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, DeleteMigrationJobResponse{
+	writeJSON(w, http.StatusOK, DeleteMigrationJobResponse{
 		Message: "migration job deleted",
 	})
 }

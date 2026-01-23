@@ -1,7 +1,8 @@
 package db
 
 import (
-    "github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/migration"
+	"github.com/friendsincode/grimnir_radio/internal/models"
 	"gorm.io/gorm"
 )
 
@@ -25,5 +26,9 @@ func Migrate(database *gorm.DB) error {
 		&models.ExecutorState{},
 		&models.LiveSession{},
 		&models.Webstream{},
+		&models.Playlist{},
+		&models.PlaylistItem{},
+		&models.Clock{},
+		&migration.Job{},
 	)
 }

@@ -50,7 +50,7 @@ type API struct {
 
 // New creates the API router wrapper.
 func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
-	migrationHandler := NewMigrationHandler(db, logger)
+	migrationHandler := NewMigrationHandler(db, bus, logger)
 
 	return &API{
 		db:               db,

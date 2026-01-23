@@ -30,6 +30,7 @@ type Station struct {
 	Name        string `gorm:"uniqueIndex"`
 	Description string `gorm:"type:text"`
 	Timezone    string `gorm:"type:varchar(32)"`
+	Active      bool   `gorm:"default:true"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -70,6 +71,7 @@ type MediaItem struct {
 	Duration      time.Duration
 	Path          string
 	StorageKey    string
+	ImportPath    string        // Original path from import (LibreTime/AzuraCast)
 	Genre         string
 	Mood          string
 	Label         string
@@ -78,7 +80,10 @@ type MediaItem struct {
 	LoudnessLUFS  float64
 	ReplayGain    float64
 	BPM           float64
-	Year          int
+	Year          string        // Changed from int to string for flexibility
+	TrackNumber   int
+	Bitrate       int
+	Samplerate    int
 	Tags          []MediaTagLink
 	CuePoints     CuePointSet `gorm:"type:jsonb"`
 	Waveform      []byte
@@ -220,4 +225,40 @@ type AnalysisJob struct {
 	Error     string `gorm:"type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// Playlist represents a static playlist of media items.
+type Playlist struct {
+	ID          string         `gorm:"type:uuid;primaryKey"`
+	StationID   string         `gorm:"type:uuid;index"`
+	Name        string         `gorm:"index"`
+	Description string         `gorm:"type:text"`
+	Items       []PlaylistItem `gorm:"foreignKey:PlaylistID"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// PlaylistItem represents an item in a playlist.
+type PlaylistItem struct {
+	ID         string `gorm:"type:uuid;primaryKey"`
+	PlaylistID string `gorm:"type:uuid;index"`
+	MediaID    string `gorm:"type:uuid;index"`
+	Position   int    `gorm:"index"`
+	FadeIn     int    // Fade in duration in milliseconds
+	FadeOut    int    // Fade out duration in milliseconds
+	CueIn      int    // Cue in point in milliseconds
+	CueOut     int    // Cue out point in milliseconds
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// Clock represents a show template with flexible duration (not just hourly).
+type Clock struct {
+	ID          string `gorm:"type:uuid;primaryKey"`
+	StationID   string `gorm:"type:uuid;index"`
+	Name        string `gorm:"index"`
+	Description string `gorm:"type:text"`
+	Duration    int    `gorm:"type:integer"` // Duration in seconds
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
