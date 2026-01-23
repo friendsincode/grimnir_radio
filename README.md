@@ -174,3 +174,21 @@ Key files:
 Special shout-out to Sound Minds, Hal, Vince, MooseGirl, doc mike, Grammy Mary, Flash Somebody, Cirickle, and everyone else trying to keep RLM alive.
 
 Grimnir, may your dream live on in this project.
+
+## The Grimnir Principle
+
+Grimnir did his work for the community, without gatekeeping and without asking for permission. This project exists because the community chose to respond in kind. Grimnir Radio is built to be shared, improved, and carried forward in the open, the same way Grimnir showed up for others. If you make it better and use it for the public, those improvements belong to the public too. That is not a condition. It is the point. This project uses the GNU Affero General Public License to make sure Grimnir's work, and the work done in his name, always stays with the community.
+
+## License
+
+Grimnir Radio is licensed under the **GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)**.
+
+This means:
+- You can use, modify, and distribute this software freely
+- **If you run a modified version on a server, you must make the modified source code available to users**
+- All derivative works must also be licensed under AGPL-3.0-or-later
+- There is NO WARRANTY
+
+See the [LICENSE](LICENSE) file for the full license text.
+
+**AGPL Compliance:** If you modify Grimnir Radio and offer it as a network service (e.g., running a hosted instance), you must provide users with access to the complete corresponding source code, including all modifications.
