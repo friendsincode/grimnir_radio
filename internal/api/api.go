@@ -27,6 +27,7 @@ import (
     "github.com/friendsincode/grimnir_radio/internal/priority"
     "github.com/friendsincode/grimnir_radio/internal/scheduler"
     "github.com/friendsincode/grimnir_radio/internal/smartblock"
+    "github.com/friendsincode/grimnir_radio/internal/telemetry"
     "github.com/friendsincode/grimnir_radio/internal/webstream"
 	ws "nhooyr.io/websocket"
 )
@@ -1031,6 +1032,10 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close(ws.StatusInternalError, "server error")
+
+	// Track WebSocket connection
+	telemetry.APIWebSocketConnections.Inc()
+	defer telemetry.APIWebSocketConnections.Dec()
 
 	eventTypes := parseEventTypes(r.URL.Query().Get("types"))
 	if len(eventTypes) == 0 {
