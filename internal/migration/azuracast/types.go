@@ -1,3 +1,10 @@
+/*
+Copyright (C) 2026 Friends Incode
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
+
+
 package azuracast
 
 // AzuraCast database schema structures
