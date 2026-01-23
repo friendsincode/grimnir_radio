@@ -93,7 +93,7 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 			if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
 				return err
 			}
-		case string(models.SlotTypeHardItem), string(models.SlotTypeStopset):
+		case string(models.SlotTypeHardItem), string(models.SlotTypeStopset), string(models.SlotTypeWebstream):
 			if err := s.createPlaceholderEntry(ctx, stationID, plan); err != nil {
 				return err
 			}

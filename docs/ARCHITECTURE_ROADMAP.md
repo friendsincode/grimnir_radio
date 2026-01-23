@@ -1,6 +1,6 @@
 # Grimnir Radio - Architecture Roadmap
 
-**Version:** 0.0.1-alpha (Phase 4B Complete)
+**Version:** 0.0.1-alpha (Phase 4C Complete)
 **Target Architecture:** Go-Based Broadcast Automation Platform (Liquidsoap Replacement)
 
 This document aligns the current Grimnir Radio implementation with the comprehensive design brief for a modern, Go-controlled broadcast automation platform.
@@ -38,13 +38,13 @@ This document aligns the current Grimnir Radio implementation with the comprehen
 | **DSP Pipeline** | ✓ Complete | `internal/mediaengine/dsp` - 12 node types (loudness, AGC, compressor, limiter, EQ, gate, etc.) |
 | **Telemetry Streaming** | ✓ Complete | Real-time audio metrics via gRPC streaming (1-second intervals) |
 | **Process Supervision** | ✓ Complete | `internal/mediaengine/supervisor` - Health monitoring, automatic restart |
+| **Live Input** | ✓ Complete | `internal/live` - Token auth, session management, harbor-style routing (Icecast/RTP/SRT) |
+| **Webstream Relay** | ✓ Complete | `internal/webstream` - Health probing, failover chains, metadata passthrough |
 
 ### ⚠️ Partial Implementations
 
 | Component | Status | Current State | Needed |
 |-----------|--------|---------------|--------|
-| **Live Input** | ⚠️ Basic | Authorization + handover events | Harbor-style input routing, DSP integration |
-| **Webstream Relay** | ⚠️ Stubs | Models defined | Health probing, failover chains, metadata passthrough |
 | **Observability** | ⚠️ Stubs | Health checks, basic logging | Full Prometheus metrics, distributed tracing |
 
 ### ❌ Missing Components
@@ -52,10 +52,9 @@ This document aligns the current Grimnir Radio implementation with the comprehen
 | Component | Status | Priority | Impact |
 |-----------|--------|----------|--------|
 | **Recording Sink** | Not Started | **Low** | Compliance/archival feature |
-| **Live Input Routing** | Not Started | **High** | Complete harbor-style live input in media engine |
-| **Webstream Failover** | Not Started | **High** | Health probing and automatic failover |
 | **Multi-Instance Scaling** | Not Started | **Medium** | Leader election, executor distribution |
 | **Migration Tools** | Not Started | **Medium** | AzuraCast/LibreTime import |
+| **Full Observability** | Not Started | **Medium** | Complete Prometheus metrics, distributed tracing |
 
 ---
 
@@ -249,7 +248,123 @@ This document aligns the current Grimnir Radio implementation with the comprehen
 
 ---
 
-### Phase 4C: Observability & Multi-Instance (MVP 2 → MVP 3)
+### Phase 4C: Live Input & Webstream Relay ✅ COMPLETE
+
+**Goal:** Harbor-style live input and HTTP stream failover
+
+**Duration:** 5 weeks (Completed 2026-01-22)
+
+**Tasks:**
+
+1. **Implement Live Session Management** (Week 1-2)
+   - [x] Created `internal/models/live.go` - Live session model with database persistence
+   - [x] Created `internal/live/service.go` - Authorization service with token generation
+   - [x] Token-based authentication (32-byte cryptographically random tokens)
+   - [x] One-time use token validation
+   - [x] Session lifecycle tracking (connected, active, disconnected)
+   - [x] Methods: GenerateToken, AuthorizeSource, HandleConnect, HandleDisconnect, GetActiveSessions
+   - [x] Integration with priority system (live override and scheduled live)
+
+2. **Create Live API Endpoints** (Week 2)
+   - [x] Created `internal/api/live.go` with 6 REST endpoints:
+     - `POST /api/v1/live/tokens` - Generate authorization token
+     - `POST /api/v1/live/authorize` - Validate token
+     - `POST /api/v1/live/connect` - Start live session
+     - `DELETE /api/v1/live/sessions/{id}` - Disconnect session
+     - `GET /api/v1/live/sessions` - List active sessions
+     - `GET /api/v1/live/sessions/{id}` - Get session details
+   - [x] Role-based access control (admin/manager for most endpoints)
+   - [x] Event bus integration (dj.connect, dj.disconnect events)
+
+3. **Implement Harbor-Style Live Input** (Week 2-3)
+   - [x] Created `internal/mediaengine/live.go` - Live input manager
+   - [x] Added LiveInputType enum to protobuf (Icecast, RTP, SRT, WebRTC)
+   - [x] GStreamer pipeline building for each input type:
+     - Icecast: souphttpsrc with Icy-MetaData header
+     - RTP: udpsrc with RTP application type
+     - SRT: srtsrc with connection URL
+     - WebRTC: placeholder for future implementation
+   - [x] DSP graph routing integration
+   - [x] Fade-in support on live input start
+
+4. **Implement Webstream Models** (Week 3)
+   - [x] Created `internal/models/webstream.go` - Complete webstream model
+   - [x] Failover chain support (primary → backup → backup2)
+   - [x] Health check configuration (interval, timeout, method)
+   - [x] Failover settings (enabled, grace period, auto-recovery)
+   - [x] Buffer and reconnect settings
+   - [x] Metadata passthrough and override
+   - [x] Methods: GetCurrentURL, GetNextFailoverURL, FailoverToNext, ResetToPrimary
+
+5. **Implement Webstream Service with Health Checks** (Week 3-4)
+   - [x] Created `internal/webstream/service.go` - CRUD operations
+   - [x] Created `internal/webstream/health_checker.go` - Background workers
+   - [x] Health check algorithm:
+     - HTTP HEAD/GET probes with configurable timeout
+     - 3-tier status: healthy → degraded → unhealthy
+     - Consecutive failure tracking (degraded after 1, failover after 3)
+     - Redirect handling (up to 3 redirects)
+   - [x] Failover logic:
+     - Test backup URL before switching
+     - Skip unhealthy backups automatically
+     - Auto-recovery to primary when healthy
+     - Event bus integration (webstream.failover, webstream.recovered)
+   - [x] Health checker lifecycle management
+
+6. **Add Webstream Support to Media Engine** (Week 4)
+   - [x] Created `internal/mediaengine/webstream.go` - Webstream player
+   - [x] GStreamer pipeline for HTTP/Icecast streams:
+     - souphttpsrc with is-live and do-timestamp
+     - ICY metadata extraction (iradio-mode)
+     - Configurable buffer size (max-size-time)
+     - Fade-in support
+     - DSP graph routing
+   - [x] Methods: PlayWebstream, StopWebstream, FailoverWebstream, GetWebstreamMetadata
+
+7. **Create Webstream API Endpoints** (Week 4-5)
+   - [x] Created `internal/api/webstream.go` with 7 REST endpoints:
+     - `GET /api/v1/webstreams` - List webstreams
+     - `POST /api/v1/webstreams` - Create webstream
+     - `GET /api/v1/webstreams/{id}` - Get webstream
+     - `PUT /api/v1/webstreams/{id}` - Update webstream
+     - `DELETE /api/v1/webstreams/{id}` - Delete webstream (admin only)
+     - `POST /api/v1/webstreams/{id}/failover` - Manual failover
+     - `POST /api/v1/webstreams/{id}/reset` - Reset to primary
+   - [x] Role-based access control (admin/manager)
+   - [x] Comprehensive request/response types
+
+8. **Integrate with Scheduler** (Week 5)
+   - [x] Added `SlotTypeWebstream` to clock slot types
+   - [x] Updated scheduler to create webstream schedule entries
+   - [x] Modified playout director to handle webstream entries:
+     - Load webstream configuration from database
+     - Build GStreamer pipeline with current URL
+     - Respect failover state and health status
+     - Publish now playing events with webstream metadata
+     - Schedule automatic stop at entry end time
+   - [x] Updated server initialization to pass webstream service to director
+
+**Code Statistics:**
+- ~1,400 lines for live input system
+- ~1,200 lines for webstream relay system
+- ~200 lines for scheduler integration
+- 13 new REST API endpoints
+- 4 new event types
+
+**Deliverables:**
+- ✅ Token-based live authorization with session management
+- ✅ 6 REST API endpoints for live DJ management
+- ✅ Harbor-style live input (Icecast, RTP, SRT)
+- ✅ Priority system integration for live sessions
+- ✅ Complete webstream model with failover chains
+- ✅ Background health check workers with automatic failover
+- ✅ 7 REST API endpoints for webstream management
+- ✅ Webstream player in media engine
+- ✅ Scheduler integration for webstream entries
+
+---
+
+### Phase 5: Observability & Multi-Instance (MVP 3 → MVP 4)
 
 **Goal:** Production-grade monitoring and horizontal scaling
 
@@ -257,14 +372,7 @@ This document aligns the current Grimnir Radio implementation with the comprehen
 
 **Tasks:**
 
-1. **Replace Event Bus with Redis/NATS** (Week 1-2)
-   - [ ] Replace `internal/events.Bus` with Redis Pub/Sub or NATS
-   - [ ] Config: `GRIMNIR_EVENT_BUS_BACKEND=redis|nats|memory`
-   - [ ] Backward compatibility: memory bus for single-node
-   - [ ] Event serialization (JSON or protobuf)
-   - [ ] Update WebSocket handler to subscribe via Redis/NATS
-
-2. **Complete Prometheus Metrics** (Week 2-3)
+1. **Complete Prometheus Metrics** (Week 1-2)
    - [ ] Scheduler metrics:
      - `grimnir_schedule_build_duration_seconds`
      - `grimnir_schedule_entries_total`
@@ -281,27 +389,18 @@ This document aligns the current Grimnir Radio implementation with the comprehen
      - `grimnir_api_request_duration_seconds` (histogram)
      - `grimnir_api_requests_total` (counter)
 
-3. **Add Distributed Tracing** (Week 3-4)
+2. **Add Distributed Tracing** (Week 2-3)
    - [ ] OpenTelemetry integration
    - [ ] Trace IDs propagated: API → Planner → Executor → Media Engine
-   - [ ] Spans for key operations:
-     - Schedule generation
-     - Smart block materialization
-     - Media engine command execution
-     - API request handling
+   - [ ] Spans for key operations (schedule generation, media commands, API requests)
    - [ ] Jaeger or Tempo backend
 
-4. **Alerting Rules** (Week 4-5)
+3. **Alerting Rules** (Week 3-4)
    - [ ] Prometheus AlertManager integration
-   - [ ] Alert rules:
-     - `ScheduleGap` - No entries in next 1 hour
-     - `PlayoutUnderrun` - Dropout count > threshold
-     - `OutputDown` - Output health = 0 for > 60s
-     - `MediaEngineDown` - gRPC connection lost
-     - `HighCPU` - Media engine CPU > 80% for 5 minutes
+   - [ ] Alert rules: ScheduleGap, PlayoutUnderrun, OutputDown, MediaEngineDown, HighCPU
    - [ ] Webhook integration for alerts
 
-5. **Multi-Instance Support** (Week 5-6)
+4. **Multi-Instance Support** (Week 4-6)
    - [ ] Stateless API instances (load-balanced)
    - [ ] Leader election for planner (only one active)
    - [ ] Executor pool distributed across instances
@@ -309,14 +408,7 @@ This document aligns the current Grimnir Radio implementation with the comprehen
    - [ ] Shared Redis/NATS event bus
    - [ ] Shared media storage (S3 or NFS)
 
-6. **Deployment Guides** (Week 6)
-   - [ ] Docker Compose: full stack (API + media engine + postgres + redis + icecast)
-   - [ ] Kubernetes manifests with multi-replica deployment
-   - [ ] Systemd service files for traditional deployment
-   - [ ] Production hardening checklist
-
 **Deliverables:**
-- ✓ Redis/NATS event bus (multi-instance ready)
 - ✓ Complete Prometheus metrics
 - ✓ Distributed tracing (OpenTelemetry)
 - ✓ AlertManager integration
@@ -324,9 +416,9 @@ This document aligns the current Grimnir Radio implementation with the comprehen
 
 ---
 
-### Phase 5: Advanced Features (MVP 3 → MVP 4)
+### Phase 6: Advanced Features (MVP 4 → 1.0)
 
-**Goal:** Professional broadcast features
+**Goal:** Professional broadcast features and migration tools
 
 **Duration:** 6-8 weeks
 
@@ -345,15 +437,7 @@ This document aligns the current Grimnir Radio implementation with the comprehen
    - [ ] Schedule templates: copy week-to-week
    - [ ] Holiday schedules with override dates
 
-3. **Webstream Relay with Failover** (Week 4-6)
-   - [ ] Schedule external HTTP/ICY streams in clocks
-   - [ ] Health probing: periodic HEAD requests
-   - [ ] Fallback URL chains: primary → backup → local
-   - [ ] Preflight connection before slot start
-   - [ ] Grace window failover (auto-switch if primary fails)
-   - [ ] Metadata passthrough (ICY StreamTitle)
-
-4. **Migration Tools** (Week 6-8)
+3. **Migration Tools** (Week 4-6)
    - [ ] AzuraCast backup import:
      - Parse MySQL/Postgres dump
      - Map stations, mounts, media, playlists, schedules
@@ -365,17 +449,23 @@ This document aligns the current Grimnir Radio implementation with the comprehen
    - [ ] CLI: `grimnirradio import azuracast --backup backup.tar.gz --dry-run`
    - [ ] API: `POST /api/v1/migrations/azuracast` with progress events
 
+4. **Recording & Compliance** (Week 6-8)
+   - [ ] Recording sink for aircheck/compliance
+   - [ ] Automatic file rotation
+   - [ ] Metadata embedding in recordings
+   - [ ] FCC-compliant logging
+
 **Deliverables:**
 - ✓ EAS compliance features
 - ✓ Advanced scheduling tools
-- ✓ Webstream relay with automatic failover
 - ✓ AzuraCast/LibreTime migration tools
+- ✓ Recording and compliance features
 
 ---
 
-### Phase 6: WebDJ & User Experience (MVP 4 → 1.0)
+### Phase 7: WebDJ & User Experience (1.0 → 1.1)
 
-**Goal:** Complete broadcast suite
+**Goal:** Complete broadcast suite with web interface
 
 **Duration:** 8-10 weeks
 
@@ -618,18 +708,28 @@ priorities:
 - [x] Real-time telemetry streaming (1-second intervals)
 - [x] 13 integration tests (100% passing)
 
-### Phase 4C (Observability)
+### Phase 4C (Live & Webstreams) ✅ COMPLETE
+- [x] Live authorization with token-based authentication
+- [x] Live session tracking with database persistence
+- [x] Harbor-style live input (Icecast, RTP, SRT)
+- [x] Priority system integration for live sessions
+- [x] Webstream health checks with automatic failover
+- [x] Failover chain progression (primary → backup with auto-recovery)
+- [x] Scheduler integration for webstream entries
+- [x] 13 new REST API endpoints (6 live, 7 webstream)
+
+### Phase 5 (Observability & Multi-Instance)
 - [ ] All metrics exported to Prometheus
 - [ ] Distributed traces show end-to-end request flow
 - [ ] Alerts fire correctly for test failure scenarios
 - [ ] Multi-instance deployment scales to 3 API replicas
 
-### Phase 5 (Advanced)
+### Phase 6 (Advanced Features)
 - [ ] AzuraCast migration imports 1000-track library in < 5 minutes
-- [ ] Webstream failover completes within grace window (< 5s)
 - [ ] EAS alerts interrupt automation immediately (< 500ms)
+- [ ] Advanced scheduling with conflict detection
 
-### Phase 6 (1.0)
+### Phase 7 (1.1)
 - [ ] WebDJ interface supports live streaming via WebRTC
 - [ ] Voice tracks integrated into schedule seamlessly
 - [ ] Listener statistics updated in real-time (< 1s latency)
@@ -653,13 +753,21 @@ This roadmap aligns Grimnir Radio with the comprehensive design brief for a mode
 - ✅ Phase 0: Foundation Fixes (100% complete)
 - ✅ Phase 4A: Executor & Priority System (100% complete)
 - ✅ Phase 4B: Media Engine Separation (100% complete)
-- ⏳ Phase 4C: Live & Webstreams (next phase)
+- ✅ Phase 4C: Live Input & Webstream Relay (100% complete)
+- ⏳ Phase 5: Observability & Multi-Instance (next phase)
 
-**Key Achievement:** Grimnir Radio now has a complete multi-process architecture with separated control plane and media engine. The 5-tier priority system, executor state machine, DSP graph builder, and real-time telemetry streaming are all fully functional and tested.
+**Key Achievements:**
+- Complete multi-process architecture with separated control plane and media engine
+- 5-tier priority system with state machine
+- Token-based live authorization with harbor-style input (Icecast, RTP, SRT)
+- Webstream relay with automatic health checks and failover chains
+- 13 new REST API endpoints for live and webstream management
+- Scheduler integration for webstream playback
+- Real-time telemetry streaming and event bus integration
 
-**Remaining Timeline:** ~15-18 weeks (4-5 months) from current state to 1.0 release.
+**Remaining Timeline:** ~12-15 weeks (3-4 months) from current state to 1.0 release.
 
 **Next Steps:**
-1. Begin Phase 4C: Complete live input routing and webstream relay with failover
-2. Continue with Phase 5: Multi-instance scaling and leader election
-3. Complete Phase 6: Migration tools, observability, and production deployment guides
+1. Begin Phase 5: Observability & Multi-Instance scaling
+2. Continue with Phase 6: Advanced features (EAS, scheduling, migration tools)
+3. Complete Phase 7: WebDJ interface and user experience

@@ -136,6 +136,7 @@ const (
 	SlotTypeSmartBlock ClockSlotType = "smart_block"
 	SlotTypeHardItem   ClockSlotType = "hard_item"
 	SlotTypeStopset    ClockSlotType = "stopset"
+	SlotTypeWebstream  ClockSlotType = "webstream"
 )
 
 // ClockHour describes one hour clock template.

@@ -105,8 +105,13 @@ func (s *Server) initDependencies() error {
 
 	s.analyzer = analyzer.New(database, s.cfg.MediaRoot, s.logger)
 	mediaService := media.NewService(s.cfg, s.logger)
+
+	// Webstream service with health checking (created early for director dependency)
+	webstreamService := webstream.NewService(database, s.bus, s.logger)
+	s.DeferClose(func() error { return webstreamService.Shutdown() })
+
 	s.playout = playout.NewManager(s.cfg, s.logger)
-	s.director = playout.NewDirector(database, s.playout, s.bus, s.logger)
+	s.director = playout.NewDirector(database, s.playout, s.bus, webstreamService, s.logger)
 
 	// Priority and executor services (needed by live service)
 	priorityService := priority.NewService(database, s.bus, s.logger)
@@ -114,10 +119,6 @@ func (s *Server) initDependencies() error {
 
 	// Live service depends on priority service
 	liveService := live.NewService(database, priorityService, s.bus, s.logger)
-
-	// Webstream service with health checking
-	webstreamService := webstream.NewService(database, s.bus, s.logger)
-	s.DeferClose(func() error { return webstreamService.Shutdown() })
 
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 

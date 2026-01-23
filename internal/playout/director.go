@@ -8,6 +8,7 @@ import (
 
     "github.com/friendsincode/grimnir_radio/internal/events"
     "github.com/friendsincode/grimnir_radio/internal/models"
+    "github.com/friendsincode/grimnir_radio/internal/webstream"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
@@ -22,10 +23,11 @@ type playoutState struct {
 
 // Director drives schedule execution and emits now playing events.
 type Director struct {
-	db      *gorm.DB
-	manager *Manager
-	bus     *events.Bus
-	logger  zerolog.Logger
+	db             *gorm.DB
+	manager        *Manager
+	bus            *events.Bus
+	webstreamSvc   *webstream.Service
+	logger         zerolog.Logger
 
 	mu     sync.Mutex
 	played map[string]time.Time
@@ -33,8 +35,16 @@ type Director struct {
 }
 
 // NewDirector creates a playout director.
-func NewDirector(db *gorm.DB, manager *Manager, bus *events.Bus, logger zerolog.Logger) *Director {
-	return &Director{db: db, manager: manager, bus: bus, logger: logger, played: make(map[string]time.Time), active: make(map[string]playoutState)}
+func NewDirector(db *gorm.DB, manager *Manager, bus *events.Bus, webstreamSvc *webstream.Service, logger zerolog.Logger) *Director {
+	return &Director{
+		db:           db,
+		manager:      manager,
+		bus:          bus,
+		webstreamSvc: webstreamSvc,
+		logger:       logger,
+		played:       make(map[string]time.Time),
+		active:       make(map[string]playoutState),
+	}
 }
 
 // Run executes the director loop until context cancellation.
@@ -95,6 +105,8 @@ func (d *Director) handleEntry(ctx context.Context, entry models.ScheduleEntry) 
 	switch entry.SourceType {
 	case "media":
 		return d.startMediaEntry(ctx, entry)
+	case "webstream":
+		return d.startWebstreamEntry(ctx, entry)
 	default:
 		d.publishNowPlaying(entry, nil)
 		return nil
@@ -139,6 +151,103 @@ func (d *Director) startMediaEntry(ctx context.Context, entry models.ScheduleEnt
 			"current_media":     media.ID,
 			"entry_id":          entry.ID,
 			"event":             "crossfade",
+		})
+	}
+
+	d.publishNowPlaying(entry, payload)
+	d.scheduleStop(entry.MountID, entry.EndsAt)
+
+	return nil
+}
+
+func (d *Director) startWebstreamEntry(ctx context.Context, entry models.ScheduleEntry) error {
+	// Get webstream ID from metadata or SourceID
+	webstreamID := entry.SourceID
+	if webstreamID == "" {
+		if id, ok := entry.Metadata["webstream_id"].(string); ok {
+			webstreamID = id
+		}
+	}
+
+	if webstreamID == "" {
+		return fmt.Errorf("webstream_id not found in entry")
+	}
+
+	// Load webstream from database
+	ws, err := d.webstreamSvc.GetWebstream(ctx, webstreamID)
+	if err != nil {
+		return fmt.Errorf("failed to load webstream: %w", err)
+	}
+
+	// Get current URL (respects failover state)
+	currentURL := ws.GetCurrentURL()
+	if currentURL == "" {
+		return fmt.Errorf("no URL configured for webstream %s", webstreamID)
+	}
+
+	// Build GStreamer pipeline for webstream
+	// souphttpsrc for HTTP/Icecast streams with ICY metadata
+	pipeline := fmt.Sprintf("souphttpsrc location=%q is-live=true do-timestamp=true", currentURL)
+
+	// Add ICY metadata extraction if passthrough is enabled
+	if ws.PassthroughMetadata {
+		pipeline += " iradio-mode=true"
+	}
+
+	// Add buffer
+	if ws.BufferSizeMS > 0 {
+		pipeline += fmt.Sprintf(" ! queue max-size-time=%d000000", ws.BufferSizeMS) // Convert ms to ns
+	}
+
+	// Add decoder and output
+	pipeline += " ! decodebin ! audioconvert ! audioresample ! queue max-size-buffers=0 max-size-time=0 ! audioconvert ! autoaudiosink sync=true"
+
+	d.mu.Lock()
+	prev, hasPrev := d.active[entry.MountID]
+	d.active[entry.MountID] = playoutState{
+		MediaID:   webstreamID, // Store webstream ID in MediaID field for tracking
+		EntryID:   entry.ID,
+		StationID: entry.StationID,
+		Started:   entry.StartsAt,
+		Ends:      entry.EndsAt,
+	}
+	d.mu.Unlock()
+
+	// Stop previous pipeline
+	if err := d.manager.StopPipeline(entry.MountID); err != nil {
+		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
+	}
+
+	// Start webstream pipeline
+	if err := d.manager.EnsurePipeline(ctx, entry.MountID, pipeline); err != nil {
+		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start webstream pipeline")
+		return err
+	}
+
+	// Build metadata payload
+	payload := map[string]any{
+		"webstream_id":   ws.ID,
+		"webstream_name": ws.Name,
+		"url":            currentURL,
+		"health_status":  ws.HealthStatus,
+	}
+
+	// Add custom metadata if override is enabled
+	if ws.OverrideMetadata && ws.CustomMetadata != nil {
+		for k, v := range ws.CustomMetadata {
+			payload[k] = v
+		}
+	}
+
+	if hasPrev && prev.MediaID != webstreamID {
+		d.bus.Publish(events.EventHealth, events.Payload{
+			"station_id":        entry.StationID,
+			"mount_id":          entry.MountID,
+			"previous_source":   prev.MediaID,
+			"previous_entry_id": prev.EntryID,
+			"current_source":    webstreamID,
+			"entry_id":          entry.ID,
+			"event":             "source_change",
 		})
 	}
 

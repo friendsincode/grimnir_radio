@@ -1,8 +1,8 @@
 # Grimnir Radio
 
-Version: 0.0.1-alpha (Phase 4B Complete)
+Version: 0.0.1-alpha (Phase 4C Complete)
 
-Grimnir Radio is a modern radio automation system built in Go, featuring a multi-process architecture with separated control plane and media engine for superior reliability and performance.
+Grimnir Radio is a modern radio automation system built in Go, featuring a multi-process architecture with separated control plane and media engine, live DJ input, and HTTP stream relay with automatic failover.
 
 ## Architecture
 
@@ -15,6 +15,15 @@ Communication between components uses gRPC for low-latency, reliable control of 
 
 ## Current Status
 
+**Phase 4C Complete (100%)** - Live Input & Webstream Relay
+- ✅ Token-based live DJ authorization with session management
+- ✅ Harbor-style live input (Icecast, RTP, SRT)
+- ✅ Priority system integration for live sessions
+- ✅ Webstream relay with automatic health checks
+- ✅ Failover chain progression (primary → backup with auto-recovery)
+- ✅ 13 new REST API endpoints (6 live, 7 webstream)
+- ✅ Scheduler integration for webstream entries
+
 **Phase 4B Complete (100%)** - Media Engine Separation
 - ✅ Separate media engine binary with gRPC interface
 - ✅ DSP graph builder (12 node types: loudness, AGC, compressor, limiter, etc.)
@@ -22,7 +31,6 @@ Communication between components uses gRPC for low-latency, reliable control of 
 - ✅ Process supervision with automatic restart
 - ✅ Real-time telemetry streaming
 - ✅ 13 comprehensive integration tests (all passing)
-- ✅ Production-ready systemd service files
 
 See `docs/ARCHITECTURE_ROADMAP.md` for implementation timeline and `docs/ARCHITECTURE_NOTES.md` for architecture details.
 
@@ -101,7 +109,7 @@ Key files:
 ## Features
 
 ### Implemented ✅
-- HTTP REST API with JWT authentication
+- HTTP REST API with JWT authentication (26 endpoints total)
 - Smart Block engine (rule-based playlist generation)
 - Clock hour templates with slot compilation
 - Scheduler service (30-second tick, materializes smart blocks)
@@ -114,17 +122,19 @@ Key files:
 - Real-time audio telemetry
 - Process supervision and watchdog
 - Multi-database support (PostgreSQL, MySQL, SQLite)
+- **Live DJ input** with token-based authorization (Icecast, RTP, SRT)
+- **Webstream relay** with automatic health checks and failover chains
+- Scheduler integration for webstream playback
 
 ### In Progress 🚧
-- Live input handover (Phase 4C)
-- Webstream relay with failover (Phase 4C)
 - Horizontal scaling / multi-instance support (Phase 5)
+- Full observability (Prometheus metrics, OpenTelemetry tracing)
 
 ### Planned 📋
 - Migration tools (AzuraCast, LibreTime import)
-- Prometheus metrics and OpenTelemetry tracing
+- Emergency Alert System (EAS) integration
 - WebDJ interface
-- Advanced analytics
+- Advanced scheduling features (conflict detection, templates)
 
 ## Shout-Outs
 

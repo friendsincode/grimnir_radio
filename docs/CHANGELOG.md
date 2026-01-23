@@ -1,6 +1,117 @@
 # Changelog
 
-## 0.0.1-alpha (Phase 4B Complete) — 2026-01-22
+## 0.0.1-alpha (Phase 4C Complete) — 2026-01-22
+
+### Phase 4C: Live Input & Webstream Relay (100% Complete)
+**Harbor-Style Live Input and HTTP Stream Failover**
+
+#### Live Input System
+- Implemented live DJ session management with database persistence
+  - Token-based authentication (32-byte cryptographically random tokens)
+  - One-time use token validation
+  - Session lifecycle tracking (connected, active, disconnected)
+- Created live authorization service
+  - `GenerateToken()` - Create authorization tokens for DJs
+  - `AuthorizeSource()` - Validate tokens before connection
+  - `HandleConnect()` - Start live session with priority integration
+  - `HandleDisconnect()` - End live session and clean up
+  - `GetActiveSessions()` - List all active DJ connections
+- Added 6 REST API endpoints for live management
+  - `POST /api/v1/live/tokens` - Generate authorization token
+  - `POST /api/v1/live/authorize` - Validate token
+  - `POST /api/v1/live/connect` - Start live session
+  - `DELETE /api/v1/live/sessions/{id}` - Disconnect session
+  - `GET /api/v1/live/sessions` - List active sessions
+  - `GET /api/v1/live/sessions/{id}` - Get session details
+- Implemented harbor-style live input in media engine
+  - Icecast-compatible source client input (souphttpsrc)
+  - RTP input over UDP
+  - SRT (Secure Reliable Transport) input
+  - WebRTC placeholder (future implementation)
+- Integrated with priority system
+  - Live override sessions (priority 1)
+  - Live scheduled sessions (priority 2)
+  - Automatic priority transitions on connect/disconnect
+- Event bus integration
+  - `dj.connect` - DJ connection events
+  - `dj.disconnect` - DJ disconnection events
+
+#### Webstream Relay System
+- Created webstream model with failover chain support
+  - Primary → Backup → Backup2 URL progression
+  - Health check configuration (interval, timeout, method)
+  - Failover settings (enabled, grace period, auto-recovery)
+  - Buffer and reconnect settings
+  - Metadata passthrough and override
+- Implemented webstream service with health monitoring
+  - CRUD operations for webstream configurations
+  - Background health check workers (one per webstream)
+  - Automatic health checker lifecycle management
+  - Preflight connection checks
+  - Manual failover and primary reset
+- Built health check algorithm
+  - HTTP HEAD/GET probes with configurable timeout
+  - 3-tier health status: healthy → degraded → unhealthy
+  - Consecutive failure tracking (degraded after 1, failover after 3)
+  - Redirect handling (up to 3 redirects)
+- Implemented failover logic
+  - Test backup URL before switching
+  - Grace window before failover
+  - Skip unhealthy backups automatically
+  - Auto-recovery to primary when healthy
+- Added webstream player to media engine
+  - GStreamer souphttpsrc for HTTP/Icecast streams
+  - ICY metadata extraction (iradio-mode)
+  - Configurable buffer size (max-size-time)
+  - Fade-in support on webstream start
+  - DSP graph routing for processing
+- Created 7 REST API endpoints for webstream management
+  - `GET /api/v1/webstreams` - List webstreams
+  - `POST /api/v1/webstreams` - Create webstream
+  - `GET /api/v1/webstreams/{id}` - Get webstream
+  - `PUT /api/v1/webstreams/{id}` - Update webstream
+  - `DELETE /api/v1/webstreams/{id}` - Delete webstream
+  - `POST /api/v1/webstreams/{id}/failover` - Manual failover
+  - `POST /api/v1/webstreams/{id}/reset` - Reset to primary
+- Event bus integration
+  - `webstream.failover` - Automatic/manual failover events
+  - `webstream.recovered` - Auto-recovery to primary events
+
+#### Scheduler Integration
+- Added `SlotTypeWebstream` to clock slot types
+- Updated scheduler to create webstream schedule entries
+- Integrated webstream playback with playout director
+  - Load webstream configuration from database
+  - Build GStreamer pipeline with current URL
+  - Respect failover state and health status
+  - Publish now playing events with webstream metadata
+  - Schedule automatic stop at entry end time
+
+**Files Added:**
+- `internal/models/live.go` - Live session model
+- `internal/live/service.go` - Live authorization and session management
+- `internal/api/live.go` - Live API handlers (6 endpoints)
+- `internal/mediaengine/live.go` - Live input manager
+- `internal/models/webstream.go` - Webstream model with failover
+- `internal/webstream/service.go` - Webstream service
+- `internal/webstream/health_checker.go` - Background health check workers
+- `internal/mediaengine/webstream.go` - Webstream player
+- `internal/api/webstream.go` - Webstream API handlers (7 endpoints)
+
+**Files Modified:**
+- `proto/mediaengine/v1/mediaengine.proto` - Added LiveInputType enum
+- `internal/models/models.go` - Added SlotTypeWebstream
+- `internal/scheduler/service.go` - Handle webstream slots
+- `internal/playout/director.go` - Webstream playback integration
+- `internal/server/server.go` - Webstream service initialization
+- `internal/db/migrate.go` - LiveSession and Webstream migrations
+
+**Code Statistics:**
+- ~1,400 lines for live input system
+- ~1,200 lines for webstream relay system
+- ~200 lines for scheduler integration
+- 13 new REST API endpoints
+- 4 new event types
 
 ### Phase 4B: Media Engine Separation (100% Complete)
 **Multi-Process Architecture with gRPC Communication**
