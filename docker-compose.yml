@@ -1,0 +1,150 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database (shared state)
+  postgres:
+    image: postgres:15-alpine
+    container_name: grimnir-postgres
+    environment:
+      POSTGRES_USER: grimnir
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-grimnir_secret}
+      POSTGRES_DB: grimnir
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grimnir"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - grimnir-network
+
+  # Redis (leader election and event bus)
+  redis:
+    image: redis:7-alpine
+    container_name: grimnir-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secret}
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - grimnir-network
+
+  # Media Engine (GStreamer process)
+  mediaengine:
+    build:
+      context: .
+      dockerfile: Dockerfile.mediaengine
+    image: grimnir-mediaengine:latest
+    container_name: grimnir-mediaengine
+    environment:
+      MEDIAENGINE_GRPC_PORT: 9091
+      MEDIAENGINE_LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "9091:9091"
+    volumes:
+      - media-cache:/var/lib/mediaengine/cache
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mediaengine", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - grimnir-network
+    restart: unless-stopped
+    # Increase shared memory for GStreamer
+    shm_size: '256mb'
+
+  # Grimnir Radio Control Plane
+  grimnir:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: grimnir-radio:latest
+    container_name: grimnir-radio
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mediaengine:
+        condition: service_healthy
+    environment:
+      # HTTP Server
+      GRIMNIR_HTTP_PORT: 8080
+      GRIMNIR_HTTP_BIND: 0.0.0.0
+
+      # Database
+      GRIMNIR_DB_BACKEND: postgres
+      GRIMNIR_DB_DSN: host=postgres port=5432 user=grimnir password=${POSTGRES_PASSWORD:-grimnir_secret} dbname=grimnir sslmode=disable
+
+      # Redis
+      GRIMNIR_REDIS_ADDR: redis:6379
+      GRIMNIR_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secret}
+      GRIMNIR_REDIS_DB: 0
+
+      # Leader Election (disabled for single instance)
+      GRIMNIR_LEADER_ELECTION_ENABLED: ${LEADER_ELECTION_ENABLED:-false}
+      GRIMNIR_INSTANCE_ID: grimnir-1
+
+      # Media Engine
+      GRIMNIR_MEDIA_ENGINE_GRPC_ADDR: mediaengine:9091
+
+      # JWT Authentication
+      GRIMNIR_JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-change-this-in-production}
+      GRIMNIR_JWT_TTL_MINUTES: 15
+
+      # Media Storage
+      GRIMNIR_MEDIA_ROOT: /var/lib/grimnir/media
+      GRIMNIR_MEDIA_BACKEND: filesystem
+
+      # Scheduler
+      GRIMNIR_SCHEDULER_LOOKAHEAD: 48h
+      GRIMNIR_SCHEDULER_TICK_INTERVAL: 30s
+
+      # Observability
+      GRIMNIR_TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      GRIMNIR_OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      GRIMNIR_TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-0.1}
+
+      # Environment
+      GRIMNIR_ENVIRONMENT: ${ENVIRONMENT:-production}
+      GRIMNIR_LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8080:8080"  # HTTP API
+      - "9000:9000"  # Prometheus metrics
+    volumes:
+      - media-data:/var/lib/grimnir/media
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - grimnir-network
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  media-data:
+    driver: local
+  media-cache:
+    driver: local
+
+networks:
+  grimnir-network:
+    driver: bridge

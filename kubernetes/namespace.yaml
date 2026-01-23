@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grimnir-radio
+  labels:
+    name: grimnir-radio
+    app.kubernetes.io/name: grimnir-radio
+    app.kubernetes.io/part-of: grimnir-radio-platform
