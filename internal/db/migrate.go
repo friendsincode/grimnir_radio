@@ -23,5 +23,7 @@ func Migrate(database *gorm.DB) error {
 		&models.AnalysisJob{},
 		&models.PrioritySource{},
 		&models.ExecutorState{},
+		&models.LiveSession{},
+		&models.Webstream{},
 	)
 }

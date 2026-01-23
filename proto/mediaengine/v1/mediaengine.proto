@@ -107,13 +107,21 @@ message InsertEmergencyResponse {
 message RouteLiveRequest {
   string station_id = 1;
   string mount_id = 2;
-  LiveInputConfig input = 3;
+  string session_id = 3;        // Live session ID
+  LiveInputType input_type = 4; // Type of live input
+  string input_url = 5;         // Input URL (for HTTP/Icecast/SRT)
+  int32 port = 6;               // Port (for RTP/UDP)
+  string dsp_graph_handle = 7;  // DSP graph to apply
+  int32 fade_in_ms = 8;         // Fade in duration
+  LiveInputConfig input = 9;    // Legacy field (deprecated)
 }
 
 message RouteLiveResponse {
   bool success = 1;
-  string live_id = 2;
-  string error = 3;
+  string session_id = 2;        // Live session ID
+  string message = 3;           // Status message
+  string live_id = 4;           // Legacy field (deprecated)
+  string error = 5;             // Legacy field (deprecated)
 }
 
 // TelemetryRequest for streaming telemetry
@@ -210,6 +218,14 @@ enum SourceType {
   SOURCE_TYPE_LIVE = 3;
   SOURCE_TYPE_FALLBACK = 4;
   SOURCE_TYPE_EMERGENCY = 5;
+}
+
+enum LiveInputType {
+  LIVE_INPUT_TYPE_UNSPECIFIED = 0;
+  LIVE_INPUT_TYPE_ICECAST = 1; // Icecast/HTTP source
+  LIVE_INPUT_TYPE_RTP = 2;     // RTP/UDP stream
+  LIVE_INPUT_TYPE_SRT = 3;     // Secure Reliable Transport
+  LIVE_INPUT_TYPE_WEBRTC = 4;  // WebRTC stream
 }
 
 enum PlaybackState {

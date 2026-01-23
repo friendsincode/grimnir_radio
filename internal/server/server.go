@@ -106,11 +106,13 @@ func (s *Server) initDependencies() error {
 	mediaService := media.NewService(s.cfg, s.logger)
 	s.playout = playout.NewManager(s.cfg, s.logger)
 	s.director = playout.NewDirector(database, s.playout, s.bus, s.logger)
-	liveService := live.NewService(s.logger)
 
-	// Priority and executor services
+	// Priority and executor services (needed by live service)
 	priorityService := priority.NewService(database, s.bus, s.logger)
 	executorStateMgr := executor.NewStateManager(database, s.logger)
+
+	// Live service depends on priority service
+	liveService := live.NewService(database, priorityService, s.bus, s.logger)
 
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 

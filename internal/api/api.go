@@ -190,7 +190,21 @@ func (a *API) Routes(r chi.Router) {
 			})
 
 			pr.Route("/live", func(r chi.Router) {
+				// Token generation (admin/manager only)
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/tokens", a.handleLiveGenerateToken)
+
+				// Authorization (called by media engine/icecast)
 				r.Post("/authorize", a.handleLiveAuthorize)
+
+				// Connect/disconnect
+				r.Post("/connect", a.handleLiveConnect)
+				r.Delete("/sessions/{session_id}", a.handleLiveDisconnect)
+
+				// Session management
+				r.Get("/sessions", a.handleListLiveSessions)
+				r.Get("/sessions/{session_id}", a.handleGetLiveSession)
+
+				// Legacy handover endpoint (deprecated, kept for compatibility)
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/handover", a.handleLiveHandover)
 			})
 
@@ -821,26 +835,6 @@ func (a *API) handleScheduleUpdate(w http.ResponseWriter, r *http.Request) {
 	a.bus.Publish(events.EventScheduleUpdate, entryMap)
 
 	writeJSON(w, http.StatusOK, entry)
-}
-
-func (a *API) handleLiveAuthorize(w http.ResponseWriter, r *http.Request) {
-	var req liveAuthorizeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json")
-		return
-	}
-	if req.StationID == "" || req.MountID == "" {
-		writeError(w, http.StatusBadRequest, "station_and_mount_required")
-		return
-	}
-
-	allowed, err := a.live.AuthorizeSource(r.Context(), req.StationID, req.MountID, req.Token)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "authorize_failed")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"authorized": allowed})
 }
 
 func (a *API) handleLiveHandover(w http.ResponseWriter, r *http.Request) {

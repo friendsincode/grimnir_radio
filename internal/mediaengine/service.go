@@ -24,6 +24,7 @@ type Service struct {
 	pipelineManager *PipelineManager
 	dspBuilder      *dsp.Builder
 	supervisor      *Supervisor
+	liveInputMgr    *LiveInputManager
 
 	mu       sync.RWMutex
 	stations map[string]*StationEngine // station_id -> engine
@@ -65,6 +66,7 @@ type StationEngine struct {
 func New(cfg *Config, logger zerolog.Logger) *Service {
 	pipelineManager := NewPipelineManager(cfg, logger)
 	supervisor := NewSupervisor(cfg, logger, pipelineManager)
+	liveInputMgr := NewLiveInputManager(logger)
 
 	svc := &Service{
 		cfg:             cfg,
@@ -72,6 +74,7 @@ func New(cfg *Config, logger zerolog.Logger) *Service {
 		pipelineManager: pipelineManager,
 		dspBuilder:      dsp.NewBuilder(logger),
 		supervisor:      supervisor,
+		liveInputMgr:    liveInputMgr,
 		stations:        make(map[string]*StationEngine),
 		graphs:          make(map[string]*dsp.Graph),
 		uptime:          time.Now(),
@@ -322,30 +325,21 @@ func (s *Service) RouteLive(ctx context.Context, req *pb.RouteLiveRequest) (*pb.
 	s.logger.Info().
 		Str("station_id", req.StationId).
 		Str("mount_id", req.MountId).
-		Str("input_url", req.Input.InputUrl).
-		Bool("apply_processing", req.Input.ApplyProcessing).
+		Str("session_id", req.SessionId).
+		Str("input_type", req.InputType.String()).
 		Msg("routing live input")
 
-	// Get pipeline
-	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
+	// Route through live input manager
+	resp, err := s.liveInputMgr.RouteLive(ctx, req)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("pipeline not found")
-		return &pb.RouteLiveResponse{
-			Success: false,
-			Error:   fmt.Sprintf("pipeline not found: %v", err),
-		}, nil
-	}
-
-	// Route live input
-	if err := pipeline.RouteLive(ctx, req.Input); err != nil {
 		s.logger.Error().Err(err).Msg("failed to route live input")
 		return &pb.RouteLiveResponse{
 			Success: false,
-			Error:   fmt.Sprintf("failed to route live: %v", err),
-		}, nil
+			Message: fmt.Sprintf("failed to route live: %v", err),
+		}, status.Error(codes.Internal, err.Error())
 	}
 
-	// Update station engine state
+	// Update station engine state to indicate live playback
 	s.mu.Lock()
 	engine := s.getOrCreateStation(req.StationId, req.MountId)
 	engine.mu.Lock()
@@ -353,12 +347,7 @@ func (s *Service) RouteLive(ctx context.Context, req *pb.RouteLiveRequest) (*pb.
 	engine.mu.Unlock()
 	s.mu.Unlock()
 
-	liveID := uuid.NewString()
-
-	return &pb.RouteLiveResponse{
-		Success: true,
-		LiveId:  liveID,
-	}, nil
+	return resp, nil
 }
 
 // StreamTelemetry streams real-time audio telemetry.
@@ -458,6 +447,11 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		engine.mu.Unlock()
 	}
 	s.mu.Unlock()
+
+	// Shutdown live input manager
+	if err := s.liveInputMgr.Shutdown(); err != nil {
+		s.logger.Error().Err(err).Msg("failed to shutdown live input manager")
+	}
 
 	s.logger.Info().Msg("media engine shutdown complete")
 

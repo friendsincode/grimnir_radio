@@ -80,6 +80,61 @@ func (SourceType) EnumDescriptor() ([]byte, []int) {
 	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{0}
 }
 
+type LiveInputType int32
+
+const (
+	LiveInputType_LIVE_INPUT_TYPE_UNSPECIFIED LiveInputType = 0
+	LiveInputType_LIVE_INPUT_TYPE_ICECAST     LiveInputType = 1 // Icecast/HTTP source
+	LiveInputType_LIVE_INPUT_TYPE_RTP         LiveInputType = 2 // RTP/UDP stream
+	LiveInputType_LIVE_INPUT_TYPE_SRT         LiveInputType = 3 // Secure Reliable Transport
+	LiveInputType_LIVE_INPUT_TYPE_WEBRTC      LiveInputType = 4 // WebRTC stream
+)
+
+// Enum value maps for LiveInputType.
+var (
+	LiveInputType_name = map[int32]string{
+		0: "LIVE_INPUT_TYPE_UNSPECIFIED",
+		1: "LIVE_INPUT_TYPE_ICECAST",
+		2: "LIVE_INPUT_TYPE_RTP",
+		3: "LIVE_INPUT_TYPE_SRT",
+		4: "LIVE_INPUT_TYPE_WEBRTC",
+	}
+	LiveInputType_value = map[string]int32{
+		"LIVE_INPUT_TYPE_UNSPECIFIED": 0,
+		"LIVE_INPUT_TYPE_ICECAST":     1,
+		"LIVE_INPUT_TYPE_RTP":         2,
+		"LIVE_INPUT_TYPE_SRT":         3,
+		"LIVE_INPUT_TYPE_WEBRTC":      4,
+	}
+)
+
+func (x LiveInputType) Enum() *LiveInputType {
+	p := new(LiveInputType)
+	*p = x
+	return p
+}
+
+func (x LiveInputType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (LiveInputType) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_mediaengine_v1_mediaengine_proto_enumTypes[1].Descriptor()
+}
+
+func (LiveInputType) Type() protoreflect.EnumType {
+	return &file_proto_mediaengine_v1_mediaengine_proto_enumTypes[1]
+}
+
+func (x LiveInputType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use LiveInputType.Descriptor instead.
+func (LiveInputType) EnumDescriptor() ([]byte, []int) {
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{1}
+}
+
 type PlaybackState int32
 
 const (
@@ -125,11 +180,11 @@ func (x PlaybackState) String() string {
 }
 
 func (PlaybackState) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_mediaengine_v1_mediaengine_proto_enumTypes[1].Descriptor()
+	return file_proto_mediaengine_v1_mediaengine_proto_enumTypes[2].Descriptor()
 }
 
 func (PlaybackState) Type() protoreflect.EnumType {
-	return &file_proto_mediaengine_v1_mediaengine_proto_enumTypes[1]
+	return &file_proto_mediaengine_v1_mediaengine_proto_enumTypes[2]
 }
 
 func (x PlaybackState) Number() protoreflect.EnumNumber {
@@ -138,7 +193,7 @@ func (x PlaybackState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use PlaybackState.Descriptor instead.
 func (PlaybackState) EnumDescriptor() ([]byte, []int) {
-	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{1}
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{2}
 }
 
 type FadeCurve int32
@@ -180,11 +235,11 @@ func (x FadeCurve) String() string {
 }
 
 func (FadeCurve) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_mediaengine_v1_mediaengine_proto_enumTypes[2].Descriptor()
+	return file_proto_mediaengine_v1_mediaengine_proto_enumTypes[3].Descriptor()
 }
 
 func (FadeCurve) Type() protoreflect.EnumType {
-	return &file_proto_mediaengine_v1_mediaengine_proto_enumTypes[2]
+	return &file_proto_mediaengine_v1_mediaengine_proto_enumTypes[3]
 }
 
 func (x FadeCurve) Number() protoreflect.EnumNumber {
@@ -193,7 +248,7 @@ func (x FadeCurve) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FadeCurve.Descriptor instead.
 func (FadeCurve) EnumDescriptor() ([]byte, []int) {
-	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{2}
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{3}
 }
 
 type NodeType int32
@@ -259,11 +314,11 @@ func (x NodeType) String() string {
 }
 
 func (NodeType) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_mediaengine_v1_mediaengine_proto_enumTypes[3].Descriptor()
+	return file_proto_mediaengine_v1_mediaengine_proto_enumTypes[4].Descriptor()
 }
 
 func (NodeType) Type() protoreflect.EnumType {
-	return &file_proto_mediaengine_v1_mediaengine_proto_enumTypes[3]
+	return &file_proto_mediaengine_v1_mediaengine_proto_enumTypes[4]
 }
 
 func (x NodeType) Number() protoreflect.EnumNumber {
@@ -272,7 +327,7 @@ func (x NodeType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use NodeType.Descriptor instead.
 func (NodeType) EnumDescriptor() ([]byte, []int) {
-	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{3}
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{4}
 }
 
 // LoadGraphRequest contains DSP graph configuration
@@ -922,12 +977,18 @@ func (x *InsertEmergencyResponse) GetError() string {
 
 // RouteLiveRequest routes live input
 type RouteLiveRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	StationId     string                 `protobuf:"bytes,1,opt,name=station_id,json=stationId,proto3" json:"station_id,omitempty"`
-	MountId       string                 `protobuf:"bytes,2,opt,name=mount_id,json=mountId,proto3" json:"mount_id,omitempty"`
-	Input         *LiveInputConfig       `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	StationId      string                 `protobuf:"bytes,1,opt,name=station_id,json=stationId,proto3" json:"station_id,omitempty"`
+	MountId        string                 `protobuf:"bytes,2,opt,name=mount_id,json=mountId,proto3" json:"mount_id,omitempty"`
+	SessionId      string                 `protobuf:"bytes,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                                    // Live session ID
+	InputType      LiveInputType          `protobuf:"varint,4,opt,name=input_type,json=inputType,proto3,enum=mediaengine.v1.LiveInputType" json:"input_type,omitempty"` // Type of live input
+	InputUrl       string                 `protobuf:"bytes,5,opt,name=input_url,json=inputUrl,proto3" json:"input_url,omitempty"`                                       // Input URL (for HTTP/Icecast/SRT)
+	Port           int32                  `protobuf:"varint,6,opt,name=port,proto3" json:"port,omitempty"`                                                              // Port (for RTP/UDP)
+	DspGraphHandle string                 `protobuf:"bytes,7,opt,name=dsp_graph_handle,json=dspGraphHandle,proto3" json:"dsp_graph_handle,omitempty"`                   // DSP graph to apply
+	FadeInMs       int32                  `protobuf:"varint,8,opt,name=fade_in_ms,json=fadeInMs,proto3" json:"fade_in_ms,omitempty"`                                    // Fade in duration
+	Input          *LiveInputConfig       `protobuf:"bytes,9,opt,name=input,proto3" json:"input,omitempty"`                                                             // Legacy field (deprecated)
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RouteLiveRequest) Reset() {
@@ -974,6 +1035,48 @@ func (x *RouteLiveRequest) GetMountId() string {
 	return ""
 }
 
+func (x *RouteLiveRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *RouteLiveRequest) GetInputType() LiveInputType {
+	if x != nil {
+		return x.InputType
+	}
+	return LiveInputType_LIVE_INPUT_TYPE_UNSPECIFIED
+}
+
+func (x *RouteLiveRequest) GetInputUrl() string {
+	if x != nil {
+		return x.InputUrl
+	}
+	return ""
+}
+
+func (x *RouteLiveRequest) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *RouteLiveRequest) GetDspGraphHandle() string {
+	if x != nil {
+		return x.DspGraphHandle
+	}
+	return ""
+}
+
+func (x *RouteLiveRequest) GetFadeInMs() int32 {
+	if x != nil {
+		return x.FadeInMs
+	}
+	return 0
+}
+
 func (x *RouteLiveRequest) GetInput() *LiveInputConfig {
 	if x != nil {
 		return x.Input
@@ -984,8 +1087,10 @@ func (x *RouteLiveRequest) GetInput() *LiveInputConfig {
 type RouteLiveResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	LiveId        string                 `protobuf:"bytes,2,opt,name=live_id,json=liveId,proto3" json:"live_id,omitempty"`
-	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // Live session ID
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`                      // Status message
+	LiveId        string                 `protobuf:"bytes,4,opt,name=live_id,json=liveId,proto3" json:"live_id,omitempty"`          // Legacy field (deprecated)
+	Error         string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`                          // Legacy field (deprecated)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1025,6 +1130,20 @@ func (x *RouteLiveResponse) GetSuccess() bool {
 		return x.Success
 	}
 	return false
+}
+
+func (x *RouteLiveResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *RouteLiveResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
 }
 
 func (x *RouteLiveResponse) GetLiveId() string {
@@ -1901,16 +2020,28 @@ const file_proto_mediaengine_v1_mediaengine_proto_rawDesc = "" +
 	"\x17InsertEmergencyResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12!\n" +
 	"\femergency_id\x18\x02 \x01(\tR\vemergencyId\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\x83\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\xd9\x02\n" +
 	"\x10RouteLiveRequest\x12\x1d\n" +
 	"\n" +
 	"station_id\x18\x01 \x01(\tR\tstationId\x12\x19\n" +
-	"\bmount_id\x18\x02 \x01(\tR\amountId\x125\n" +
-	"\x05input\x18\x03 \x01(\v2\x1f.mediaengine.v1.LiveInputConfigR\x05input\"\\\n" +
+	"\bmount_id\x18\x02 \x01(\tR\amountId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x03 \x01(\tR\tsessionId\x12<\n" +
+	"\n" +
+	"input_type\x18\x04 \x01(\x0e2\x1d.mediaengine.v1.LiveInputTypeR\tinputType\x12\x1b\n" +
+	"\tinput_url\x18\x05 \x01(\tR\binputUrl\x12\x12\n" +
+	"\x04port\x18\x06 \x01(\x05R\x04port\x12(\n" +
+	"\x10dsp_graph_handle\x18\a \x01(\tR\x0edspGraphHandle\x12\x1c\n" +
+	"\n" +
+	"fade_in_ms\x18\b \x01(\x05R\bfadeInMs\x125\n" +
+	"\x05input\x18\t \x01(\v2\x1f.mediaengine.v1.LiveInputConfigR\x05input\"\x95\x01\n" +
 	"\x11RouteLiveResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x17\n" +
-	"\alive_id\x18\x02 \x01(\tR\x06liveId\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"m\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x17\n" +
+	"\alive_id\x18\x04 \x01(\tR\x06liveId\x12\x14\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\"m\n" +
 	"\x10TelemetryRequest\x12\x1d\n" +
 	"\n" +
 	"station_id\x18\x01 \x01(\tR\tstationId\x12\x19\n" +
@@ -1999,7 +2130,13 @@ const file_proto_mediaengine_v1_mediaengine_proto_rawDesc = "" +
 	"\x15SOURCE_TYPE_WEBSTREAM\x10\x02\x12\x14\n" +
 	"\x10SOURCE_TYPE_LIVE\x10\x03\x12\x18\n" +
 	"\x14SOURCE_TYPE_FALLBACK\x10\x04\x12\x19\n" +
-	"\x15SOURCE_TYPE_EMERGENCY\x10\x05*\xd0\x01\n" +
+	"\x15SOURCE_TYPE_EMERGENCY\x10\x05*\x9b\x01\n" +
+	"\rLiveInputType\x12\x1f\n" +
+	"\x1bLIVE_INPUT_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17LIVE_INPUT_TYPE_ICECAST\x10\x01\x12\x17\n" +
+	"\x13LIVE_INPUT_TYPE_RTP\x10\x02\x12\x17\n" +
+	"\x13LIVE_INPUT_TYPE_SRT\x10\x03\x12\x1a\n" +
+	"\x16LIVE_INPUT_TYPE_WEBRTC\x10\x04*\xd0\x01\n" +
 	"\rPlaybackState\x12\x1e\n" +
 	"\x1aPLAYBACK_STATE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13PLAYBACK_STATE_IDLE\x10\x01\x12\x1a\n" +
@@ -2051,83 +2188,85 @@ func file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP() []byte {
 	return file_proto_mediaengine_v1_mediaengine_proto_rawDescData
 }
 
-var file_proto_mediaengine_v1_mediaengine_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_proto_mediaengine_v1_mediaengine_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_proto_mediaengine_v1_mediaengine_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_proto_mediaengine_v1_mediaengine_proto_goTypes = []any{
 	(SourceType)(0),                 // 0: mediaengine.v1.SourceType
-	(PlaybackState)(0),              // 1: mediaengine.v1.PlaybackState
-	(FadeCurve)(0),                  // 2: mediaengine.v1.FadeCurve
-	(NodeType)(0),                   // 3: mediaengine.v1.NodeType
-	(*LoadGraphRequest)(nil),        // 4: mediaengine.v1.LoadGraphRequest
-	(*LoadGraphResponse)(nil),       // 5: mediaengine.v1.LoadGraphResponse
-	(*PlayRequest)(nil),             // 6: mediaengine.v1.PlayRequest
-	(*PlayResponse)(nil),            // 7: mediaengine.v1.PlayResponse
-	(*StopRequest)(nil),             // 8: mediaengine.v1.StopRequest
-	(*StopResponse)(nil),            // 9: mediaengine.v1.StopResponse
-	(*FadeRequest)(nil),             // 10: mediaengine.v1.FadeRequest
-	(*FadeResponse)(nil),            // 11: mediaengine.v1.FadeResponse
-	(*InsertEmergencyRequest)(nil),  // 12: mediaengine.v1.InsertEmergencyRequest
-	(*InsertEmergencyResponse)(nil), // 13: mediaengine.v1.InsertEmergencyResponse
-	(*RouteLiveRequest)(nil),        // 14: mediaengine.v1.RouteLiveRequest
-	(*RouteLiveResponse)(nil),       // 15: mediaengine.v1.RouteLiveResponse
-	(*TelemetryRequest)(nil),        // 16: mediaengine.v1.TelemetryRequest
-	(*TelemetryData)(nil),           // 17: mediaengine.v1.TelemetryData
-	(*StatusRequest)(nil),           // 18: mediaengine.v1.StatusRequest
-	(*StatusResponse)(nil),          // 19: mediaengine.v1.StatusResponse
-	(*SourceConfig)(nil),            // 20: mediaengine.v1.SourceConfig
-	(*CuePoints)(nil),               // 21: mediaengine.v1.CuePoints
-	(*FadeConfig)(nil),              // 22: mediaengine.v1.FadeConfig
-	(*LiveInputConfig)(nil),         // 23: mediaengine.v1.LiveInputConfig
-	(*DSPGraph)(nil),                // 24: mediaengine.v1.DSPGraph
-	(*DSPNode)(nil),                 // 25: mediaengine.v1.DSPNode
-	(*DSPConnection)(nil),           // 26: mediaengine.v1.DSPConnection
-	nil,                             // 27: mediaengine.v1.StatusResponse.MetadataEntry
-	nil,                             // 28: mediaengine.v1.SourceConfig.MetadataEntry
-	nil,                             // 29: mediaengine.v1.DSPNode.ParamsEntry
-	(*timestamppb.Timestamp)(nil),   // 30: google.protobuf.Timestamp
+	(LiveInputType)(0),              // 1: mediaengine.v1.LiveInputType
+	(PlaybackState)(0),              // 2: mediaengine.v1.PlaybackState
+	(FadeCurve)(0),                  // 3: mediaengine.v1.FadeCurve
+	(NodeType)(0),                   // 4: mediaengine.v1.NodeType
+	(*LoadGraphRequest)(nil),        // 5: mediaengine.v1.LoadGraphRequest
+	(*LoadGraphResponse)(nil),       // 6: mediaengine.v1.LoadGraphResponse
+	(*PlayRequest)(nil),             // 7: mediaengine.v1.PlayRequest
+	(*PlayResponse)(nil),            // 8: mediaengine.v1.PlayResponse
+	(*StopRequest)(nil),             // 9: mediaengine.v1.StopRequest
+	(*StopResponse)(nil),            // 10: mediaengine.v1.StopResponse
+	(*FadeRequest)(nil),             // 11: mediaengine.v1.FadeRequest
+	(*FadeResponse)(nil),            // 12: mediaengine.v1.FadeResponse
+	(*InsertEmergencyRequest)(nil),  // 13: mediaengine.v1.InsertEmergencyRequest
+	(*InsertEmergencyResponse)(nil), // 14: mediaengine.v1.InsertEmergencyResponse
+	(*RouteLiveRequest)(nil),        // 15: mediaengine.v1.RouteLiveRequest
+	(*RouteLiveResponse)(nil),       // 16: mediaengine.v1.RouteLiveResponse
+	(*TelemetryRequest)(nil),        // 17: mediaengine.v1.TelemetryRequest
+	(*TelemetryData)(nil),           // 18: mediaengine.v1.TelemetryData
+	(*StatusRequest)(nil),           // 19: mediaengine.v1.StatusRequest
+	(*StatusResponse)(nil),          // 20: mediaengine.v1.StatusResponse
+	(*SourceConfig)(nil),            // 21: mediaengine.v1.SourceConfig
+	(*CuePoints)(nil),               // 22: mediaengine.v1.CuePoints
+	(*FadeConfig)(nil),              // 23: mediaengine.v1.FadeConfig
+	(*LiveInputConfig)(nil),         // 24: mediaengine.v1.LiveInputConfig
+	(*DSPGraph)(nil),                // 25: mediaengine.v1.DSPGraph
+	(*DSPNode)(nil),                 // 26: mediaengine.v1.DSPNode
+	(*DSPConnection)(nil),           // 27: mediaengine.v1.DSPConnection
+	nil,                             // 28: mediaengine.v1.StatusResponse.MetadataEntry
+	nil,                             // 29: mediaengine.v1.SourceConfig.MetadataEntry
+	nil,                             // 30: mediaengine.v1.DSPNode.ParamsEntry
+	(*timestamppb.Timestamp)(nil),   // 31: google.protobuf.Timestamp
 }
 var file_proto_mediaengine_v1_mediaengine_proto_depIdxs = []int32{
-	24, // 0: mediaengine.v1.LoadGraphRequest.graph:type_name -> mediaengine.v1.DSPGraph
-	20, // 1: mediaengine.v1.PlayRequest.source:type_name -> mediaengine.v1.SourceConfig
-	21, // 2: mediaengine.v1.PlayRequest.cue_points:type_name -> mediaengine.v1.CuePoints
-	22, // 3: mediaengine.v1.PlayRequest.fade:type_name -> mediaengine.v1.FadeConfig
-	20, // 4: mediaengine.v1.FadeRequest.next_source:type_name -> mediaengine.v1.SourceConfig
-	21, // 5: mediaengine.v1.FadeRequest.next_cue_points:type_name -> mediaengine.v1.CuePoints
-	22, // 6: mediaengine.v1.FadeRequest.fade_config:type_name -> mediaengine.v1.FadeConfig
-	20, // 7: mediaengine.v1.InsertEmergencyRequest.source:type_name -> mediaengine.v1.SourceConfig
-	23, // 8: mediaengine.v1.RouteLiveRequest.input:type_name -> mediaengine.v1.LiveInputConfig
-	30, // 9: mediaengine.v1.TelemetryData.timestamp:type_name -> google.protobuf.Timestamp
-	1,  // 10: mediaengine.v1.TelemetryData.state:type_name -> mediaengine.v1.PlaybackState
-	1,  // 11: mediaengine.v1.StatusResponse.state:type_name -> mediaengine.v1.PlaybackState
-	27, // 12: mediaengine.v1.StatusResponse.metadata:type_name -> mediaengine.v1.StatusResponse.MetadataEntry
-	0,  // 13: mediaengine.v1.SourceConfig.type:type_name -> mediaengine.v1.SourceType
-	28, // 14: mediaengine.v1.SourceConfig.metadata:type_name -> mediaengine.v1.SourceConfig.MetadataEntry
-	2,  // 15: mediaengine.v1.FadeConfig.curve:type_name -> mediaengine.v1.FadeCurve
-	25, // 16: mediaengine.v1.DSPGraph.nodes:type_name -> mediaengine.v1.DSPNode
-	26, // 17: mediaengine.v1.DSPGraph.connections:type_name -> mediaengine.v1.DSPConnection
-	3,  // 18: mediaengine.v1.DSPNode.type:type_name -> mediaengine.v1.NodeType
-	29, // 19: mediaengine.v1.DSPNode.params:type_name -> mediaengine.v1.DSPNode.ParamsEntry
-	4,  // 20: mediaengine.v1.MediaEngine.LoadGraph:input_type -> mediaengine.v1.LoadGraphRequest
-	6,  // 21: mediaengine.v1.MediaEngine.Play:input_type -> mediaengine.v1.PlayRequest
-	8,  // 22: mediaengine.v1.MediaEngine.Stop:input_type -> mediaengine.v1.StopRequest
-	10, // 23: mediaengine.v1.MediaEngine.Fade:input_type -> mediaengine.v1.FadeRequest
-	12, // 24: mediaengine.v1.MediaEngine.InsertEmergency:input_type -> mediaengine.v1.InsertEmergencyRequest
-	14, // 25: mediaengine.v1.MediaEngine.RouteLive:input_type -> mediaengine.v1.RouteLiveRequest
-	16, // 26: mediaengine.v1.MediaEngine.StreamTelemetry:input_type -> mediaengine.v1.TelemetryRequest
-	18, // 27: mediaengine.v1.MediaEngine.GetStatus:input_type -> mediaengine.v1.StatusRequest
-	5,  // 28: mediaengine.v1.MediaEngine.LoadGraph:output_type -> mediaengine.v1.LoadGraphResponse
-	7,  // 29: mediaengine.v1.MediaEngine.Play:output_type -> mediaengine.v1.PlayResponse
-	9,  // 30: mediaengine.v1.MediaEngine.Stop:output_type -> mediaengine.v1.StopResponse
-	11, // 31: mediaengine.v1.MediaEngine.Fade:output_type -> mediaengine.v1.FadeResponse
-	13, // 32: mediaengine.v1.MediaEngine.InsertEmergency:output_type -> mediaengine.v1.InsertEmergencyResponse
-	15, // 33: mediaengine.v1.MediaEngine.RouteLive:output_type -> mediaengine.v1.RouteLiveResponse
-	17, // 34: mediaengine.v1.MediaEngine.StreamTelemetry:output_type -> mediaengine.v1.TelemetryData
-	19, // 35: mediaengine.v1.MediaEngine.GetStatus:output_type -> mediaengine.v1.StatusResponse
-	28, // [28:36] is the sub-list for method output_type
-	20, // [20:28] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	25, // 0: mediaengine.v1.LoadGraphRequest.graph:type_name -> mediaengine.v1.DSPGraph
+	21, // 1: mediaengine.v1.PlayRequest.source:type_name -> mediaengine.v1.SourceConfig
+	22, // 2: mediaengine.v1.PlayRequest.cue_points:type_name -> mediaengine.v1.CuePoints
+	23, // 3: mediaengine.v1.PlayRequest.fade:type_name -> mediaengine.v1.FadeConfig
+	21, // 4: mediaengine.v1.FadeRequest.next_source:type_name -> mediaengine.v1.SourceConfig
+	22, // 5: mediaengine.v1.FadeRequest.next_cue_points:type_name -> mediaengine.v1.CuePoints
+	23, // 6: mediaengine.v1.FadeRequest.fade_config:type_name -> mediaengine.v1.FadeConfig
+	21, // 7: mediaengine.v1.InsertEmergencyRequest.source:type_name -> mediaengine.v1.SourceConfig
+	1,  // 8: mediaengine.v1.RouteLiveRequest.input_type:type_name -> mediaengine.v1.LiveInputType
+	24, // 9: mediaengine.v1.RouteLiveRequest.input:type_name -> mediaengine.v1.LiveInputConfig
+	31, // 10: mediaengine.v1.TelemetryData.timestamp:type_name -> google.protobuf.Timestamp
+	2,  // 11: mediaengine.v1.TelemetryData.state:type_name -> mediaengine.v1.PlaybackState
+	2,  // 12: mediaengine.v1.StatusResponse.state:type_name -> mediaengine.v1.PlaybackState
+	28, // 13: mediaengine.v1.StatusResponse.metadata:type_name -> mediaengine.v1.StatusResponse.MetadataEntry
+	0,  // 14: mediaengine.v1.SourceConfig.type:type_name -> mediaengine.v1.SourceType
+	29, // 15: mediaengine.v1.SourceConfig.metadata:type_name -> mediaengine.v1.SourceConfig.MetadataEntry
+	3,  // 16: mediaengine.v1.FadeConfig.curve:type_name -> mediaengine.v1.FadeCurve
+	26, // 17: mediaengine.v1.DSPGraph.nodes:type_name -> mediaengine.v1.DSPNode
+	27, // 18: mediaengine.v1.DSPGraph.connections:type_name -> mediaengine.v1.DSPConnection
+	4,  // 19: mediaengine.v1.DSPNode.type:type_name -> mediaengine.v1.NodeType
+	30, // 20: mediaengine.v1.DSPNode.params:type_name -> mediaengine.v1.DSPNode.ParamsEntry
+	5,  // 21: mediaengine.v1.MediaEngine.LoadGraph:input_type -> mediaengine.v1.LoadGraphRequest
+	7,  // 22: mediaengine.v1.MediaEngine.Play:input_type -> mediaengine.v1.PlayRequest
+	9,  // 23: mediaengine.v1.MediaEngine.Stop:input_type -> mediaengine.v1.StopRequest
+	11, // 24: mediaengine.v1.MediaEngine.Fade:input_type -> mediaengine.v1.FadeRequest
+	13, // 25: mediaengine.v1.MediaEngine.InsertEmergency:input_type -> mediaengine.v1.InsertEmergencyRequest
+	15, // 26: mediaengine.v1.MediaEngine.RouteLive:input_type -> mediaengine.v1.RouteLiveRequest
+	17, // 27: mediaengine.v1.MediaEngine.StreamTelemetry:input_type -> mediaengine.v1.TelemetryRequest
+	19, // 28: mediaengine.v1.MediaEngine.GetStatus:input_type -> mediaengine.v1.StatusRequest
+	6,  // 29: mediaengine.v1.MediaEngine.LoadGraph:output_type -> mediaengine.v1.LoadGraphResponse
+	8,  // 30: mediaengine.v1.MediaEngine.Play:output_type -> mediaengine.v1.PlayResponse
+	10, // 31: mediaengine.v1.MediaEngine.Stop:output_type -> mediaengine.v1.StopResponse
+	12, // 32: mediaengine.v1.MediaEngine.Fade:output_type -> mediaengine.v1.FadeResponse
+	14, // 33: mediaengine.v1.MediaEngine.InsertEmergency:output_type -> mediaengine.v1.InsertEmergencyResponse
+	16, // 34: mediaengine.v1.MediaEngine.RouteLive:output_type -> mediaengine.v1.RouteLiveResponse
+	18, // 35: mediaengine.v1.MediaEngine.StreamTelemetry:output_type -> mediaengine.v1.TelemetryData
+	20, // 36: mediaengine.v1.MediaEngine.GetStatus:output_type -> mediaengine.v1.StatusResponse
+	29, // [29:37] is the sub-list for method output_type
+	21, // [21:29] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_proto_mediaengine_v1_mediaengine_proto_init() }
@@ -2140,7 +2279,7 @@ func file_proto_mediaengine_v1_mediaengine_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_mediaengine_v1_mediaengine_proto_rawDesc), len(file_proto_mediaengine_v1_mediaengine_proto_rawDesc)),
-			NumEnums:      4,
+			NumEnums:      5,
 			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
