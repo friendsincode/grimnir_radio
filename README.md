@@ -1,8 +1,8 @@
 # Grimnir Radio
 
-Version: 0.0.1-alpha (Phase 4C Complete)
+**Version:** 1.0.0 (Production Release) 🎉
 
-Grimnir Radio is a modern radio automation system built in Go, featuring a multi-process architecture with separated control plane and media engine, live DJ input, and HTTP stream relay with automatic failover.
+Grimnir Radio is a modern, production-ready broadcast automation system built in Go. It features a multi-process architecture with separated control plane and media engine, live DJ input, HTTP stream relay with automatic failover, horizontal scaling, and comprehensive observability.
 
 ## Architecture
 
@@ -13,26 +13,59 @@ Grimnir Radio uses a **two-binary architecture** for process isolation:
 
 Communication between components uses gRPC for low-latency, reliable control of audio operations.
 
-## Current Status
+## Installation
 
-**Phase 4C Complete (100%)** - Live Input & Webstream Relay
-- ✅ Token-based live DJ authorization with session management
-- ✅ Harbor-style live input (Icecast, RTP, SRT)
-- ✅ Priority system integration for live sessions
-- ✅ Webstream relay with automatic health checks
-- ✅ Failover chain progression (primary → backup with auto-recovery)
-- ✅ 13 new REST API endpoints (6 live, 7 webstream)
-- ✅ Scheduler integration for webstream entries
+Grimnir Radio can be installed in three ways:
 
-**Phase 4B Complete (100%)** - Media Engine Separation
-- ✅ Separate media engine binary with gRPC interface
-- ✅ DSP graph builder (12 node types: loudness, AGC, compressor, limiter, etc.)
-- ✅ Pipeline manager with crossfade and cue point support
-- ✅ Process supervision with automatic restart
-- ✅ Real-time telemetry streaming
-- ✅ 13 comprehensive integration tests (all passing)
+### 1. Nix (Recommended)
 
-See `docs/ARCHITECTURE_ROADMAP.md` for implementation timeline and `docs/ARCHITECTURE_NOTES.md` for architecture details.
+```bash
+# Basic: Just the binaries (you manage database/Icecast)
+nix run github:friendsincode/grimnir_radio
+
+# Full: Turn-key installation on NixOS (auto-configures everything)
+# Add to your NixOS configuration.nix:
+services.grimnir-radio.enable = true;
+
+# Dev: Complete development environment
+nix develop
+```
+
+See [`docs/NIX_INSTALLATION.md`](docs/NIX_INSTALLATION.md) for complete Nix guide (Basic, Full, Dev flavors).
+
+### 2. Docker Compose
+
+```bash
+docker-compose up -d
+```
+
+See [`docker-compose.yml`](docker-compose.yml) for configuration options.
+
+### 3. Kubernetes
+
+```bash
+kubectl apply -k kubernetes/
+```
+
+See [`kubernetes/README.md`](kubernetes/README.md) for complete K8s deployment guide.
+
+### 4. Bare Metal
+
+See [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md) for manual installation.
+
+## Production Status
+
+**All planned phases complete (1.0 release):**
+
+- ✅ **Phase 0**: Foundation Fixes
+- ✅ **Phase 4A**: Executor & Priority System (5-tier priority ladder)
+- ✅ **Phase 4B**: Media Engine Separation (gRPC, DSP, telemetry)
+- ✅ **Phase 4C**: Live Input & Webstream Relay (harbor-style, failover)
+- ✅ **Phase 5**: Observability & Multi-Instance (Prometheus, consistent hashing)
+- ✅ **Phase 6**: Production Readiness (Docker, K8s, load testing, migrations)
+- ✅ **Phase 7**: Nix Integration (reproducible builds, three deployment flavors)
+
+See [`docs/ARCHITECTURE_ROADMAP.md`](docs/ARCHITECTURE_ROADMAP.md) for detailed implementation history.
 
 ## Naming
 
