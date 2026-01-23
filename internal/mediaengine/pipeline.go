@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine/dsp"
 	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
@@ -513,23 +514,40 @@ func (p *Pipeline) GetTelemetry() *pb.TelemetryData {
 	p.telemetry.mu.RLock()
 	defer p.telemetry.mu.RUnlock()
 
-	data := &pb.TelemetryData{
-		StationId:       p.StationID,
-		MountId:         p.MountID,
-		AudioLevelL:     p.telemetry.AudioLevelL,
-		AudioLevelR:     p.telemetry.AudioLevelR,
-		PeakLevelL:      p.telemetry.PeakLevelL,
-		PeakLevelR:      p.telemetry.PeakLevelR,
-		LoudnessLufs:    p.telemetry.LoudnessLUFS,
-		MomentaryLufs:   p.telemetry.MomentaryLUFS,
-		ShortTermLufs:   p.telemetry.ShortTermLUFS,
-		BufferDepthMs:   p.telemetry.BufferDepthMS,
-		BufferFillPercent: p.telemetry.BufferFillPct,
-		UnderrunCount:   p.telemetry.UnderrunCount,
-		State:           p.State,
+	// Get current timestamp
+	now := time.Now()
+	timestamp := &timestamppb.Timestamp{
+		Seconds: now.Unix(),
+		Nanos:   int32(now.Nanosecond()),
 	}
 
+	data := &pb.TelemetryData{
+		StationId:         p.StationID,
+		MountId:           p.MountID,
+		Timestamp:         timestamp,
+		AudioLevelL:       p.telemetry.AudioLevelL,
+		AudioLevelR:       p.telemetry.AudioLevelR,
+		PeakLevelL:        p.telemetry.PeakLevelL,
+		PeakLevelR:        p.telemetry.PeakLevelR,
+		LoudnessLufs:      p.telemetry.LoudnessLUFS,
+		MomentaryLufs:     p.telemetry.MomentaryLUFS,
+		ShortTermLufs:     p.telemetry.ShortTermLUFS,
+		BufferDepthMs:     p.telemetry.BufferDepthMS,
+		BufferFillPercent: p.telemetry.BufferFillPct,
+		UnderrunCount:     p.telemetry.UnderrunCount,
+		State:             p.State,
+	}
+
+	// Add current track position and duration
 	if p.CurrentTrack != nil {
+		// Update position from GStreamer if available
+		if p.process != nil {
+			gstTelem := p.process.GetTelemetry()
+			if gstTelem.CurrentPosition > 0 {
+				p.CurrentTrack.Position = gstTelem.CurrentPosition
+			}
+		}
+
 		data.PositionMs = int64(p.CurrentTrack.Position.Milliseconds())
 		data.DurationMs = int64(p.CurrentTrack.Duration.Milliseconds())
 	}
