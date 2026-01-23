@@ -10,6 +10,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -65,13 +66,26 @@ func (e *Executor) Start(ctx context.Context) error {
 	e.running = true
 
 	// Initialize state - GetState will create the record if it doesn't exist
-	if _, err := e.stateManager.GetState(e.ctx, e.stationID); err != nil {
+	state, err := e.stateManager.GetState(e.ctx, e.stationID)
+	if err != nil {
 		return fmt.Errorf("initialize state: %w", err)
 	}
 
 	// Set state to idle
 	if err := e.stateManager.SetState(e.ctx, e.stationID, models.ExecutorStateIdle); err != nil {
 		return fmt.Errorf("set idle state: %w", err)
+	}
+
+	// Update executor state metric
+	telemetry.ExecutorState.WithLabelValues(e.stationID, state.ID).Set(0) // 0 = idle
+
+	// Track media engine connection status
+	if e.mediaCtrl != nil {
+		if e.mediaCtrl.IsConnected() {
+			telemetry.MediaEngineConnectionStatus.WithLabelValues(state.ID).Set(1)
+		} else {
+			telemetry.MediaEngineConnectionStatus.WithLabelValues(state.ID).Set(0)
+		}
 	}
 
 	// Start heartbeat goroutine
@@ -125,9 +139,11 @@ func (e *Executor) TransitionTo(ctx context.Context, newState models.ExecutorSta
 		return fmt.Errorf("get current state: %w", err)
 	}
 
+	oldState := state.State
+
 	// Validate transition
-	if !e.isValidTransition(state.State, newState) {
-		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, state.State, newState)
+	if !e.isValidTransition(oldState, newState) {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, oldState, newState)
 	}
 
 	// Apply transition
@@ -135,8 +151,18 @@ func (e *Executor) TransitionTo(ctx context.Context, newState models.ExecutorSta
 		return fmt.Errorf("set state: %w", err)
 	}
 
+	// Update state metrics
+	telemetry.ExecutorState.WithLabelValues(e.stationID, state.ID).Set(float64(stateToMetricValue(newState)))
+
+	// Track state transition
+	telemetry.ExecutorStateTransitions.WithLabelValues(
+		e.stationID,
+		string(oldState),
+		string(newState),
+	).Inc()
+
 	e.logger.Info().
-		Str("from", string(state.State)).
+		Str("from", string(oldState)).
 		Str("to", string(newState)).
 		Msg("state transition")
 
@@ -159,6 +185,14 @@ func (e *Executor) Preload(ctx context.Context, sourceID string) error {
 
 // Play starts playback of the current or preloaded source.
 func (e *Executor) Play(ctx context.Context, sourceID string, priority models.PriorityLevel) error {
+	// Get current state to track priority changes
+	state, err := e.stateManager.GetState(ctx, e.stationID)
+	if err != nil {
+		return fmt.Errorf("get current state: %w", err)
+	}
+
+	oldPriority := state.CurrentPriority
+
 	// Determine target state based on priority
 	var targetState models.ExecutorStateEnum
 	switch priority {
@@ -176,6 +210,15 @@ func (e *Executor) Play(ctx context.Context, sourceID string, priority models.Pr
 
 	if err := e.stateManager.SetCurrentSource(ctx, e.stationID, sourceID, priority); err != nil {
 		return fmt.Errorf("set current source: %w", err)
+	}
+
+	// Track priority change if different
+	if oldPriority != priority {
+		telemetry.ExecutorPriorityChanges.WithLabelValues(
+			e.stationID,
+			priorityToString(oldPriority),
+			priorityToString(priority),
+		).Inc()
 	}
 
 	e.logger.Info().
@@ -251,6 +294,45 @@ func (e *Executor) CompleteFade(ctx context.Context) error {
 // UpdateTelemetry updates real-time telemetry data.
 func (e *Executor) UpdateTelemetry(ctx context.Context, telemetry Telemetry) error {
 	return e.stateManager.UpdateTelemetry(ctx, e.stationID, telemetry)
+}
+
+// Helper functions
+
+func stateToMetricValue(state models.ExecutorStateEnum) int {
+	// Map state enum to metric value
+	switch state {
+	case models.ExecutorStateIdle:
+		return 0
+	case models.ExecutorStatePreloading:
+		return 1
+	case models.ExecutorStatePlaying:
+		return 2
+	case models.ExecutorStateFading:
+		return 3
+	case models.ExecutorStateLive:
+		return 4
+	case models.ExecutorStateEmergency:
+		return 5
+	default:
+		return 0
+	}
+}
+
+func priorityToString(priority models.PriorityLevel) string {
+	switch priority {
+	case models.PriorityEmergency:
+		return "emergency"
+	case models.PriorityLiveOverride:
+		return "live_override"
+	case models.PriorityLiveScheduled:
+		return "live_scheduled"
+	case models.PriorityAutomation:
+		return "automation"
+	case models.PriorityFallback:
+		return "fallback"
+	default:
+		return "unknown"
+	}
 }
 
 // State machine validation
@@ -418,27 +500,66 @@ func (e *Executor) handleEmergencyEvent(payload events.Payload) {
 func (e *Executor) telemetryStreamLoop() {
 	e.logger.Info().Msg("starting telemetry stream")
 
-	callback := func(telemetry *pb.TelemetryData) error {
+	// Get mount ID from state for metrics labels
+	state, err := e.stateManager.GetState(context.Background(), e.stationID)
+	if err != nil {
+		e.logger.Error().Err(err).Msg("failed to get state for telemetry")
+		return
+	}
+
+	// Use station ID as mount ID if not available
+	mountID := e.stationID
+	if state.Metadata != nil {
+		if mid, ok := state.Metadata["mount_id"].(string); ok && mid != "" {
+			mountID = mid
+		}
+	}
+
+	var lastUnderrunCount int64
+
+	callback := func(t *pb.TelemetryData) error {
 		// Update executor state with telemetry
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
 		err := e.UpdateTelemetry(ctx, Telemetry{
-			AudioLevelL:   float64(telemetry.AudioLevelL),
-			AudioLevelR:   float64(telemetry.AudioLevelR),
-			LoudnessLUFS:  float64(telemetry.LoudnessLufs),
-			BufferDepthMS: telemetry.BufferDepthMs,
+			AudioLevelL:   float64(t.AudioLevelL),
+			AudioLevelR:   float64(t.AudioLevelR),
+			LoudnessLUFS:  float64(t.LoudnessLufs),
+			BufferDepthMS: t.BufferDepthMs,
 		})
 
 		if err != nil {
 			e.logger.Error().Err(err).Msg("failed to update telemetry")
 		}
 
+		// Update Prometheus metrics
+		telemetry.MediaEngineAudioLevelLeft.WithLabelValues(e.stationID, mountID).Set(float64(t.AudioLevelL))
+		telemetry.MediaEngineAudioLevelRight.WithLabelValues(e.stationID, mountID).Set(float64(t.AudioLevelR))
+		telemetry.MediaEngineLoudness.WithLabelValues(e.stationID, mountID).Set(float64(t.LoudnessLufs))
+		telemetry.PlayoutBufferDepth.WithLabelValues(e.stationID, mountID).Set(float64(t.BufferDepthMs * 48)) // Convert ms to samples (48kHz)
+
+		// Track underrun increments
+		if t.UnderrunCount > lastUnderrunCount {
+			underrunDelta := t.UnderrunCount - lastUnderrunCount
+			telemetry.PlayoutDropoutCount.WithLabelValues(e.stationID, mountID).Add(float64(underrunDelta))
+			lastUnderrunCount = t.UnderrunCount
+
+			e.logger.Warn().
+				Int64("underrun_count", t.UnderrunCount).
+				Int64("delta", underrunDelta).
+				Msg("audio underruns detected")
+		}
+
 		// Log additional telemetry data for debugging
 		e.logger.Debug().
-			Int64("position_ms", telemetry.PositionMs).
-			Int64("duration_ms", telemetry.DurationMs).
-			Int64("underrun_count", telemetry.UnderrunCount).
+			Int64("position_ms", t.PositionMs).
+			Int64("duration_ms", t.DurationMs).
+			Int64("underrun_count", t.UnderrunCount).
+			Float32("audio_level_l", t.AudioLevelL).
+			Float32("audio_level_r", t.AudioLevelR).
+			Float32("loudness_lufs", t.LoudnessLufs).
+			Int64("buffer_depth_ms", t.BufferDepthMs).
 			Msg("telemetry received")
 
 		return nil
