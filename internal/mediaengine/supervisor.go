@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
 )
 
@@ -244,6 +245,10 @@ func (s *Supervisor) restartPipeline(stationID string, reason string) {
 		Str("reason", reason).
 		Int("restart_count", health.RestartCount).
 		Msg("restarting pipeline")
+
+	// Track pipeline restart metric
+	// Use station ID as mount ID (we don't have mount ID in supervisor context)
+	telemetry.MediaEnginePipelineRestarts.WithLabelValues(stationID, stationID, reason).Inc()
 
 	// Destroy old pipeline
 	if err := s.pipelineManager.DestroyPipeline(stationID); err != nil {

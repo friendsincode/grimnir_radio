@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
 )
 
@@ -73,6 +75,22 @@ func main() {
 	// Create media engine service
 	engine := mediaengine.New(cfg, logger)
 
+	// Start HTTP server for metrics on port 9092
+	metricsPort := getEnvInt("MEDIAENGINE_METRICS_PORT", 9092)
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", telemetry.Handler())
+	metricsServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", metricsPort),
+		Handler: metricsMux,
+	}
+
+	go func() {
+		logger.Info().Int("port", metricsPort).Msg("metrics server listening")
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error().Err(err).Msg("metrics server error")
+		}
+	}()
+
 	// Create gRPC server
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(10*1024*1024), // 10MB max message size
@@ -117,6 +135,13 @@ func main() {
 
 	// Stop accepting new requests
 	grpcServer.GracefulStop()
+
+	// Shutdown metrics server
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error().Err(err).Msg("metrics server shutdown error")
+	}
 
 	// Shutdown engine
 	if err := engine.Shutdown(ctx); err != nil {

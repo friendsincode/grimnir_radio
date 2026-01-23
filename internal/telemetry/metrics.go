@@ -152,6 +152,39 @@ var (
 		},
 		[]string{"station_id", "mount_id"},
 	)
+
+	MediaEngineOperations = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "grimnir_media_engine_operations_total",
+			Help: "Total number of media engine operations",
+		},
+		[]string{"station_id", "mount_id", "operation", "status"},
+	)
+
+	MediaEngineOperationDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "grimnir_media_engine_operation_duration_seconds",
+			Help:    "Duration of media engine operations",
+			Buckets: []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1},
+		},
+		[]string{"station_id", "mount_id", "operation"},
+	)
+
+	MediaEnginePlaybackState = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_media_engine_playback_state",
+			Help: "Current playback state (0=unspecified, 1=idle, 2=loading, 3=playing, 4=paused, 5=fading, 6=error)",
+		},
+		[]string{"station_id", "mount_id"},
+	)
+
+	MediaEngineActivePipelines = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_media_engine_active_pipelines",
+			Help: "Number of active pipelines (1=active, 0=inactive)",
+		},
+		[]string{"station_id", "mount_id"},
+	)
 )
 
 // API metrics

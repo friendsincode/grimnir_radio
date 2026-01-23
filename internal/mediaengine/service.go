@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine/dsp"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
 )
 
@@ -91,6 +92,8 @@ func New(cfg *Config, logger zerolog.Logger) *Service {
 
 // LoadGraph loads a DSP processing graph configuration.
 func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.LoadGraphResponse, error) {
+	startTime := time.Now()
+
 	s.logger.Info().
 		Str("station_id", req.StationId).
 		Str("mount_id", req.MountId).
@@ -101,6 +104,7 @@ func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.
 	graph, err := s.dspBuilder.Build(req.Graph)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("failed to build DSP graph")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "load_graph", "failure").Inc()
 		return &pb.LoadGraphResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to build graph: %v", err),
@@ -120,6 +124,7 @@ func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.
 	_, err = s.pipelineManager.CreatePipeline(ctx, req.StationId, req.MountId, graph)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("failed to create pipeline")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "load_graph", "failure").Inc()
 		return &pb.LoadGraphResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to create pipeline: %v", err),
@@ -134,6 +139,12 @@ func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.
 		Str("pipeline", graph.Pipeline).
 		Msg("DSP graph loaded successfully")
 
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues(req.StationId, req.MountId, "load_graph").Observe(duration)
+	telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "load_graph", "success").Inc()
+	telemetry.MediaEngineActivePipelines.WithLabelValues(req.StationId, req.MountId).Set(1)
+
 	return &pb.LoadGraphResponse{
 		GraphHandle: graphHandle,
 		Success:     true,
@@ -142,6 +153,8 @@ func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.
 
 // Play starts playback of a media source.
 func (s *Service) Play(ctx context.Context, req *pb.PlayRequest) (*pb.PlayResponse, error) {
+	startTime := time.Now()
+
 	s.logger.Info().
 		Str("station_id", req.StationId).
 		Str("mount_id", req.MountId).
@@ -153,6 +166,7 @@ func (s *Service) Play(ctx context.Context, req *pb.PlayRequest) (*pb.PlayRespon
 	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("pipeline not found")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "play", "failure").Inc()
 		return &pb.PlayResponse{
 			Success: false,
 			Error:   fmt.Sprintf("pipeline not found: %v", err),
@@ -162,6 +176,7 @@ func (s *Service) Play(ctx context.Context, req *pb.PlayRequest) (*pb.PlayRespon
 	// Start playback
 	if err := pipeline.Play(ctx, req.Source, req.CuePoints); err != nil {
 		s.logger.Error().Err(err).Msg("failed to start playback")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "play", "failure").Inc()
 		return &pb.PlayResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to start playback: %v", err),
@@ -172,6 +187,7 @@ func (s *Service) Play(ctx context.Context, req *pb.PlayRequest) (*pb.PlayRespon
 	s.mu.Lock()
 	engine := s.getOrCreateStation(req.StationId, req.MountId)
 	engine.mu.Lock()
+	oldState := engine.State
 	engine.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
 	engine.CurrentSource = req.Source
 	engine.StartedAt = time.Now()
@@ -179,6 +195,16 @@ func (s *Service) Play(ctx context.Context, req *pb.PlayRequest) (*pb.PlayRespon
 	s.mu.Unlock()
 
 	playbackID := uuid.NewString()
+
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues(req.StationId, req.MountId, "play").Observe(duration)
+	telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "play", "success").Inc()
+
+	// Track state change
+	if oldState != pb.PlaybackState_PLAYBACK_STATE_PLAYING {
+		telemetry.MediaEnginePlaybackState.WithLabelValues(req.StationId, req.MountId).Set(float64(pb.PlaybackState_PLAYBACK_STATE_PLAYING))
+	}
 
 	return &pb.PlayResponse{
 		Success:    true,
@@ -188,6 +214,8 @@ func (s *Service) Play(ctx context.Context, req *pb.PlayRequest) (*pb.PlayRespon
 
 // Stop halts playback.
 func (s *Service) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopResponse, error) {
+	startTime := time.Now()
+
 	s.logger.Info().
 		Str("station_id", req.StationId).
 		Str("mount_id", req.MountId).
@@ -198,6 +226,7 @@ func (s *Service) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopRespon
 	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("pipeline not found")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "stop", "failure").Inc()
 		return &pb.StopResponse{
 			Success: false,
 			Error:   fmt.Sprintf("pipeline not found: %v", err),
@@ -207,6 +236,7 @@ func (s *Service) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopRespon
 	// Stop pipeline
 	if err := pipeline.Stop(); err != nil {
 		s.logger.Error().Err(err).Msg("failed to stop pipeline")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "stop", "failure").Inc()
 		return &pb.StopResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to stop: %v", err),
@@ -221,8 +251,16 @@ func (s *Service) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopRespon
 		engine.State = pb.PlaybackState_PLAYBACK_STATE_IDLE
 		engine.CurrentSource = nil
 		engine.mu.Unlock()
+
+		// Track state change
+		telemetry.MediaEnginePlaybackState.WithLabelValues(req.StationId, req.MountId).Set(float64(pb.PlaybackState_PLAYBACK_STATE_IDLE))
 	}
 	s.mu.Unlock()
+
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues(req.StationId, req.MountId, "stop").Observe(duration)
+	telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "stop", "success").Inc()
 
 	return &pb.StopResponse{
 		Success: true,
@@ -231,6 +269,8 @@ func (s *Service) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopRespon
 
 // Fade initiates a crossfade between sources.
 func (s *Service) Fade(ctx context.Context, req *pb.FadeRequest) (*pb.FadeResponse, error) {
+	startTime := time.Now()
+
 	s.logger.Info().
 		Str("station_id", req.StationId).
 		Str("mount_id", req.MountId).
@@ -241,6 +281,7 @@ func (s *Service) Fade(ctx context.Context, req *pb.FadeRequest) (*pb.FadeRespon
 	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("pipeline not found")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "fade", "failure").Inc()
 		return &pb.FadeResponse{
 			Success: false,
 			Error:   fmt.Sprintf("pipeline not found: %v", err),
@@ -250,6 +291,7 @@ func (s *Service) Fade(ctx context.Context, req *pb.FadeRequest) (*pb.FadeRespon
 	// Start crossfade
 	if err := pipeline.Fade(ctx, req.NextSource, req.NextCuePoints, req.FadeConfig); err != nil {
 		s.logger.Error().Err(err).Msg("failed to start crossfade")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "fade", "failure").Inc()
 		return &pb.FadeResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to fade: %v", err),
@@ -272,6 +314,12 @@ func (s *Service) Fade(ctx context.Context, req *pb.FadeRequest) (*pb.FadeRespon
 		estimatedDuration = int64(req.FadeConfig.FadeOutMs + req.FadeConfig.FadeInMs)
 	}
 
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues(req.StationId, req.MountId, "fade").Observe(duration)
+	telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "fade", "success").Inc()
+	telemetry.MediaEnginePlaybackState.WithLabelValues(req.StationId, req.MountId).Set(float64(pb.PlaybackState_PLAYBACK_STATE_FADING))
+
 	return &pb.FadeResponse{
 		Success:             true,
 		FadeId:              fadeID,
@@ -281,6 +329,8 @@ func (s *Service) Fade(ctx context.Context, req *pb.FadeRequest) (*pb.FadeRespon
 
 // InsertEmergency immediately plays emergency content.
 func (s *Service) InsertEmergency(ctx context.Context, req *pb.InsertEmergencyRequest) (*pb.InsertEmergencyResponse, error) {
+	startTime := time.Now()
+
 	s.logger.Warn().
 		Str("station_id", req.StationId).
 		Str("mount_id", req.MountId).
@@ -291,6 +341,7 @@ func (s *Service) InsertEmergency(ctx context.Context, req *pb.InsertEmergencyRe
 	pipeline, err := s.pipelineManager.GetPipeline(req.StationId)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("pipeline not found")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "emergency", "failure").Inc()
 		return &pb.InsertEmergencyResponse{
 			Success: false,
 			Error:   fmt.Sprintf("pipeline not found: %v", err),
@@ -300,6 +351,7 @@ func (s *Service) InsertEmergency(ctx context.Context, req *pb.InsertEmergencyRe
 	// Insert emergency content
 	if err := pipeline.InsertEmergency(ctx, req.Source); err != nil {
 		s.logger.Error().Err(err).Msg("failed to insert emergency")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "emergency", "failure").Inc()
 		return &pb.InsertEmergencyResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to insert emergency: %v", err),
@@ -317,6 +369,12 @@ func (s *Service) InsertEmergency(ctx context.Context, req *pb.InsertEmergencyRe
 
 	emergencyID := uuid.NewString()
 
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues(req.StationId, req.MountId, "emergency").Observe(duration)
+	telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "emergency", "success").Inc()
+	telemetry.MediaEnginePlaybackState.WithLabelValues(req.StationId, req.MountId).Set(float64(pb.PlaybackState_PLAYBACK_STATE_PLAYING))
+
 	return &pb.InsertEmergencyResponse{
 		Success:     true,
 		EmergencyId: emergencyID,
@@ -325,6 +383,8 @@ func (s *Service) InsertEmergency(ctx context.Context, req *pb.InsertEmergencyRe
 
 // RouteLive routes a live input stream.
 func (s *Service) RouteLive(ctx context.Context, req *pb.RouteLiveRequest) (*pb.RouteLiveResponse, error) {
+	startTime := time.Now()
+
 	s.logger.Info().
 		Str("station_id", req.StationId).
 		Str("mount_id", req.MountId).
@@ -336,6 +396,7 @@ func (s *Service) RouteLive(ctx context.Context, req *pb.RouteLiveRequest) (*pb.
 	resp, err := s.liveInputMgr.RouteLive(ctx, req)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("failed to route live input")
+		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "route_live", "failure").Inc()
 		return &pb.RouteLiveResponse{
 			Success: false,
 			Message: fmt.Sprintf("failed to route live: %v", err),
@@ -349,6 +410,12 @@ func (s *Service) RouteLive(ctx context.Context, req *pb.RouteLiveRequest) (*pb.
 	engine.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
 	engine.mu.Unlock()
 	s.mu.Unlock()
+
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues(req.StationId, req.MountId, "route_live").Observe(duration)
+	telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "route_live", "success").Inc()
+	telemetry.MediaEnginePlaybackState.WithLabelValues(req.StationId, req.MountId).Set(float64(pb.PlaybackState_PLAYBACK_STATE_PLAYING))
 
 	return resp, nil
 }
@@ -436,8 +503,20 @@ func (s *Service) Shutdown(ctx context.Context) error {
 
 	// Destroy all pipelines
 	for _, stationID := range stationIDs {
+		// Get mount ID before destroying
+		s.mu.RLock()
+		engine := s.getStation(stationID)
+		mountID := ""
+		if engine != nil {
+			mountID = engine.MountID
+		}
+		s.mu.RUnlock()
+
 		if err := s.pipelineManager.DestroyPipeline(stationID); err != nil {
 			s.logger.Error().Err(err).Str("station_id", stationID).Msg("failed to destroy pipeline")
+		} else if mountID != "" {
+			// Clear active pipeline metric
+			telemetry.MediaEngineActivePipelines.WithLabelValues(stationID, mountID).Set(0)
 		}
 	}
 
