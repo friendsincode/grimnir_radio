@@ -1,0 +1,188 @@
+global:
+  # Global settings
+  resolve_timeout: 5m
+  # SMTP settings for email notifications (optional)
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alertmanager@grimnir-radio.local'
+  smtp_auth_username: ''
+  smtp_auth_password: ''
+  smtp_require_tls: true
+
+# Route tree for alerts
+route:
+  # Default receiver for all alerts
+  receiver: 'default'
+
+  # Group alerts by these labels
+  group_by: ['alertname', 'station_id', 'component']
+
+  # Wait time before sending first notification for a group
+  group_wait: 10s
+
+  # Wait time before sending notification about new alerts in existing group
+  group_interval: 10s
+
+  # Wait time before re-sending notification for already sent alert
+  repeat_interval: 3h
+
+  # Child routes with specific matchers
+  routes:
+    # Critical alerts - immediate notification via multiple channels
+    - match:
+        severity: critical
+      receiver: 'critical'
+      group_wait: 0s
+      group_interval: 5m
+      repeat_interval: 30m
+      continue: false
+
+    # Warning alerts - notify but with less urgency
+    - match:
+        severity: warning
+      receiver: 'warning'
+      group_wait: 30s
+      repeat_interval: 6h
+
+    # Info alerts - log only or send to monitoring dashboard
+    - match:
+        severity: info
+      receiver: 'info'
+      group_wait: 5m
+      repeat_interval: 24h
+
+    # Media engine specific alerts
+    - match:
+        component: media_engine
+      receiver: 'media-engineering'
+      continue: true
+
+    # Audio quality alerts
+    - match_re:
+        alertname: '^Audio.*'
+      receiver: 'broadcast-ops'
+      continue: true
+
+# Inhibition rules - suppress certain alerts when others are firing
+inhibit_rules:
+  # Inhibit schedule gap warnings if scheduler errors are present
+  - source_match:
+      alertname: 'SchedulerErrors'
+    target_match:
+      alertname: 'ScheduleGap'
+    equal: ['station_id']
+
+  # Inhibit playout warnings if media engine is down
+  - source_match:
+      alertname: 'MediaEngineDown'
+    target_match_re:
+      alertname: '^Playout.*'
+    equal: ['station_id']
+
+  # Inhibit individual webstream failures if in failover loop
+  - source_match:
+      alertname: 'WebstreamFailoverLoop'
+    target_match:
+      alertname: 'WebstreamUnhealthy'
+    equal: ['webstream_id']
+
+# Receivers - notification destinations
+receivers:
+  # Default receiver - webhook to internal system
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://localhost:8080/api/v1/alerts/webhook'
+        send_resolved: true
+        http_config:
+          bearer_token: 'your-webhook-token-here'
+
+  # Critical alerts - multiple notification channels
+  - name: 'critical'
+    # Slack notification
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#grimnir-alerts-critical'
+        title: '{{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Labels.alertname }}
+          *Severity:* {{ .Labels.severity }}
+          *Station:* {{ .Labels.station_id }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+    # PagerDuty notification
+    pagerduty_configs:
+      - routing_key: 'YOUR_PAGERDUTY_ROUTING_KEY'
+        description: '{{ .GroupLabels.alertname }} - {{ .CommonAnnotations.summary }}'
+        severity: '{{ .CommonLabels.severity }}'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          resolved: '{{ .Alerts.Resolved | len }}'
+          station_id: '{{ .GroupLabels.station_id }}'
+
+    # Email notification
+    email_configs:
+      - to: 'oncall@grimnir-radio.local'
+        headers:
+          Subject: '[CRITICAL] {{ .GroupLabels.alertname }} - {{ .GroupLabels.station_id }}'
+        html: |
+          <h2>Critical Alert Firing</h2>
+          {{ range .Alerts }}
+          <p>
+            <strong>Alert:</strong> {{ .Labels.alertname }}<br>
+            <strong>Severity:</strong> {{ .Labels.severity }}<br>
+            <strong>Station:</strong> {{ .Labels.station_id }}<br>
+            <strong>Component:</strong> {{ .Labels.component }}<br>
+            <strong>Description:</strong> {{ .Annotations.description }}<br>
+            <strong>Time:</strong> {{ .StartsAt }}
+          </p>
+          {{ end }}
+        send_resolved: true
+
+    # Webhook notification
+    webhook_configs:
+      - url: 'http://localhost:8080/api/v1/alerts/webhook'
+        send_resolved: true
+
+  # Warning alerts - less urgent notifications
+  - name: 'warning'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#grimnir-alerts-warning'
+        title: '{{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.description }}'
+        send_resolved: true
+        color: 'warning'
+
+    webhook_configs:
+      - url: 'http://localhost:8080/api/v1/alerts/webhook'
+        send_resolved: true
+
+  # Info alerts - monitoring only
+  - name: 'info'
+    webhook_configs:
+      - url: 'http://localhost:8080/api/v1/alerts/webhook'
+        send_resolved: true
+
+  # Media engineering team
+  - name: 'media-engineering'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#media-engineering'
+        send_resolved: true
+
+  # Broadcast operations team
+  - name: 'broadcast-ops'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#broadcast-ops'
+        send_resolved: true
+
+    email_configs:
+      - to: 'broadcast-ops@grimnir-radio.local'
+
+# Templates (optional - for custom notification formatting)
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

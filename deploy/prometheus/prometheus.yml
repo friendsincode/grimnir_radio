@@ -1,0 +1,85 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'grimnir-radio-production'
+    replica: '1'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'localhost:9093'
+
+# Load alert rules
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Grimnir Radio Control Plane
+  - job_name: 'grimnir-radio'
+    static_configs:
+      - targets:
+          - 'localhost:8080'
+        labels:
+          service: 'grimnir-radio'
+          instance: 'control-plane-1'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Grimnir Radio Media Engine
+  - job_name: 'grimnir-media-engine'
+    static_configs:
+      - targets:
+          - 'localhost:9092'
+        labels:
+          service: 'grimnir-media-engine'
+          instance: 'media-engine-1'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL Exporter (if using postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets:
+          - 'localhost:9187'
+        labels:
+          service: 'postgresql'
+
+  # Redis Exporter (if using redis_exporter)
+  - job_name: 'redis'
+    static_configs:
+      - targets:
+          - 'localhost:9121'
+        labels:
+          service: 'redis'
+
+  # Node Exporter (for system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets:
+          - 'localhost:9100'
+        labels:
+          service: 'node-exporter'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+          - 'localhost:9090'
+
+  # AlertManager self-monitoring
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets:
+          - 'localhost:9093'
+
+# Optional: Remote write for long-term storage
+# remote_write:
+#   - url: 'http://localhost:9009/api/v1/push'
+#     name: 'mimir'
+#     queue_config:
+#       capacity: 10000
+#       max_shards: 200

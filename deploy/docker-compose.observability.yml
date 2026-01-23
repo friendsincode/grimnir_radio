@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # Prometheus - Metrics collection and alerting
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: grimnir-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - grimnir-observability
+
+  # AlertManager - Alert routing and notification
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: grimnir-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    restart: unless-stopped
+    networks:
+      - grimnir-observability
+
+  # Jaeger - Distributed tracing (all-in-one)
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: grimnir-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+      - "14268:14268"  # Jaeger collector HTTP
+    restart: unless-stopped
+    networks:
+      - grimnir-observability
+
+  # Grafana - Visualization dashboard
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grimnir-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+    networks:
+      - grimnir-observability
+    depends_on:
+      - prometheus
+
+  # Node Exporter - System metrics
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: grimnir-node-exporter
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:host:ro,rslave
+    restart: unless-stopped
+    networks:
+      - grimnir-observability
+
+networks:
+  grimnir-observability:
+    name: grimnir-observability
+    driver: bridge
+
+volumes:
+  prometheus-data:
+    name: grimnir-prometheus-data
+  alertmanager-data:
+    name: grimnir-alertmanager-data
+  grafana-data:
+    name: grimnir-grafana-data

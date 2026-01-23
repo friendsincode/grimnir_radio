@@ -1,0 +1,248 @@
+groups:
+  - name: grimnir_radio_critical
+    interval: 30s
+    rules:
+      # Media Engine Health
+      - alert: MediaEngineDown
+        expr: grimnir_media_engine_connection_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: media_engine
+        annotations:
+          summary: "Media Engine disconnected for executor {{ $labels.executor_id }}"
+          description: "The media engine gRPC connection is down for executor {{ $labels.executor_id }}. Playback may be interrupted."
+
+      - alert: MediaEnginePipelineRestartLoop
+        expr: rate(grimnir_media_engine_pipeline_restarts_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: media_engine
+        annotations:
+          summary: "Media engine pipeline restart loop detected for station {{ $labels.station_id }}"
+          description: "Pipeline for station {{ $labels.station_id }} is restarting frequently ({{ $value }} restarts/sec). Reason: {{ $labels.reason }}"
+
+      # Playout Health
+      - alert: PlayoutUnderrunHigh
+        expr: rate(grimnir_playout_dropout_count_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          component: playout
+        annotations:
+          summary: "High playout underrun rate for station {{ $labels.station_id }}"
+          description: "Station {{ $labels.station_id }} mount {{ $labels.mount_id }} is experiencing {{ $value }} underruns/sec. Audio quality may be degraded."
+
+      - alert: PlayoutBufferLow
+        expr: grimnir_playout_buffer_depth_samples < 4800
+        for: 30s
+        labels:
+          severity: warning
+          component: playout
+        annotations:
+          summary: "Playout buffer critically low for station {{ $labels.station_id }}"
+          description: "Buffer depth is {{ $value }} samples ({{ $value | humanize }}ms @ 48kHz) for station {{ $labels.station_id }}. Risk of dropout."
+
+      # Schedule Health
+      - alert: ScheduleGap
+        expr: grimnir_schedule_entries_total == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: scheduler
+        annotations:
+          summary: "No scheduled entries for station {{ $labels.station_id }}"
+          description: "Station {{ $labels.station_id }} has no schedule entries. Automation may fail."
+
+      - alert: SchedulerErrors
+        expr: rate(grimnir_scheduler_errors_total[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: warning
+          component: scheduler
+        annotations:
+          summary: "Scheduler errors detected for station {{ $labels.station_id }}"
+          description: "Scheduler is experiencing errors ({{ $value }}/sec) for station {{ $labels.station_id }}. Error type: {{ $labels.error_type }}"
+
+      # Executor Health
+      - alert: ExecutorStuck
+        expr: changes(grimnir_executor_state[5m]) == 0 and grimnir_executor_state > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: executor
+        annotations:
+          summary: "Executor state unchanged for station {{ $labels.station_id }}"
+          description: "Executor for station {{ $labels.station_id }} has been in state {{ $value }} for over 10 minutes without transitions."
+
+      # Live Session Health
+      - alert: LiveSessionStuck
+        expr: grimnir_live_sessions_active > 0 and rate(grimnir_live_session_duration_seconds_count[10m]) == 0
+        for: 15m
+        labels:
+          severity: info
+          component: live
+        annotations:
+          summary: "Live DJ session active for extended period on station {{ $labels.station_id }}"
+          description: "Live session has been active for over 15 minutes on station {{ $labels.station_id }}."
+
+      # Webstream Health
+      - alert: WebstreamUnhealthy
+        expr: grimnir_webstream_health_status == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: webstream
+        annotations:
+          summary: "Webstream {{ $labels.webstream_id }} is unhealthy"
+          description: "Webstream {{ $labels.webstream_id }} for station {{ $labels.station_id }} has failed health checks."
+
+      - alert: WebstreamFailoverLoop
+        expr: rate(grimnir_webstream_failovers_total[10m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: webstream
+        annotations:
+          summary: "Webstream failover loop detected for {{ $labels.webstream_id }}"
+          description: "Webstream {{ $labels.webstream_id }} is failing over frequently ({{ $value }}/sec). All sources may be down."
+
+  - name: grimnir_radio_performance
+    interval: 1m
+    rules:
+      # API Performance
+      - alert: APIHighLatency
+        expr: histogram_quantile(0.99, rate(grimnir_api_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API high latency detected"
+          description: "99th percentile API latency is {{ $value }}s for {{ $labels.method }} {{ $labels.endpoint }}"
+
+      - alert: APIHighErrorRate
+        expr: |
+          sum(rate(grimnir_api_requests_total{status_code=~"5.."}[5m]))
+          / sum(rate(grimnir_api_requests_total[5m])) > 0.05
+        for: 3m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "API error rate above 5%"
+          description: "API is returning {{ $value | humanizePercentage }} server errors."
+
+      # Media Engine Performance
+      - alert: MediaEngineOperationFailureHigh
+        expr: |
+          sum(rate(grimnir_media_engine_operations_total{status="failure"}[5m])) by (station_id, operation)
+          / sum(rate(grimnir_media_engine_operations_total[5m])) by (station_id, operation) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          component: media_engine
+        annotations:
+          summary: "High media engine operation failure rate"
+          description: "Media engine {{ $labels.operation }} operations failing at {{ $value | humanizePercentage }} for station {{ $labels.station_id }}"
+
+      - alert: MediaEngineSlowOperations
+        expr: histogram_quantile(0.95, rate(grimnir_media_engine_operation_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: media_engine
+        annotations:
+          summary: "Media engine operations are slow"
+          description: "95th percentile duration for {{ $labels.operation }} is {{ $value }}s on station {{ $labels.station_id }}"
+
+      # Database Performance
+      - alert: DatabaseSlowQueries
+        expr: histogram_quantile(0.95, rate(grimnir_database_query_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "95th percentile query time is {{ $value }}s for {{ $labels.operation }} on {{ $labels.table }}"
+
+      - alert: DatabaseErrorRate
+        expr: rate(grimnir_database_errors_total[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database errors detected"
+          description: "Database experiencing {{ $value }} errors/sec. Operation: {{ $labels.operation }}, Error: {{ $labels.error_type }}"
+
+  - name: grimnir_radio_capacity
+    interval: 1m
+    rules:
+      # Connection Limits
+      - alert: APIConnectionsHigh
+        expr: grimnir_api_active_connections > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High number of active API connections"
+          description: "{{ $value }} active API connections. May be approaching capacity."
+
+      - alert: WebSocketConnectionsHigh
+        expr: grimnir_api_websocket_connections > 5000
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High number of WebSocket connections"
+          description: "{{ $value }} active WebSocket connections. May be approaching capacity."
+
+      # Database Connections
+      - alert: DatabaseConnectionsHigh
+        expr: grimnir_database_connections_active > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value }} active database connections. Pool may be exhausted."
+
+  - name: grimnir_radio_audio
+    interval: 30s
+    rules:
+      # Audio Levels
+      - alert: AudioSilence
+        expr: grimnir_media_engine_audio_level_left_db < -60 and grimnir_media_engine_audio_level_right_db < -60
+        for: 30s
+        labels:
+          severity: critical
+          component: media_engine
+        annotations:
+          summary: "Audio silence detected on station {{ $labels.station_id }}"
+          description: "Both channels silent (<-60dBFS) on station {{ $labels.station_id }} mount {{ $labels.mount_id }}"
+
+      - alert: AudioLevelLow
+        expr: grimnir_media_engine_audio_level_left_db < -40 or grimnir_media_engine_audio_level_right_db < -40
+        for: 2m
+        labels:
+          severity: warning
+          component: media_engine
+        annotations:
+          summary: "Audio level low on station {{ $labels.station_id }}"
+          description: "Audio level below -40dBFS on station {{ $labels.station_id }} mount {{ $labels.mount_id }}"
+
+      - alert: AudioLoudnessOutOfRange
+        expr: grimnir_media_engine_loudness_lufs < -23 or grimnir_media_engine_loudness_lufs > -14
+        for: 5m
+        labels:
+          severity: info
+          component: media_engine
+        annotations:
+          summary: "Audio loudness outside broadcast range"
+          description: "Loudness is {{ $value }} LUFS on station {{ $labels.station_id }} (target: -16 LUFS for streaming)"
