@@ -3,7 +3,6 @@ package mediaengine
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"sync"
 	"time"
 
@@ -22,8 +21,9 @@ type Pipeline struct {
 	State       pb.PlaybackState
 	CurrentTrack *Track
 	NextTrack    *Track
+	OutputConfig *EncoderConfig
 
-	cmd             *exec.Cmd
+	process         *GStreamerProcess
 	crossfadeMgr    *CrossfadeManager
 	mu              sync.RWMutex
 	logger          zerolog.Logger
@@ -76,7 +76,7 @@ func NewPipelineManager(cfg *Config, logger zerolog.Logger) *PipelineManager {
 }
 
 // CreatePipeline creates a new GStreamer pipeline for a station
-func (pm *PipelineManager) CreatePipeline(ctx context.Context, stationID, mountID string, graph *dsp.Graph) (*Pipeline, error) {
+func (pm *PipelineManager) CreatePipeline(ctx context.Context, stationID, mountID string, graph *dsp.Graph, outputConfig *EncoderConfig) (*Pipeline, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -93,11 +93,23 @@ func (pm *PipelineManager) CreatePipeline(ctx context.Context, stationID, mountI
 
 	pipelineLogger := pm.logger.With().Str("pipeline_id", stationID+"-"+mountID).Logger()
 
+	// Set default output config if not provided
+	if outputConfig == nil {
+		outputConfig = &EncoderConfig{
+			OutputType: OutputTypeTest, // Use test sink by default
+			Format:     AudioFormatMP3,
+			Bitrate:    128,
+			SampleRate: 44100,
+			Channels:   2,
+		}
+	}
+
 	pipeline := &Pipeline{
 		ID:           stationID + "-" + mountID,
 		StationID:    stationID,
 		MountID:      mountID,
 		Graph:        graph,
+		OutputConfig: outputConfig,
 		State:        pb.PlaybackState_PLAYBACK_STATE_IDLE,
 		logger:       pipelineLogger,
 		cancelFunc:   cancel,
@@ -110,6 +122,8 @@ func (pm *PipelineManager) CreatePipeline(ctx context.Context, stationID, mountI
 	pm.logger.Info().
 		Str("station_id", stationID).
 		Str("mount_id", mountID).
+		Str("output_type", string(outputConfig.OutputType)).
+		Str("format", string(outputConfig.Format)).
 		Msg("created pipeline")
 
 	return pipeline, nil
@@ -180,18 +194,62 @@ func (p *Pipeline) Play(ctx context.Context, source *pb.SourceConfig, cuePoints 
 		Str("pipeline", pipelineStr).
 		Msg("starting playback")
 
-	// Start GStreamer process
-	// Note: In production, we'd use proper GStreamer bindings
-	// For now, this is a placeholder showing the structure
+	// Create GStreamer process
+	processID := fmt.Sprintf("%s-%s-playback", p.StationID, p.MountID)
+	p.process = NewGStreamerProcess(ctx, GStreamerProcessConfig{
+		ID:       processID,
+		Pipeline: pipelineStr,
+		LogLevel: "info",
+		OnStateChange: func(state ProcessState) {
+			p.logger.Debug().
+				Str("process_state", string(state)).
+				Msg("playback process state changed")
+		},
+		OnTelemetry: func(gstTelem *GStreamerTelemetry) {
+			// Update pipeline telemetry from GStreamer output
+			p.telemetry.mu.Lock()
+			p.telemetry.AudioLevelL = gstTelem.AudioLevelL
+			p.telemetry.AudioLevelR = gstTelem.AudioLevelR
+			p.telemetry.PeakLevelL = gstTelem.PeakLevelL
+			p.telemetry.PeakLevelR = gstTelem.PeakLevelR
+			p.telemetry.BufferDepthMS = gstTelem.BufferDepthMS
+			p.telemetry.BufferFillPct = gstTelem.BufferFillPct
+			p.telemetry.UnderrunCount = gstTelem.UnderrunCount
+			p.telemetry.mu.Unlock()
+
+			// Update track position
+			if p.CurrentTrack != nil {
+				p.CurrentTrack.Position = gstTelem.CurrentPosition
+			}
+		},
+		OnExit: func(exitCode int, err error) {
+			if err != nil {
+				p.logger.Error().
+					Err(err).
+					Int("exit_code", exitCode).
+					Msg("playback process exited with error")
+
+				// Update state to idle on error
+				p.mu.Lock()
+				p.State = pb.PlaybackState_PLAYBACK_STATE_IDLE
+				p.mu.Unlock()
+			} else {
+				p.logger.Info().Msg("playback process completed normally")
+			}
+		},
+	}, p.logger)
+
+	// Start the process
+	if err := p.process.Start(pipelineStr); err != nil {
+		return fmt.Errorf("failed to start playback process: %w", err)
+	}
+
 	p.CurrentTrack = track
 	p.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
 
-	// TODO: Actually launch gst-launch process here
-	// cmd := exec.CommandContext(ctx, p.cfg.GStreamerBin, pipelineStr)
-	// p.cmd = cmd
-	// if err := cmd.Start(); err != nil {
-	//     return fmt.Errorf("failed to start pipeline: %w", err)
-	// }
+	p.logger.Info().
+		Int("pid", p.process.GetPID()).
+		Msg("playback started successfully")
 
 	return nil
 }
@@ -215,11 +273,15 @@ func (p *Pipeline) Stop() error {
 	}
 
 	// Stop GStreamer process
-	if p.cmd != nil && p.cmd.Process != nil {
-		if err := p.cmd.Process.Kill(); err != nil {
-			p.logger.Error().Err(err).Msg("failed to kill pipeline process")
+	if p.process != nil {
+		if err := p.process.Stop(); err != nil {
+			p.logger.Error().Err(err).Msg("failed to stop playback process gracefully")
+			// Try force kill
+			if killErr := p.process.Kill(); killErr != nil {
+				p.logger.Error().Err(killErr).Msg("failed to kill playback process")
+			}
 		}
-		p.cmd = nil
+		p.process = nil
 	}
 
 	p.CurrentTrack = nil
@@ -316,8 +378,19 @@ func (p *Pipeline) InsertEmergency(ctx context.Context, source *pb.SourceConfig)
 		Msg("inserting emergency broadcast")
 
 	// Stop current playback immediately
-	if p.cmd != nil && p.cmd.Process != nil {
-		p.cmd.Process.Kill()
+	if p.process != nil {
+		// Force kill for immediate preemption
+		if err := p.process.Kill(); err != nil {
+			p.logger.Error().Err(err).Msg("failed to kill current process")
+		}
+		p.process = nil
+	}
+
+	// Stop crossfade mixer if running
+	if p.crossfadeMgr != nil {
+		if err := p.crossfadeMgr.Stop(); err != nil {
+			p.logger.Error().Err(err).Msg("failed to stop crossfade during emergency")
+		}
 	}
 
 	track := &Track{
@@ -328,13 +401,80 @@ func (p *Pipeline) InsertEmergency(ctx context.Context, source *pb.SourceConfig)
 		Metadata:   source.Metadata,
 	}
 
+	// Build emergency pipeline (bypasses DSP for minimal latency)
+	pipelineStr, err := p.buildEmergencyPipeline(track)
+	if err != nil {
+		return fmt.Errorf("failed to build emergency pipeline: %w", err)
+	}
+
+	// Create emergency GStreamer process
+	processID := fmt.Sprintf("%s-%s-emergency", p.StationID, p.MountID)
+	p.process = NewGStreamerProcess(ctx, GStreamerProcessConfig{
+		ID:       processID,
+		Pipeline: pipelineStr,
+		LogLevel: "warning", // Minimal logging for emergency
+		OnStateChange: func(state ProcessState) {
+			p.logger.Info().
+				Str("process_state", string(state)).
+				Msg("emergency process state changed")
+		},
+		OnExit: func(exitCode int, err error) {
+			if err != nil {
+				p.logger.Error().
+					Err(err).
+					Int("exit_code", exitCode).
+					Msg("emergency process exited with error")
+			} else {
+				p.logger.Info().Msg("emergency broadcast completed")
+			}
+
+			// Return to idle state after emergency
+			p.mu.Lock()
+			p.State = pb.PlaybackState_PLAYBACK_STATE_IDLE
+			p.CurrentTrack = nil
+			p.mu.Unlock()
+		},
+	}, p.logger)
+
+	// Start emergency playback immediately
+	if err := p.process.Start(pipelineStr); err != nil {
+		return fmt.Errorf("failed to start emergency playback: %w", err)
+	}
+
 	p.CurrentTrack = track
 	p.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
 
-	// TODO: Start emergency playback immediately
-	// This should bypass all processing and go straight to output
+	p.logger.Warn().
+		Int("pid", p.process.GetPID()).
+		Msg("emergency broadcast started")
 
 	return nil
+}
+
+// buildEmergencyPipeline builds a minimal-latency pipeline for emergency broadcasts
+func (p *Pipeline) buildEmergencyPipeline(track *Track) (string, error) {
+	var source string
+
+	switch track.SourceType {
+	case pb.SourceType_SOURCE_TYPE_MEDIA:
+		source = fmt.Sprintf("filesrc location=%s ! decodebin", track.Path)
+	case pb.SourceType_SOURCE_TYPE_WEBSTREAM:
+		source = fmt.Sprintf("souphttpsrc location=%s ! decodebin", track.Path)
+	default:
+		return "", fmt.Errorf("unsupported emergency source type: %v", track.SourceType)
+	}
+
+	// Emergency pipeline bypasses DSP for minimal latency
+	// Still needs encoder/output to stream
+	encoder := NewEncoderBuilder(*p.OutputConfig)
+	outputChain, err := encoder.Build()
+	if err != nil {
+		return "", fmt.Errorf("build emergency output: %w", err)
+	}
+
+	pipeline := source + " ! " + outputChain
+
+	return pipeline, nil
 }
 
 // RouteLive routes a live input stream
@@ -421,10 +561,18 @@ func (p *Pipeline) buildPlaybackPipeline(track *Track) (string, error) {
 		dspChain = " ! " + p.Graph.Pipeline
 	}
 
-	// Add output (placeholder - would route to encoder/streamer)
-	output := " ! autoaudiosink"
+	// Build encoder and output using EncoderBuilder
+	encoder := NewEncoderBuilder(*p.OutputConfig)
+	if err := encoder.ValidateConfig(); err != nil {
+		return "", fmt.Errorf("invalid encoder config: %w", err)
+	}
 
-	pipeline := source + dspChain + output
+	outputChain, err := encoder.Build()
+	if err != nil {
+		return "", fmt.Errorf("build encoder output: %w", err)
+	}
+
+	pipeline := source + dspChain + " ! " + outputChain
 
 	return pipeline, nil
 }

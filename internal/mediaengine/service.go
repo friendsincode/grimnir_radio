@@ -121,7 +121,9 @@ func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.
 	s.mu.Unlock()
 
 	// Create pipeline with graph
-	_, err = s.pipelineManager.CreatePipeline(ctx, req.StationId, req.MountId, graph)
+	// TODO: Get output config from request
+	// For now, use default (test sink)
+	_, err = s.pipelineManager.CreatePipeline(ctx, req.StationId, req.MountId, graph, nil)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("failed to create pipeline")
 		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "load_graph", "failure").Inc()

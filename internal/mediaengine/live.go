@@ -207,26 +207,4 @@ func (lim *LiveInputManager) Shutdown() error {
 	return nil
 }
 
-// GStreamerProcess is a placeholder for actual GStreamer process management.
-// In a full implementation, this would manage the actual GStreamer pipeline process.
-type GStreamerProcess struct {
-	PipelineString string
-	running        bool
-	mu             sync.Mutex
-}
-
-// Stop stops the GStreamer process.
-func (gp *GStreamerProcess) Stop() error {
-	gp.mu.Lock()
-	defer gp.mu.Unlock()
-
-	if !gp.running {
-		return nil
-	}
-
-	// In a full implementation, this would send a stop signal to the GStreamer process
-	// For now, just mark as stopped
-	gp.running = false
-
-	return nil
-}
+// Note: GStreamerProcess is now implemented in gstreamer.go

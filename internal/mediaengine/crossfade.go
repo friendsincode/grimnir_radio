@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ type CrossfadeManager struct {
 	fadeState           FadeState
 	fadeStartTime       time.Time
 	fadeConfig          *pb.FadeConfig
-	mixerCmd            *exec.Cmd
+	mixerProcess        *GStreamerProcess
 	mixerPipelineString string
 }
 
@@ -254,35 +253,53 @@ func (cfm *CrossfadeManager) buildFadeController(name string, curve pb.FadeCurve
 
 // launchMixer starts the GStreamer mixer process
 func (cfm *CrossfadeManager) launchMixer(ctx context.Context, pipeline string) error {
-	// Build gst-launch command
-	args := []string{"-v"} // Verbose mode for debugging
-	args = append(args, strings.Split(pipeline, " ")...)
+	processID := fmt.Sprintf("%s-%s-crossfade", cfm.stationID, cfm.mountID)
 
-	cmd := exec.CommandContext(ctx, "gst-launch-1.0", args...)
+	// Create GStreamer process with callbacks
+	cfm.mixerProcess = NewGStreamerProcess(ctx, GStreamerProcessConfig{
+		ID:       processID,
+		Pipeline: pipeline,
+		LogLevel: "info",
+		OnStateChange: func(state ProcessState) {
+			cfm.logger.Debug().
+				Str("process_state", string(state)).
+				Msg("mixer process state changed")
+		},
+		OnTelemetry: func(telemetry *GStreamerTelemetry) {
+			// Update crossfade manager with telemetry if needed
+			// This could be used to track fade progress
+			cfm.logger.Trace().
+				Float32("audio_level_l", telemetry.AudioLevelL).
+				Float32("peak_level_l", telemetry.PeakLevelL).
+				Int64("underrun_count", telemetry.UnderrunCount).
+				Msg("mixer telemetry update")
+		},
+		OnExit: func(exitCode int, err error) {
+			if err != nil {
+				cfm.logger.Error().
+					Err(err).
+					Int("exit_code", exitCode).
+					Msg("mixer process exited with error")
+			} else {
+				cfm.logger.Info().Msg("mixer process completed normally")
+			}
 
-	// Capture output for telemetry
-	// stdout, _ := cmd.StdoutPipe()
-	// stderr, _ := cmd.StderrPipe()
+			// Clean up on exit
+			cfm.mu.Lock()
+			cfm.mixerProcess = nil
+			cfm.mu.Unlock()
+		},
+	}, cfm.logger)
 
-	cfm.mixerCmd = cmd
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start gst-launch: %w", err)
+	// Start the process
+	if err := cfm.mixerProcess.Start(pipeline); err != nil {
+		return fmt.Errorf("failed to start mixer process: %w", err)
 	}
 
 	cfm.logger.Info().
-		Int("pid", cmd.Process.Pid).
+		Int("pid", cfm.mixerProcess.GetPID()).
+		Str("pipeline", pipeline).
 		Msg("crossfade mixer process started")
-
-	// Monitor process completion
-	go func() {
-		err := cmd.Wait()
-		if err != nil {
-			cfm.logger.Error().Err(err).Msg("mixer process exited with error")
-		} else {
-			cfm.logger.Info().Msg("mixer process completed")
-		}
-	}()
 
 	return nil
 }
@@ -313,17 +330,28 @@ func (cfm *CrossfadeManager) monitorFadeCompletion(durationMs int64) {
 // Stop stops the crossfade mixer
 func (cfm *CrossfadeManager) Stop() error {
 	cfm.mu.Lock()
-	defer cfm.mu.Unlock()
+	mixerProcess := cfm.mixerProcess
+	cfm.mu.Unlock()
 
-	if cfm.mixerCmd != nil && cfm.mixerCmd.Process != nil {
+	if mixerProcess != nil {
 		cfm.logger.Info().Msg("stopping crossfade mixer")
-		if err := cfm.mixerCmd.Process.Kill(); err != nil {
-			return fmt.Errorf("kill mixer process: %w", err)
+		if err := mixerProcess.Stop(); err != nil {
+			cfm.logger.Error().Err(err).Msg("failed to stop mixer process gracefully")
+			// Try force kill
+			if killErr := mixerProcess.Kill(); killErr != nil {
+				return fmt.Errorf("failed to kill mixer process: %w", killErr)
+			}
 		}
-		cfm.mixerCmd = nil
+
+		cfm.mu.Lock()
+		cfm.mixerProcess = nil
+		cfm.mu.Unlock()
 	}
 
+	cfm.mu.Lock()
 	cfm.fadeState = FadeStateIdle
+	cfm.mu.Unlock()
+
 	return nil
 }
 
