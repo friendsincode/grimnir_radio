@@ -6,78 +6,75 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/migration"
-	"github.com/friendsincode/grimnir_radio/internal/migration/azuracast"
-	"github.com/friendsincode/grimnir_radio/internal/migration/libretime"
+	"github.com/spf13/cobra"
 )
 
 var importCmd = &cobra.Command{
 	Use:   "import",
-	Short: "Import data from other broadcast automation systems",
-	Long:  "Import stations, media, playlists, and schedules from other broadcast automation systems like AzuraCast and LibreTime",
+	Short: "Import data from other radio automation systems",
+	Long:  "Import stations, media, playlists, and schedules from AzuraCast, LibreTime, and other systems",
 }
 
 var importAzuracastCmd = &cobra.Command{
-	Use:   "azuracast [backup-file]",
+	Use:   "azuracast",
 	Short: "Import from AzuraCast backup",
-	Long: `Import stations, mounts, media, playlists, and schedules from an AzuraCast backup.
-
-The backup file should be a .tar.gz archive created by AzuraCast's backup system.
-This command will extract the backup, read the database, and import all data into Grimnir Radio.
-
-Example:
-  grimnirradio import azuracast /path/to/azuracast-backup.tar.gz
-  grimnirradio import azuracast /path/to/azuracast-backup.tar.gz --dry-run
-  grimnirradio import azuracast /path/to/azuracast-backup.tar.gz --skip-media
-  grimnirradio import azuracast /path/to/azuracast-backup.tar.gz --media-copy-method=symlink`,
-	Args: cobra.ExactArgs(1),
-	RunE: runImportAzuracast,
+	Long:  "Import stations, media, and playlists from an AzuraCast backup tarball (.tar.gz)",
+	RunE:  runImportAzuracast,
 }
 
-var importLibreTimeCmd = &cobra.Command{
-	Use:   "libretime [database-dsn]",
+var importLibretimeCmd = &cobra.Command{
+	Use:   "libretime",
 	Short: "Import from LibreTime database",
-	Long: `Import media, playlists, shows, and schedules from a LibreTime PostgreSQL database.
-
-The database DSN should be in the format: postgres://user:password@host:port/database
-
-This command connects directly to a running LibreTime database and imports all data.
-LibreTime uses a single-station model, so a default station will be created.
-
-Example:
-  grimnirradio import libretime "postgres://airtime:airtime@localhost/airtime"
-  grimnirradio import libretime "postgres://airtime:airtime@localhost/airtime" --dry-run
-  grimnirradio import libretime "postgres://airtime:airtime@localhost/airtime" --skip-media
-  grimnirradio import libretime "postgres://airtime:airtime@localhost/airtime" --media-copy-method=symlink`,
-	Args: cobra.ExactArgs(1),
-	RunE: runImportLibreTime,
+	Long:  "Import stations, media, playlists, and shows from a LibreTime PostgreSQL database",
+	RunE:  runImportLibretime,
 }
 
+// AzuraCast import flags
 var (
-	importDryRun          bool
-	importSkipMedia       bool
-	importMediaCopyMethod string
-	importOverwrite       bool
+	azuracastBackupPath string
+	azuracastSkipMedia  bool
+	azuracastDryRun     bool
+)
+
+// LibreTime import flags
+var (
+	libretimeDBHost     string
+	libretimeDBPort     int
+	libretimeDBName     string
+	libretimeDBUser     string
+	libretimeDBPassword string
+	libretimeMediaPath  string
+	libretimeSkipMedia  bool
+	libretimeSkipPlaylists bool
+	libretimeSkipSchedules bool
+	libretimeDryRun     bool
 )
 
 func init() {
 	rootCmd.AddCommand(importCmd)
 	importCmd.AddCommand(importAzuracastCmd)
-	importCmd.AddCommand(importLibreTimeCmd)
+	importCmd.AddCommand(importLibretimeCmd)
 
 	// AzuraCast flags
-	importAzuracastCmd.Flags().BoolVar(&importDryRun, "dry-run", false, "Preview import without making changes")
-	importAzuracastCmd.Flags().BoolVar(&importSkipMedia, "skip-media", false, "Skip importing media files")
-	importAzuracastCmd.Flags().StringVar(&importMediaCopyMethod, "media-copy-method", "copy", "How to import media files: copy, symlink, or none")
-	importAzuracastCmd.Flags().BoolVar(&importOverwrite, "overwrite", false, "Overwrite existing data")
+	importAzuracastCmd.Flags().StringVar(&azuracastBackupPath, "backup", "", "Path to AzuraCast backup tarball (.tar.gz) (required)")
+	importAzuracastCmd.Flags().BoolVar(&azuracastSkipMedia, "skip-media", false, "Skip media file import")
+	importAzuracastCmd.Flags().BoolVar(&azuracastDryRun, "dry-run", false, "Analyze backup without importing")
+	importAzuracastCmd.MarkFlagRequired("backup")
 
 	// LibreTime flags
-	importLibreTimeCmd.Flags().BoolVar(&importDryRun, "dry-run", false, "Preview import without making changes")
-	importLibreTimeCmd.Flags().BoolVar(&importSkipMedia, "skip-media", false, "Skip importing media files")
-	importLibreTimeCmd.Flags().StringVar(&importMediaCopyMethod, "media-copy-method", "copy", "How to import media files: copy, symlink, or none")
-	importLibreTimeCmd.Flags().BoolVar(&importOverwrite, "overwrite", false, "Overwrite existing data")
+	importLibretimeCmd.Flags().StringVar(&libretimeDBHost, "db-host", "localhost", "LibreTime database host")
+	importLibretimeCmd.Flags().IntVar(&libretimeDBPort, "db-port", 5432, "LibreTime database port")
+	importLibretimeCmd.Flags().StringVar(&libretimeDBName, "db-name", "airtime", "LibreTime database name")
+	importLibretimeCmd.Flags().StringVar(&libretimeDBUser, "db-user", "", "LibreTime database user (required)")
+	importLibretimeCmd.Flags().StringVar(&libretimeDBPassword, "db-password", "", "LibreTime database password")
+	importLibretimeCmd.Flags().StringVar(&libretimeMediaPath, "media-path", "", "Path to LibreTime media directory")
+	importLibretimeCmd.Flags().BoolVar(&libretimeSkipMedia, "skip-media", false, "Skip media file import")
+	importLibretimeCmd.Flags().BoolVar(&libretimeSkipPlaylists, "skip-playlists", false, "Skip playlist import")
+	importLibretimeCmd.Flags().BoolVar(&libretimeSkipSchedules, "skip-schedules", false, "Skip schedule/show import")
+	importLibretimeCmd.Flags().BoolVar(&libretimeDryRun, "dry-run", false, "Analyze database without importing")
+	importLibretimeCmd.MarkFlagRequired("db-user")
 }
 
 func runImportAzuracast(cmd *cobra.Command, args []string) error {
@@ -85,153 +82,238 @@ func runImportAzuracast(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	backupPath := args[0]
-
-	// Check if backup file exists
-	if _, err := os.Stat(backupPath); err != nil {
-		return fmt.Errorf("backup file not found: %w", err)
-	}
-
-	// Initialize database connection
-	db, err := initDatabase()
-	if err != nil {
-		return fmt.Errorf("init database: %w", err)
-	}
-
-	// Create importer
-	options := migration.MigrationOptions{
-		DryRun:            importDryRun,
-		SkipMedia:         importSkipMedia,
-		MediaCopyMethod:   importMediaCopyMethod,
-		OverwriteExisting: importOverwrite,
-	}
-
-	importer := azuracast.NewImporter(db, logger, options)
-
-	// Set progress callback
-	importer.SetProgressCallback(func(step, total int, message string) {
-		percent := int(float64(step) / float64(total) * 100)
-		fmt.Printf("[%3d%%] %s\n", percent, message)
-	})
-
-	// Run import
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
 	logger.Info().
-		Str("backup", backupPath).
-		Bool("dry_run", importDryRun).
-		Bool("skip_media", importSkipMedia).
-		Str("media_copy_method", importMediaCopyMethod).
+		Str("backup_path", azuracastBackupPath).
+		Bool("dry_run", azuracastDryRun).
 		Msg("starting AzuraCast import")
 
-	fmt.Println("Starting AzuraCast import...")
-	if importDryRun {
-		fmt.Println("🔍 DRY RUN MODE - No changes will be made")
-	}
-	fmt.Println()
-
-	stats, err := importer.Import(ctx, backupPath)
+	// Initialize database
+	db, err := initDatabase()
 	if err != nil {
+		return fmt.Errorf("initialize database: %w", err)
+	}
+
+	// Create event bus
+	bus := events.NewBus()
+
+	// Create migration service
+	migrationSvc := migration.NewService(db, bus, logger)
+	migrationSvc.RegisterImporter(migration.SourceTypeAzuraCast, migration.NewAzuraCastImporter(db, logger))
+
+	// Create job options
+	options := migration.Options{
+		AzuraCastBackupPath: azuracastBackupPath,
+		SkipMedia:           azuracastSkipMedia,
+	}
+
+	ctx := context.Background()
+
+	// Dry run: just analyze
+	if azuracastDryRun {
+		logger.Info().Msg("performing dry run analysis...")
+		importer := migration.NewAzuraCastImporter(db, logger)
+
+		if err := importer.Validate(ctx, options); err != nil {
+			return fmt.Errorf("validation failed: %w", err)
+		}
+
+		result, err := importer.Analyze(ctx, options)
+		if err != nil {
+			return fmt.Errorf("analysis failed: %w", err)
+		}
+
+		logger.Info().Msg("dry run analysis complete")
+		fmt.Printf("\nImport Preview:\n")
+		fmt.Printf("  Stations:  %d\n", result.StationsCreated)
+		fmt.Printf("  Media:     %d\n", result.MediaItemsImported)
+		fmt.Printf("  Playlists: %d\n", result.PlaylistsCreated)
+
+		if len(result.Warnings) > 0 {
+			fmt.Printf("\nWarnings:\n")
+			for _, warning := range result.Warnings {
+				fmt.Printf("  - %s\n", warning)
+			}
+		}
+
+		fmt.Printf("\nRun without --dry-run to perform the import.\n")
+		return nil
+	}
+
+	// Create and start import job
+	job, err := migrationSvc.CreateJob(ctx, migration.SourceTypeAzuraCast, options)
+	if err != nil {
+		return fmt.Errorf("create job: %w", err)
+	}
+
+	logger.Info().Str("job_id", job.ID).Msg("import job created")
+
+	// Progress callback
+	progressCallback := func(progress migration.Progress) {
+		fmt.Printf("\r%s [%.0f%%] %s", progress.Phase, progress.Percentage, progress.CurrentStep)
+		if progress.Phase == "completed" {
+			fmt.Println()
+		}
+	}
+
+	// Run import directly (not via service to show progress)
+	importer := migration.NewAzuraCastImporter(db, logger)
+	result, err := importer.Import(ctx, options, progressCallback)
+	if err != nil {
+		logger.Error().Err(err).Msg("import failed")
 		return fmt.Errorf("import failed: %w", err)
 	}
 
-	// Print summary
-	fmt.Println()
-	fmt.Println("✅ Import completed successfully!")
-	fmt.Println()
-	fmt.Println("Summary:")
-	fmt.Printf("  Stations imported:   %d\n", stats.StationsImported)
-	fmt.Printf("  Mounts imported:     %d\n", stats.MountsImported)
-	fmt.Printf("  Media imported:      %d\n", stats.MediaImported)
-	fmt.Printf("  Playlists imported:  %d\n", stats.PlaylistsImported)
-	fmt.Printf("  Schedules imported:  %d\n", stats.SchedulesImported)
-	fmt.Printf("  Users imported:      %d\n", stats.UsersImported)
-	fmt.Printf("  Errors encountered:  %d\n", stats.ErrorsEncountered)
-	fmt.Println()
+	// Display results
+	fmt.Printf("\n\nImport Complete!\n")
+	fmt.Printf("  Stations:  %d created\n", result.StationsCreated)
+	fmt.Printf("  Media:     %d imported\n", result.MediaItemsImported)
+	fmt.Printf("  Playlists: %d created\n", result.PlaylistsCreated)
+	fmt.Printf("  Duration:  %.1f seconds\n", result.DurationSeconds)
 
-	if stats.UsersImported > 0 {
-		fmt.Println("⚠️  Imported users require password reset (passwords cannot be migrated)")
+	if len(result.Warnings) > 0 {
+		fmt.Printf("\nWarnings:\n")
+		for _, warning := range result.Warnings {
+			fmt.Printf("  - %s\n", warning)
+		}
 	}
 
-	if importDryRun {
-		fmt.Println("🔍 This was a dry run - no changes were made to the database")
+	if len(result.Skipped) > 0 {
+		fmt.Printf("\nSkipped:\n")
+		for key, count := range result.Skipped {
+			fmt.Printf("  - %s: %d\n", key, count)
+		}
 	}
 
+	logger.Info().Msg("AzuraCast import completed successfully")
 	return nil
 }
 
-func runImportLibreTime(cmd *cobra.Command, args []string) error {
+func runImportLibretime(cmd *cobra.Command, args []string) error {
 	if err := loadConfig(); err != nil {
 		return err
 	}
 
-	dbDSN := args[0]
-
-	// Initialize database connection
-	db, err := initDatabase()
-	if err != nil {
-		return fmt.Errorf("init database: %w", err)
-	}
-
-	// Create importer
-	options := migration.MigrationOptions{
-		DryRun:            importDryRun,
-		SkipMedia:         importSkipMedia,
-		MediaCopyMethod:   importMediaCopyMethod,
-		OverwriteExisting: importOverwrite,
-	}
-
-	importer := libretime.NewImporter(db, logger, options)
-
-	// Set progress callback
-	importer.SetProgressCallback(func(step, total int, message string) {
-		percent := int(float64(step) / float64(total) * 100)
-		fmt.Printf("[%3d%%] %s\n", percent, message)
-	})
-
-	// Run import
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
 	logger.Info().
-		Bool("dry_run", importDryRun).
-		Bool("skip_media", importSkipMedia).
-		Str("media_copy_method", importMediaCopyMethod).
+		Str("db_host", libretimeDBHost).
+		Str("db_name", libretimeDBName).
+		Bool("dry_run", libretimeDryRun).
 		Msg("starting LibreTime import")
 
-	fmt.Println("Starting LibreTime import...")
-	if importDryRun {
-		fmt.Println("🔍 DRY RUN MODE - No changes will be made")
-	}
-	fmt.Println()
-
-	stats, err := importer.Import(ctx, dbDSN)
+	// Initialize database
+	db, err := initDatabase()
 	if err != nil {
+		return fmt.Errorf("initialize database: %w", err)
+	}
+
+	// Create event bus
+	bus := events.NewBus()
+
+	// Create migration service
+	migrationSvc := migration.NewService(db, bus, logger)
+	migrationSvc.RegisterImporter(migration.SourceTypeLibreTime, migration.NewLibreTimeImporter(db, logger))
+
+	// Create job options
+	options := migration.Options{
+		LibreTimeDBHost:     libretimeDBHost,
+		LibreTimeDBPort:     libretimeDBPort,
+		LibreTimeDBName:     libretimeDBName,
+		LibreTimeDBUser:     libretimeDBUser,
+		LibreTimeDBPassword: libretimeDBPassword,
+		LibreTimeMediaPath:  libretimeMediaPath,
+		SkipMedia:           libretimeSkipMedia,
+		SkipPlaylists:       libretimeSkipPlaylists,
+		SkipSchedules:       libretimeSkipSchedules,
+	}
+
+	ctx := context.Background()
+
+	// Dry run: just analyze
+	if libretimeDryRun {
+		logger.Info().Msg("performing dry run analysis...")
+		importer := migration.NewLibreTimeImporter(db, logger)
+
+		if err := importer.Validate(ctx, options); err != nil {
+			return fmt.Errorf("validation failed: %w", err)
+		}
+
+		result, err := importer.Analyze(ctx, options)
+		if err != nil {
+			return fmt.Errorf("analysis failed: %w", err)
+		}
+
+		logger.Info().Msg("dry run analysis complete")
+		fmt.Printf("\nImport Preview:\n")
+		fmt.Printf("  Stations:  %d\n", result.StationsCreated)
+		fmt.Printf("  Media:     %d\n", result.MediaItemsImported)
+		fmt.Printf("  Playlists: %d\n", result.PlaylistsCreated)
+		fmt.Printf("  Shows:     %d\n", result.SchedulesCreated)
+
+		if len(result.Warnings) > 0 {
+			fmt.Printf("\nWarnings:\n")
+			for _, warning := range result.Warnings {
+				fmt.Printf("  - %s\n", warning)
+			}
+		}
+
+		fmt.Printf("\nRun without --dry-run to perform the import.\n")
+		return nil
+	}
+
+	// Create and start import job
+	job, err := migrationSvc.CreateJob(ctx, migration.SourceTypeLibreTime, options)
+	if err != nil {
+		return fmt.Errorf("create job: %w", err)
+	}
+
+	logger.Info().Str("job_id", job.ID).Msg("import job created")
+
+	// Progress callback
+	progressCallback := func(progress migration.Progress) {
+		status := fmt.Sprintf("%s [%.0f%%] %s", progress.Phase, progress.Percentage, progress.CurrentStep)
+
+		// Add detailed counts if available
+		if progress.MediaImported > 0 {
+			status += fmt.Sprintf(" (%d/%d media)", progress.MediaImported, progress.MediaTotal)
+		} else if progress.PlaylistsImported > 0 {
+			status += fmt.Sprintf(" (%d/%d playlists)", progress.PlaylistsImported, progress.PlaylistsTotal)
+		}
+
+		fmt.Printf("\r%-100s", status)
+		if progress.Phase == "completed" {
+			fmt.Println()
+		}
+	}
+
+	// Run import directly (not via service to show progress)
+	importer := migration.NewLibreTimeImporter(db, logger)
+	result, err := importer.Import(ctx, options, progressCallback)
+	if err != nil {
+		logger.Error().Err(err).Msg("import failed")
 		return fmt.Errorf("import failed: %w", err)
 	}
 
-	// Print summary
-	fmt.Println()
-	fmt.Println("✅ Import completed successfully!")
-	fmt.Println()
-	fmt.Println("Summary:")
-	fmt.Printf("  Stations imported:   %d\n", stats.StationsImported)
-	fmt.Printf("  Mounts imported:     %d\n", stats.MountsImported)
-	fmt.Printf("  Media imported:      %d\n", stats.MediaImported)
-	fmt.Printf("  Playlists imported:  %d\n", stats.PlaylistsImported)
-	fmt.Printf("  Schedules imported:  %d\n", stats.SchedulesImported)
-	fmt.Printf("  Users imported:      %d\n", stats.UsersImported)
-	fmt.Printf("  Errors encountered:  %d\n", stats.ErrorsEncountered)
-	fmt.Println()
+	// Display results
+	fmt.Printf("\n\nImport Complete!\n")
+	fmt.Printf("  Stations:  %d created\n", result.StationsCreated)
+	fmt.Printf("  Media:     %d imported\n", result.MediaItemsImported)
+	fmt.Printf("  Playlists: %d created\n", result.PlaylistsCreated)
+	fmt.Printf("  Shows:     %d imported as clocks\n", result.SchedulesCreated)
+	fmt.Printf("  Duration:  %.1f seconds\n", result.DurationSeconds)
 
-	if stats.UsersImported > 0 {
-		fmt.Println("⚠️  Imported users require password reset (passwords cannot be migrated)")
+	if len(result.Warnings) > 0 {
+		fmt.Printf("\nWarnings:\n")
+		for _, warning := range result.Warnings {
+			fmt.Printf("  - %s\n", warning)
+		}
 	}
 
-	if importDryRun {
-		fmt.Println("🔍 This was a dry run - no changes were made to the database")
+	if len(result.Skipped) > 0 {
+		fmt.Printf("\nSkipped:\n")
+		for key, count := range result.Skipped {
+			fmt.Printf("  - %s: %d\n", key, count)
+		}
 	}
 
+	logger.Info().Msg("LibreTime import completed successfully")
 	return nil
 }
