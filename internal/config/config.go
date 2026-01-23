@@ -35,6 +35,13 @@ type Config struct {
 	TracingEnabled    bool
 	OTLPEndpoint      string
 	TracingSampleRate float64
+
+	// Multi-instance configuration
+	LeaderElectionEnabled bool
+	RedisAddr             string
+	RedisPassword         string
+	RedisDB               int
+	InstanceID            string
 }
 
 // Load reads environment variables, applies defaults, and validates the result.
@@ -56,6 +63,13 @@ func Load() (*Config, error) {
         TracingEnabled:    getEnvBoolAny([]string{"GRIMNIR_TRACING_ENABLED", "RLM_TRACING_ENABLED"}, false),
         OTLPEndpoint:      getEnvAny([]string{"GRIMNIR_OTLP_ENDPOINT", "RLM_OTLP_ENDPOINT"}, "localhost:4317"),
         TracingSampleRate: getEnvFloatAny([]string{"GRIMNIR_TRACING_SAMPLE_RATE", "RLM_TRACING_SAMPLE_RATE"}, 1.0),
+
+        // Multi-instance configuration
+        LeaderElectionEnabled: getEnvBoolAny([]string{"GRIMNIR_LEADER_ELECTION_ENABLED", "RLM_LEADER_ELECTION_ENABLED"}, false),
+        RedisAddr:             getEnvAny([]string{"GRIMNIR_REDIS_ADDR", "RLM_REDIS_ADDR"}, "localhost:6379"),
+        RedisPassword:         getEnvAny([]string{"GRIMNIR_REDIS_PASSWORD", "RLM_REDIS_PASSWORD"}, ""),
+        RedisDB:               getEnvIntAny([]string{"GRIMNIR_REDIS_DB", "RLM_REDIS_DB"}, 0),
+        InstanceID:            getEnvAny([]string{"GRIMNIR_INSTANCE_ID", "RLM_INSTANCE_ID"}, ""),
     }
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {

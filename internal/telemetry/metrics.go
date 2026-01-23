@@ -292,6 +292,25 @@ var (
 	)
 )
 
+// Leader election metrics
+var (
+	LeaderElectionStatus = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_leader_election_status",
+			Help: "Leader election status (1=leader, 0=follower)",
+		},
+		[]string{"instance_id"},
+	)
+
+	LeaderElectionChanges = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "grimnir_leader_election_changes_total",
+			Help: "Total number of leadership changes",
+		},
+		[]string{"instance_id", "event"},
+	)
+)
+
 // Handler exposes Prometheus metrics endpoint.
 func Handler() http.Handler {
 	return promhttp.Handler()

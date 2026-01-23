@@ -20,6 +20,7 @@ import (
     "github.com/friendsincode/grimnir_radio/internal/db"
     "github.com/friendsincode/grimnir_radio/internal/events"
     "github.com/friendsincode/grimnir_radio/internal/executor"
+    "github.com/friendsincode/grimnir_radio/internal/leadership"
     "github.com/friendsincode/grimnir_radio/internal/live"
     "github.com/friendsincode/grimnir_radio/internal/media"
     "github.com/friendsincode/grimnir_radio/internal/playout"
@@ -39,13 +40,14 @@ type Server struct {
 	httpServer *http.Server
 	closers    []func() error
 
-	db        *gorm.DB
-	api       *api.API
-	scheduler *scheduler.Service
-	analyzer  *analyzer.Service
-	playout   *playout.Manager
-	director  *playout.Director
-	bus       *events.Bus
+	db                  *gorm.DB
+	api                 *api.API
+	scheduler           *scheduler.Service
+	leaderAwareScheduler *scheduler.LeaderAwareScheduler
+	analyzer            *analyzer.Service
+	playout             *playout.Manager
+	director            *playout.Director
+	bus                 *events.Bus
 
 	bgCancel context.CancelFunc
 	bgWG     sync.WaitGroup
@@ -105,6 +107,33 @@ func (s *Server) initDependencies() error {
 	blockEngine := smartblock.New(database, s.logger)
 	s.scheduler = scheduler.New(database, planner, blockEngine, stateStore, s.cfg.SchedulerLookahead, s.logger)
 
+	// Setup leader-aware scheduler if leader election is enabled
+	if s.cfg.LeaderElectionEnabled {
+		electionConfig := leadership.ElectionConfig{
+			RedisAddr:       s.cfg.RedisAddr,
+			RedisPassword:   s.cfg.RedisPassword,
+			RedisDB:         s.cfg.RedisDB,
+			ElectionKey:     "grimnir:leader:scheduler",
+			LeaseDuration:   15 * time.Second,
+			RenewalInterval: 5 * time.Second,
+			RetryInterval:   2 * time.Second,
+			InstanceID:      s.cfg.InstanceID,
+		}
+
+		election, err := leadership.NewElection(electionConfig, s.logger)
+		if err != nil {
+			return fmt.Errorf("create leader election: %w", err)
+		}
+
+		s.leaderAwareScheduler = scheduler.NewLeaderAware(s.scheduler, election, s.logger)
+		s.DeferClose(func() error { return s.leaderAwareScheduler.Stop() })
+
+		s.logger.Info().
+			Str("redis_addr", s.cfg.RedisAddr).
+			Str("instance_id", electionConfig.InstanceID).
+			Msg("leader election enabled for scheduler")
+	}
+
 	s.analyzer = analyzer.New(database, s.cfg.MediaRoot, s.logger)
 	mediaService := media.NewService(s.cfg, s.logger)
 
@@ -158,7 +187,18 @@ func (s *Server) startBackgroundWorkers() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.bgCancel = cancel
 
-	if s.scheduler != nil {
+	// Start scheduler (leader-aware if configured, otherwise direct)
+	if s.leaderAwareScheduler != nil {
+		// Leader-aware scheduler manages its own goroutines
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			if err := s.leaderAwareScheduler.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				s.logger.Error().Err(err).Msg("leader-aware scheduler exited")
+			}
+		}()
+	} else if s.scheduler != nil {
+		// Direct scheduler (single instance mode)
 		s.bgWG.Add(1)
 		go func() {
 			defer s.bgWG.Done()
@@ -202,7 +242,21 @@ func (s *Server) configureRoutes() {
 	s.router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+
+		response := `{"status":"ok"`
+
+		// Add leader status if leader election is enabled
+		if s.leaderAwareScheduler != nil {
+			isLeader := s.leaderAwareScheduler.IsLeader()
+			if isLeader {
+				response += `,"leader":true`
+			} else {
+				response += `,"leader":false`
+			}
+		}
+
+		response += `}`
+		_, _ = w.Write([]byte(response))
 	})
 
 	s.router.Handle("/metrics", telemetry.Handler())
