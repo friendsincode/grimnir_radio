@@ -1,0 +1,19 @@
+apiVersion: v2
+name: grimnir-radio
+description: A Helm chart for Grimnir Radio - Modern broadcast automation platform
+type: application
+version: 0.1.0
+appVersion: "0.0.1-alpha"
+keywords:
+  - radio
+  - broadcast
+  - automation
+  - streaming
+  - media
+home: https://github.com/friendsincode/grimnir_radio
+sources:
+  - https://github.com/friendsincode/grimnir_radio
+maintainers:
+  - name: Grimnir Radio Team
+    email: hello@example.com
+icon: https://example.com/grimnir-icon.png
