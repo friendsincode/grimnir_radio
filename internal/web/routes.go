@@ -120,6 +120,9 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Post("/{id}/items", h.PlaylistAddItem)
 					r.Delete("/{id}/items/{itemID}", h.PlaylistRemoveItem)
 					r.Post("/{id}/items/reorder", h.PlaylistReorderItems)
+					r.Get("/{id}/cover", h.PlaylistCover)
+					r.Post("/{id}/cover", h.PlaylistUploadCover)
+					r.Delete("/{id}/cover", h.PlaylistDeleteCover)
 				})
 
 				// Smart Blocks

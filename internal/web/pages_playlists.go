@@ -8,6 +8,8 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -16,6 +18,21 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+// PreviewItem represents a media item for playlist hover preview
+type PreviewItem struct {
+	Title    string
+	Duration string // Formatted duration string
+}
+
+// PlaylistWithPreview includes playlist data with item count and preview items
+type PlaylistWithPreview struct {
+	models.Playlist
+	ItemCount     int64
+	PreviewItems  []PreviewItem
+	HasCover      bool
+	TotalDuration time.Duration
+}
 
 // PlaylistList renders the playlists page
 func (h *Handler) PlaylistList(w http.ResponseWriter, r *http.Request) {
@@ -28,23 +45,51 @@ func (h *Handler) PlaylistList(w http.ResponseWriter, r *http.Request) {
 	var playlists []models.Playlist
 	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&playlists)
 
-	// Get item counts for each playlist
-	type playlistWithCount struct {
-		models.Playlist
-		ItemCount int64
-	}
-
-	var playlistsWithCounts []playlistWithCount
+	// Get item counts and preview items for each playlist
+	var playlistsWithPreviews []PlaylistWithPreview
 	for _, p := range playlists {
 		var count int64
 		h.db.Model(&models.PlaylistItem{}).Where("playlist_id = ?", p.ID).Count(&count)
-		playlistsWithCounts = append(playlistsWithCounts, playlistWithCount{p, count})
+
+		// Get all items to calculate total duration
+		var allItems []models.PlaylistItem
+		h.db.Where("playlist_id = ?", p.ID).Order("position ASC").Find(&allItems)
+
+		var previewItems []PreviewItem
+		var totalDuration time.Duration
+		for i, item := range allItems {
+			var media models.MediaItem
+			if err := h.db.Select("title", "duration").First(&media, "id = ?", item.MediaID).Error; err == nil {
+				totalDuration += media.Duration
+
+				// Only include first 10 items in preview
+				if i < 10 {
+					dur := media.Duration
+					mins := int(dur.Minutes())
+					secs := int(dur.Seconds()) % 60
+					durationStr := fmt.Sprintf("%d:%02d", mins, secs)
+
+					previewItems = append(previewItems, PreviewItem{
+						Title:    media.Title,
+						Duration: durationStr,
+					})
+				}
+			}
+		}
+
+		playlistsWithPreviews = append(playlistsWithPreviews, PlaylistWithPreview{
+			Playlist:      p,
+			ItemCount:     count,
+			PreviewItems:  previewItems,
+			HasCover:      len(p.CoverImage) > 0,
+			TotalDuration: totalDuration,
+		})
 	}
 
 	h.Render(w, r, "pages/dashboard/playlists/list", PageData{
 		Title:    "Playlists",
 		Stations: h.LoadStations(r),
-		Data:     playlistsWithCounts,
+		Data:     playlistsWithPreviews,
 	})
 }
 
@@ -132,6 +177,28 @@ func (h *Handler) PlaylistDetail(w http.ResponseWriter, r *http.Request) {
 	var availableMedia []models.MediaItem
 	h.db.Where("station_id = ?", station.ID).Order("artist ASC, title ASC").Limit(100).Find(&availableMedia)
 
+	// Get unique genres for filter dropdown
+	var genres []string
+	h.db.Model(&models.MediaItem{}).
+		Where("station_id = ? AND genre != ''", station.ID).
+		Distinct().Pluck("genre", &genres)
+
+	// Get unique artists for filter dropdown
+	var artists []string
+	h.db.Model(&models.MediaItem{}).
+		Where("station_id = ? AND artist != ''", station.ID).
+		Distinct().Order("artist ASC").Limit(50).Pluck("artist", &artists)
+
+	// Get unique moods for filter dropdown
+	var moods []string
+	h.db.Model(&models.MediaItem{}).
+		Where("station_id = ? AND mood != ''", station.ID).
+		Distinct().Pluck("mood", &moods)
+
+	// Get smart blocks for quick filter selection
+	var smartBlocks []models.SmartBlock
+	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&smartBlocks)
+
 	h.Render(w, r, "pages/dashboard/playlists/detail", PageData{
 		Title:    playlist.Name,
 		Stations: h.LoadStations(r),
@@ -140,6 +207,10 @@ func (h *Handler) PlaylistDetail(w http.ResponseWriter, r *http.Request) {
 			"Items":          itemsWithMedia,
 			"AvailableMedia": availableMedia,
 			"TotalDuration":  totalDuration,
+			"Genres":         genres,
+			"Artists":        artists,
+			"Moods":          moods,
+			"SmartBlocks":    smartBlocks,
 		},
 	})
 }
@@ -302,4 +373,102 @@ func (h *Handler) PlaylistReorderItems(w http.ResponseWriter, r *http.Request) {
 	tx.Commit()
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// PlaylistCover serves the playlist cover image
+func (h *Handler) PlaylistCover(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var playlist models.Playlist
+	if err := h.db.Select("id", "cover_image", "cover_image_mime").First(&playlist, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if len(playlist.CoverImage) == 0 {
+		http.Error(w, "No cover image", http.StatusNotFound)
+		return
+	}
+
+	contentType := playlist.CoverImageMime
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(playlist.CoverImage)
+}
+
+// PlaylistUploadCover handles cover image upload
+func (h *Handler) PlaylistUploadCover(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var playlist models.Playlist
+	if err := h.db.First(&playlist, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Parse multipart form (5MB max for cover)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		http.Error(w, "File too large", http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("cover")
+	if err != nil {
+		http.Error(w, "No file uploaded", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Read file content
+	data, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "Failed to read file", http.StatusInternalServerError)
+		return
+	}
+
+	// Detect content type
+	contentType := http.DetectContentType(data)
+	if contentType != "image/jpeg" && contentType != "image/png" && contentType != "image/gif" && contentType != "image/webp" {
+		http.Error(w, "Invalid image type. Use JPEG, PNG, GIF, or WebP", http.StatusBadRequest)
+		return
+	}
+
+	playlist.CoverImage = data
+	playlist.CoverImageMime = contentType
+
+	if err := h.db.Save(&playlist).Error; err != nil {
+		http.Error(w, "Failed to save cover image", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("playlist_id", id).Str("filename", header.Filename).Msg("playlist cover uploaded")
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/playlists/"+id, http.StatusSeeOther)
+}
+
+// PlaylistDeleteCover removes the playlist cover image
+func (h *Handler) PlaylistDeleteCover(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := h.db.Model(&models.Playlist{}).Where("id = ?", id).
+		Updates(map[string]any{"cover_image": nil, "cover_image_mime": ""}).Error; err != nil {
+		http.Error(w, "Failed to delete cover", http.StatusInternalServerError)
+		return
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/playlists/"+id, http.StatusSeeOther)
 }

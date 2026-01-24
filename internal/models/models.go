@@ -263,13 +263,15 @@ type AnalysisJob struct {
 
 // Playlist represents a static playlist of media items.
 type Playlist struct {
-	ID          string         `gorm:"type:uuid;primaryKey"`
-	StationID   string         `gorm:"type:uuid;index"`
-	Name        string         `gorm:"index"`
-	Description string         `gorm:"type:text"`
-	Items       []PlaylistItem `gorm:"foreignKey:PlaylistID"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             string         `gorm:"type:uuid;primaryKey"`
+	StationID      string         `gorm:"type:uuid;index"`
+	Name           string         `gorm:"index"`
+	Description    string         `gorm:"type:text"`
+	CoverImage     []byte         `gorm:"type:bytea"`
+	CoverImageMime string         `gorm:"type:varchar(32)"`
+	Items          []PlaylistItem `gorm:"foreignKey:PlaylistID"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // PlaylistItem represents an item in a playlist.

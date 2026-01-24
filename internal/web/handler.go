@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -361,9 +362,14 @@ func ternary(cond bool, a, b any) any {
 }
 
 func jsonMarshal(v any) template.JS {
-	// Simple JSON marshaling for safe inclusion in templates
-	// For complex objects, use proper encoding/json
-	return template.JS(fmt.Sprintf("%v", v))
+	if v == nil {
+		return template.JS("null")
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return template.JS("null")
+	}
+	return template.JS(b)
 }
 
 func roleAtLeast(user *models.User, minRole string) bool {
