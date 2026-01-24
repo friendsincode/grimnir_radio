@@ -19,17 +19,72 @@
 {{$playlist := index $data "Playlist"}}
 {{$items := index $data "Items"}}
 {{$availableMedia := index $data "AvailableMedia"}}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="mb-1"><i class="bi bi-list-ul me-2"></i>{{$playlist.Name}}</h4>
-        {{if $playlist.Description}}
-        <p class="text-body-secondary mb-0">{{$playlist.Description}}</p>
-        {{end}}
+{{$genres := index $data "Genres"}}
+{{$artists := index $data "Artists"}}
+{{$moods := index $data "Moods"}}
+{{$smartBlocks := index $data "SmartBlocks"}}
+
+<div class="d-flex justify-content-between align-items-start mb-4">
+    <div class="flex-grow-1">
+        <!-- Editable Name -->
+        <div class="editable-field mb-2" id="nameField">
+            <h4 class="mb-0 d-inline-flex align-items-center gap-2">
+                <i class="bi bi-list-ul"></i>
+                <span class="editable-text" id="nameText" data-original="{{$playlist.Name}}">{{$playlist.Name}}</span>
+                <input type="text" class="form-control form-control-lg d-none editable-input"
+                       id="nameInput" value="{{$playlist.Name}}" style="width: auto; min-width: 200px;">
+                <button class="btn btn-sm btn-link text-body-secondary edit-btn" title="Click to edit">
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-sm btn-success d-none save-btn" title="Save">
+                    <i class="bi bi-check"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary d-none revert-btn" title="Revert">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>
+            </h4>
+        </div>
+
+        <!-- Editable Description -->
+        <div class="editable-field" id="descField">
+            <p class="text-body-secondary mb-0 d-inline-flex align-items-center gap-2">
+                <span class="editable-text" id="descText" data-original="{{$playlist.Description}}">{{if $playlist.Description}}{{$playlist.Description}}{{else}}<em>No description</em>{{end}}</span>
+                <textarea class="form-control d-none editable-input" id="descInput" rows="2"
+                          style="min-width: 300px;">{{$playlist.Description}}</textarea>
+                <button class="btn btn-sm btn-link text-body-secondary edit-btn" title="Click to edit">
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-sm btn-success d-none save-btn" title="Save">
+                    <i class="bi bi-check"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary d-none revert-btn" title="Revert">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>
+            </p>
+        </div>
     </div>
-    <div class="d-flex gap-2">
-        <a href="/dashboard/playlists/{{$playlist.ID}}/edit" class="btn btn-outline-secondary">
-            <i class="bi bi-pencil me-1"></i>Edit
-        </a>
+
+    <div class="d-flex gap-2 align-items-start">
+        <!-- Cover Image -->
+        <div class="position-relative" style="width: 80px; height: 80px;">
+            {{if len $playlist.CoverImage}}
+            <img src="/dashboard/playlists/{{$playlist.ID}}/cover" alt="Cover"
+                 class="rounded shadow" style="width: 80px; height: 80px; object-fit: cover;">
+            <button class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1"
+                    style="padding: 0.1rem 0.3rem;"
+                    hx-delete="/dashboard/playlists/{{$playlist.ID}}/cover"
+                    hx-confirm="Remove cover image?">
+                <i class="bi bi-x"></i>
+            </button>
+            {{else}}
+            <label class="bg-secondary rounded d-flex align-items-center justify-content-center shadow"
+                   style="width: 80px; height: 80px; cursor: pointer;" title="Upload cover image">
+                <i class="bi bi-image text-white fs-3"></i>
+                <input type="file" class="d-none" accept="image/*" id="coverUpload">
+            </label>
+            {{end}}
+        </div>
+
         <button class="btn btn-outline-danger"
                 hx-delete="/dashboard/playlists/{{$playlist.ID}}"
                 hx-confirm="Delete this playlist and all its items?">
@@ -44,27 +99,21 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Tracks ({{len $items}})</h5>
-                <small class="text-body-secondary">Drag to reorder</small>
+                <small class="text-body-secondary"><i class="bi bi-grip-vertical me-1"></i>Drag to reorder or drop media here</small>
             </div>
-            <div class="card-body p-0">
+            <div class="card-body p-0" id="playlistDropZone">
                 {{if $items}}
-                <div class="list-group list-group-flush" id="playlistItems"
-                     x-data="{ dragging: null }"
-                     @dragend="dragging = null">
+                <div class="list-group list-group-flush" id="playlistItems">
                     {{range $index, $item := $items}}
                     <div class="list-group-item d-flex align-items-center gap-3 playlist-item"
                          draggable="true"
                          data-id="{{$item.ID}}"
-                         data-position="{{$item.Position}}"
-                         @dragstart="dragging = $el; $el.classList.add('dragging')"
-                         @dragend="$el.classList.remove('dragging')"
-                         @dragover.prevent="if (dragging !== $el) { $el.classList.add('drag-over') }"
-                         @dragleave="$el.classList.remove('drag-over')"
-                         @drop="handleDrop($el, dragging); $el.classList.remove('drag-over')">
+                         data-media-id="{{$item.MediaID}}"
+                         data-position="{{$item.Position}}">
                         <span class="drag-handle text-body-secondary">
                             <i class="bi bi-grip-vertical"></i>
                         </span>
-                        <span class="badge bg-secondary">{{add $index 1}}</span>
+                        <span class="badge bg-secondary position-number">{{add $index 1}}</span>
                         <div class="flex-grow-1">
                             <div class="fw-medium">{{$item.Media.Title}}</div>
                             <small class="text-body-secondary">
@@ -73,12 +122,14 @@
                             </small>
                         </div>
                         <div class="btn-group btn-group-sm">
-                            <a href="/dashboard/media/{{$item.MediaID}}" class="btn btn-outline-secondary" title="View media">
-                                <i class="bi bi-eye"></i>
-                            </a>
+                            <button class="btn btn-outline-primary preview-btn"
+                                    data-src="/dashboard/media/{{$item.MediaID}}/stream" title="Preview">
+                                <i class="bi bi-play"></i>
+                            </button>
                             <button class="btn btn-outline-danger" title="Remove from playlist"
                                     hx-delete="/dashboard/playlists/{{$playlist.ID}}/items/{{$item.ID}}"
-                                    hx-confirm="Remove this track from the playlist?">
+                                    hx-target="closest .playlist-item"
+                                    hx-swap="outerHTML">
                                 <i class="bi bi-x"></i>
                             </button>
                         </div>
@@ -86,10 +137,11 @@
                     {{end}}
                 </div>
                 {{else}}
-                <div class="text-center py-5 text-body-secondary">
+                <div class="list-group list-group-flush" id="playlistItems"></div>
+                <div class="text-center py-5 text-body-secondary" id="emptyPlaylistMsg">
                     <i class="bi bi-music-note-list fs-1 mb-3 d-block"></i>
                     <p class="mb-0">No tracks in this playlist yet.</p>
-                    <p class="small">Add tracks from the media library on the right.</p>
+                    <p class="small">Drag tracks from the media library or click + to add.</p>
                 </div>
                 {{end}}
             </div>
@@ -107,35 +159,117 @@
     <!-- Add Media Panel -->
     <div class="col-lg-4">
         <div class="card">
-            <div class="card-header">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Add Media</h5>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#advancedFilters">
+                    <i class="bi bi-sliders"></i>
+                </button>
             </div>
             <div class="card-body p-0">
-                <div class="p-3 border-bottom">
-                    <input type="text" class="form-control form-control-sm" placeholder="Search media..."
-                           id="mediaSearch"
-                           hx-get="/dashboard/media/table?limit=50"
-                           hx-trigger="keyup changed delay:300ms"
-                           hx-target="#availableMedia"
-                           hx-include="this"
-                           name="q">
+                <!-- Smart Block Quick Select -->
+                {{if $smartBlocks}}
+                <div class="p-3 border-bottom bg-body-tertiary">
+                    <label class="form-label small fw-semibold mb-1">
+                        <i class="bi bi-magic me-1"></i>Use Smart Block Criteria
+                    </label>
+                    <select class="form-select form-select-sm" id="smartBlockFilter">
+                        <option value="">-- Select Smart Block --</option>
+                        {{range $smartBlocks}}
+                        <option value="{{.ID}}" data-rules='{{jsonMarshal .Rules}}'>{{.Name}}</option>
+                        {{end}}
+                    </select>
                 </div>
-                <div id="availableMedia" class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+                {{end}}
+
+                <!-- Search and Basic Filters -->
+                <div class="p-3 border-bottom">
+                    <input type="text" class="form-control form-control-sm mb-2" placeholder="Search by title or artist..."
+                           id="mediaSearch" name="q">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <select class="form-select form-select-sm" id="genreFilter" name="genre">
+                                <option value="">All Genres</option>
+                                {{range $genres}}
+                                <option value="{{.}}">{{.}}</option>
+                                {{end}}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <select class="form-select form-select-sm" id="artistFilter" name="artist">
+                                <option value="">All Artists</option>
+                                {{range $artists}}
+                                <option value="{{.}}">{{.}}</option>
+                                {{end}}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advanced Filters (collapsed by default) -->
+                <div class="collapse border-bottom" id="advancedFilters">
+                    <div class="p-3 bg-body-tertiary">
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Mood</label>
+                                <select class="form-select form-select-sm" id="moodFilter">
+                                    <option value="">Any Mood</option>
+                                    {{range $moods}}
+                                    <option value="{{.}}">{{.}}</option>
+                                    {{end}}
+                                    <option value="energetic">Energetic</option>
+                                    <option value="happy">Happy</option>
+                                    <option value="relaxed">Relaxed</option>
+                                    <option value="melancholic">Melancholic</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Year</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" id="yearFrom" placeholder="From" min="1900" max="2100">
+                                    <input type="number" class="form-control" id="yearTo" placeholder="To" min="1900" max="2100">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-12">
+                                <label class="form-label small mb-1">BPM Range</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" id="bpmFrom" placeholder="Min" min="0" max="300">
+                                    <input type="number" class="form-control" id="bpmTo" placeholder="Max" min="0" max="300">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="excludeExplicit">
+                            <label class="form-check-label small" for="excludeExplicit">Exclude explicit</label>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary w-100 mt-2" type="button" id="clearFilters">
+                            <i class="bi bi-x-circle me-1"></i>Clear All Filters
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Media List -->
+                <div id="availableMedia" class="list-group list-group-flush" style="max-height: 350px; overflow-y: auto;">
                     {{range $availableMedia}}
-                    <form class="list-group-item list-group-item-action d-flex align-items-center gap-2"
-                          hx-post="/dashboard/playlists/{{$playlist.ID}}/items"
-                          hx-swap="none">
-                        <input type="hidden" name="media_id" value="{{.ID}}">
+                    <div class="list-group-item list-group-item-action d-flex align-items-center gap-2 media-item draggable-media"
+                         draggable="true"
+                         data-media-id="{{.ID}}" data-title="{{.Title}}" data-artist="{{.Artist}}" data-genre="{{.Genre}}"
+                         data-mood="{{.Mood}}" data-year="{{.Year}}" data-bpm="{{.BPM}}" data-explicit="{{.Explicit}}">
                         <div class="flex-grow-1 min-width-0">
                             <div class="text-truncate fw-medium">{{.Title}}</div>
                             <small class="text-body-secondary text-truncate d-block">
                                 {{if .Artist}}{{.Artist}}{{else}}Unknown{{end}}
+                                {{if .Genre}}<span class="badge bg-secondary ms-1">{{.Genre}}</span>{{end}}
+                                {{if ne .BPM 0.0}}<span class="badge bg-info ms-1">{{printf "%.0f" .BPM}} BPM</span>{{end}}
                             </small>
                         </div>
-                        <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">
+                        <span class="text-body-secondary small flex-shrink-0">{{formatDuration .Duration}}</span>
+                        <button type="button" class="btn btn-sm btn-outline-primary flex-shrink-0 add-media-btn"
+                                data-media-id="{{.ID}}">
                             <i class="bi bi-plus"></i>
                         </button>
-                    </form>
+                    </div>
                     {{else}}
                     <div class="list-group-item text-center text-body-secondary py-4">
                         <i class="bi bi-music-note-beamed mb-2 d-block"></i>
@@ -143,20 +277,526 @@
                     </div>
                     {{end}}
                 </div>
+                <div id="noResults" class="text-center text-body-secondary py-4 d-none">
+                    <i class="bi bi-search fs-4 mb-2 d-block"></i>
+                    No matching media found
+                </div>
             </div>
-            <div class="card-footer text-center">
-                <a href="/dashboard/media" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-folder-plus me-1"></i>Upload More Media
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <span class="small text-body-secondary" id="mediaCount">{{len $availableMedia}} items</span>
+                <a href="/dashboard/media/upload" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-upload me-1"></i>Upload
                 </a>
             </div>
         </div>
     </div>
 </div>
 
+<!-- Hidden audio for preview -->
+<audio id="previewAudio"></audio>
+
+<!-- Hidden form for cover upload -->
+<form id="coverForm" hx-post="/dashboard/playlists/{{$playlist.ID}}/cover" hx-encoding="multipart/form-data" hx-swap="none" style="display:none;">
+    <input type="file" name="cover" id="coverFileInput">
+</form>
+{{end}}
+
+{{define "scripts"}}
+<script>
+const playlistId = '{{.Data.Playlist.ID}}';
+
+// ==================== DRAG AND DROP ====================
+const list = document.getElementById('playlistItems');
+const dropZone = document.getElementById('playlistDropZone');
+let draggedItem = null;
+let draggedMediaId = null;
+
+// Get list of media IDs already in playlist for duplicate detection
+function getExistingMediaIds() {
+    const ids = new Set();
+    document.querySelectorAll('.playlist-item').forEach(item => {
+        if (item.dataset.mediaId) {
+            ids.add(item.dataset.mediaId);
+        }
+    });
+    return ids;
+}
+
+// Hide media items that are already in the playlist
+function hideExistingMedia() {
+    const existingIds = getExistingMediaIds();
+    document.querySelectorAll('.media-item').forEach(item => {
+        if (existingIds.has(item.dataset.mediaId)) {
+            item.classList.add('d-none', 'already-added');
+        }
+    });
+    updateMediaCount();
+}
+
+// Update the media count display
+function updateMediaCount() {
+    const visible = document.querySelectorAll('.media-item:not(.d-none)').length;
+    const mediaCountEl = document.getElementById('mediaCount');
+    if (mediaCountEl) {
+        mediaCountEl.textContent = `${visible} items`;
+    }
+}
+
+// Check if media is duplicate and confirm with user
+function checkDuplicateAndAdd(mediaId, title) {
+    const existingIds = getExistingMediaIds();
+    if (existingIds.has(mediaId)) {
+        if (!confirm(`"${title}" is already in this playlist. Add it again?`)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Add media to playlist
+function addMediaToPlaylist(mediaId, title) {
+    if (!checkDuplicateAndAdd(mediaId, title)) {
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('media_id', mediaId);
+
+    fetch(`/dashboard/playlists/${playlistId}/items`, {
+        method: 'POST',
+        body: new URLSearchParams(formData)
+    }).then(res => {
+        if (res.ok) {
+            // Hide the item from Add Media list
+            const mediaItem = document.querySelector(`.media-item[data-media-id="${mediaId}"]`);
+            if (mediaItem) {
+                mediaItem.classList.add('d-none', 'already-added');
+            }
+            updateMediaCount();
+            // Reload to show the new track in the playlist
+            window.location.reload();
+        } else {
+            alert('Failed to add track to playlist');
+        }
+    });
+}
+
+// Hide already-added items on page load
+hideExistingMedia();
+
+// Playlist item reordering
+if (list) {
+    list.addEventListener('dragstart', (e) => {
+        if (e.target.classList.contains('playlist-item')) {
+            draggedItem = e.target;
+            draggedMediaId = null; // Not dragging from media panel
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', 'playlist-item');
+        }
+    });
+
+    list.addEventListener('dragend', (e) => {
+        if (e.target.classList.contains('playlist-item')) {
+            e.target.classList.remove('dragging');
+            draggedItem = null;
+            list.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        }
+    });
+
+    list.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const target = e.target.closest('.playlist-item');
+        if (target && target !== draggedItem) {
+            list.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+            target.classList.add('drag-over');
+        }
+    });
+
+    list.addEventListener('dragleave', (e) => {
+        const target = e.target.closest('.playlist-item');
+        if (target) {
+            target.classList.remove('drag-over');
+        }
+    });
+
+    list.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const target = e.target.closest('.playlist-item');
+
+        // Handle reordering playlist items
+        if (target && draggedItem && target !== draggedItem) {
+            const items = Array.from(list.querySelectorAll('.playlist-item'));
+            const draggedIdx = items.indexOf(draggedItem);
+            const targetIdx = items.indexOf(target);
+
+            if (draggedIdx < targetIdx) {
+                target.after(draggedItem);
+            } else {
+                target.before(draggedItem);
+            }
+
+            updatePositionNumbers();
+            saveOrder();
+        }
+        target?.classList.remove('drag-over');
+    });
+}
+
+// Drop zone for media items from Add Media panel
+if (dropZone) {
+    dropZone.addEventListener('dragover', (e) => {
+        // Only highlight if dragging from media panel
+        if (draggedMediaId) {
+            e.preventDefault();
+            dropZone.classList.add('drop-highlight');
+        }
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+        if (e.target === dropZone || !dropZone.contains(e.relatedTarget)) {
+            dropZone.classList.remove('drop-highlight');
+        }
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drop-highlight');
+
+        // Handle drop from media panel
+        if (draggedMediaId) {
+            const mediaId = draggedMediaId;
+            const title = e.dataTransfer.getData('text/title') || 'this track';
+            draggedMediaId = null;
+            addMediaToPlaylist(mediaId, title);
+        }
+    });
+}
+
+// Make media items in Add Media panel draggable
+document.querySelectorAll('.draggable-media').forEach(item => {
+    item.addEventListener('dragstart', (e) => {
+        draggedMediaId = item.dataset.mediaId;
+        draggedItem = null; // Not a playlist item
+        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.setData('text/plain', 'media-item');
+        e.dataTransfer.setData('text/title', item.dataset.title || '');
+        item.classList.add('dragging');
+    });
+
+    item.addEventListener('dragend', (e) => {
+        item.classList.remove('dragging');
+        draggedMediaId = null;
+        dropZone?.classList.remove('drop-highlight');
+    });
+});
+
+function updatePositionNumbers() {
+    document.querySelectorAll('.playlist-item').forEach((item, idx) => {
+        const posNum = item.querySelector('.position-number');
+        if (posNum) posNum.textContent = idx + 1;
+    });
+}
+
+function saveOrder() {
+    const items = Array.from(document.querySelectorAll('.playlist-item'));
+    const order = items.map((el, idx) => ({
+        id: el.dataset.id,
+        position: idx + 1
+    }));
+
+    fetch(`/dashboard/playlists/${playlistId}/items/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(order)
+    }).then(res => {
+        if (!res.ok) {
+            alert('Failed to save order. Please refresh the page.');
+        }
+    });
+}
+
+// ==================== INLINE EDITING ====================
+document.querySelectorAll('.editable-field').forEach(field => {
+    const textEl = field.querySelector('.editable-text');
+    const inputEl = field.querySelector('.editable-input');
+    const editBtn = field.querySelector('.edit-btn');
+    const saveBtn = field.querySelector('.save-btn');
+    const revertBtn = field.querySelector('.revert-btn');
+
+    function enterEditMode() {
+        textEl.classList.add('d-none');
+        inputEl.classList.remove('d-none');
+        editBtn.classList.add('d-none');
+        saveBtn.classList.remove('d-none');
+        revertBtn.classList.remove('d-none');
+        inputEl.focus();
+    }
+
+    function exitEditMode(save) {
+        textEl.classList.remove('d-none');
+        inputEl.classList.add('d-none');
+        editBtn.classList.remove('d-none');
+        saveBtn.classList.add('d-none');
+        revertBtn.classList.add('d-none');
+
+        if (save) {
+            const newValue = inputEl.value.trim();
+            textEl.textContent = newValue || (field.id === 'descField' ? 'No description' : '');
+            textEl.dataset.original = newValue;
+            savePlaylist();
+        } else {
+            inputEl.value = textEl.dataset.original;
+        }
+    }
+
+    // Click text or edit button to edit
+    textEl.addEventListener('click', enterEditMode);
+    editBtn.addEventListener('click', enterEditMode);
+
+    saveBtn.addEventListener('click', () => exitEditMode(true));
+    revertBtn.addEventListener('click', () => exitEditMode(false));
+
+    // Enter to save, Escape to cancel
+    inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && inputEl.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            exitEditMode(true);
+        } else if (e.key === 'Escape') {
+            exitEditMode(false);
+        }
+    });
+});
+
+function savePlaylist() {
+    const name = document.getElementById('nameInput').value;
+    const description = document.getElementById('descInput').value;
+
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('description', description);
+
+    fetch(`/dashboard/playlists/${playlistId}`, {
+        method: 'PUT',
+        body: new URLSearchParams(formData)
+    });
+}
+
+// ==================== MEDIA FILTERING ====================
+const mediaSearch = document.getElementById('mediaSearch');
+const genreFilter = document.getElementById('genreFilter');
+const artistFilter = document.getElementById('artistFilter');
+const moodFilter = document.getElementById('moodFilter');
+const yearFrom = document.getElementById('yearFrom');
+const yearTo = document.getElementById('yearTo');
+const bpmFrom = document.getElementById('bpmFrom');
+const bpmTo = document.getElementById('bpmTo');
+const excludeExplicit = document.getElementById('excludeExplicit');
+const smartBlockFilter = document.getElementById('smartBlockFilter');
+const clearFiltersBtn = document.getElementById('clearFilters');
+const mediaItems = document.querySelectorAll('.media-item');
+const noResults = document.getElementById('noResults');
+const mediaCount = document.getElementById('mediaCount');
+
+function filterMedia() {
+    const search = (mediaSearch?.value || '').toLowerCase();
+    const genre = (genreFilter?.value || '').toLowerCase();
+    const artist = (artistFilter?.value || '').toLowerCase();
+    const mood = (moodFilter?.value || '').toLowerCase();
+    const yearFromVal = yearFrom?.value ? parseInt(yearFrom.value) : null;
+    const yearToVal = yearTo?.value ? parseInt(yearTo.value) : null;
+    const bpmFromVal = bpmFrom?.value ? parseFloat(bpmFrom.value) : null;
+    const bpmToVal = bpmTo?.value ? parseFloat(bpmTo.value) : null;
+    const hideExplicit = excludeExplicit?.checked || false;
+
+    let visibleCount = 0;
+
+    mediaItems.forEach(item => {
+        const title = (item.dataset.title || '').toLowerCase();
+        const itemArtist = (item.dataset.artist || '').toLowerCase();
+        const itemGenre = (item.dataset.genre || '').toLowerCase();
+        const itemMood = (item.dataset.mood || '').toLowerCase();
+        const itemYear = item.dataset.year ? parseInt(item.dataset.year) : null;
+        const itemBpm = item.dataset.bpm ? parseFloat(item.dataset.bpm) : null;
+        const itemExplicit = item.dataset.explicit === 'true';
+
+        const matchesSearch = !search || title.includes(search) || itemArtist.includes(search);
+        const matchesGenre = !genre || itemGenre === genre;
+        const matchesArtist = !artist || itemArtist === artist;
+        const matchesMood = !mood || itemMood === mood;
+        const matchesYearFrom = !yearFromVal || (itemYear && itemYear >= yearFromVal);
+        const matchesYearTo = !yearToVal || (itemYear && itemYear <= yearToVal);
+        const matchesBpmFrom = !bpmFromVal || (itemBpm && itemBpm >= bpmFromVal);
+        const matchesBpmTo = !bpmToVal || (itemBpm && itemBpm <= bpmToVal);
+        const matchesExplicit = !hideExplicit || !itemExplicit;
+        const notAlreadyAdded = !item.classList.contains('already-added');
+
+        const visible = notAlreadyAdded && matchesSearch && matchesGenre && matchesArtist && matchesMood &&
+                       matchesYearFrom && matchesYearTo && matchesBpmFrom && matchesBpmTo && matchesExplicit;
+
+        item.classList.toggle('d-none', !visible);
+        if (visible) visibleCount++;
+    });
+
+    // Show/hide no results message
+    if (noResults) {
+        noResults.classList.toggle('d-none', visibleCount > 0);
+    }
+    if (mediaCount) {
+        mediaCount.textContent = `${visibleCount} items`;
+    }
+}
+
+// Apply smart block rules to filters
+function applySmartBlockRules(rules) {
+    if (!rules) return;
+    console.log('Applying rules:', rules);
+
+    if (rules.genre && genreFilter) {
+        console.log('Setting genre filter to:', rules.genre);
+        genreFilter.value = rules.genre;
+    }
+    if (rules.artist && artistFilter) {
+        console.log('Setting artist filter to:', rules.artist);
+        artistFilter.value = rules.artist;
+    }
+    if (rules.mood && moodFilter) {
+        console.log('Setting mood filter to:', rules.mood);
+        moodFilter.value = rules.mood;
+    }
+    if (rules.yearFrom && yearFrom) {
+        yearFrom.value = rules.yearFrom;
+    }
+    if (rules.yearTo && yearTo) {
+        yearTo.value = rules.yearTo;
+    }
+    if (rules.bpmFrom && bpmFrom) {
+        bpmFrom.value = rules.bpmFrom;
+    }
+    if (rules.bpmTo && bpmTo) {
+        bpmTo.value = rules.bpmTo;
+    }
+    if (rules.excludeExplicit && excludeExplicit) {
+        excludeExplicit.checked = rules.excludeExplicit;
+    }
+
+    // Show advanced filters if smart block uses them
+    if (rules.mood || rules.yearFrom || rules.yearTo || rules.bpmFrom || rules.bpmTo || rules.excludeExplicit) {
+        const advancedFilters = document.getElementById('advancedFilters');
+        if (advancedFilters) {
+            new bootstrap.Collapse(advancedFilters, { show: true });
+        }
+    }
+
+    console.log('Calling filterMedia()');
+    filterMedia();
+}
+
+function clearAllFilters() {
+    if (mediaSearch) mediaSearch.value = '';
+    if (genreFilter) genreFilter.value = '';
+    if (artistFilter) artistFilter.value = '';
+    if (moodFilter) moodFilter.value = '';
+    if (yearFrom) yearFrom.value = '';
+    if (yearTo) yearTo.value = '';
+    if (bpmFrom) bpmFrom.value = '';
+    if (bpmTo) bpmTo.value = '';
+    if (excludeExplicit) excludeExplicit.checked = false;
+    if (smartBlockFilter) smartBlockFilter.value = '';
+    filterMedia();
+}
+
+// Event listeners
+mediaSearch?.addEventListener('input', filterMedia);
+genreFilter?.addEventListener('change', filterMedia);
+artistFilter?.addEventListener('change', filterMedia);
+moodFilter?.addEventListener('change', filterMedia);
+yearFrom?.addEventListener('input', filterMedia);
+yearTo?.addEventListener('input', filterMedia);
+bpmFrom?.addEventListener('input', filterMedia);
+bpmTo?.addEventListener('input', filterMedia);
+excludeExplicit?.addEventListener('change', filterMedia);
+clearFiltersBtn?.addEventListener('click', clearAllFilters);
+
+smartBlockFilter?.addEventListener('change', () => {
+    const selected = smartBlockFilter.options[smartBlockFilter.selectedIndex];
+    console.log('Smart block selected:', selected?.textContent, 'data-rules:', selected?.dataset.rules);
+    if (selected && selected.dataset.rules) {
+        try {
+            const rules = JSON.parse(selected.dataset.rules);
+            console.log('Parsed rules:', rules);
+            clearAllFilters();
+            smartBlockFilter.value = selected.value; // Restore selection after clear
+            applySmartBlockRules(rules);
+        } catch (e) {
+            console.error('Failed to parse smart block rules:', e);
+        }
+    } else {
+        console.log('No rules found or empty selection');
+        clearAllFilters();
+    }
+});
+
+// ==================== ADD MEDIA ====================
+document.querySelectorAll('.add-media-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const mediaId = btn.dataset.mediaId;
+        const mediaItem = btn.closest('.media-item');
+        const title = mediaItem?.dataset.title || 'this track';
+        addMediaToPlaylist(mediaId, title);
+    });
+});
+
+// ==================== COVER UPLOAD ====================
+const coverUpload = document.getElementById('coverUpload');
+const coverForm = document.getElementById('coverForm');
+const coverFileInput = document.getElementById('coverFileInput');
+
+coverUpload?.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        coverFileInput.files = e.target.files;
+        htmx.trigger(coverForm, 'submit');
+    }
+});
+
+// ==================== AUDIO PREVIEW ====================
+const previewAudio = document.getElementById('previewAudio');
+let currentPreviewBtn = null;
+
+document.querySelectorAll('.preview-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const src = btn.dataset.src;
+
+        if (currentPreviewBtn === btn && !previewAudio.paused) {
+            previewAudio.pause();
+            btn.innerHTML = '<i class="bi bi-play"></i>';
+            currentPreviewBtn = null;
+        } else {
+            // Stop any current playback
+            if (currentPreviewBtn) {
+                currentPreviewBtn.innerHTML = '<i class="bi bi-play"></i>';
+            }
+
+            previewAudio.src = src;
+            previewAudio.play();
+            btn.innerHTML = '<i class="bi bi-pause"></i>';
+            currentPreviewBtn = btn;
+        }
+    });
+});
+
+previewAudio.addEventListener('ended', () => {
+    if (currentPreviewBtn) {
+        currentPreviewBtn.innerHTML = '<i class="bi bi-play"></i>';
+        currentPreviewBtn = null;
+    }
+});
+</script>
+
 <style>
 .playlist-item {
     cursor: grab;
-    transition: background-color 0.15s;
+    transition: background-color 0.15s, transform 0.15s;
 }
 .playlist-item.dragging {
     opacity: 0.5;
@@ -165,47 +805,32 @@
 .playlist-item.drag-over {
     background-color: var(--bs-primary-bg-subtle);
     border-top: 2px solid var(--bs-primary);
+    margin-top: -2px;
 }
 .drag-handle {
     cursor: grab;
 }
+.draggable-media {
+    cursor: grab;
+}
+.draggable-media.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+#playlistDropZone.drop-highlight {
+    background-color: var(--bs-success-bg-subtle);
+    border: 2px dashed var(--bs-success);
+    border-radius: 0.375rem;
+}
 .min-width-0 {
     min-width: 0;
 }
-</style>
-
-<script>
-function handleDrop(target, dragged) {
-    if (!target || !dragged || target === dragged) return;
-
-    const list = document.getElementById('playlistItems');
-    const items = Array.from(list.querySelectorAll('.playlist-item'));
-    const draggedIndex = items.indexOf(dragged);
-    const targetIndex = items.indexOf(target);
-
-    // Reorder in DOM
-    if (draggedIndex < targetIndex) {
-        target.after(dragged);
-    } else {
-        target.before(dragged);
-    }
-
-    // Build new order and send to server
-    const newOrder = Array.from(list.querySelectorAll('.playlist-item')).map((el, idx) => ({
-        id: el.dataset.id,
-        position: idx + 1
-    }));
-
-    fetch('/dashboard/playlists/{{$playlist.ID}}/items/reorder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newOrder)
-    }).then(res => {
-        if (!res.ok) {
-            // Reload on error to restore order
-            window.location.reload();
-        }
-    });
+.editable-text {
+    cursor: pointer;
 }
-</script>
+.editable-text:hover {
+    text-decoration: underline;
+    text-decoration-style: dashed;
+}
+</style>
 {{end}}
