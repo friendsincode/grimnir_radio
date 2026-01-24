@@ -122,15 +122,9 @@ class GrimnirWebSocket {
     }
 
     getToken() {
-        // Get token from cookie
-        const cookies = document.cookie.split(';');
-        for (const cookie of cookies) {
-            const [name, value] = cookie.trim().split('=');
-            if (name === 'grimnir_token') {
-                return value;
-            }
-        }
-        return null;
+        // Get WS token from global variable (set by server in template)
+        // This is a short-lived token specifically for WebSocket auth
+        return window.GRIMNIR_WS_TOKEN || null;
     }
 
     disconnect() {
