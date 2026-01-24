@@ -730,19 +730,18 @@ configure_volumes() {
 configure_production_volumes() {
     print_section "Production Storage Configuration"
 
-    print_info "Enter absolute paths to your storage mounts"
-    print_warning "For NAS/SAN mounts, ensure they are mounted before starting"
+    print_info "Using data directory: $DATA_DIR"
     echo ""
 
     while true; do
-        prompt "Media storage path (for audio files)" "/mnt/storage/grimnir/media" "MEDIA_STORAGE_PATH"
+        prompt "Media storage path (for audio files)" "$DATA_DIR/media-data" "MEDIA_STORAGE_PATH"
         if check_path "$MEDIA_STORAGE_PATH" "Media storage path"; then
             break
         fi
     done
 
     while true; do
-        prompt "Icecast logs path" "/var/log/grimnir/icecast" "ICECAST_LOGS_PATH"
+        prompt "Icecast logs path" "$DATA_DIR/icecast-logs" "ICECAST_LOGS_PATH"
         if check_path "$ICECAST_LOGS_PATH" "Icecast logs path"; then
             break
         fi
@@ -752,7 +751,7 @@ configure_production_volumes() {
 # Configure PostgreSQL volume
 configure_volumes_postgres() {
     while true; do
-        prompt "PostgreSQL data path" "/var/lib/grimnir/postgres" "POSTGRES_DATA_PATH"
+        prompt "PostgreSQL data path" "$DATA_DIR/postgres-data" "POSTGRES_DATA_PATH"
         if check_path "$POSTGRES_DATA_PATH" "PostgreSQL data path"; then
             break
         fi
@@ -762,7 +761,7 @@ configure_volumes_postgres() {
 # Configure Redis volume
 configure_volumes_redis() {
     while true; do
-        prompt "Redis data path" "/var/lib/grimnir/redis" "REDIS_DATA_PATH"
+        prompt "Redis data path" "$DATA_DIR/redis-data" "REDIS_DATA_PATH"
         if check_path "$REDIS_DATA_PATH" "Redis data path"; then
             break
         fi
