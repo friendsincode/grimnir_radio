@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Documentation
+
+**Wiki Infrastructure (2026-01-23)**
+- Created comprehensive GitHub Wiki structure with 27 organized pages
+- Automated wiki publishing with `scripts/publish-wiki.sh` (SSH and HTTPS support)
+- Helper script `scripts/copy-docs-to-wiki.sh` for syncing documentation
+- Complete wiki navigation via `_Sidebar.md`
+- All internal links converted to wiki-style format (no .md extensions)
+- Wiki pages include:
+  - Getting Started, Installation, Configuration, Architecture
+  - API Reference, WebSocket Events, Migration Guide
+  - Docker Deployment, Nix Installation, Production Deployment
+  - Observability, Database Optimization, Alerting
+  - Engineering Spec, Programmers Spec, Sales Spec
+  - Implementation details (Crossfade, GStreamer, Telemetry)
+  - Multi-Instance setup, Output Encoding
+- **Usage:** Initialize wiki on GitHub, then run `./scripts/publish-wiki.sh`
+
+---
+
 ## 1.0.0 (Production Release) — 2026-01-22
 
 **🎉 Grimnir Radio 1.0 is production-ready!**

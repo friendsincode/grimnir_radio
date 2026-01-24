@@ -615,10 +615,17 @@ func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool 
 	case "year":
 		rangeVals := toFloatRange(rule.Value)
 		match = true
-		if rangeVals[0] != 0 && float64(item.Year) < rangeVals[0] {
+		// Parse year string to float64
+		var yearFloat float64
+		if item.Year != "" {
+			if y, err := strconv.ParseFloat(item.Year, 64); err == nil {
+				yearFloat = y
+			}
+		}
+		if rangeVals[0] != 0 && yearFloat < rangeVals[0] {
 			match = false
 		}
-		if rangeVals[1] != 0 && float64(item.Year) > rangeVals[1] {
+		if rangeVals[1] != 0 && yearFloat > rangeVals[1] {
 			match = false
 		}
 	case "tag":

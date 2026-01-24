@@ -33,13 +33,24 @@ nix develop
 
 See [`docs/NIX_INSTALLATION.md`](docs/NIX_INSTALLATION.md) for complete Nix guide (Basic, Full, Dev flavors).
 
-### 2. Docker Compose
+### 2. Docker Compose (Turn-Key)
 
 ```bash
-docker-compose up -d
+# Interactive deployment with smart port detection
+./scripts/docker-quick-start.sh
 ```
 
-See [`docker-compose.yml`](docker-compose.yml) for configuration options.
+**Features:**
+- **Intelligent port detection**: Automatically finds available ports if defaults conflict
+- **Three deployment modes**: Quick Start, Custom, Production
+- **External storage support**: NAS/SAN mounts, custom paths
+- **External database support**: RDS, Cloud SQL, ElastiCache
+- **Multi-instance deployment**: 2-10 API instances with leader election
+- **Configuration persistence**: Saves settings for reuse
+- **Production-ready**: Validates paths, generates secure passwords
+
+**Quick Start Guide:** [`docs/DOCKER_QUICK_START_GUIDE.md`](docs/DOCKER_QUICK_START_GUIDE.md)
+**Full Documentation:** [`docs/DOCKER_DEPLOYMENT.md`](docs/DOCKER_DEPLOYMENT.md)
 
 ### 3. Kubernetes
 
@@ -159,9 +170,10 @@ Key files:
 - **Webstream relay** with automatic health checks and failover chains
 - Scheduler integration for webstream playback
 
-### In Progress 🚧
-- Horizontal scaling / multi-instance support (Phase 5)
-- Full observability (Prometheus metrics, OpenTelemetry tracing)
+### Recently Completed ✅
+- Horizontal scaling with consistent hashing and leader election
+- Full observability (Prometheus metrics, OpenTelemetry tracing, alerts)
+- Turn-key Docker Compose deployment with Icecast2
 
 ### Planned 📋
 - Migration tools (AzuraCast, LibreTime import)
