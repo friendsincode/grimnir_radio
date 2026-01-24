@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
@@ -25,12 +26,12 @@ type MigrationHandler struct {
 }
 
 // NewMigrationHandler creates a new migration handler.
-func NewMigrationHandler(db *gorm.DB, bus *events.Bus, logger zerolog.Logger) *MigrationHandler {
+func NewMigrationHandler(db *gorm.DB, mediaService *media.Service, bus *events.Bus, logger zerolog.Logger) *MigrationHandler {
 	service := migration.NewService(db, bus, logger)
 
 	// Register importers
-	service.RegisterImporter(migration.SourceTypeAzuraCast, migration.NewAzuraCastImporter(db, logger))
-	service.RegisterImporter(migration.SourceTypeLibreTime, migration.NewLibreTimeImporter(db, logger))
+	service.RegisterImporter(migration.SourceTypeAzuraCast, migration.NewAzuraCastImporter(db, mediaService, logger))
+	service.RegisterImporter(migration.SourceTypeLibreTime, migration.NewLibreTimeImporter(db, mediaService, logger))
 
 	return &MigrationHandler{
 		service: service,

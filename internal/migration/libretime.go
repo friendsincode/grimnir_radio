@@ -11,10 +11,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -25,15 +27,17 @@ import (
 
 // LibreTimeImporter implements the Importer interface for LibreTime databases.
 type LibreTimeImporter struct {
-	db     *gorm.DB
-	logger zerolog.Logger
+	db           *gorm.DB
+	mediaService *media.Service
+	logger       zerolog.Logger
 }
 
 // NewLibreTimeImporter creates a new LibreTime importer.
-func NewLibreTimeImporter(db *gorm.DB, logger zerolog.Logger) *LibreTimeImporter {
+func NewLibreTimeImporter(db *gorm.DB, mediaService *media.Service, logger zerolog.Logger) *LibreTimeImporter {
 	return &LibreTimeImporter{
-		db:     db,
-		logger: logger.With().Str("importer", "libretime").Logger(),
+		db:           db,
+		mediaService: mediaService,
+		logger:       logger.With().Str("importer", "libretime").Logger(),
 	}
 }
 
@@ -430,6 +434,23 @@ func (l *LibreTimeImporter) importMedia(ctx context.Context, ltDB *gorm.DB, opti
 	totalFiles := len(ltFiles)
 	l.logger.Info().Int("count", totalFiles).Msg("importing media files")
 
+	// Validate media path exists
+	if options.LibreTimeMediaPath != "" {
+		if err := ValidateSourceDirectory(options.LibreTimeMediaPath); err != nil {
+			l.logger.Warn().Err(err).Str("media_path", options.LibreTimeMediaPath).Msg("media path validation failed")
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Media path not accessible: %s - metadata imported but files not copied", options.LibreTimeMediaPath))
+			// Continue with metadata-only import
+		}
+	}
+
+	// Create file operations handler
+	fileOps := NewFileOperations(l.mediaService, l.logger)
+
+	// Prepare media items and copy jobs
+	var copyJobs []FileCopyJob
+	mediaItemsByID := make(map[string]*models.MediaItem)
+	mediaPathAvailable := options.LibreTimeMediaPath != ""
+
 	for i, ltFile := range ltFiles {
 		// Create Grimnir media item
 		mediaItem := &models.MediaItem{
@@ -476,6 +497,8 @@ func (l *LibreTimeImporter) importMedia(ctx context.Context, ltDB *gorm.DB, opti
 			continue
 		}
 
+		mediaItemsByID[mediaItem.ID] = mediaItem
+
 		// Track mapping
 		result.Mappings[fmt.Sprintf("media_%d", ltFile.ID)] = Mapping{
 			OldID: fmt.Sprintf("%d", ltFile.ID),
@@ -484,21 +507,109 @@ func (l *LibreTimeImporter) importMedia(ctx context.Context, ltDB *gorm.DB, opti
 			Name:  mediaItem.Title,
 		}
 
+		// If media path is available, prepare file copy job
+		if mediaPathAvailable && ltFile.Filepath != "" {
+			sourcePath := ResolveFilePath(options.LibreTimeMediaPath, ltFile.Filepath)
+
+			// Check if source file exists
+			if fileInfo, err := os.Stat(sourcePath); err == nil && !fileInfo.IsDir() {
+				copyJobs = append(copyJobs, FileCopyJob{
+					SourcePath: sourcePath,
+					StationID:  stationID,
+					MediaID:    mediaItem.ID,
+					FileSize:   fileInfo.Size(),
+				})
+			} else {
+				l.logger.Warn().Str("path", sourcePath).Msg("source file not found, skipping file copy")
+			}
+		}
+
 		result.MediaItemsImported++
 
-		// Update progress every 10 files
+		// Update progress every 10 files (metadata phase)
 		if i%10 == 0 || i == totalFiles-1 {
 			progressCallback(Progress{
-				Phase:          "importing_media",
-				CurrentStep:    fmt.Sprintf("Imported %d/%d media files", i+1, totalFiles),
+				Phase:          "importing_media_metadata",
+				CurrentStep:    fmt.Sprintf("Imported metadata %d/%d", i+1, totalFiles),
 				TotalSteps:     5,
 				CompletedSteps: 2,
-				Percentage:     40 + (float64(i+1)/float64(totalFiles))*20,
+				Percentage:     40 + (float64(i+1)/float64(totalFiles))*10,
 				MediaTotal:     totalFiles,
 				MediaImported:  i + 1,
 				StartTime:      startTime,
 			})
 		}
+	}
+
+	// Copy files if media path was provided
+	if len(copyJobs) > 0 {
+		l.logger.Info().Int("files_to_copy", len(copyJobs)).Msg("starting file copy phase")
+
+		copyOptions := DefaultCopyOptions()
+		copyOptions.Concurrency = 4
+		copyOptions.ProgressCallback = func(copied, total int) {
+			percentage := 50 + (float64(copied)/float64(total))*10
+			progressCallback(Progress{
+				Phase:          "copying_media_files",
+				CurrentStep:    fmt.Sprintf("Copying files: %d/%d", copied, total),
+				TotalSteps:     5,
+				CompletedSteps: 2,
+				Percentage:     percentage,
+				MediaTotal:     total,
+				MediaCopied:    copied,
+				StartTime:      startTime,
+			})
+		}
+
+		copyResults, err := fileOps.CopyFiles(ctx, copyJobs, copyOptions)
+		if err != nil {
+			l.logger.Error().Err(err).Msg("file copy phase failed")
+			result.Warnings = append(result.Warnings, fmt.Sprintf("File copy failed: %v", err))
+		} else {
+			// Update MediaItem records with storage keys
+			successCount := 0
+			failCount := 0
+
+			for _, copyResult := range copyResults {
+				if copyResult.Success {
+					mediaItem := mediaItemsByID[copyResult.MediaID]
+					if mediaItem != nil {
+						// Update with storage key
+						mediaItem.StorageKey = copyResult.StorageKey
+						mediaItem.Path = l.mediaService.URL(copyResult.StorageKey)
+
+						if err := l.db.WithContext(ctx).Save(mediaItem).Error; err != nil {
+							l.logger.Error().Err(err).Str("media_id", copyResult.MediaID).Msg("failed to update media item with storage key")
+							failCount++
+							continue
+						}
+
+						successCount++
+					}
+				} else {
+					l.logger.Warn().Err(copyResult.Error).Str("media_id", copyResult.MediaID).Msg("failed to copy media file")
+					failCount++
+				}
+			}
+
+			l.logger.Info().
+				Int("success", successCount).
+				Int("failed", failCount).
+				Int("skipped", len(ltFiles)-len(copyJobs)).
+				Msg("file copy phase complete")
+
+			if failCount > 0 {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("%d media files failed to copy", failCount))
+			}
+
+			if len(ltFiles)-len(copyJobs) > 0 {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("%d media files skipped (source not found)", len(ltFiles)-len(copyJobs)))
+			}
+		}
+	} else if mediaPathAvailable {
+		result.Warnings = append(result.Warnings, "No media files found at specified path - metadata imported without files")
+	} else {
+		result.Warnings = append(result.Warnings, "Media path not specified - metadata imported without files")
 	}
 
 	l.logger.Info().Int("count", result.MediaItemsImported).Msg("media import complete")
@@ -617,11 +728,14 @@ func (l *LibreTimeImporter) importShows(ctx context.Context, ltDB *gorm.DB, resu
 
 	for _, ltShow := range ltShows {
 		// Parse duration (HH:MM:SS format)
-		duration, err := parseDuration(ltShow.Duration)
+		durationTimeDuration, err := parseDuration(ltShow.Duration)
 		if err != nil {
 			l.logger.Warn().Err(err).Int("show_id", ltShow.ID).Str("duration", ltShow.Duration).Msg("failed to parse show duration")
-			duration = 3600 // Default to 1 hour
+			durationTimeDuration = time.Hour // Default to 1 hour
 		}
+
+		// Convert time.Duration to seconds (int) for Clock model
+		durationSeconds := int(durationTimeDuration.Seconds())
 
 		// Create Grimnir clock (shows become hour templates)
 		clock := &models.Clock{
@@ -629,7 +743,7 @@ func (l *LibreTimeImporter) importShows(ctx context.Context, ltDB *gorm.DB, resu
 			StationID:   stationID,
 			Name:        ltShow.Name,
 			Description: ltShow.Description.String,
-			Duration:    duration,
+			Duration:    durationSeconds,
 		}
 
 		if err := l.db.WithContext(ctx).Create(clock).Error; err != nil {
@@ -660,7 +774,7 @@ func (l *LibreTimeImporter) importShows(ctx context.Context, ltDB *gorm.DB, resu
 }
 
 // parseDuration parses LibreTime duration strings (HH:MM:SS or HH:MM:SS.mmm).
-func parseDuration(durationStr string) (int, error) {
+func parseDuration(durationStr string) (time.Duration, error) {
 	// Remove milliseconds if present
 	parts := strings.Split(durationStr, ".")
 	timeStr := parts[0]
@@ -673,7 +787,7 @@ func parseDuration(durationStr string) (int, error) {
 	}
 
 	totalSeconds := hours*3600 + minutes*60 + seconds
-	return totalSeconds, nil
+	return time.Duration(totalSeconds) * time.Second, nil
 }
 
 func (ltFile) TableName() string {

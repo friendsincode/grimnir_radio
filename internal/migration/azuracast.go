@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -27,15 +28,17 @@ import (
 
 // AzuraCastImporter implements the Importer interface for AzuraCast backups.
 type AzuraCastImporter struct {
-	db     *gorm.DB
-	logger zerolog.Logger
+	db           *gorm.DB
+	mediaService *media.Service
+	logger       zerolog.Logger
 }
 
 // NewAzuraCastImporter creates a new AzuraCast importer.
-func NewAzuraCastImporter(db *gorm.DB, logger zerolog.Logger) *AzuraCastImporter {
+func NewAzuraCastImporter(db *gorm.DB, mediaService *media.Service, logger zerolog.Logger) *AzuraCastImporter {
 	return &AzuraCastImporter{
-		db:     db,
-		logger: logger.With().Str("importer", "azuracast").Logger(),
+		db:           db,
+		mediaService: mediaService,
+		logger:       logger.With().Str("importer", "azuracast").Logger(),
 	}
 }
 
@@ -199,7 +202,7 @@ func (a *AzuraCastImporter) Import(ctx context.Context, options Options, progres
 			StartTime:      startTime,
 		})
 
-		if err := a.importMedia(ctx, backup, result, progressCallback, startTime); err != nil {
+		if err := a.importMedia(ctx, tempDir, backup, result, progressCallback, startTime); err != nil {
 			return nil, fmt.Errorf("import media: %w", err)
 		}
 	} else {
@@ -436,14 +439,182 @@ func (a *AzuraCastImporter) importStations(ctx context.Context, backup *AzuraCas
 }
 
 // importMedia imports media files from the backup.
-func (a *AzuraCastImporter) importMedia(ctx context.Context, backup *AzuraCastBackup, result *Result, progressCallback ProgressCallback, startTime time.Time) error {
-	// This is a placeholder - actual implementation would copy/process media files
-	// For now, just count what would be imported
-	result.MediaItemsImported = backup.MediaCount
-
-	if backup.MediaCount > 0 {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Media import not fully implemented - %d files found but not imported", backup.MediaCount))
+func (a *AzuraCastImporter) importMedia(ctx context.Context, tempDir string, backup *AzuraCastBackup, result *Result, progressCallback ProgressCallback, startTime time.Time) error {
+	// Get the first station (or create default if none)
+	var stationID string
+	if len(backup.Stations) > 0 {
+		// Find the mapped station ID
+		mapping, ok := result.Mappings[fmt.Sprintf("station_%d", backup.Stations[0].ID)]
+		if !ok {
+			return fmt.Errorf("station mapping not found")
+		}
+		stationID = mapping.NewID
+	} else {
+		return fmt.Errorf("no station found for media import")
 	}
+
+	// Find media directory in the extracted backup
+	mediaDir := filepath.Join(tempDir, "media")
+	if _, err := os.Stat(mediaDir); os.IsNotExist(err) {
+		a.logger.Warn().Str("media_dir", mediaDir).Msg("media directory not found in backup")
+		return nil
+	}
+
+	a.logger.Info().Str("media_dir", mediaDir).Int("expected_count", backup.MediaCount).Msg("starting media file import")
+
+	// Collect all media files
+	var mediaFiles []struct {
+		path     string
+		relPath  string
+		fileSize int64
+	}
+
+	err := filepath.Walk(mediaDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		// Check if it's an audio file
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".mp3" || ext == ".flac" || ext == ".ogg" || ext == ".m4a" || ext == ".wav" || ext == ".aac" {
+			relPath, _ := filepath.Rel(mediaDir, path)
+			mediaFiles = append(mediaFiles, struct {
+				path     string
+				relPath  string
+				fileSize int64
+			}{
+				path:     path,
+				relPath:  relPath,
+				fileSize: info.Size(),
+			})
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("scan media directory: %w", err)
+	}
+
+	a.logger.Info().Int("files_found", len(mediaFiles)).Msg("media files collected")
+
+	if len(mediaFiles) == 0 {
+		a.logger.Warn().Msg("no media files found in backup")
+		return nil
+	}
+
+	// Create file operations handler
+	fileOps := NewFileOperations(a.mediaService, a.logger)
+
+	// Prepare copy jobs
+	var copyJobs []FileCopyJob
+	mediaItemsByID := make(map[string]*models.MediaItem)
+
+	for _, mediaFile := range mediaFiles {
+		// Create MediaItem record
+		mediaID := uuid.New().String()
+
+		// Extract basic metadata from filename
+		filename := filepath.Base(mediaFile.path)
+		title := strings.TrimSuffix(filename, filepath.Ext(filename))
+
+		mediaItem := &models.MediaItem{
+			ID:         mediaID,
+			StationID:  stationID,
+			Title:      title,
+			Path:       "",        // Will be set after upload
+			StorageKey: "",        // Will be set after upload
+			ImportPath: mediaFile.relPath,
+			Duration:   0,         // Will be analyzed later
+		}
+
+		// Save to database
+		if err := a.db.WithContext(ctx).Create(mediaItem).Error; err != nil {
+			a.logger.Error().Err(err).Str("title", title).Msg("failed to create media item")
+			continue
+		}
+
+		mediaItemsByID[mediaID] = mediaItem
+
+		// Create copy job
+		copyJobs = append(copyJobs, FileCopyJob{
+			SourcePath: mediaFile.path,
+			StationID:  stationID,
+			MediaID:    mediaID,
+			FileSize:   mediaFile.fileSize,
+		})
+	}
+
+	// Copy files with progress tracking
+	copyOptions := DefaultCopyOptions()
+	copyOptions.Concurrency = 4
+	copyOptions.ProgressCallback = func(copied, total int) {
+		percentage := 60 + (float64(copied)/float64(total))*20
+		progressCallback(Progress{
+			Phase:          "copying_media",
+			CurrentStep:    fmt.Sprintf("Copying media files: %d/%d", copied, total),
+			TotalSteps:     5,
+			CompletedSteps: 3,
+			Percentage:     percentage,
+			MediaTotal:     len(copyJobs),
+			MediaCopied:    copied,
+			StartTime:      startTime,
+		})
+	}
+
+	copyResults, err := fileOps.CopyFiles(ctx, copyJobs, copyOptions)
+	if err != nil {
+		return fmt.Errorf("copy media files: %w", err)
+	}
+
+	// Update MediaItem records with storage keys
+	successCount := 0
+	failCount := 0
+
+	for _, copyResult := range copyResults {
+		if copyResult.Success {
+			mediaItem := mediaItemsByID[copyResult.MediaID]
+			if mediaItem != nil {
+				// Update with storage key
+				mediaItem.StorageKey = copyResult.StorageKey
+				mediaItem.Path = a.mediaService.URL(copyResult.StorageKey)
+
+				if err := a.db.WithContext(ctx).Save(mediaItem).Error; err != nil {
+					a.logger.Error().Err(err).Str("media_id", copyResult.MediaID).Msg("failed to update media item with storage key")
+					failCount++
+					continue
+				}
+
+				successCount++
+
+				// Track mapping
+				result.Mappings[fmt.Sprintf("media_%s", mediaItem.ImportPath)] = Mapping{
+					OldID: mediaItem.ImportPath,
+					NewID: mediaItem.ID,
+					Type:  "media",
+					Name:  mediaItem.Title,
+				}
+			}
+		} else {
+			a.logger.Error().Err(copyResult.Error).Str("media_id", copyResult.MediaID).Msg("failed to copy media file")
+			failCount++
+		}
+	}
+
+	result.MediaItemsImported = successCount
+
+	if failCount > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("%d media files failed to import", failCount))
+	}
+
+	a.logger.Info().
+		Int("success", successCount).
+		Int("failed", failCount).
+		Msg("media import complete")
 
 	return nil
 }
