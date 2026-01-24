@@ -945,8 +945,6 @@ create_override_file() {
 # Generated: $(date)
 # Mode: $DEPLOYMENT_MODE
 
-version: '3.8'
-
 services:
   grimnir:
     ports:
