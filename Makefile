@@ -6,16 +6,24 @@ RACE ?= 1
 PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test build verify ci proto proto-clean
+.PHONY: help fmt fmt-check vet lint tidy test build verify ci proto proto-clean \
+        dev-db dev-redis dev-stack run-control run-media
 
 help:
 	@echo "Common targets:"
-	@echo "  make verify   # tidy, fmt, vet, (lint), test"
-	@echo "  make fmt      # gofmt -s -w"
-	@echo "  make vet      # go vet ./..."
-	@echo "  make lint     # golangci-lint run (if installed)"
-	@echo "  make test     # go test (-race)"
-	@echo "  make build    # build cmd/$(BIN)"
+	@echo "  make verify      # tidy, fmt, vet, (lint), test"
+	@echo "  make fmt         # gofmt -s -w"
+	@echo "  make vet         # go vet ./..."
+	@echo "  make lint        # golangci-lint run (if installed)"
+	@echo "  make test        # go test (-race)"
+	@echo "  make build       # build cmd/$(BIN)"
+	@echo ""
+	@echo "Development targets:"
+	@echo "  make dev-db      # Start PostgreSQL container"
+	@echo "  make dev-redis   # Start Redis container"
+	@echo "  make dev-stack   # Start full dev stack (docker-compose)"
+	@echo "  make run-control # Run control plane locally"
+	@echo "  make run-media   # Run media engine locally"
 
 fmt:
 	@gofmt -s -w .
@@ -55,4 +63,30 @@ proto:
 proto-clean:
 	@find $(PROTO_OUT) -name '*.pb.go' -delete
 	@echo "Cleaned generated protobuf files"
+
+# Development targets
+dev-db:
+	@docker run -d --name grimnir-postgres \
+		-e POSTGRES_USER=grimnir \
+		-e POSTGRES_PASSWORD=grimnir_secret \
+		-e POSTGRES_DB=grimnir \
+		-p 5432:5432 \
+		postgres:15-alpine || docker start grimnir-postgres
+	@echo "PostgreSQL running on localhost:5432"
+
+dev-redis:
+	@docker run -d --name grimnir-redis \
+		-p 6379:6379 \
+		redis:7-alpine || docker start grimnir-redis
+	@echo "Redis running on localhost:6379"
+
+dev-stack:
+	@docker compose up -d postgres redis
+	@echo "Dev stack running (postgres + redis)"
+
+run-control:
+	@$(GO) run ./cmd/grimnirradio serve
+
+run-media:
+	@$(GO) run ./cmd/mediaengine
 
