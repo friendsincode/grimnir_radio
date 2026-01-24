@@ -1,0 +1,91 @@
+{{define "pages/dashboard/smartblocks/list"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Smart Blocks</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-magic me-2"></i>Smart Blocks</h4>
+    <a href="/dashboard/smart-blocks/new" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-2"></i>New Smart Block
+    </a>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Created</th>
+                    <th style="width: 150px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Data}}
+                <tr onclick="window.location='/dashboard/smart-blocks/{{.ID}}'" style="cursor: pointer;">
+                    <td>
+                        <i class="bi bi-magic text-info me-2"></i>
+                        <strong>{{.Name}}</strong>
+                    </td>
+                    <td>{{if .Description}}{{truncate .Description 60}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                    <td><small class="text-body-secondary">{{formatTime .CreatedAt}}</small></td>
+                    <td class="text-end">
+                        <div class="btn-group btn-group-sm" onclick="event.stopPropagation()">
+                            <button class="btn btn-outline-info" title="Preview"
+                                    hx-post="/dashboard/smart-blocks/{{.ID}}/preview"
+                                    hx-target="#previewModal .modal-body"
+                                    data-bs-toggle="modal" data-bs-target="#previewModal">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <a href="/dashboard/smart-blocks/{{.ID}}/edit" class="btn btn-outline-secondary">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <button class="btn btn-outline-danger"
+                                    hx-delete="/dashboard/smart-blocks/{{.ID}}"
+                                    hx-confirm="Delete this smart block?">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="4" class="text-center py-5 text-body-secondary">
+                        No smart blocks. <a href="/dashboard/smart-blocks/new">Create your first one</a>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Smart Block Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center py-4">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

@@ -1,0 +1,190 @@
+{{define "pages/dashboard/smartblocks/detail"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$block := .Data}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/smart-blocks">Smart Blocks</a></li>
+        <li class="breadcrumb-item active">{{$block.Name}}</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$block := .Data}}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h4 class="mb-1"><i class="bi bi-magic me-2"></i>{{$block.Name}}</h4>
+                {{if $block.Description}}
+                <p class="text-body-secondary mb-0">{{$block.Description}}</p>
+                {{end}}
+            </div>
+            <div class="d-flex gap-2">
+                <a href="/dashboard/smart-blocks/{{$block.ID}}/edit" class="btn btn-outline-secondary">
+                    <i class="bi bi-pencil me-1"></i>Edit
+                </a>
+                <button class="btn btn-outline-danger"
+                        hx-delete="/dashboard/smart-blocks/{{$block.ID}}"
+                        hx-confirm="Delete this smart block?">
+                    <i class="bi bi-trash me-1"></i>Delete
+                </button>
+            </div>
+        </div>
+
+        <!-- Rules Display -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Selection Rules</h5>
+            </div>
+            <div class="card-body">
+                {{if $block.Rules}}
+                <div class="row g-3">
+                    {{with index $block.Rules "genre"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Genre</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index $block.Rules "artist"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Artist</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index $block.Rules "mood"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Mood</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index $block.Rules "language"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Language</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{if or (index $block.Rules "yearFrom") (index $block.Rules "yearTo")}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Year Range</label>
+                        <p class="mb-0 fw-medium">
+                            {{with index $block.Rules "yearFrom"}}{{.}}{{else}}Any{{end}}
+                            -
+                            {{with index $block.Rules "yearTo"}}{{.}}{{else}}Any{{end}}
+                        </p>
+                    </div>
+                    {{end}}
+                    {{if or (index $block.Rules "bpmFrom") (index $block.Rules "bpmTo")}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">BPM Range</label>
+                        <p class="mb-0 fw-medium">
+                            {{with index $block.Rules "bpmFrom"}}{{.}}{{else}}Any{{end}}
+                            -
+                            {{with index $block.Rules "bpmTo"}}{{.}}{{else}}Any{{end}}
+                        </p>
+                    </div>
+                    {{end}}
+                    {{if index $block.Rules "excludeExplicit"}}
+                    <div class="col-12">
+                        <span class="badge bg-warning text-dark">
+                            <i class="bi bi-ban me-1"></i>Excludes explicit content
+                        </span>
+                    </div>
+                    {{end}}
+                </div>
+                {{else}}
+                <p class="text-body-secondary mb-0">No specific rules - matches all media</p>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Sequence Settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Sequence Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small text-body-secondary">Selection Mode</label>
+                        <p class="mb-0 fw-medium">
+                            {{with $block.Sequence}}
+                            {{with index . "mode"}}
+                            {{if eq . "random"}}Random{{end}}
+                            {{if eq . "shuffle"}}Shuffle (no repeats){{end}}
+                            {{if eq . "sequential"}}Sequential{{end}}
+                            {{if eq . "weighted"}}Weighted by plays{{end}}
+                            {{else}}Random{{end}}
+                            {{else}}Random{{end}}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-body-secondary">Avoid Repeat</label>
+                        <p class="mb-0 fw-medium">
+                            {{with $block.Sequence}}
+                            {{with index . "avoidRepeatMinutes"}}
+                            {{.}} minutes
+                            {{else}}60 minutes{{end}}
+                            {{else}}60 minutes{{end}}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Meta Info -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Details</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small text-body-secondary">Created</label>
+                        <p class="mb-0">{{formatTime $block.CreatedAt}}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-body-secondary">Last Updated</label>
+                        <p class="mb-0">{{formatTime $block.UpdatedAt}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Panel -->
+    <div class="col-lg-4">
+        <div class="card sticky-top" style="top: 1rem;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Preview</h5>
+                <button class="btn btn-sm btn-outline-info"
+                        hx-post="/dashboard/smart-blocks/{{$block.ID}}/preview"
+                        hx-target="#previewList"
+                        hx-indicator="#previewSpinner">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Generate
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div id="previewSpinner" class="htmx-indicator text-center py-3">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="previewList" class="list-group list-group-flush" style="max-height: 500px; overflow-y: auto;">
+                    <div class="list-group-item text-center text-body-secondary py-4">
+                        <i class="bi bi-magic fs-1 mb-2 d-block"></i>
+                        Click Generate to see sample tracks
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer text-body-secondary small">
+                Preview shows 10 random tracks that match the rules
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

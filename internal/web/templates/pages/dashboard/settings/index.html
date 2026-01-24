@@ -1,0 +1,150 @@
+{{define "pages/dashboard/settings/index"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Settings</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$settings := .Data}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-gear me-2"></i>System Settings</h4>
+    <a href="/dashboard/settings/migrations" class="btn btn-outline-secondary">
+        <i class="bi bi-box-arrow-in-down me-1"></i>Migrations / Import
+    </a>
+</div>
+
+<form method="POST" action="/dashboard/settings"
+      hx-put="/dashboard/settings"
+      hx-swap="none">
+
+    <div class="row g-4">
+        <!-- Scheduler Settings -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-calendar-check me-2"></i>Scheduler</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Schedule Lookahead</label>
+                        <select class="form-select" name="scheduler_lookahead">
+                            <option value="24h" {{if eq $settings.scheduler_lookahead "24h"}}selected{{end}}>24 hours</option>
+                            <option value="48h" {{if eq $settings.scheduler_lookahead "48h"}}selected{{end}}>48 hours</option>
+                            <option value="72h" {{if eq $settings.scheduler_lookahead "72h"}}selected{{end}}>72 hours</option>
+                            <option value="168h" {{if eq $settings.scheduler_lookahead "168h"}}selected{{end}}>1 week</option>
+                        </select>
+                        <div class="form-text">How far ahead to generate the playout queue.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Storage Settings -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-folder me-2"></i>Storage</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Media Root Path</label>
+                        <input type="text" class="form-control font-monospace" name="media_root"
+                               value="{{$settings.media_root}}" readonly>
+                        <div class="form-text">Base directory for media files (read-only).</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Settings -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-waveform me-2"></i>Analysis</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-check form-switch">
+                        <input type="checkbox" class="form-check-input" name="analysis_enabled" id="analysisEnabled"
+                               {{if $settings.analysis_enabled}}checked{{end}}>
+                        <label class="form-check-label" for="analysisEnabled">Enable audio analysis</label>
+                    </div>
+                    <div class="form-text">Automatically analyze uploaded media for duration, loudness, BPM, etc.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Settings -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-broadcast me-2"></i>Real-time</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input type="checkbox" class="form-check-input" name="websocket_enabled" id="websocketEnabled"
+                               {{if $settings.websocket_enabled}}checked{{end}}>
+                        <label class="form-check-label" for="websocketEnabled">Enable WebSocket updates</label>
+                    </div>
+                    <div class="form-text">Push real-time updates to connected browsers.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Clustering Settings -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Clustering</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input type="checkbox" class="form-check-input" name="leader_election" id="leaderElection"
+                               {{if $settings.leader_election}}checked{{end}}>
+                        <label class="form-check-label" for="leaderElection">Enable leader election</label>
+                    </div>
+                    <div class="form-text">Use leader election for high-availability deployments.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Observability Settings -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Observability</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input type="checkbox" class="form-check-input" name="metrics_enabled" id="metricsEnabled"
+                               {{if $settings.metrics_enabled}}checked{{end}}>
+                        <label class="form-check-label" for="metricsEnabled">Enable Prometheus metrics</label>
+                    </div>
+
+                    <div class="mb-0">
+                        <label class="form-label">Log Level</label>
+                        <select class="form-select" name="log_level">
+                            <option value="debug" {{if eq $settings.log_level "debug"}}selected{{end}}>Debug</option>
+                            <option value="info" {{if eq $settings.log_level "info"}}selected{{end}}>Info</option>
+                            <option value="warn" {{if eq $settings.log_level "warn"}}selected{{end}}>Warning</option>
+                            <option value="error" {{if eq $settings.log_level "error"}}selected{{end}}>Error</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>Save Settings
+        </button>
+    </div>
+</form>
+{{end}}

@@ -1,0 +1,195 @@
+/* Broadcast Theme - Live-focused with big clocks and red on-air */
+
+[data-bs-theme="broadcast"] {
+    --bs-body-color: #e5e5e5;
+    --bs-body-color-rgb: 229, 229, 229;
+    --bs-body-bg: #0a0a0a;
+    --bs-body-bg-rgb: 10, 10, 10;
+
+    --bs-emphasis-color: #ffffff;
+    --bs-emphasis-color-rgb: 255, 255, 255;
+
+    --bs-secondary-color: rgba(229, 229, 229, 0.75);
+    --bs-secondary-color-rgb: 229, 229, 229;
+    --bs-secondary-bg: #171717;
+    --bs-secondary-bg-rgb: 23, 23, 23;
+
+    --bs-tertiary-color: rgba(229, 229, 229, 0.5);
+    --bs-tertiary-color-rgb: 229, 229, 229;
+    --bs-tertiary-bg: #0f0f0f;
+    --bs-tertiary-bg-rgb: 15, 15, 15;
+
+    --bs-primary: #ef4444;
+    --bs-primary-rgb: 239, 68, 68;
+
+    --bs-success: #22c55e;
+    --bs-success-rgb: 34, 197, 94;
+
+    --bs-info: #3b82f6;
+    --bs-info-rgb: 59, 130, 246;
+
+    --bs-warning: #eab308;
+    --bs-warning-rgb: 234, 179, 8;
+
+    --bs-danger: #ef4444;
+    --bs-danger-rgb: 239, 68, 68;
+
+    --bs-border-color: #262626;
+    --bs-border-color-translucent: rgba(255, 255, 255, 0.1);
+
+    --bs-link-color: #ef4444;
+    --bs-link-hover-color: #f87171;
+
+    --bs-code-color: #ef4444;
+}
+
+[data-bs-theme="broadcast"] .bg-body-tertiary {
+    background-color: #0f0f0f !important;
+}
+
+[data-bs-theme="broadcast"] .sidebar {
+    background: #0a0a0a !important;
+    border-right: 1px solid #262626 !important;
+}
+
+/* Big on-air light */
+[data-bs-theme="broadcast"] .on-air-indicator {
+    width: 20px;
+    height: 20px;
+    background: #ef4444;
+    border-radius: 50%;
+    box-shadow: 0 0 20px #ef4444, 0 0 40px #ef4444;
+    animation: broadcast-pulse 1s ease-in-out infinite;
+}
+
+@keyframes broadcast-pulse {
+    0%, 100% {
+        box-shadow: 0 0 20px #ef4444, 0 0 40px #ef4444;
+    }
+    50% {
+        box-shadow: 0 0 30px #ef4444, 0 0 60px #ef4444;
+    }
+}
+
+[data-bs-theme="broadcast"] .badge.on-air {
+    font-size: 1rem;
+    padding: 0.5rem 1rem;
+    background: #ef4444 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    animation: broadcast-pulse 1s ease-in-out infinite;
+}
+
+/* Big clock display */
+[data-bs-theme="broadcast"] .time-display {
+    font-family: 'Courier New', monospace;
+    font-size: 3rem;
+    font-weight: bold;
+    color: #22c55e;
+    text-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+}
+
+[data-bs-theme="broadcast"] .countdown {
+    font-family: 'Courier New', monospace;
+    font-size: 2rem;
+    color: #eab308;
+}
+
+/* Audio meters - broadcast style */
+[data-bs-theme="broadcast"] .audio-meter {
+    background: #0a0a0a;
+    border: 1px solid #262626;
+    padding: 4px;
+}
+
+[data-bs-theme="broadcast"] .audio-meter .segment {
+    background: #1a1a1a;
+}
+
+[data-bs-theme="broadcast"] .audio-meter .segment.active.green {
+    background: #22c55e;
+    box-shadow: 0 0 4px #22c55e;
+}
+
+[data-bs-theme="broadcast"] .audio-meter .segment.active.yellow {
+    background: #eab308;
+    box-shadow: 0 0 4px #eab308;
+}
+
+[data-bs-theme="broadcast"] .audio-meter .segment.active.red {
+    background: #ef4444;
+    box-shadow: 0 0 4px #ef4444;
+}
+
+/* Status panels */
+[data-bs-theme="broadcast"] .status-panel {
+    background: #0f0f0f;
+    border: 1px solid #262626;
+    border-radius: 4px;
+}
+
+[data-bs-theme="broadcast"] .status-panel.active {
+    border-color: #22c55e;
+}
+
+[data-bs-theme="broadcast"] .status-panel.warning {
+    border-color: #eab308;
+}
+
+[data-bs-theme="broadcast"] .status-panel.error {
+    border-color: #ef4444;
+}
+
+/* Now playing display */
+[data-bs-theme="broadcast"] .now-playing {
+    background: linear-gradient(135deg, #171717 0%, #0f0f0f 100%);
+    border: 1px solid #262626;
+    padding: 1.5rem;
+}
+
+[data-bs-theme="broadcast"] .now-playing .title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+[data-bs-theme="broadcast"] .now-playing .artist {
+    font-size: 1.1rem;
+    color: #a3a3a3;
+}
+
+/* Transport buttons */
+[data-bs-theme="broadcast"] .transport-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 4px;
+    font-size: 1.5rem;
+}
+
+[data-bs-theme="broadcast"] .btn-primary {
+    --bs-btn-bg: #ef4444;
+    --bs-btn-border-color: #ef4444;
+    --bs-btn-hover-bg: #dc2626;
+    --bs-btn-hover-border-color: #dc2626;
+}
+
+/* Cards */
+[data-bs-theme="broadcast"] .card {
+    background: #0f0f0f;
+    border-color: #262626;
+}
+
+/* Forms */
+[data-bs-theme="broadcast"] .form-control,
+[data-bs-theme="broadcast"] .form-select {
+    background-color: #171717;
+    border-color: #262626;
+    color: #e5e5e5;
+}
+
+[data-bs-theme="broadcast"] .form-control:focus,
+[data-bs-theme="broadcast"] .form-select:focus {
+    background-color: #1a1a1a;
+    border-color: #ef4444;
+    box-shadow: 0 0 0 0.25rem rgba(239, 68, 68, 0.25);
+}

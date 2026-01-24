@@ -1,0 +1,155 @@
+/* DAW Dark Theme - Ableton/Logic-inspired dark theme */
+
+[data-bs-theme="daw-dark"] {
+    --bs-body-color: #c8c8c8;
+    --bs-body-color-rgb: 200, 200, 200;
+    --bs-body-bg: #1e1e1e;
+    --bs-body-bg-rgb: 30, 30, 30;
+
+    --bs-emphasis-color: #ffffff;
+    --bs-emphasis-color-rgb: 255, 255, 255;
+
+    --bs-secondary-color: rgba(200, 200, 200, 0.75);
+    --bs-secondary-color-rgb: 200, 200, 200;
+    --bs-secondary-bg: #2d2d2d;
+    --bs-secondary-bg-rgb: 45, 45, 45;
+
+    --bs-tertiary-color: rgba(200, 200, 200, 0.5);
+    --bs-tertiary-color-rgb: 200, 200, 200;
+    --bs-tertiary-bg: #252525;
+    --bs-tertiary-bg-rgb: 37, 37, 37;
+
+    --bs-primary: #ff6b35;
+    --bs-primary-rgb: 255, 107, 53;
+
+    --bs-success: #4ade80;
+    --bs-success-rgb: 74, 222, 128;
+
+    --bs-info: #38bdf8;
+    --bs-info-rgb: 56, 189, 248;
+
+    --bs-warning: #fbbf24;
+    --bs-warning-rgb: 251, 191, 36;
+
+    --bs-danger: #f87171;
+    --bs-danger-rgb: 248, 113, 113;
+
+    --bs-border-color: #3a3a3a;
+    --bs-border-color-translucent: rgba(255, 255, 255, 0.1);
+
+    --bs-link-color: #ff6b35;
+    --bs-link-hover-color: #ff8c5a;
+
+    --bs-code-color: #ff6b35;
+}
+
+[data-bs-theme="daw-dark"] .bg-body-tertiary {
+    background-color: #1a1a1a !important;
+}
+
+[data-bs-theme="daw-dark"] .sidebar {
+    background: linear-gradient(180deg, #1a1a1a 0%, #151515 100%) !important;
+}
+
+[data-bs-theme="daw-dark"] .card {
+    background: #252525;
+    border-color: #3a3a3a;
+}
+
+[data-bs-theme="daw-dark"] .btn-primary {
+    --bs-btn-bg: #ff6b35;
+    --bs-btn-border-color: #ff6b35;
+    --bs-btn-hover-bg: #ff8c5a;
+    --bs-btn-hover-border-color: #ff8c5a;
+    --bs-btn-active-bg: #e65a2a;
+    --bs-btn-active-border-color: #e65a2a;
+}
+
+[data-bs-theme="daw-dark"] .form-control,
+[data-bs-theme="daw-dark"] .form-select {
+    background-color: #2d2d2d;
+    border-color: #3a3a3a;
+    color: #c8c8c8;
+}
+
+[data-bs-theme="daw-dark"] .form-control:focus,
+[data-bs-theme="daw-dark"] .form-select:focus {
+    background-color: #333333;
+    border-color: #ff6b35;
+    box-shadow: 0 0 0 0.25rem rgba(255, 107, 53, 0.25);
+}
+
+[data-bs-theme="daw-dark"] .table {
+    --bs-table-bg: transparent;
+    --bs-table-striped-bg: rgba(255, 255, 255, 0.02);
+    --bs-table-hover-bg: rgba(255, 107, 53, 0.08);
+}
+
+[data-bs-theme="daw-dark"] .waveform-container {
+    background: linear-gradient(180deg, #1a1a1a 0%, #252525 100%);
+}
+
+[data-bs-theme="daw-dark"] .audio-meter .segment {
+    background: #2a2a2a;
+}
+
+[data-bs-theme="daw-dark"] .fc-theme-standard td,
+[data-bs-theme="daw-dark"] .fc-theme-standard th {
+    border-color: #3a3a3a;
+}
+
+[data-bs-theme="daw-dark"] .fc-theme-standard .fc-scrollgrid {
+    border-color: #3a3a3a;
+}
+
+[data-bs-theme="daw-dark"] .dropdown-menu {
+    background: #2d2d2d;
+    border-color: #3a3a3a;
+}
+
+[data-bs-theme="daw-dark"] .dropdown-item {
+    color: #c8c8c8;
+}
+
+[data-bs-theme="daw-dark"] .dropdown-item:hover {
+    background: #3a3a3a;
+    color: #ffffff;
+}
+
+[data-bs-theme="daw-dark"] .modal-content {
+    background: #252525;
+    border-color: #3a3a3a;
+}
+
+[data-bs-theme="daw-dark"] .list-group-item {
+    background: transparent;
+    border-color: #3a3a3a;
+    color: #c8c8c8;
+}
+
+[data-bs-theme="daw-dark"] .list-group-item-action:hover {
+    background: #3a3a3a;
+    color: #ffffff;
+}
+
+/* DAW-style transport controls */
+[data-bs-theme="daw-dark"] .transport-controls .btn {
+    border-radius: 2px;
+    font-weight: 600;
+}
+
+[data-bs-theme="daw-dark"] .transport-controls .btn-play {
+    background: #4ade80;
+    border-color: #4ade80;
+    color: #1e1e1e;
+}
+
+[data-bs-theme="daw-dark"] .transport-controls .btn-stop {
+    background: #6b7280;
+    border-color: #6b7280;
+}
+
+[data-bs-theme="daw-dark"] .transport-controls .btn-record {
+    background: #ef4444;
+    border-color: #ef4444;
+}

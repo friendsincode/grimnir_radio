@@ -1,0 +1,397 @@
+{{define "layouts/dashboard"}}
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Grimnir Radio</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
+    <!-- Theme CSS -->
+    <link href="/static/css/themes/{{.Theme}}.css" rel="stylesheet">
+    <link href="/static/css/app.css" rel="stylesheet">
+
+    {{block "head" .}}{{end}}
+</head>
+<body class="dashboard-layout">
+<div class="d-flex min-vh-100" x-data="{ sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true' }">
+    <!-- Sidebar -->
+    <aside class="sidebar bg-body-tertiary border-end d-flex flex-column"
+           :class="{ 'collapsed': sidebarCollapsed }"
+           style="width: 260px; transition: width 0.2s;">
+
+        <!-- Brand -->
+        <div class="p-3 border-bottom d-flex align-items-center" :class="sidebarCollapsed ? 'justify-content-center' : 'justify-content-between'">
+            <!-- Expanded: full brand -->
+            <a class="text-decoration-none d-flex align-items-center" href="/dashboard" x-show="!sidebarCollapsed" x-cloak>
+                <i class="bi bi-soundwave fs-4 text-info me-2"></i>
+                <span class="fw-bold">Grimnir</span>
+            </a>
+            <!-- Collapsed: just icon -->
+            <a class="text-decoration-none" href="/dashboard" x-show="sidebarCollapsed" x-cloak>
+                <i class="bi bi-soundwave fs-4 text-info"></i>
+            </a>
+            <!-- Collapse toggle button -->
+            <button class="btn btn-sm btn-outline-secondary ms-2"
+                    @click="sidebarCollapsed = !sidebarCollapsed; localStorage.setItem('sidebarCollapsed', sidebarCollapsed)"
+                    x-show="!sidebarCollapsed" x-cloak>
+                <i class="bi bi-chevron-left"></i>
+            </button>
+        </div>
+        <!-- Expand button shown below brand when collapsed -->
+        <div class="text-center py-2 border-bottom" x-show="sidebarCollapsed" x-cloak>
+            <button class="btn btn-sm btn-outline-secondary"
+                    @click="sidebarCollapsed = !sidebarCollapsed; localStorage.setItem('sidebarCollapsed', sidebarCollapsed)">
+                <i class="bi bi-chevron-right"></i>
+            </button>
+        </div>
+
+        <!-- Station Selector -->
+        {{if .Station}}{{if gt (len .Stations) 0}}
+        <div class="p-3 border-bottom" x-show="!sidebarCollapsed">
+            <label class="form-label small text-body-secondary mb-1">Station</label>
+            <select class="form-select form-select-sm"
+                    hx-post="/dashboard/stations/select"
+                    hx-trigger="change"
+                    hx-swap="none"
+                    name="station_id">
+                {{$currentID := .Station.ID}}
+                {{range .Stations}}
+                <option value="{{.ID}}" {{if eq .ID $currentID}}selected{{end}}>{{.Name}}</option>
+                {{end}}
+            </select>
+        </div>
+        {{end}}{{end}}
+
+        <!-- Navigation -->
+        <nav class="flex-grow-1 overflow-auto p-2">
+            <ul class="nav flex-column">
+                <!-- Dashboard Home -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if eq .CurrentPath "/dashboard"}}active bg-primary text-white{{end}}" href="/dashboard">
+                        <i class="bi bi-speedometer2 me-2"></i>
+                        <span x-show="!sidebarCollapsed">Dashboard</span>
+                    </a>
+                </li>
+
+                <li class="nav-item mt-3 mb-1" x-show="!sidebarCollapsed">
+                    <span class="nav-link text-body-secondary small text-uppercase">Content</span>
+                </li>
+
+                <!-- Media -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/media"}}active bg-primary text-white{{end}}" href="/dashboard/media">
+                        <i class="bi bi-music-note-list me-2"></i>
+                        <span x-show="!sidebarCollapsed">Media Library</span>
+                    </a>
+                </li>
+
+                <!-- Playlists -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/playlists"}}active bg-primary text-white{{end}}" href="/dashboard/playlists">
+                        <i class="bi bi-list-ul me-2"></i>
+                        <span x-show="!sidebarCollapsed">Playlists</span>
+                    </a>
+                </li>
+
+                {{if roleAtLeast .User "manager"}}
+                <!-- Smart Blocks -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/smart-blocks"}}active bg-primary text-white{{end}}" href="/dashboard/smart-blocks">
+                        <i class="bi bi-magic me-2"></i>
+                        <span x-show="!sidebarCollapsed">Smart Blocks</span>
+                    </a>
+                </li>
+
+                <!-- Clocks -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/clocks"}}active bg-primary text-white{{end}}" href="/dashboard/clocks">
+                        <i class="bi bi-clock-history me-2"></i>
+                        <span x-show="!sidebarCollapsed">Clock Templates</span>
+                    </a>
+                </li>
+                {{end}}
+
+                <li class="nav-item mt-3 mb-1" x-show="!sidebarCollapsed">
+                    <span class="nav-link text-body-secondary small text-uppercase">Broadcast</span>
+                </li>
+
+                <!-- Schedule -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/schedule"}}active bg-primary text-white{{end}}" href="/dashboard/schedule">
+                        <i class="bi bi-calendar3 me-2"></i>
+                        <span x-show="!sidebarCollapsed">Schedule</span>
+                    </a>
+                </li>
+
+                <!-- Live -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/live"}}active bg-primary text-white{{end}}" href="/dashboard/live">
+                        <i class="bi bi-broadcast me-2"></i>
+                        <span x-show="!sidebarCollapsed">Live DJ</span>
+                    </a>
+                </li>
+
+                {{if roleAtLeast .User "manager"}}
+                <!-- Webstreams -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/webstreams"}}active bg-primary text-white{{end}}" href="/dashboard/webstreams">
+                        <i class="bi bi-globe me-2"></i>
+                        <span x-show="!sidebarCollapsed">Webstreams</span>
+                    </a>
+                </li>
+                {{end}}
+
+                <li class="nav-item mt-3 mb-1" x-show="!sidebarCollapsed">
+                    <span class="nav-link text-body-secondary small text-uppercase">Insights</span>
+                </li>
+
+                <!-- Analytics -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/analytics"}}active bg-primary text-white{{end}}" href="/dashboard/analytics">
+                        <i class="bi bi-graph-up me-2"></i>
+                        <span x-show="!sidebarCollapsed">Analytics</span>
+                    </a>
+                </li>
+
+                {{if roleAtLeast .User "manager"}}
+                <li class="nav-item mt-3 mb-1" x-show="!sidebarCollapsed">
+                    <span class="nav-link text-body-secondary small text-uppercase">Admin</span>
+                </li>
+
+                <!-- Stations -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/stations"}}active bg-primary text-white{{end}}" href="/dashboard/stations">
+                        <i class="bi bi-broadcast-pin me-2"></i>
+                        <span x-show="!sidebarCollapsed">Stations</span>
+                    </a>
+                </li>
+
+                <!-- Users -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/users"}}active bg-primary text-white{{end}}" href="/dashboard/users">
+                        <i class="bi bi-people me-2"></i>
+                        <span x-show="!sidebarCollapsed">Users</span>
+                    </a>
+                </li>
+
+                {{if roleAtLeast .User "admin"}}
+                <!-- Settings -->
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/settings"}}active bg-primary text-white{{end}}" href="/dashboard/settings">
+                        <i class="bi bi-gear me-2"></i>
+                        <span x-show="!sidebarCollapsed">Settings</span>
+                    </a>
+                </li>
+                {{end}}
+                {{end}}
+            </ul>
+        </nav>
+
+        <!-- User Menu -->
+        <div class="p-2 border-top mt-auto">
+            <!-- Expanded state -->
+            <template x-if="!sidebarCollapsed">
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-2 px-1">
+                        <i class="bi bi-person-circle fs-4"></i>
+                        <div class="flex-grow-1 text-truncate">
+                            <div class="fw-semibold text-truncate small">{{.User.Email}}</div>
+                            <div class="text-body-secondary small">{{.User.Role}}</div>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a href="/dashboard/profile" class="btn btn-sm btn-outline-secondary flex-grow-1" title="Profile">
+                            <i class="bi bi-person-gear"></i>
+                        </a>
+                        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#themeModal" title="Theme">
+                            <i class="bi bi-palette"></i>
+                        </button>
+                        <a href="/logout" class="btn btn-sm btn-outline-danger" title="Logout">
+                            <i class="bi bi-box-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+            </template>
+            <!-- Collapsed state - vertical stack of icons -->
+            <template x-if="sidebarCollapsed">
+                <div class="d-flex flex-column align-items-center gap-2">
+                    <a href="/dashboard/profile" class="btn btn-sm btn-outline-secondary" title="Profile">
+                        <i class="bi bi-person-gear"></i>
+                    </a>
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#themeModal" title="Theme">
+                        <i class="bi bi-palette"></i>
+                    </button>
+                    <a href="/logout" class="btn btn-sm btn-outline-danger" title="Logout">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </a>
+                </div>
+            </template>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-grow-1 d-flex flex-column overflow-hidden">
+        <!-- Top Header -->
+        <header class="bg-body border-bottom px-4 py-2 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-3">
+                {{block "breadcrumb" .}}
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb mb-0">
+                        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+                    </ol>
+                </nav>
+                {{end}}
+            </div>
+
+            <div class="d-flex align-items-center gap-3">
+                <!-- Now Playing Indicator -->
+                <div id="nowPlaying" class="d-flex align-items-center gap-2 text-body-secondary small">
+                    <i class="bi bi-music-note"></i>
+                    <span>-</span>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="btn-group">
+                    <button class="btn btn-outline-secondary btn-sm" title="Search"
+                            data-bs-toggle="modal" data-bs-target="#searchModal">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Page Content -->
+        <main class="flex-grow-1 overflow-auto p-4">
+            {{block "main" .}}{{end}}
+        </main>
+    </div>
+</div>
+
+<!-- Theme Modal -->
+<div class="modal fade" id="themeModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Choose Theme</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="list-group">
+                    <button class="list-group-item list-group-item-action" onclick="setTheme('daw-dark')">
+                        <i class="bi bi-moon-stars me-2"></i>DAW Dark
+                    </button>
+                    <button class="list-group-item list-group-item-action" onclick="setTheme('clean-light')">
+                        <i class="bi bi-sun me-2"></i>Clean Light
+                    </button>
+                    <button class="list-group-item list-group-item-action" onclick="setTheme('broadcast')">
+                        <i class="bi bi-broadcast me-2"></i>Broadcast
+                    </button>
+                    <button class="list-group-item list-group-item-action" onclick="setTheme('classic')">
+                        <i class="bi bi-ui-radios me-2"></i>Classic
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Search Modal -->
+<div class="modal fade" id="searchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-body p-0">
+                <div class="input-group input-group-lg">
+                    <span class="input-group-text border-0 bg-transparent"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control border-0 shadow-none"
+                           placeholder="Search media, playlists..."
+                           id="globalSearch"
+                           hx-get="/dashboard/media/table"
+                           hx-trigger="keyup changed delay:300ms"
+                           hx-target="#searchResults"
+                           hx-include="this"
+                           name="q">
+                </div>
+                <div id="searchResults" class="border-top" style="max-height: 400px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Global Audio Player - Floating & Draggable -->
+<div id="globalPlayer" class="global-player" style="display: none;">
+    <!-- Draggable Header -->
+    <div class="global-player-header" id="playerDragHandle">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-grip-vertical drag-handle"></i>
+            <span class="small fw-semibold">Now Playing</span>
+        </div>
+        <div class="d-flex align-items-center gap-1">
+            <button class="btn btn-sm btn-link text-body p-1" id="playerMinimize" title="Minimize">
+                <i class="bi bi-dash-lg"></i>
+            </button>
+            <button class="btn btn-sm btn-link text-body p-1" id="playerClose" title="Close">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
+    <!-- Player Body -->
+    <div class="global-player-body">
+        <!-- Progress Bar -->
+        <div class="global-player-progress" id="globalPlayerProgress">
+            <div class="global-player-progress-bar" id="globalPlayerProgressBar"></div>
+        </div>
+        <!-- Track Info -->
+        <div class="d-flex align-items-center gap-3 mb-2">
+            <div id="playerArtwork" class="player-artwork">
+                <i class="bi bi-music-note-beamed"></i>
+            </div>
+            <div class="player-info flex-grow-1 text-truncate">
+                <div id="playerTitle" class="fw-semibold text-truncate">-</div>
+                <div id="playerArtist" class="small text-body-secondary text-truncate">-</div>
+            </div>
+        </div>
+        <!-- Controls -->
+        <div class="d-flex align-items-center justify-content-between">
+            <span class="small text-body-secondary">
+                <span id="playerCurrentTime">0:00</span> / <span id="playerDuration">0:00</span>
+            </span>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-link text-body p-1" id="playerPrev" title="Previous">
+                    <i class="bi bi-skip-start-fill fs-5"></i>
+                </button>
+                <button class="btn btn-primary rounded-circle d-flex align-items-center justify-content-center"
+                        id="playerPlayPause" style="width: 36px; height: 36px;">
+                    <i class="bi bi-play-fill fs-5" id="playerPlayIcon"></i>
+                </button>
+                <button class="btn btn-sm btn-link text-body p-1" id="playerNext" title="Next">
+                    <i class="bi bi-skip-end-fill fs-5"></i>
+                </button>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-volume-up small"></i>
+                <input type="range" class="form-range" id="playerVolume" min="0" max="100" value="80" style="width: 60px;">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/htmx.org@1.9.12"
+        integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<script src="/static/js/app.js"></script>
+
+{{block "scripts" .}}{{end}}
+
+</body>
+</html>
+{{end}}

@@ -1,0 +1,25 @@
+{{define "partials/live-sessions"}}
+{{if .}}
+<ul class="list-group list-group-flush">
+    {{range .}}
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+        <div>
+            <strong>{{.Username}}</strong>
+            <br>
+            <small class="text-body-secondary">Priority {{.Priority}}</small>
+        </div>
+        <div>
+            {{if .Active}}
+            <span class="badge bg-success">Active</span>
+            {{end}}
+        </div>
+    </li>
+    {{end}}
+</ul>
+{{else}}
+<div class="text-center py-4 text-body-secondary">
+    <i class="bi bi-person-x fs-1 mb-2"></i>
+    <p class="mb-0">No active sessions</p>
+</div>
+{{end}}
+{{end}}

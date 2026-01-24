@@ -1,0 +1,211 @@
+{{define "pages/dashboard/playlists/detail"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$data := .Data}}
+{{$playlist := index $data "Playlist"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/playlists">Playlists</a></li>
+        <li class="breadcrumb-item active">{{$playlist.Name}}</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$playlist := index $data "Playlist"}}
+{{$items := index $data "Items"}}
+{{$availableMedia := index $data "AvailableMedia"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-1"><i class="bi bi-list-ul me-2"></i>{{$playlist.Name}}</h4>
+        {{if $playlist.Description}}
+        <p class="text-body-secondary mb-0">{{$playlist.Description}}</p>
+        {{end}}
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/dashboard/playlists/{{$playlist.ID}}/edit" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i>Edit
+        </a>
+        <button class="btn btn-outline-danger"
+                hx-delete="/dashboard/playlists/{{$playlist.ID}}"
+                hx-confirm="Delete this playlist and all its items?">
+            <i class="bi bi-trash me-1"></i>Delete
+        </button>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Playlist Items -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Tracks ({{len $items}})</h5>
+                <small class="text-body-secondary">Drag to reorder</small>
+            </div>
+            <div class="card-body p-0">
+                {{if $items}}
+                <div class="list-group list-group-flush" id="playlistItems"
+                     x-data="{ dragging: null }"
+                     @dragend="dragging = null">
+                    {{range $index, $item := $items}}
+                    <div class="list-group-item d-flex align-items-center gap-3 playlist-item"
+                         draggable="true"
+                         data-id="{{$item.ID}}"
+                         data-position="{{$item.Position}}"
+                         @dragstart="dragging = $el; $el.classList.add('dragging')"
+                         @dragend="$el.classList.remove('dragging')"
+                         @dragover.prevent="if (dragging !== $el) { $el.classList.add('drag-over') }"
+                         @dragleave="$el.classList.remove('drag-over')"
+                         @drop="handleDrop($el, dragging); $el.classList.remove('drag-over')">
+                        <span class="drag-handle text-body-secondary">
+                            <i class="bi bi-grip-vertical"></i>
+                        </span>
+                        <span class="badge bg-secondary">{{add $index 1}}</span>
+                        <div class="flex-grow-1">
+                            <div class="fw-medium">{{$item.Media.Title}}</div>
+                            <small class="text-body-secondary">
+                                {{if $item.Media.Artist}}{{$item.Media.Artist}}{{else}}Unknown Artist{{end}}
+                                {{if $item.Media.Duration}} - {{formatDuration $item.Media.Duration}}{{end}}
+                            </small>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <a href="/dashboard/media/{{$item.MediaID}}" class="btn btn-outline-secondary" title="View media">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <button class="btn btn-outline-danger" title="Remove from playlist"
+                                    hx-delete="/dashboard/playlists/{{$playlist.ID}}/items/{{$item.ID}}"
+                                    hx-confirm="Remove this track from the playlist?">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+                {{else}}
+                <div class="text-center py-5 text-body-secondary">
+                    <i class="bi bi-music-note-list fs-1 mb-3 d-block"></i>
+                    <p class="mb-0">No tracks in this playlist yet.</p>
+                    <p class="small">Add tracks from the media library on the right.</p>
+                </div>
+                {{end}}
+            </div>
+            {{if $items}}
+            <div class="card-footer">
+                <div class="d-flex justify-content-between align-items-center small text-body-secondary">
+                    <span>{{len $items}} tracks</span>
+                    <span>Total duration: {{formatDuration (index $data "TotalDuration")}}</span>
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Add Media Panel -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Add Media</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="p-3 border-bottom">
+                    <input type="text" class="form-control form-control-sm" placeholder="Search media..."
+                           id="mediaSearch"
+                           hx-get="/dashboard/media/table?limit=50"
+                           hx-trigger="keyup changed delay:300ms"
+                           hx-target="#availableMedia"
+                           hx-include="this"
+                           name="q">
+                </div>
+                <div id="availableMedia" class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+                    {{range $availableMedia}}
+                    <form class="list-group-item list-group-item-action d-flex align-items-center gap-2"
+                          hx-post="/dashboard/playlists/{{$playlist.ID}}/items"
+                          hx-swap="none">
+                        <input type="hidden" name="media_id" value="{{.ID}}">
+                        <div class="flex-grow-1 min-width-0">
+                            <div class="text-truncate fw-medium">{{.Title}}</div>
+                            <small class="text-body-secondary text-truncate d-block">
+                                {{if .Artist}}{{.Artist}}{{else}}Unknown{{end}}
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">
+                            <i class="bi bi-plus"></i>
+                        </button>
+                    </form>
+                    {{else}}
+                    <div class="list-group-item text-center text-body-secondary py-4">
+                        <i class="bi bi-music-note-beamed mb-2 d-block"></i>
+                        No media available
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+            <div class="card-footer text-center">
+                <a href="/dashboard/media" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-folder-plus me-1"></i>Upload More Media
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.playlist-item {
+    cursor: grab;
+    transition: background-color 0.15s;
+}
+.playlist-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+.playlist-item.drag-over {
+    background-color: var(--bs-primary-bg-subtle);
+    border-top: 2px solid var(--bs-primary);
+}
+.drag-handle {
+    cursor: grab;
+}
+.min-width-0 {
+    min-width: 0;
+}
+</style>
+
+<script>
+function handleDrop(target, dragged) {
+    if (!target || !dragged || target === dragged) return;
+
+    const list = document.getElementById('playlistItems');
+    const items = Array.from(list.querySelectorAll('.playlist-item'));
+    const draggedIndex = items.indexOf(dragged);
+    const targetIndex = items.indexOf(target);
+
+    // Reorder in DOM
+    if (draggedIndex < targetIndex) {
+        target.after(dragged);
+    } else {
+        target.before(dragged);
+    }
+
+    // Build new order and send to server
+    const newOrder = Array.from(list.querySelectorAll('.playlist-item')).map((el, idx) => ({
+        id: el.dataset.id,
+        position: idx + 1
+    }));
+
+    fetch('/dashboard/playlists/{{$playlist.ID}}/items/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newOrder)
+    }).then(res => {
+        if (!res.ok) {
+            // Reload on error to restore order
+            window.location.reload();
+        }
+    });
+}
+</script>
+{{end}}

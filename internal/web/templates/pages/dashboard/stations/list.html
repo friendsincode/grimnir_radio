@@ -1,0 +1,80 @@
+{{define "pages/dashboard/stations/list"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Stations</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-broadcast-pin me-2"></i>Stations</h4>
+    {{if roleAtLeast .User "admin"}}
+    <a href="/dashboard/stations/new" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-2"></i>New Station
+    </a>
+    {{end}}
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Timezone</th>
+                    <th>Status</th>
+                    <th style="width: 150px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Data}}
+                <tr>
+                    <td>
+                        <strong>{{.Name}}</strong>
+                    </td>
+                    <td>{{if .Description}}{{truncate .Description 50}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                    <td><code>{{.Timezone}}</code></td>
+                    <td>
+                        {{if .Active}}
+                        <span class="badge bg-success">Active</span>
+                        {{else}}
+                        <span class="badge bg-secondary">Inactive</span>
+                        {{end}}
+                    </td>
+                    <td class="text-end">
+                        <div class="btn-group btn-group-sm">
+                            <a href="/dashboard/stations/{{.ID}}/mounts" class="btn btn-outline-secondary" title="Mounts">
+                                <i class="bi bi-diagram-3"></i>
+                            </a>
+                            <a href="/dashboard/stations/{{.ID}}" class="btn btn-outline-secondary" title="Edit">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            {{if roleAtLeast $.User "admin"}}
+                            <button class="btn btn-outline-danger" title="Delete"
+                                    hx-delete="/dashboard/stations/{{.ID}}"
+                                    hx-confirm="Delete this station?">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            {{end}}
+                        </div>
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="5" class="text-center py-5 text-body-secondary">
+                        No stations. <a href="/dashboard/stations/new">Create the first one</a>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}

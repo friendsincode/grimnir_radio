@@ -1,0 +1,133 @@
+/* Clean Light Theme - Modern SaaS-style light theme */
+
+[data-bs-theme="clean-light"] {
+    --bs-body-color: #374151;
+    --bs-body-color-rgb: 55, 65, 81;
+    --bs-body-bg: #f9fafb;
+    --bs-body-bg-rgb: 249, 250, 251;
+
+    --bs-emphasis-color: #111827;
+    --bs-emphasis-color-rgb: 17, 24, 39;
+
+    --bs-secondary-color: rgba(55, 65, 81, 0.75);
+    --bs-secondary-color-rgb: 55, 65, 81;
+    --bs-secondary-bg: #f3f4f6;
+    --bs-secondary-bg-rgb: 243, 244, 246;
+
+    --bs-tertiary-color: rgba(55, 65, 81, 0.5);
+    --bs-tertiary-color-rgb: 55, 65, 81;
+    --bs-tertiary-bg: #ffffff;
+    --bs-tertiary-bg-rgb: 255, 255, 255;
+
+    --bs-primary: #6366f1;
+    --bs-primary-rgb: 99, 102, 241;
+
+    --bs-success: #10b981;
+    --bs-success-rgb: 16, 185, 129;
+
+    --bs-info: #06b6d4;
+    --bs-info-rgb: 6, 182, 212;
+
+    --bs-warning: #f59e0b;
+    --bs-warning-rgb: 245, 158, 11;
+
+    --bs-danger: #ef4444;
+    --bs-danger-rgb: 239, 68, 68;
+
+    --bs-border-color: #e5e7eb;
+    --bs-border-color-translucent: rgba(0, 0, 0, 0.1);
+
+    --bs-link-color: #6366f1;
+    --bs-link-hover-color: #4f46e5;
+
+    --bs-code-color: #6366f1;
+}
+
+[data-bs-theme="clean-light"] .bg-body-tertiary {
+    background-color: #ffffff !important;
+}
+
+[data-bs-theme="clean-light"] .sidebar {
+    background: #ffffff !important;
+    box-shadow: 1px 0 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-bs-theme="clean-light"] .card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-bs-theme="clean-light"] .btn-primary {
+    --bs-btn-bg: #6366f1;
+    --bs-btn-border-color: #6366f1;
+    --bs-btn-hover-bg: #4f46e5;
+    --bs-btn-hover-border-color: #4f46e5;
+    --bs-btn-active-bg: #4338ca;
+    --bs-btn-active-border-color: #4338ca;
+}
+
+[data-bs-theme="clean-light"] .nav-link.active {
+    background: #eef2ff !important;
+    color: #6366f1 !important;
+}
+
+[data-bs-theme="clean-light"] .form-control,
+[data-bs-theme="clean-light"] .form-select {
+    background-color: #ffffff;
+    border-color: #d1d5db;
+}
+
+[data-bs-theme="clean-light"] .form-control:focus,
+[data-bs-theme="clean-light"] .form-select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+[data-bs-theme="clean-light"] .table {
+    --bs-table-bg: transparent;
+    --bs-table-striped-bg: rgba(0, 0, 0, 0.02);
+    --bs-table-hover-bg: rgba(99, 102, 241, 0.05);
+}
+
+[data-bs-theme="clean-light"] header.border-bottom {
+    background: #ffffff !important;
+}
+
+[data-bs-theme="clean-light"] .dropdown-menu {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e5e7eb;
+}
+
+[data-bs-theme="clean-light"] .modal-content {
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+[data-bs-theme="clean-light"] .waveform-container {
+    background: #f3f4f6;
+}
+
+[data-bs-theme="clean-light"] .audio-meter .segment {
+    background: #e5e7eb;
+}
+
+/* Softer badges */
+[data-bs-theme="clean-light"] .badge.bg-primary {
+    background: #eef2ff !important;
+    color: #6366f1 !important;
+}
+
+[data-bs-theme="clean-light"] .badge.bg-success {
+    background: #d1fae5 !important;
+    color: #059669 !important;
+}
+
+[data-bs-theme="clean-light"] .badge.bg-danger {
+    background: #fee2e2 !important;
+    color: #dc2626 !important;
+}
+
+[data-bs-theme="clean-light"] .badge.bg-warning {
+    background: #fef3c7 !important;
+    color: #d97706 !important;
+}

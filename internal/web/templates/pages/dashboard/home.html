@@ -1,0 +1,216 @@
+{{define "pages/dashboard/home"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<h4 class="mb-0">Dashboard</h4>
+{{end}}
+
+{{define "main"}}
+<div class="row g-4">
+    <!-- Stats Cards -->
+    <div class="col-sm-6 col-xl-3">
+        <a href="/dashboard/media" class="card bg-body-tertiary text-decoration-none text-body" style="cursor: pointer;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <p class="text-body-secondary mb-1">Media Items</p>
+                        <h3 class="mb-0">{{.Data.MediaCount}}</h3>
+                    </div>
+                    <div class="bg-primary bg-opacity-10 rounded-3 p-3">
+                        <i class="bi bi-music-note-list text-primary fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <a href="/dashboard/playlists" class="card bg-body-tertiary text-decoration-none text-body" style="cursor: pointer;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <p class="text-body-secondary mb-1">Playlists</p>
+                        <h3 class="mb-0">{{.Data.PlaylistCount}}</h3>
+                    </div>
+                    <div class="bg-success bg-opacity-10 rounded-3 p-3">
+                        <i class="bi bi-list-ul text-success fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <a href="/dashboard/smart-blocks" class="card bg-body-tertiary text-decoration-none text-body" style="cursor: pointer;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <p class="text-body-secondary mb-1">Smart Blocks</p>
+                        <h3 class="mb-0">{{.Data.SmartBlockCount}}</h3>
+                    </div>
+                    <div class="bg-info bg-opacity-10 rounded-3 p-3">
+                        <i class="bi bi-magic text-info fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <a href="/dashboard/live" class="card bg-body-tertiary text-decoration-none text-body" style="cursor: pointer;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <p class="text-body-secondary mb-1">Live Sessions</p>
+                        <h3 class="mb-0">{{len .Data.LiveSessions}}</h3>
+                    </div>
+                    <div class="bg-danger bg-opacity-10 rounded-3 p-3">
+                        <i class="bi bi-broadcast text-danger fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- Upcoming Schedule -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-calendar3 me-2"></i>Upcoming Schedule</h5>
+                <a href="/dashboard/schedule" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Content</th>
+                                <th>Type</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Data.UpcomingEntries}}
+                            <tr>
+                                <td>
+                                    <span class="text-body-secondary">
+                                        {{formatTime .StartsAt}}
+                                    </span>
+                                </td>
+                                <td>
+                                    {{if .Metadata}}
+                                        {{if .Metadata.artist}}{{.Metadata.artist}} - {{end}}
+                                        {{if .Metadata.title}}{{.Metadata.title}}{{else}}Untitled{{end}}
+                                    {{else}}
+                                        <span class="text-body-secondary">-</span>
+                                    {{end}}
+                                </td>
+                                <td>
+                                    <span class="badge bg-{{if eq .SourceType "media"}}primary{{else if eq .SourceType "smart_block"}}info{{else if eq .SourceType "live"}}danger{{else}}secondary{{end}}">
+                                        {{.SourceType}}
+                                    </span>
+                                </td>
+                                <td>
+                                    {{formatDuration .EndsAt.Sub .StartsAt}}
+                                </td>
+                            </tr>
+                            {{else}}
+                            <tr>
+                                <td colspan="4" class="text-center text-body-secondary py-4">
+                                    No upcoming schedule entries
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions & Live Sessions -->
+    <div class="col-lg-4">
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning me-2"></i>Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="/dashboard/media/upload" class="btn btn-outline-primary">
+                        <i class="bi bi-upload me-2"></i>Upload Media
+                    </a>
+                    <a href="/dashboard/playlists/new" class="btn btn-outline-primary">
+                        <i class="bi bi-plus-circle me-2"></i>New Playlist
+                    </a>
+                    {{if roleAtLeast .User "manager"}}
+                    <a href="/dashboard/smart-blocks/new" class="btn btn-outline-primary">
+                        <i class="bi bi-magic me-2"></i>New Smart Block
+                    </a>
+                    {{end}}
+                    <button class="btn btn-outline-warning"
+                            hx-post="/dashboard/playout/skip"
+                            hx-confirm="Skip the current track?">
+                        <i class="bi bi-skip-forward me-2"></i>Skip Current
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Sessions -->
+        {{if .Data.LiveSessions}}
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-broadcast text-danger me-2"></i>Live Sessions</h5>
+                <span class="badge bg-danger on-air-indicator">LIVE</span>
+            </div>
+            <div class="list-group list-group-flush">
+                {{range .Data.LiveSessions}}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{.Username}}</strong>
+                        <br>
+                        <small class="text-body-secondary">
+                            Connected {{formatTime .ConnectedAt}}
+                        </small>
+                    </div>
+                    <span class="badge bg-{{if eq .Priority 0}}danger{{else if eq .Priority 1}}warning{{else}}info{{end}}">
+                        P{{.Priority}}
+                    </span>
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+    </div>
+
+    <!-- Recent Media -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recently Added</h5>
+                <a href="/dashboard/media" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {{range .Data.RecentMedia}}
+                    <div class="col-md-4 col-lg-2">
+                        <div class="card media-card h-100">
+                            <div class="card-body p-2">
+                                <p class="small fw-bold text-truncate mb-0" title="{{.Title}}">{{.Title}}</p>
+                                <p class="small text-body-secondary text-truncate mb-0" title="{{.Artist}}">
+                                    {{if .Artist}}{{.Artist}}{{else}}<em>Unknown</em>{{end}}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    {{else}}
+                    <div class="col-12 text-center text-body-secondary py-4">
+                        No recent media uploads
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

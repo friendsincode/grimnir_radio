@@ -1,0 +1,110 @@
+{{define "pages/public/archive-detail"}}
+{{template "layouts/public" .}}
+{{end}}
+
+{{define "main"}}
+{{$media := .Data}}
+<div class="container py-5">
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">Home</a></li>
+            <li class="breadcrumb-item"><a href="/archive">Archive</a></li>
+            <li class="breadcrumb-item active">{{$media.Title}}</li>
+        </ol>
+    </nav>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-4 mb-4">
+                        {{if len $media.Artwork}}
+                        <img src="/archive/{{$media.ID}}/artwork" alt="Album art"
+                             class="rounded shadow" style="width: 120px; height: 120px; object-fit: cover;">
+                        {{else}}
+                        <div class="bg-secondary rounded d-flex align-items-center justify-content-center shadow"
+                             style="width: 120px; height: 120px;">
+                            <i class="bi bi-music-note-beamed text-white fs-1"></i>
+                        </div>
+                        {{end}}
+                        <div class="flex-grow-1">
+                            <h1 class="h3 mb-2">{{$media.Title}}</h1>
+                            {{if $media.Artist}}<p class="lead text-body-secondary mb-3">{{$media.Artist}}</p>{{end}}
+                            <button class="btn btn-primary btn-lg"
+                                    onclick="playArchiveTrack('{{$media.ID}}', '{{$media.Title}}', '{{$media.Artist}}')">
+                                <i class="bi bi-play-fill me-2"></i>Play
+                            </button>
+                        </div>
+                    </div>
+
+                    <dl class="row mb-0">
+                        {{if $media.Artist}}
+                        <dt class="col-sm-3">Artist</dt>
+                        <dd class="col-sm-9">{{$media.Artist}}</dd>
+                        {{end}}
+
+                        {{if $media.Album}}
+                        <dt class="col-sm-3">Album</dt>
+                        <dd class="col-sm-9">{{$media.Album}}</dd>
+                        {{end}}
+
+                        {{if $media.Genre}}
+                        <dt class="col-sm-3">Genre</dt>
+                        <dd class="col-sm-9">{{$media.Genre}}</dd>
+                        {{end}}
+
+                        {{if $media.Year}}
+                        <dt class="col-sm-3">Year</dt>
+                        <dd class="col-sm-9">{{$media.Year}}</dd>
+                        {{end}}
+
+                        <dt class="col-sm-3">Duration</dt>
+                        <dd class="col-sm-9">{{formatDuration $media.Duration}}</dd>
+
+                        {{if $media.BPM}}
+                        <dt class="col-sm-3">BPM</dt>
+                        <dd class="col-sm-9">{{$media.BPM}}</dd>
+                        {{end}}
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>File Info</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-5 text-body-secondary">Format</dt>
+                        <dd class="col-7">{{$media.Format}}</dd>
+
+                        {{if $media.Bitrate}}
+                        <dt class="col-5 text-body-secondary">Bitrate</dt>
+                        <dd class="col-7">{{$media.Bitrate}} kbps</dd>
+                        {{end}}
+
+                        {{if $media.SampleRate}}
+                        <dt class="col-5 text-body-secondary">Sample Rate</dt>
+                        <dd class="col-7">{{$media.SampleRate}} Hz</dd>
+                        {{end}}
+
+                        <dt class="col-5 text-body-secondary">Size</dt>
+                        <dd class="col-7">{{formatBytes $media.Size}}</dd>
+
+                        <dt class="col-5 text-body-secondary">Added</dt>
+                        <dd class="col-7">{{formatTime $media.CreatedAt}}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <a href="/archive" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Archive
+        </a>
+    </div>
+</div>
+{{end}}

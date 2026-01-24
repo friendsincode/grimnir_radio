@@ -1,0 +1,44 @@
+{{define "partials/media-table"}}
+{{range .}}
+<tr onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+    <td>
+        <button class="btn btn-sm btn-outline-primary rounded-circle"
+                onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)">
+            <i class="bi bi-play-fill"></i>
+        </button>
+    </td>
+    <td class="text-center" style="width: 50px;">
+        {{if len .Artwork}}
+        <img src="/dashboard/media/{{.ID}}/artwork" alt="" class="rounded" style="width: 40px; height: 40px; object-fit: cover;">
+        {{else}}
+        <div class="bg-secondary rounded d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+            <i class="bi bi-music-note text-white"></i>
+        </div>
+        {{end}}
+    </td>
+    <td>
+        <strong>{{.Title}}</strong>
+        {{if .Explicit}}<span class="badge bg-warning text-dark">E</span>{{end}}
+    </td>
+    <td>{{if .Artist}}{{.Artist}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+    <td>{{if .Album}}{{.Album}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+    <td>{{if .Genre}}<span class="badge bg-secondary">{{.Genre}}</span>{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+    <td>{{formatDuration .Duration}}</td>
+    <td><small class="text-body-secondary">{{formatTime .CreatedAt}}</small></td>
+    <td class="actions text-end">
+        <div class="btn-group btn-group-sm">
+            <a href="/dashboard/media/{{.ID}}/edit" class="btn btn-outline-secondary" onclick="event.stopPropagation()">
+                <i class="bi bi-pencil"></i>
+            </a>
+            <button class="btn btn-outline-danger" onclick="event.stopPropagation()" hx-delete="/dashboard/media/{{.ID}}" hx-confirm="Delete?">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    </td>
+</tr>
+{{else}}
+<tr>
+    <td colspan="9" class="text-center py-4 text-body-secondary">No results found</td>
+</tr>
+{{end}}
+{{end}}

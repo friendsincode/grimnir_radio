@@ -1,0 +1,28 @@
+{{define "partials/smartblock-preview"}}
+<div class="table-responsive">
+    <table class="table table-sm mb-0">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Title</th>
+                <th>Artist</th>
+                <th>Duration</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range $i, $m := .}}
+            <tr>
+                <td>{{add $i 1}}</td>
+                <td>{{$m.Title}}</td>
+                <td>{{if $m.Artist}}{{$m.Artist}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                <td>{{formatDuration $m.Duration}}</td>
+            </tr>
+            {{else}}
+            <tr>
+                <td colspan="4" class="text-center text-body-secondary">No matches found</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

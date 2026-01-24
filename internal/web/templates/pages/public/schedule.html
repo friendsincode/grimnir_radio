@@ -1,0 +1,76 @@
+{{define "pages/public/schedule"}}
+{{template "layouts/public" .}}
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$stations := index $data "Stations"}}
+{{$entries := index $data "Entries"}}
+{{$stationID := index $data "StationID"}}
+<div class="container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-calendar3 me-2"></i>Schedule</h1>
+
+        {{if $stations}}
+        <div class="dropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                <i class="bi bi-broadcast me-1"></i>
+                {{if $stationID}}
+                    {{range $stations}}{{if eq .ID $stationID}}{{.Name}}{{end}}{{end}}
+                {{else}}
+                    All Stations
+                {{end}}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item {{if not $stationID}}active{{end}}" href="/schedule">All Stations</a></li>
+                <li><hr class="dropdown-divider"></li>
+                {{range $stations}}
+                <li><a class="dropdown-item {{if eq .ID $stationID}}active{{end}}" href="/schedule?station_id={{.ID}}">{{.Name}}</a></li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+    </div>
+
+    <p class="text-body-secondary mb-4">Upcoming shows and programs for the next 48 hours</p>
+
+    {{if $entries}}
+    <div class="list-group">
+        {{range $entries}}
+        <div class="list-group-item">
+            <div class="d-flex w-100 justify-content-between align-items-start">
+                <div>
+                    <h5 class="mb-1">
+                        {{if eq .Type "playlist"}}
+                        <i class="bi bi-music-note-list text-primary me-1"></i>
+                        {{else if eq .Type "smartblock"}}
+                        <i class="bi bi-lightning text-warning me-1"></i>
+                        {{else if eq .Type "live"}}
+                        <i class="bi bi-broadcast text-danger me-1"></i>
+                        {{else if eq .Type "webstream"}}
+                        <i class="bi bi-globe text-info me-1"></i>
+                        {{end}}
+                        {{.Title}}
+                    </h5>
+                    {{if .Description}}
+                    <p class="mb-1 text-body-secondary">{{.Description}}</p>
+                    {{end}}
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-primary">{{formatTime .StartsAt}}</span>
+                    {{if .Duration}}
+                    <br><small class="text-body-secondary">{{formatDuration .Duration}}</small>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+    </div>
+    {{else}}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>
+        No scheduled content in the next 48 hours.
+    </div>
+    {{end}}
+</div>
+{{end}}

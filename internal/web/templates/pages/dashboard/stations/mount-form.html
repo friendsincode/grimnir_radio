@@ -1,0 +1,90 @@
+{{define "pages/dashboard/stations/mount-form"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$data := .Data}}
+{{$station := index $data "Station"}}
+{{$isNew := index $data "IsNew"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/stations">Stations</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/stations/{{$station.ID}}">{{$station.Name}}</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/stations/{{$station.ID}}/mounts">Mounts</a></li>
+        {{if $isNew}}
+        <li class="breadcrumb-item active">New</li>
+        {{else}}
+        <li class="breadcrumb-item active">Edit</li>
+        {{end}}
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$station := index $data "Station"}}
+{{$mount := index $data "Mount"}}
+{{$isNew := index $data "IsNew"}}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="mb-0">
+                <i class="bi bi-hdd-network me-2"></i>
+                {{if $isNew}}New Mount{{else}}Edit Mount{{end}}
+            </h4>
+            <a href="/dashboard/stations/{{$station.ID}}/mounts" class="btn btn-outline-secondary">
+                <i class="bi bi-x me-1"></i>Cancel
+            </a>
+        </div>
+
+        <form method="POST"
+              action="{{if $isNew}}/dashboard/stations/{{$station.ID}}/mounts{{else}}/dashboard/stations/{{$station.ID}}/mounts/{{$mount.ID}}{{end}}"
+              {{if $isNew}}
+              hx-post="/dashboard/stations/{{$station.ID}}/mounts"
+              {{else}}
+              hx-put="/dashboard/stations/{{$station.ID}}/mounts/{{$mount.ID}}"
+              {{end}}
+              hx-swap="none">
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name"
+                               value="{{$mount.Name}}" required
+                               placeholder="e.g. Main Stream 128kbps">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">URL <span class="text-danger">*</span></label>
+                        <input type="url" class="form-control font-monospace" name="url"
+                               value="{{$mount.URL}}" required
+                               placeholder="https://stream.example.com/live.mp3">
+                        <div class="form-text">The public URL where listeners can tune in.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Format <span class="text-danger">*</span></label>
+                        <select class="form-select" name="format" required>
+                            <option value="">Select format...</option>
+                            <option value="mp3" {{if eq $mount.Format "mp3"}}selected{{end}}>MP3</option>
+                            <option value="aac" {{if eq $mount.Format "aac"}}selected{{end}}>AAC</option>
+                            <option value="ogg" {{if eq $mount.Format "ogg"}}selected{{end}}>Ogg Vorbis</option>
+                            <option value="opus" {{if eq $mount.Format "opus"}}selected{{end}}>Opus</option>
+                            <option value="flac" {{if eq $mount.Format "flac"}}selected{{end}}>FLAC</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-footer d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-1"></i>
+                        {{if $isNew}}Create Mount{{else}}Save Changes{{end}}
+                    </button>
+                    <a href="/dashboard/stations/{{$station.ID}}/mounts" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

@@ -1,0 +1,123 @@
+{{define "pages/dashboard/analytics/history"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/analytics">Analytics</a></li>
+        <li class="breadcrumb-item active">Play History</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$history := index $data "History"}}
+{{$total := index $data "Total"}}
+{{$page := index $data "Page"}}
+{{$perPage := index $data "PerPage"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i>Play History</h4>
+    <a href="/dashboard/analytics" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Back to Analytics
+    </a>
+</div>
+
+<!-- Date Filter -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">From Date</label>
+                <input type="date" class="form-control" name="from">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">To Date</label>
+                <input type="date" class="form-control" name="to">
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-filter me-1"></i>Filter
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- History Table -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Recent Plays</h5>
+        <span class="badge bg-secondary">{{$total}} total</span>
+    </div>
+    {{if $history}}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Title</th>
+                    <th>Artist</th>
+                    <th>Duration</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range $history}}
+                <tr>
+                    <td>
+                        <small>{{formatTime .StartedAt}}</small>
+                    </td>
+                    <td>
+                        <strong>{{.Title}}</strong>
+                    </td>
+                    <td>{{.Artist}}</td>
+                    <td>
+                        {{if .Duration}}
+                        <span class="badge bg-secondary">{{formatDuration .Duration}}</span>
+                        {{end}}
+                    </td>
+                    <td>
+                        <span class="badge {{if eq .Source "automation"}}bg-primary{{else if eq .Source "live"}}bg-danger{{else}}bg-secondary{{end}}">
+                            {{.Source}}
+                        </span>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    {{if gt $total $perPage}}
+    <div class="card-footer">
+        <nav>
+            <ul class="pagination justify-content-center mb-0">
+                {{if gt $page 1}}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{sub $page 1}}">Previous</a>
+                </li>
+                {{end}}
+                <li class="page-item active">
+                    <span class="page-link">Page {{$page}}</span>
+                </li>
+                {{if lt (mul $page $perPage) $total}}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{add $page 1}}">Next</a>
+                </li>
+                {{end}}
+            </ul>
+        </nav>
+    </div>
+    {{end}}
+    {{else}}
+    <div class="card-body text-center py-5">
+        <i class="bi bi-clock-history fs-1 text-body-secondary mb-3 d-block"></i>
+        <h5>No Play History</h5>
+        <p class="text-body-secondary mb-0">Play history will appear here once content starts playing.</p>
+    </div>
+    {{end}}
+</div>
+{{end}}

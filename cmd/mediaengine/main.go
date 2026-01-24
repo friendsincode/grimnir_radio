@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine"
@@ -60,10 +61,45 @@ func getEnvInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
+// runHealthCheck connects to the running gRPC server and checks its health
+func runHealthCheck() int {
+	grpcPort := getEnvInt("MEDIAENGINE_GRPC_PORT", 9091)
+	addr := fmt.Sprintf("localhost:%d", grpcPort)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, err := grpc.DialContext(ctx, addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "health check failed: cannot connect to %s: %v\n", addr, err)
+		return 1
+	}
+	defer conn.Close()
+
+	// Try to call GetStatus to verify the service is responding
+	client := pb.NewMediaEngineClient(conn)
+	_, err = client.GetStatus(ctx, &pb.StatusRequest{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "health check failed: service not responding: %v\n", err)
+		return 1
+	}
+
+	fmt.Println("health check passed")
+	return 0
+}
+
 func main() {
 	// Setup logging
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	logger := zerolog.New(os.Stdout).With().Timestamp().Str("component", "mediaengine").Logger()
+
+	// Handle subcommands
+	if len(os.Args) > 1 && os.Args[1] == "health" {
+		os.Exit(runHealthCheck())
+	}
 
 	logger.Info().Str("version", version).Msg("Grimnir Radio Media Engine starting")
 

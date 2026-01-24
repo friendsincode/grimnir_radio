@@ -1,0 +1,201 @@
+{{define "pages/dashboard/profile"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Profile</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$user := .Data.User}}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <h4 class="mb-4"><i class="bi bi-person-circle me-2"></i>Profile Settings</h4>
+
+        {{if .Flash}}
+        <div class="alert alert-{{if eq .Flash.Type "error"}}danger{{else}}{{.Flash.Type}}{{end}} alert-dismissible fade show" role="alert">
+            {{.Flash.Message}}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {{end}}
+
+        <!-- Account Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Account Information</h5>
+            </div>
+            <div class="card-body">
+                <div id="profileResult"></div>
+
+                <form method="POST" action="/dashboard/profile"
+                      hx-put="/dashboard/profile"
+                      hx-target="#profileResult"
+                      hx-swap="innerHTML">
+
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" name="email"
+                               value="{{$user.Email}}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Role</label>
+                        <input type="text" class="form-control-plaintext" value="{{$user.Role}}" readonly>
+                        <div class="form-text">Your role determines what features you can access.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Account Created</label>
+                        <input type="text" class="form-control-plaintext" value="{{formatTime $user.CreatedAt}}" readonly>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-1"></i>Update Profile
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Change Password -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Change Password</h5>
+            </div>
+            <div class="card-body">
+                <div id="passwordResult"></div>
+
+                <form method="POST" action="/dashboard/profile/password"
+                      hx-post="/dashboard/profile/password"
+                      hx-target="#passwordResult"
+                      hx-swap="innerHTML">
+
+                    <div class="mb-3">
+                        <label class="form-label">Current Password</label>
+                        <input type="password" class="form-control" name="current_password" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">New Password</label>
+                        <input type="password" class="form-control" name="new_password"
+                               required minlength="8"
+                               placeholder="Minimum 8 characters">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Confirm New Password</label>
+                        <input type="password" class="form-control" name="confirm_password" required>
+                    </div>
+
+                    <button type="submit" class="btn btn-warning">
+                        <i class="bi bi-key me-1"></i>Change Password
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Role Permissions -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Role Permissions</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-body-secondary mb-3">
+                    Your current role: <strong class="text-primary">{{$user.Role}}</strong>
+                </p>
+
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Feature</th>
+                                <th class="text-center">DJ</th>
+                                <th class="text-center">Manager</th>
+                                <th class="text-center">Admin</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>View Dashboard</td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Media Library (view/upload)</td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Playlists</td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Live DJ Controls</td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Schedule</td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Smart Blocks</td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Clock Templates</td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Webstreams</td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>User Management</td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Station Management</td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>Mount Configuration</td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                            <tr>
+                                <td>System Settings</td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-x-circle text-danger"></i></td>
+                                <td class="text-center"><i class="bi bi-check-circle text-success"></i></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

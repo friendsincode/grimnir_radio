@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -36,6 +37,7 @@ import (
     schedulerstate "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
     "github.com/friendsincode/grimnir_radio/internal/smartblock"
     "github.com/friendsincode/grimnir_radio/internal/telemetry"
+    "github.com/friendsincode/grimnir_radio/internal/web"
     "github.com/friendsincode/grimnir_radio/internal/webstream"
 )
 
@@ -49,6 +51,7 @@ type Server struct {
 
 	db                  *gorm.DB
 	api                 *api.API
+	webHandler          *web.Handler
 	scheduler           *scheduler.Service
 	leaderAwareScheduler *scheduler.LeaderAwareScheduler
 	analyzer            *analyzer.Service
@@ -109,6 +112,12 @@ func (s *Server) initDependencies() error {
 	s.db = database
 	s.DeferClose(func() error { return db.Close(database) })
 
+	// Ensure media directory exists
+	if err := os.MkdirAll(s.cfg.MediaRoot, 0755); err != nil {
+		return fmt.Errorf("failed to create media directory %s: %w", s.cfg.MediaRoot, err)
+	}
+	s.logger.Info().Str("path", s.cfg.MediaRoot).Msg("media directory ready")
+
 	planner := clock.NewPlanner(database, s.logger)
 	stateStore := schedulerstate.NewStore()
 	blockEngine := smartblock.New(database, s.logger)
@@ -164,6 +173,13 @@ func (s *Server) initDependencies() error {
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
 	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
+
+	// Web UI handler
+	webHandler, err := web.NewHandler(database, []byte(s.cfg.JWTSigningKey), s.cfg.MediaRoot, s.logger)
+	if err != nil {
+		return fmt.Errorf("failed to initialize web handler: %w", err)
+	}
+	s.webHandler = webHandler
 
 	return nil
 }
@@ -290,5 +306,7 @@ func (s *Server) configureRoutes() {
 
 	s.router.Handle("/metrics", telemetry.Handler())
 	s.api.Routes(s.router)
-	s.router.Handle("/*", http.FileServer(http.Dir("web")))
+
+	// Web UI routes
+	s.webHandler.Routes(s.router)
 }
