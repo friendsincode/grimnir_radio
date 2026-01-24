@@ -10,11 +10,15 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+// Context key for JWT token string
+const ctxKeyToken ctxKey = "token"
 
 // AuthMiddleware checks for valid session and injects user into context.
 // For web routes, we check cookies; for API we check Authorization header.
@@ -76,8 +80,9 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Inject user into context
+		// Inject user and token into context
 		ctx := context.WithValue(r.Context(), ctxKeyUser, &user)
+		ctx = context.WithValue(ctx, ctxKeyToken, tokenStr)
 
 		// Check for selected station in cookie
 		if stationCookie, err := r.Cookie("grimnir_station"); err == nil {
@@ -224,4 +229,33 @@ func (h *Handler) ClearAuthToken(w http.ResponseWriter) {
 		MaxAge:   -1,
 		HttpOnly: true,
 	})
+}
+
+// GetAuthToken returns the raw JWT token string from context.
+func (h *Handler) GetAuthToken(r *http.Request) string {
+	if token, ok := r.Context().Value(ctxKeyToken).(string); ok {
+		return token
+	}
+	return ""
+}
+
+// GenerateWSToken creates a short-lived token for WebSocket connections.
+// This token is safe to expose in JavaScript as it has a short TTL.
+func (h *Handler) GenerateWSToken(user *models.User) string {
+	if user == nil {
+		return ""
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"purpose": "websocket",
+		"exp":     time.Now().Add(5 * time.Minute).Unix(),
+		"iat":     time.Now().Unix(),
+	})
+
+	tokenStr, err := token.SignedString(h.jwtSecret)
+	if err != nil {
+		return ""
+	}
+	return tokenStr
 }

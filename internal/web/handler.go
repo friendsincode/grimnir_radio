@@ -51,6 +51,7 @@ type PageData struct {
 	Flash       *FlashMessage
 	CurrentPath string
 	CSRFToken   string
+	WSToken     string // Auth token for WebSocket connections (non-HttpOnly)
 	Data        any
 }
 
@@ -208,6 +209,8 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 	// Get user from context if authenticated
 	if user, ok := r.Context().Value(ctxKeyUser).(*models.User); ok {
 		data.User = user
+		// Generate short-lived WS token for JavaScript access
+		data.WSToken = h.GenerateWSToken(user)
 	}
 
 	// Get selected station from context

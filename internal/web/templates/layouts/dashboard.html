@@ -388,6 +388,8 @@
 <script src="https://unpkg.com/htmx.org@1.9.12"
         integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<!-- WebSocket Auth Token (short-lived) -->
+{{if .WSToken}}<script>window.GRIMNIR_WS_TOKEN = "{{.WSToken}}";</script>{{end}}
 <script src="/static/js/app.js"></script>
 
 {{block "scripts" .}}{{end}}
