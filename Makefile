@@ -85,8 +85,11 @@ dev-stack:
 	@echo "Dev stack running (postgres + redis)"
 
 run-control:
-	@$(GO) run ./cmd/grimnirradio serve
+	GRIMNIR_DB_DSN="host=localhost port=5432 user=grimnir password=grimnir_secret dbname=grimnir sslmode=disable" \
+	GRIMNIR_REDIS_ADDR="localhost:6379" \
+	GRIMNIR_MEDIA_ENGINE_GRPC_ADDR="localhost:9091" \
+	$(GO) run ./cmd/grimnirradio serve
 
 run-media:
-	@$(GO) run ./cmd/mediaengine
+	$(GO) run ./cmd/mediaengine
 
