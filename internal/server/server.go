@@ -72,8 +72,19 @@ func New(cfg *config.Config, logger zerolog.Logger) (*Server, error) {
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
 	router.Use(telemetry.TracingMiddleware("grimnir-radio-api")) // Add OpenTelemetry tracing
-	router.Use(telemetry.MetricsMiddleware) // Add Prometheus metrics
-	router.Use(middleware.Timeout(60 * time.Second))
+	router.Use(telemetry.MetricsMiddleware)                      // Add Prometheus metrics
+	// Skip timeout for WebSocket connections (they need http.Hijacker)
+	router.Use(func(next http.Handler) http.Handler {
+		timeout := middleware.Timeout(60 * time.Second)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip timeout middleware for WebSocket upgrade requests
+			if r.Header.Get("Upgrade") == "websocket" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			timeout(next).ServeHTTP(w, r)
+		})
+	})
 
 	srv := &Server{
 		cfg:    cfg,
