@@ -72,7 +72,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.mediaengine
-    image: grimnir-mediaengine:latest
+    image: grimnir_mediaengine:latest
     container_name: grimnir-mediaengine
     environment:
       MEDIAENGINE_GRPC_PORT: 9091
@@ -98,7 +98,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: grimnir-radio:latest
+    image: grimnir_radio:latest
     container_name: grimnir-radio
     depends_on:
       postgres:
