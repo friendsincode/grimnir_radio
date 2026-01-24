@@ -1,0 +1,123 @@
+{{define "pages/dashboard/settings/migrations"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/settings">Settings</a></li>
+        <li class="breadcrumb-item active">Migrations</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$sources := index $data "SupportedSources"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-box-arrow-in-down me-2"></i>Migrations & Import</h4>
+    <a href="/dashboard/settings" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Back to Settings
+    </a>
+</div>
+
+<div class="row g-4">
+    <!-- Import Form -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-upload me-2"></i>Import Data</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="/dashboard/settings/migrations/import"
+                      enctype="multipart/form-data"
+                      hx-post="/dashboard/settings/migrations/import"
+                      hx-encoding="multipart/form-data"
+                      hx-swap="none">
+
+                    <div class="mb-4">
+                        <label class="form-label">Import Source <span class="text-danger">*</span></label>
+                        <select class="form-select" name="source_type" required>
+                            <option value="">Select source...</option>
+                            {{range $sources}}
+                            <option value="{{lower .}}">{{.}}</option>
+                            {{end}}
+                        </select>
+                        <div class="form-text">Choose the source system you're importing from.</div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label">Import File <span class="text-danger">*</span></label>
+                        <input type="file" class="form-control" name="import_file" required
+                               accept=".zip,.sql,.csv,.json,.xml">
+                        <div class="form-text">
+                            Upload the export file from your source system.
+                            Supported formats: ZIP, SQL, CSV, JSON, XML (depending on source).
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning mb-4">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        <strong>Important:</strong> Importing data may take time depending on the size of your library.
+                        The import runs in the background - you can continue using the system.
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-upload me-1"></i>Start Import
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Supported Sources -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>Supported Sources</h5>
+            </div>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <strong>LibreTime</strong>
+                    <br><small class="text-body-secondary">Full database export (SQL or API dump)</small>
+                </li>
+                <li class="list-group-item">
+                    <strong>AzuraCast</strong>
+                    <br><small class="text-body-secondary">Station backup ZIP file</small>
+                </li>
+                <li class="list-group-item">
+                    <strong>RadioBoss</strong>
+                    <br><small class="text-body-secondary">Playlist and database export</small>
+                </li>
+                <li class="list-group-item">
+                    <strong>PlayoutONE</strong>
+                    <br><small class="text-body-secondary">Database backup</small>
+                </li>
+                <li class="list-group-item">
+                    <strong>CSV Import</strong>
+                    <br><small class="text-body-secondary">Generic media metadata CSV</small>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Import Instructions -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-question-circle me-2"></i>Help</h5>
+            </div>
+            <div class="card-body">
+                <p class="small text-body-secondary mb-2">
+                    <strong>What gets imported:</strong>
+                </p>
+                <ul class="small text-body-secondary mb-0">
+                    <li>Media metadata (not the files themselves)</li>
+                    <li>Playlists and smart blocks</li>
+                    <li>Show schedules</li>
+                    <li>User accounts (passwords reset)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

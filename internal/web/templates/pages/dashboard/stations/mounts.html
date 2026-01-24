@@ -1,0 +1,91 @@
+{{define "pages/dashboard/stations/mounts"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$data := .Data}}
+{{$station := index $data "Station"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/stations">Stations</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/stations/{{$station.ID}}">{{$station.Name}}</a></li>
+        <li class="breadcrumb-item active">Mounts</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$station := index $data "Station"}}
+{{$mounts := index $data "Mounts"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-1"><i class="bi bi-hdd-network me-2"></i>Mounts</h4>
+        <p class="text-body-secondary mb-0">Station: {{$station.Name}}</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/dashboard/stations/{{$station.ID}}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Station
+        </a>
+        <a href="/dashboard/stations/{{$station.ID}}/mounts/new" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Add Mount
+        </a>
+    </div>
+</div>
+
+{{if $mounts}}
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>URL</th>
+                    <th>Format</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range $mounts}}
+                <tr>
+                    <td>
+                        <strong>{{.Name}}</strong>
+                    </td>
+                    <td>
+                        <code class="small">{{.URL}}</code>
+                    </td>
+                    <td>
+                        <span class="badge bg-secondary">{{.Format}}</span>
+                    </td>
+                    <td class="text-end">
+                        <div class="btn-group btn-group-sm">
+                            <a href="/dashboard/stations/{{$station.ID}}/mounts/{{.ID}}" class="btn btn-outline-secondary">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <button class="btn btn-outline-danger"
+                                    hx-delete="/dashboard/stations/{{$station.ID}}/mounts/{{.ID}}"
+                                    hx-confirm="Delete this mount?">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{else}}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-hdd-network fs-1 text-body-secondary mb-3 d-block"></i>
+        <h5>No Mounts Configured</h5>
+        <p class="text-body-secondary mb-4">Add a mount point to start streaming.</p>
+        <a href="/dashboard/stations/{{$station.ID}}/mounts/new" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Add First Mount
+        </a>
+    </div>
+</div>
+{{end}}
+{{end}}

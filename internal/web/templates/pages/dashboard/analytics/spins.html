@@ -1,0 +1,117 @@
+{{define "pages/dashboard/analytics/spins"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/analytics">Analytics</a></li>
+        <li class="breadcrumb-item active">Spin Reports</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$topTracks := index $data "TopTracks"}}
+{{$topArtists := index $data "TopArtists"}}
+{{$fromDate := index $data "FromDate"}}
+{{$toDate := index $data "ToDate"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-vinyl me-2"></i>Spin Reports</h4>
+    <a href="/dashboard/analytics" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Back to Analytics
+    </a>
+</div>
+
+<!-- Date Filter -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">From Date</label>
+                <input type="date" class="form-control" name="from" value="{{$fromDate}}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">To Date</label>
+                <input type="date" class="form-control" name="to" value="{{$toDate}}">
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-filter me-1"></i>Filter
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Top Tracks -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-music-note-list me-2"></i>Top Tracks</h5>
+            </div>
+            {{if $topTracks}}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;">#</th>
+                            <th>Title</th>
+                            <th>Artist</th>
+                            <th class="text-end">Spins</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $i, $track := $topTracks}}
+                        <tr>
+                            <td>
+                                <span class="badge bg-secondary">{{add $i 1}}</span>
+                            </td>
+                            <td><strong>{{$track.Title}}</strong></td>
+                            <td>{{$track.Artist}}</td>
+                            <td class="text-end">
+                                <span class="badge bg-primary">{{$track.Count}}</span>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{else}}
+            <div class="card-body text-center py-4">
+                <p class="text-body-secondary mb-0">No track data for this period.</p>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Top Artists -->
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-person-badge me-2"></i>Top Artists</h5>
+            </div>
+            {{if $topArtists}}
+            <ul class="list-group list-group-flush">
+                {{range $i, $artist := $topArtists}}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="badge bg-secondary me-2">{{add $i 1}}</span>
+                        {{$artist.Artist}}
+                    </div>
+                    <span class="badge bg-primary rounded-pill">{{$artist.Count}}</span>
+                </li>
+                {{end}}
+            </ul>
+            {{else}}
+            <div class="card-body text-center py-4">
+                <p class="text-body-secondary mb-0">No artist data for this period.</p>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}

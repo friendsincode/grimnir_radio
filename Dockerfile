@@ -28,19 +28,22 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     curl \
+    su-exec \
+    ffmpeg \
     && addgroup -S grimnir \
     && adduser -S -G grimnir grimnir
 
 # Copy binary from builder
 COPY --from=builder /build/grimnirradio /usr/local/bin/grimnirradio
 
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Create necessary directories
 RUN mkdir -p /var/lib/grimnir/media \
     && mkdir -p /etc/grimnir \
     && chown -R grimnir:grimnir /var/lib/grimnir
-
-# Switch to non-root user
-USER grimnir
 
 # Expose ports
 EXPOSE 8080 9000
@@ -52,6 +55,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 # Set working directory
 WORKDIR /var/lib/grimnir
 
-# Run the binary
-ENTRYPOINT ["/usr/local/bin/grimnirradio"]
-CMD ["serve"]
+# Run via entrypoint (handles permission fixing and user switching)
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/usr/local/bin/grimnirradio", "serve"]

@@ -6,7 +6,7 @@ RACE ?= 1
 PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test build verify ci proto proto-clean \
+.PHONY: help fmt fmt-check vet lint tidy test test-e2e test-frontend build verify ci proto proto-clean \
         dev-db dev-redis dev-stack run-control run-media
 
 help:
@@ -17,6 +17,10 @@ help:
 	@echo "  make lint        # golangci-lint run (if installed)"
 	@echo "  make test        # go test (-race)"
 	@echo "  make build       # build cmd/$(BIN)"
+	@echo ""
+	@echo "Frontend testing targets:"
+	@echo "  make test-e2e    # Run E2E browser tests (go-rod)"
+	@echo "  make test-routes # Quick route verification (no browser)"
 	@echo ""
 	@echo "Development targets:"
 	@echo "  make dev-db      # Start PostgreSQL container"
@@ -94,4 +98,16 @@ run-control:
 
 run-media:
 	$(GO) run ./cmd/mediaengine
+
+# Frontend testing targets
+test-e2e:
+	@echo "Running E2E frontend tests..."
+	@E2E_HEADLESS=true $(GO) test $(GOFLAGS) -v ./test/e2e/...
+
+test-frontend: test-e2e
+
+# Test all routes are working (quick HTTP check without browser)
+test-routes:
+	@echo "Running route tests..."
+	@$(GO) test $(GOFLAGS) -v -run TestTemplateRendering ./test/e2e/...
 

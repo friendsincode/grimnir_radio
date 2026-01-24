@@ -1,0 +1,222 @@
+{{define "pages/dashboard/webstreams/detail"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$ws := .Data}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/webstreams">Webstreams</a></li>
+        <li class="breadcrumb-item active">{{$ws.Name}}</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$ws := .Data}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-1"><i class="bi bi-globe me-2"></i>{{$ws.Name}}</h4>
+        {{if $ws.Description}}
+        <p class="text-body-secondary mb-0">{{$ws.Description}}</p>
+        {{end}}
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/dashboard/webstreams/{{$ws.ID}}/edit" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i>Edit
+        </a>
+        <button class="btn btn-outline-danger"
+                hx-delete="/dashboard/webstreams/{{$ws.ID}}"
+                hx-confirm="Delete this webstream?">
+            <i class="bi bi-trash me-1"></i>Delete
+        </button>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <!-- Status Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Status</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-md-4 text-center">
+                        <div class="mb-2">
+                            {{if $ws.Active}}
+                            <span class="badge bg-success fs-6">Active</span>
+                            {{else}}
+                            <span class="badge bg-secondary fs-6">Inactive</span>
+                            {{end}}
+                        </div>
+                        <small class="text-body-secondary">Status</small>
+                    </div>
+                    <div class="col-md-4 text-center">
+                        <div class="mb-2">
+                            {{if $ws.HealthCheckEnabled}}
+                            <span class="badge bg-success fs-6" id="healthStatus">Checking...</span>
+                            {{else}}
+                            <span class="badge bg-secondary fs-6">Disabled</span>
+                            {{end}}
+                        </div>
+                        <small class="text-body-secondary">Health</small>
+                    </div>
+                    <div class="col-md-4 text-center">
+                        <div class="mb-2">
+                            <span class="badge bg-info fs-6">{{add $ws.CurrentIndex 1}} / {{len $ws.URLs}}</span>
+                        </div>
+                        <small class="text-body-secondary">Current URL</small>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div class="d-flex gap-2 justify-content-center" id="actionResults">
+                    <button class="btn btn-warning"
+                            hx-post="/dashboard/webstreams/{{$ws.ID}}/failover"
+                            hx-target="#actionResults"
+                            hx-confirm="Trigger failover to next URL?">
+                        <i class="bi bi-shuffle me-1"></i>Failover
+                    </button>
+                    <button class="btn btn-secondary"
+                            hx-post="/dashboard/webstreams/{{$ws.ID}}/reset"
+                            hx-target="#actionResults"
+                            hx-confirm="Reset to primary URL?">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Primary
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- URLs -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Stream URLs</h5>
+            </div>
+            <div class="card-body p-0">
+                <ul class="list-group list-group-flush">
+                    {{range $i, $url := $ws.URLs}}
+                    <li class="list-group-item d-flex justify-content-between align-items-center {{if eq $i $.Data.CurrentIndex}}bg-primary-subtle{{end}}">
+                        <div>
+                            {{if eq $i 0}}
+                            <span class="badge bg-primary me-2">Primary</span>
+                            {{else}}
+                            <span class="badge bg-secondary me-2">Backup {{$i}}</span>
+                            {{end}}
+                            <code class="small">{{$url}}</code>
+                        </div>
+                        {{if eq $i $.Data.CurrentIndex}}
+                        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Current</span>
+                        {{end}}
+                    </li>
+                    {{end}}
+                </ul>
+            </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Health Check</label>
+                        <p class="mb-0">
+                            {{if $ws.HealthCheckEnabled}}
+                            <span class="badge bg-success">Enabled</span>
+                            {{else}}
+                            <span class="badge bg-secondary">Disabled</span>
+                            {{end}}
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Auto Failover</label>
+                        <p class="mb-0">
+                            {{if $ws.FailoverEnabled}}
+                            <span class="badge bg-success">Enabled</span>
+                            {{else}}
+                            <span class="badge bg-secondary">Disabled</span>
+                            {{end}}
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Auto Recover</label>
+                        <p class="mb-0">
+                            {{if $ws.AutoRecoverEnabled}}
+                            <span class="badge bg-success">Enabled</span>
+                            {{else}}
+                            <span class="badge bg-secondary">Disabled</span>
+                            {{end}}
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Buffer Size</label>
+                        <p class="mb-0">{{$ws.BufferSizeMS}} ms</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Reconnect Delay</label>
+                        <p class="mb-0">{{$ws.ReconnectDelayMS}} ms</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Max Reconnects</label>
+                        <p class="mb-0">{{$ws.MaxReconnectAttempts}} attempts</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+        <!-- Quick Info -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Details</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-5 text-body-secondary">ID</dt>
+                    <dd class="col-7"><code class="small">{{$ws.ID}}</code></dd>
+
+                    <dt class="col-5 text-body-secondary">Created</dt>
+                    <dd class="col-7">{{formatTime $ws.CreatedAt}}</dd>
+
+                    <dt class="col-5 text-body-secondary">Updated</dt>
+                    <dd class="col-7">{{formatTime $ws.UpdatedAt}}</dd>
+
+                    {{if $ws.LastCheckedAt}}
+                    <dt class="col-5 text-body-secondary">Last Checked</dt>
+                    <dd class="col-7">{{formatTime $ws.LastCheckedAt}}</dd>
+                    {{end}}
+
+                    {{if $ws.LastFailoverAt}}
+                    <dt class="col-5 text-body-secondary">Last Failover</dt>
+                    <dd class="col-7">{{formatTime $ws.LastFailoverAt}}</dd>
+                    {{end}}
+                </dl>
+            </div>
+        </div>
+
+        <!-- Usage Hint -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Usage</h5>
+            </div>
+            <div class="card-body">
+                <p class="small text-body-secondary">
+                    This webstream can be used in:
+                </p>
+                <ul class="small mb-0">
+                    <li>Clock templates as a webstream slot</li>
+                    <li>Scheduled entries for specific time slots</li>
+                    <li>Emergency failover when automation fails</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

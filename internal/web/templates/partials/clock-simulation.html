@@ -1,0 +1,28 @@
+{{define "partials/clock-simulation"}}
+<div class="table-responsive">
+    <table class="table table-sm mb-0">
+        <thead>
+            <tr>
+                <th>Position</th>
+                <th>Type</th>
+                <th>Content</th>
+                <th>Offset</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .}}
+            <tr>
+                <td>{{.Position}}</td>
+                <td><span class="badge bg-secondary">{{.Type}}</span></td>
+                <td>{{.Content}}</td>
+                <td>{{.Duration}}</td>
+            </tr>
+            {{else}}
+            <tr>
+                <td colspan="4" class="text-center text-body-secondary">No slots defined</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

@@ -1,0 +1,188 @@
+{{define "pages/dashboard/users/detail"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$data := .Data}}
+{{$user := index $data "User"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/users">Users</a></li>
+        <li class="breadcrumb-item active">{{$user.Email}}</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$user := index $data "User"}}
+{{$sessions := index $data "Sessions"}}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h4 class="mb-1"><i class="bi bi-person-circle me-2"></i>{{$user.Email}}</h4>
+                <span class="badge {{if eq $user.Role "admin"}}bg-danger{{else if eq $user.Role "manager"}}bg-warning text-dark{{else}}bg-info{{end}} fs-6">
+                    {{$user.Role}}
+                </span>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="/dashboard/users/{{$user.ID}}/edit" class="btn btn-outline-secondary">
+                    <i class="bi bi-pencil me-1"></i>Edit
+                </a>
+                {{if ne $user.ID $.User.ID}}
+                <button class="btn btn-outline-danger"
+                        hx-delete="/dashboard/users/{{$user.ID}}"
+                        hx-confirm="Delete this user?">
+                    <i class="bi bi-trash me-1"></i>Delete
+                </button>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- User Info -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Account Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small text-body-secondary">Email</label>
+                        <p class="mb-0 fw-medium">{{$user.Email}}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-body-secondary">Role</label>
+                        <p class="mb-0">
+                            <span class="badge {{if eq $user.Role "admin"}}bg-danger{{else if eq $user.Role "manager"}}bg-warning text-dark{{else}}bg-info{{end}}">
+                                {{$user.Role}}
+                            </span>
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-body-secondary">Created</label>
+                        <p class="mb-0">{{formatTime $user.CreatedAt}}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-body-secondary">Last Updated</label>
+                        <p class="mb-0">{{formatTime $user.UpdatedAt}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Session History -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Recent Live Sessions</h5>
+            </div>
+            <div class="card-body p-0">
+                {{if $sessions}}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Priority</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range $sessions}}
+                            <tr>
+                                <td>{{formatTime .CreatedAt}}</td>
+                                <td>
+                                    <span class="badge bg-secondary">P{{.Priority}}</span>
+                                </td>
+                                <td>
+                                    {{if .Active}}
+                                    <span class="badge bg-success">Active</span>
+                                    {{else}}
+                                    <span class="badge bg-secondary">Ended</span>
+                                    {{end}}
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <div class="text-center py-4 text-body-secondary">
+                    <i class="bi bi-broadcast fs-1 mb-2 d-block"></i>
+                    No live sessions recorded
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+        <!-- Permissions -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Permissions</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        View Dashboard
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        Media Library
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        Playlists
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        Live DJ
+                    </li>
+                    {{if or (eq $user.Role "manager") (eq $user.Role "admin")}}
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        Smart Blocks
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        Clock Templates
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        User Management
+                    </li>
+                    {{else}}
+                    <li class="mb-2">
+                        <i class="bi bi-x-circle text-danger me-2"></i>
+                        <span class="text-body-secondary">Smart Blocks</span>
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-x-circle text-danger me-2"></i>
+                        <span class="text-body-secondary">Clock Templates</span>
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-x-circle text-danger me-2"></i>
+                        <span class="text-body-secondary">User Management</span>
+                    </li>
+                    {{end}}
+                    {{if eq $user.Role "admin"}}
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        System Settings
+                    </li>
+                    {{else}}
+                    <li class="mb-2">
+                        <i class="bi bi-x-circle text-danger me-2"></i>
+                        <span class="text-body-secondary">System Settings</span>
+                    </li>
+                    {{end}}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

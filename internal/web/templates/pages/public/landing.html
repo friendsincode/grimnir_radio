@@ -1,0 +1,117 @@
+{{define "pages/public/landing"}}
+{{template "layouts/public" .}}
+{{end}}
+
+{{define "main"}}
+<div class="container py-5">
+    <!-- Hero Section -->
+    <div class="row align-items-center py-5">
+        <div class="col-lg-6">
+            <h1 class="display-4 fw-bold mb-3">Welcome to Grimnir Radio</h1>
+            <p class="lead text-body-secondary mb-4">
+                Professional radio automation with intelligent scheduling, live DJ support,
+                and seamless streaming.
+            </p>
+            <div class="d-flex gap-3">
+                <a href="/listen" class="btn btn-primary btn-lg">
+                    <i class="bi bi-headphones me-2"></i>Listen Now
+                </a>
+                <a href="/schedule" class="btn btn-outline-secondary btn-lg">
+                    <i class="bi bi-calendar3 me-2"></i>View Schedule
+                </a>
+            </div>
+        </div>
+        <div class="col-lg-6 d-none d-lg-block text-center">
+            <i class="bi bi-broadcast-pin text-primary" style="font-size: 15rem; opacity: 0.1;"></i>
+        </div>
+    </div>
+
+    <!-- Now Playing Card -->
+    <div class="row justify-content-center py-5">
+        <div class="col-lg-8">
+            <div class="card bg-body-tertiary">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center gap-4">
+                        <div class="bg-primary rounded-3 p-3">
+                            <i class="bi bi-music-note-beamed text-white fs-1"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <p class="text-body-secondary small mb-1">NOW PLAYING</p>
+                            <h3 class="mb-1" id="nowPlayingTitle">Loading...</h3>
+                            <p class="text-body-secondary mb-0" id="nowPlayingArtist"></p>
+                        </div>
+                        <div>
+                            <button class="btn btn-primary btn-lg rounded-circle" onclick="window.location='/listen'">
+                                <i class="bi bi-play-fill"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Features -->
+    <div class="row g-4 py-5">
+        <div class="col-md-4">
+            <div class="card h-100 bg-body-tertiary border-0">
+                <div class="card-body text-center p-4">
+                    <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
+                    <h5>Live Streaming</h5>
+                    <p class="text-body-secondary mb-0">
+                        High-quality audio streams available 24/7 in multiple formats.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 bg-body-tertiary border-0">
+                <div class="card-body text-center p-4">
+                    <i class="bi bi-collection-play fs-1 text-primary mb-3"></i>
+                    <h5>Music Archive</h5>
+                    <p class="text-body-secondary mb-0">
+                        Browse and explore our complete music library.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 bg-body-tertiary border-0">
+                <div class="card-body text-center p-4">
+                    <i class="bi bi-calendar-event fs-1 text-primary mb-3"></i>
+                    <h5>Show Schedule</h5>
+                    <p class="text-body-secondary mb-0">
+                        See what's coming up with our interactive schedule.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+// Fetch now playing info
+async function updateNowPlaying() {
+    try {
+        const response = await fetch('/api/v1/analytics/now-playing');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.title) {
+                document.getElementById('nowPlayingTitle').textContent = data.title;
+                document.getElementById('nowPlayingArtist').textContent = data.artist || '';
+            } else {
+                document.getElementById('nowPlayingTitle').textContent = 'Nothing playing';
+                document.getElementById('nowPlayingArtist').textContent = '';
+            }
+        }
+    } catch (e) {
+        console.log('Could not fetch now playing');
+    }
+}
+
+updateNowPlaying();
+setInterval(updateNowPlaying, 15000);
+</script>
+{{end}}

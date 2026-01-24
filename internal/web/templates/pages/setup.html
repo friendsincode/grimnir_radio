@@ -1,0 +1,92 @@
+{{define "pages/setup"}}
+{{template "layouts/base" .}}
+{{end}}
+
+{{define "content"}}
+<div class="min-vh-100 d-flex align-items-center justify-content-center bg-body-tertiary">
+    <div class="card shadow-sm" style="width: 500px; max-width: 95%;">
+        <div class="card-body p-4">
+            <div class="text-center mb-4">
+                <i class="bi bi-broadcast-pin fs-1 text-primary"></i>
+                <h1 class="h4 mt-2">Grimnir Radio</h1>
+                <p class="text-body-secondary">Welcome! Let's set up your radio station.</p>
+            </div>
+
+            {{if .Flash}}
+            <div class="alert alert-{{if eq .Flash.Type "error"}}danger{{else}}{{.Flash.Type}}{{end}} alert-dismissible fade show" role="alert">
+                {{.Flash.Message}}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {{end}}
+
+            <div id="setupError"></div>
+
+            <form method="POST" action="/setup"
+                  hx-post="/setup"
+                  hx-target="#setupError"
+                  hx-swap="innerHTML">
+
+                <h6 class="mb-3 text-body-secondary">
+                    <i class="bi bi-person-badge me-2"></i>Admin Account
+                </h6>
+
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" class="form-control" id="email" name="email"
+                           value="{{with .Data}}{{index . "Email"}}{{end}}" required autofocus
+                           placeholder="admin@example.com">
+                    <div class="form-text">This will be your login email.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="password" name="password"
+                           required minlength="8"
+                           placeholder="Minimum 8 characters">
+                </div>
+
+                <div class="mb-4">
+                    <label for="confirm_password" class="form-label">Confirm Password</label>
+                    <input type="password" class="form-control" id="confirm_password" name="confirm_password"
+                           required minlength="8">
+                </div>
+
+                <h6 class="mb-3 text-body-secondary">
+                    <i class="bi bi-broadcast me-2"></i>Station Details
+                </h6>
+
+                <div class="mb-3">
+                    <label for="station_name" class="form-label">Station Name</label>
+                    <input type="text" class="form-control" id="station_name" name="station_name"
+                           value="{{with .Data}}{{index . "StationName"}}{{end}}" required
+                           placeholder="My Radio Station">
+                </div>
+
+                <div class="mb-4">
+                    <label for="timezone" class="form-label">Timezone</label>
+                    <select class="form-select" id="timezone" name="timezone">
+                        {{$tz := ""}}{{with .Data}}{{$tz = index . "Timezone"}}{{end}}
+                        <option value="UTC" {{if eq $tz "UTC"}}selected{{end}}>UTC</option>
+                        <option value="America/New_York" {{if eq $tz "America/New_York"}}selected{{end}}>America/New_York (Eastern)</option>
+                        <option value="America/Chicago" {{if eq $tz "America/Chicago"}}selected{{end}}>America/Chicago (Central)</option>
+                        <option value="America/Denver" {{if eq $tz "America/Denver"}}selected{{end}}>America/Denver (Mountain)</option>
+                        <option value="America/Los_Angeles" {{if eq $tz "America/Los_Angeles"}}selected{{end}}>America/Los_Angeles (Pacific)</option>
+                        <option value="Europe/London" {{if eq $tz "Europe/London"}}selected{{end}}>Europe/London</option>
+                        <option value="Europe/Paris" {{if eq $tz "Europe/Paris"}}selected{{end}}>Europe/Paris</option>
+                        <option value="Europe/Berlin" {{if eq $tz "Europe/Berlin"}}selected{{end}}>Europe/Berlin</option>
+                        <option value="Asia/Tokyo" {{if eq $tz "Asia/Tokyo"}}selected{{end}}>Asia/Tokyo</option>
+                        <option value="Asia/Shanghai" {{if eq $tz "Asia/Shanghai"}}selected{{end}}>Asia/Shanghai</option>
+                        <option value="Australia/Sydney" {{if eq $tz "Australia/Sydney"}}selected{{end}}>Australia/Sydney</option>
+                    </select>
+                    <div class="form-text">Used for scheduling broadcasts.</div>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100"
+                        data-loading-text="Setting up...">
+                    <i class="bi bi-check-circle me-2"></i>Complete Setup
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{{end}}

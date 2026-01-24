@@ -1,0 +1,96 @@
+{{define "pages/dashboard/users/form"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$data := .Data}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/users">Users</a></li>
+        {{if index $data "IsNew"}}
+        <li class="breadcrumb-item active">New</li>
+        {{else}}
+        <li class="breadcrumb-item active">Edit</li>
+        {{end}}
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$user := index $data "User"}}
+{{$isNew := index $data "IsNew"}}
+{{$roles := index $data "AvailableRoles"}}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="mb-0">
+                <i class="bi bi-person-circle me-2"></i>
+                {{if $isNew}}New User{{else}}Edit User{{end}}
+            </h4>
+            <a href="/dashboard/users" class="btn btn-outline-secondary">
+                <i class="bi bi-x me-1"></i>Cancel
+            </a>
+        </div>
+
+        <form method="POST"
+              action="{{if $isNew}}/dashboard/users{{else}}/dashboard/users/{{$user.ID}}{{end}}"
+              {{if $isNew}}
+              hx-post="/dashboard/users"
+              {{else}}
+              hx-put="/dashboard/users/{{$user.ID}}"
+              {{end}}
+              hx-swap="none">
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Email <span class="text-danger">*</span></label>
+                        <input type="email" class="form-control" name="email"
+                               value="{{$user.Email}}" required
+                               placeholder="user@example.com">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Password
+                            {{if $isNew}}<span class="text-danger">*</span>{{end}}
+                        </label>
+                        <input type="password" class="form-control" name="password"
+                               {{if $isNew}}required{{end}}
+                               minlength="8"
+                               placeholder="{{if $isNew}}Enter password{{else}}Leave blank to keep current{{end}}">
+                        <div class="form-text">Minimum 8 characters</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Role <span class="text-danger">*</span></label>
+                        <select class="form-select" name="role" required>
+                            {{range $roles}}
+                            <option value="{{.}}" {{if eq . $user.Role}}selected{{end}}>
+                                {{if eq . "admin"}}Admin{{end}}
+                                {{if eq . "manager"}}Manager{{end}}
+                                {{if eq . "dj"}}DJ{{end}}
+                            </option>
+                            {{end}}
+                        </select>
+                        <div class="form-text">
+                            <strong>DJ:</strong> Can manage media, playlists, go live<br>
+                            <strong>Manager:</strong> + Smart blocks, clocks, users (DJs only)<br>
+                            <strong>Admin:</strong> Full access including settings
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-1"></i>
+                        {{if $isNew}}Create User{{else}}Save Changes{{end}}
+                    </button>
+                    <a href="/dashboard/users" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

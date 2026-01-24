@@ -1,0 +1,278 @@
+{{define "pages/dashboard/smartblocks/form"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$data := .Data}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/smart-blocks">Smart Blocks</a></li>
+        {{if index $data "IsNew"}}
+        <li class="breadcrumb-item active">New</li>
+        {{else}}
+        <li class="breadcrumb-item active">Edit</li>
+        {{end}}
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$block := index $data "Block"}}
+{{$isNew := index $data "IsNew"}}
+{{$genres := index $data "Genres"}}
+{{$artists := index $data "Artists"}}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="mb-0">
+                <i class="bi bi-magic me-2"></i>
+                {{if $isNew}}New Smart Block{{else}}Edit Smart Block{{end}}
+            </h4>
+            <a href="/dashboard/smart-blocks" class="btn btn-outline-secondary">
+                <i class="bi bi-x me-1"></i>Cancel
+            </a>
+        </div>
+
+        <form method="POST"
+              action="{{if $isNew}}/dashboard/smart-blocks{{else}}/dashboard/smart-blocks/{{$block.ID}}{{end}}"
+              {{if $isNew}}
+              hx-post="/dashboard/smart-blocks"
+              {{else}}
+              hx-put="/dashboard/smart-blocks/{{$block.ID}}"
+              {{end}}
+              hx-swap="none"
+              x-data="smartBlockForm()">
+
+            <!-- Basic Info -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Basic Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name"
+                               value="{{$block.Name}}" required autofocus
+                               placeholder="e.g. Rock Mix, Top 40">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="2"
+                                  placeholder="Optional description">{{$block.Description}}</textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rules Builder -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Selection Rules</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-body-secondary small mb-3">
+                        Define criteria for selecting media. All conditions must be met (AND logic).
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label">Genre</label>
+                        <select class="form-select" x-model="rules.genre">
+                            <option value="">Any genre</option>
+                            {{range $genres}}
+                            <option value="{{.}}">{{.}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Artist</label>
+                        <select class="form-select" x-model="rules.artist">
+                            <option value="">Any artist</option>
+                            {{range $artists}}
+                            <option value="{{.}}">{{.}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Mood</label>
+                            <select class="form-select" x-model="rules.mood">
+                                <option value="">Any mood</option>
+                                <option value="energetic">Energetic</option>
+                                <option value="happy">Happy</option>
+                                <option value="uplifting">Uplifting</option>
+                                <option value="relaxed">Relaxed</option>
+                                <option value="chill">Chill</option>
+                                <option value="melancholic">Melancholic</option>
+                                <option value="sad">Sad</option>
+                                <option value="dark">Dark</option>
+                                <option value="aggressive">Aggressive</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Language</label>
+                            <select class="form-select" x-model="rules.language">
+                                <option value="">Any language</option>
+                                <option value="en">English</option>
+                                <option value="es">Spanish</option>
+                                <option value="fr">French</option>
+                                <option value="de">German</option>
+                                <option value="instrumental">Instrumental</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mt-2">
+                        <div class="col-md-6">
+                            <label class="form-label">Year Range</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" placeholder="From"
+                                       x-model.number="rules.yearFrom" min="1900" max="2100">
+                                <span class="input-group-text">-</span>
+                                <input type="number" class="form-control" placeholder="To"
+                                       x-model.number="rules.yearTo" min="1900" max="2100">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">BPM Range</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" placeholder="From"
+                                       x-model.number="rules.bpmFrom" min="0" max="300">
+                                <span class="input-group-text">-</span>
+                                <input type="number" class="form-control" placeholder="To"
+                                       x-model.number="rules.bpmTo" min="0" max="300">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-check mt-3">
+                        <input type="checkbox" class="form-check-input" id="excludeExplicit"
+                               x-model="rules.excludeExplicit">
+                        <label class="form-check-label" for="excludeExplicit">
+                            Exclude explicit content
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sequence Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Sequence Settings</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Selection Mode</label>
+                            <select class="form-select" x-model="sequence.mode">
+                                <option value="random">Random</option>
+                                <option value="shuffle">Shuffle (no repeats)</option>
+                                <option value="sequential">Sequential</option>
+                                <option value="weighted">Weighted by plays</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Avoid Repeat (minutes)</label>
+                            <input type="number" class="form-control"
+                                   x-model.number="sequence.avoidRepeatMinutes"
+                                   min="0" max="1440" placeholder="0 = no limit">
+                            <div class="form-text">Time before a track can repeat</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hidden fields for JSON data -->
+            <input type="hidden" name="rules" :value="JSON.stringify(rules)">
+            <input type="hidden" name="sequence" :value="JSON.stringify(sequence)">
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg me-1"></i>
+                    {{if $isNew}}Create Smart Block{{else}}Save Changes{{end}}
+                </button>
+                <a href="/dashboard/smart-blocks" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Preview Panel -->
+    <div class="col-lg-4">
+        <div class="card sticky-top" style="top: 1rem;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Preview</h5>
+                <button class="btn btn-sm btn-outline-info" type="button"
+                        {{if not $isNew}}
+                        hx-post="/dashboard/smart-blocks/{{$block.ID}}/preview"
+                        hx-target="#previewList"
+                        hx-indicator="#previewSpinner"
+                        {{else}}
+                        disabled
+                        title="Save the block first to preview"
+                        {{end}}>
+                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div id="previewSpinner" class="htmx-indicator text-center py-3">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="previewList" class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+                    {{if $isNew}}
+                    <div class="list-group-item text-center text-body-secondary py-4">
+                        <i class="bi bi-magic fs-1 mb-2 d-block"></i>
+                        Save the block to see a preview
+                    </div>
+                    {{else}}
+                    <div class="list-group-item text-center text-body-secondary py-4">
+                        <i class="bi bi-arrow-clockwise mb-2 d-block"></i>
+                        Click Refresh to generate preview
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function smartBlockForm() {
+    // Parse existing rules or use defaults
+    let existingRules = {};
+    let existingSequence = {};
+    {{if $block.Rules}}
+    try {
+        existingRules = {{jsonMarshal $block.Rules}};
+    } catch(e) {}
+    {{end}}
+    {{if $block.Sequence}}
+    try {
+        existingSequence = {{jsonMarshal $block.Sequence}};
+    } catch(e) {}
+    {{end}}
+
+    return {
+        rules: {
+            genre: existingRules.genre || '',
+            artist: existingRules.artist || '',
+            mood: existingRules.mood || '',
+            language: existingRules.language || '',
+            yearFrom: existingRules.yearFrom || null,
+            yearTo: existingRules.yearTo || null,
+            bpmFrom: existingRules.bpmFrom || null,
+            bpmTo: existingRules.bpmTo || null,
+            excludeExplicit: existingRules.excludeExplicit || false
+        },
+        sequence: {
+            mode: existingSequence.mode || 'random',
+            avoidRepeatMinutes: existingSequence.avoidRepeatMinutes || 60
+        }
+    };
+}
+</script>
+{{end}}

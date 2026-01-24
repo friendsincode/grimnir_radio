@@ -1,0 +1,110 @@
+{{define "pages/public/archive"}}
+{{template "layouts/public" .}}
+{{end}}
+
+{{define "main"}}
+<div class="container py-5">
+    <h1 class="mb-4"><i class="bi bi-collection me-2"></i>Music Archive</h1>
+
+    <!-- Search -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" action="/archive" class="row g-3">
+                <div class="col-md-9">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" name="q"
+                               placeholder="Search by title, artist, or album..."
+                               value="{{.Data.Query}}">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-primary w-100">Search</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{if .Data.Query}}
+    <p class="text-body-secondary mb-4">
+        Found {{.Data.Total}} results for "{{.Data.Query}}"
+    </p>
+    {{end}}
+
+    <!-- Results Grid -->
+    <div class="row g-4">
+        {{range .Data.Media}}
+        <div class="col-sm-6 col-md-4 col-lg-3">
+            <div class="card media-card h-100">
+                {{if len .Artwork}}
+                <img src="/archive/{{.ID}}/artwork" class="card-img-top" alt=""
+                     style="height: 180px; object-fit: cover; cursor: pointer;"
+                     onclick="playArchiveTrack('{{.ID}}', '{{.Title}}', '{{.Artist}}')">
+                {{else}}
+                <div class="card-img-top bg-secondary d-flex align-items-center justify-content-center"
+                     style="height: 180px; cursor: pointer;"
+                     onclick="playArchiveTrack('{{.ID}}', '{{.Title}}', '{{.Artist}}')">
+                    <i class="bi bi-music-note-beamed text-white display-4"></i>
+                </div>
+                {{end}}
+                <div class="card-body">
+                    <h6 class="card-title text-truncate mb-1" title="{{.Title}}">{{.Title}}</h6>
+                    <p class="card-text text-body-secondary small text-truncate mb-2" title="{{.Artist}}">
+                        {{if .Artist}}{{.Artist}}{{else}}<em>Unknown Artist</em>{{end}}
+                    </p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="badge bg-secondary">{{formatDuration .Duration}}</span>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary"
+                                    onclick="playArchiveTrack('{{.ID}}', '{{.Title}}', '{{.Artist}}')"
+                                    title="Play">
+                                <i class="bi bi-play-fill"></i>
+                            </button>
+                            <a href="/archive/{{.ID}}" class="btn btn-outline-secondary" title="Details">
+                                <i class="bi bi-info-circle"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {{else}}
+        <div class="col-12">
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                {{if .Data.Query}}
+                No results found. Try a different search term.
+                {{else}}
+                No media available in the archive.
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+    </div>
+
+    <!-- Pagination -->
+    {{if gt .Data.Total .Data.PerPage}}
+    <nav class="mt-4">
+        <ul class="pagination justify-content-center">
+            {{if gt .Data.Page 1}}
+            <li class="page-item">
+                <a class="page-link" href="?page={{sub .Data.Page 1}}{{if .Data.Query}}&q={{.Data.Query}}{{end}}">
+                    Previous
+                </a>
+            </li>
+            {{end}}
+            <li class="page-item active">
+                <span class="page-link">Page {{.Data.Page}}</span>
+            </li>
+            {{if lt (mul .Data.Page .Data.PerPage) .Data.Total}}
+            <li class="page-item">
+                <a class="page-link" href="?page={{add .Data.Page 1}}{{if .Data.Query}}&q={{.Data.Query}}{{end}}">
+                    Next
+                </a>
+            </li>
+            {{end}}
+        </ul>
+    </nav>
+    {{end}}
+</div>
+{{end}}

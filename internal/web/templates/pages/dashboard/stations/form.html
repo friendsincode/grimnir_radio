@@ -1,0 +1,81 @@
+{{define "pages/dashboard/stations/form"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/stations">Stations</a></li>
+        <li class="breadcrumb-item active">{{if .Data.IsNew}}New{{else}}Edit{{end}}</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <h4 class="mb-4">
+            <i class="bi bi-broadcast-pin me-2"></i>
+            {{if .Data.IsNew}}New Station{{else}}Edit Station{{end}}
+        </h4>
+
+        <div class="card">
+            <div class="card-body">
+                <form method="POST"
+                      action="{{if .Data.IsNew}}/dashboard/stations{{else}}/dashboard/stations/{{.Data.Station.ID}}{{end}}"
+                      hx-post="{{if .Data.IsNew}}/dashboard/stations{{else}}/dashboard/stations/{{.Data.Station.ID}}{{end}}"
+                      hx-swap="none">
+                    {{if not .Data.IsNew}}
+                    <input type="hidden" name="_method" value="PUT">
+                    {{end}}
+
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Station Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="name" name="name"
+                               value="{{.Data.Station.Name}}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description"
+                                  rows="3">{{.Data.Station.Description}}</textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="timezone" class="form-label">Timezone</label>
+                        <select class="form-select" id="timezone" name="timezone">
+                            <option value="UTC" {{if eq .Data.Station.Timezone "UTC"}}selected{{end}}>UTC</option>
+                            <option value="America/New_York" {{if eq .Data.Station.Timezone "America/New_York"}}selected{{end}}>America/New_York</option>
+                            <option value="America/Chicago" {{if eq .Data.Station.Timezone "America/Chicago"}}selected{{end}}>America/Chicago</option>
+                            <option value="America/Denver" {{if eq .Data.Station.Timezone "America/Denver"}}selected{{end}}>America/Denver</option>
+                            <option value="America/Los_Angeles" {{if eq .Data.Station.Timezone "America/Los_Angeles"}}selected{{end}}>America/Los_Angeles</option>
+                            <option value="Europe/London" {{if eq .Data.Station.Timezone "Europe/London"}}selected{{end}}>Europe/London</option>
+                            <option value="Europe/Paris" {{if eq .Data.Station.Timezone "Europe/Paris"}}selected{{end}}>Europe/Paris</option>
+                            <option value="Europe/Berlin" {{if eq .Data.Station.Timezone "Europe/Berlin"}}selected{{end}}>Europe/Berlin</option>
+                            <option value="Asia/Tokyo" {{if eq .Data.Station.Timezone "Asia/Tokyo"}}selected{{end}}>Asia/Tokyo</option>
+                            <option value="Australia/Sydney" {{if eq .Data.Station.Timezone "Australia/Sydney"}}selected{{end}}>Australia/Sydney</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="active" name="active"
+                                   {{if .Data.Station.Active}}checked{{end}}>
+                            <label class="form-check-label" for="active">Active</label>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle me-2"></i>
+                            {{if .Data.IsNew}}Create Station{{else}}Save Changes{{end}}
+                        </button>
+                        <a href="/dashboard/stations" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

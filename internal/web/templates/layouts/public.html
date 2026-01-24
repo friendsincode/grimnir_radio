@@ -1,0 +1,88 @@
+{{define "layouts/public"}}
+{{template "layouts/base" .}}
+{{end}}
+
+{{define "content"}}
+<div class="min-vh-100 d-flex flex-column">
+    <!-- Public Header -->
+    <header class="navbar navbar-expand-lg bg-body-tertiary border-bottom sticky-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/">
+                <i class="bi bi-broadcast-pin me-2"></i>Grimnir Radio
+            </a>
+
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#publicNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="publicNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {{if isActive .CurrentPath "/listen"}}active{{end}}" href="/listen">
+                            <i class="bi bi-headphones me-1"></i>Listen
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {{if isActive .CurrentPath "/archive"}}active{{end}}" href="/archive">
+                            <i class="bi bi-collection me-1"></i>Archive
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {{if isActive .CurrentPath "/schedule"}}active{{end}}" href="/schedule">
+                            <i class="bi bi-calendar3 me-1"></i>Schedule
+                        </a>
+                    </li>
+                </ul>
+
+                <div class="d-flex align-items-center gap-3">
+                    <!-- Theme switcher -->
+                    <div class="dropdown" x-data="{ open: false }">
+                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                            <i class="bi bi-palette"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="setTheme('daw-dark')">DAW Dark</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setTheme('clean-light')">Clean Light</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setTheme('broadcast')">Broadcast</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setTheme('classic')">Classic</a></li>
+                        </ul>
+                    </div>
+
+                    {{if .User}}
+                    <a href="/dashboard" class="btn btn-primary btn-sm">
+                        <i class="bi bi-speedometer2 me-1"></i>Dashboard
+                    </a>
+                    {{else}}
+                    <a href="/login" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-box-arrow-in-right me-1"></i>Login
+                    </a>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main content -->
+    <main class="flex-grow-1">
+        {{block "main" .}}{{end}}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-body-tertiary border-top py-4 mt-auto">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="text-body-secondary mb-0">
+                        <i class="bi bi-broadcast-pin me-1"></i>Grimnir Radio
+                    </p>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <p class="text-body-secondary mb-0">
+                        Powered by open source radio automation
+                    </p>
+                </div>
+            </div>
+        </div>
+    </footer>
+</div>
+{{end}}

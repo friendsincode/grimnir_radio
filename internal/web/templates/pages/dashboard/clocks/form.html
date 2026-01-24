@@ -1,0 +1,368 @@
+{{define "pages/dashboard/clocks/form"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$data := .Data}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/clocks">Clock Templates</a></li>
+        {{if index $data "IsNew"}}
+        <li class="breadcrumb-item active">New</li>
+        {{else}}
+        <li class="breadcrumb-item active">Edit</li>
+        {{end}}
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$clock := index $data "Clock"}}
+{{$isNew := index $data "IsNew"}}
+{{$smartBlocks := index $data "SmartBlocks"}}
+{{$webstreams := index $data "Webstreams"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0">
+        <i class="bi bi-clock-history me-2"></i>
+        {{if $isNew}}New Clock Template{{else}}Edit Clock Template{{end}}
+    </h4>
+    <a href="/dashboard/clocks" class="btn btn-outline-secondary">
+        <i class="bi bi-x me-1"></i>Cancel
+    </a>
+</div>
+
+<form method="POST"
+      action="{{if $isNew}}/dashboard/clocks{{else}}/dashboard/clocks/{{$clock.ID}}{{end}}"
+      {{if $isNew}}
+      hx-post="/dashboard/clocks"
+      {{else}}
+      hx-put="/dashboard/clocks/{{$clock.ID}}"
+      {{end}}
+      hx-swap="none"
+      x-data="clockEditor()">
+
+    <div class="row g-4">
+        <!-- Clock Settings -->
+        <div class="col-lg-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Template Settings</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name"
+                               value="{{$clock.Name}}" required
+                               placeholder="e.g. Morning Show Hour">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Slot Panel -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Add Slot</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Slot Type</label>
+                        <select class="form-select" x-model="newSlot.type">
+                            <option value="smart_block">Smart Block</option>
+                            <option value="webstream">Webstream</option>
+                            <option value="stopset">Stopset (Ads)</option>
+                            <option value="hard_item">Hard-coded Item</option>
+                        </select>
+                    </div>
+
+                    <template x-if="newSlot.type === 'smart_block'">
+                        <div class="mb-3">
+                            <label class="form-label">Smart Block</label>
+                            <select class="form-select" x-model="newSlot.payload.smart_block_id">
+                                <option value="">Select a smart block...</option>
+                                {{range $smartBlocks}}
+                                <option value="{{.ID}}">{{.Name}}</option>
+                                {{end}}
+                            </select>
+                        </div>
+                    </template>
+
+                    <template x-if="newSlot.type === 'webstream'">
+                        <div class="mb-3">
+                            <label class="form-label">Webstream</label>
+                            <select class="form-select" x-model="newSlot.payload.webstream_id">
+                                <option value="">Select a webstream...</option>
+                                {{range $webstreams}}
+                                <option value="{{.ID}}">{{.Name}}</option>
+                                {{end}}
+                            </select>
+                        </div>
+                    </template>
+
+                    <div class="mb-3">
+                        <label class="form-label">Offset (minutes into hour)</label>
+                        <input type="number" class="form-control"
+                               x-model.number="newSlot.offsetMinutes"
+                               min="0" max="59" placeholder="0">
+                    </div>
+
+                    <button type="button" class="btn btn-outline-primary w-100" @click="addSlot()">
+                        <i class="bi bi-plus-circle me-1"></i>Add Slot
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Visual Clock Editor -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Hour Layout</h5>
+                    <span class="badge bg-secondary" x-text="slots.length + ' slots'"></span>
+                </div>
+                <div class="card-body">
+                    <!-- Visual Clock Circle -->
+                    <div class="clock-visual mx-auto mb-4" style="width: 300px; height: 300px; position: relative;">
+                        <svg viewBox="0 0 100 100" class="w-100 h-100">
+                            <!-- Clock face -->
+                            <circle cx="50" cy="50" r="48" fill="var(--bs-body-bg)" stroke="var(--bs-border-color)" stroke-width="1"/>
+
+                            <!-- Hour markers -->
+                            <template x-for="i in 12">
+                                <line :x1="50 + 42 * Math.sin(i * Math.PI / 6)"
+                                      :y1="50 - 42 * Math.cos(i * Math.PI / 6)"
+                                      :x2="50 + 45 * Math.sin(i * Math.PI / 6)"
+                                      :y2="50 - 45 * Math.cos(i * Math.PI / 6)"
+                                      stroke="var(--bs-secondary)" stroke-width="1"/>
+                            </template>
+
+                            <!-- Slot segments -->
+                            <template x-for="(slot, index) in slots" :key="index">
+                                <path :d="getSlotArc(slot, index)"
+                                      :fill="getSlotColor(slot.type)"
+                                      fill-opacity="0.6"
+                                      stroke="var(--bs-border-color)"
+                                      stroke-width="0.5"
+                                      style="cursor: pointer"
+                                      @click="selectSlot(index)"/>
+                            </template>
+
+                            <!-- Center -->
+                            <circle cx="50" cy="50" r="3" fill="var(--bs-primary)"/>
+                        </svg>
+                    </div>
+
+                    <!-- Slots List -->
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px">#</th>
+                                    <th>Type</th>
+                                    <th>Content</th>
+                                    <th>Offset</th>
+                                    <th style="width: 80px"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="(slot, index) in slots" :key="index">
+                                    <tr>
+                                        <td x-text="index + 1"></td>
+                                        <td>
+                                            <span class="badge" :class="getSlotBadgeClass(slot.type)"
+                                                  x-text="getSlotTypeName(slot.type)"></span>
+                                        </td>
+                                        <td x-text="getSlotContentName(slot)"></td>
+                                        <td x-text="slot.offsetMinutes + ' min'"></td>
+                                        <td class="text-end">
+                                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                                    @click="removeSlot(index)">
+                                                <i class="bi bi-x"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <template x-if="slots.length === 0">
+                                    <tr>
+                                        <td colspan="5" class="text-center text-body-secondary py-4">
+                                            No slots added. Use the panel on the left to add slots.
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden field for slots JSON -->
+    <input type="hidden" name="slots" :value="JSON.stringify(getSlotsForSubmit())">
+
+    <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>
+            {{if $isNew}}Create Clock{{else}}Save Changes{{end}}
+        </button>
+        <a href="/dashboard/clocks" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+</form>
+
+<style>
+.clock-visual svg {
+    transform: rotate(-90deg);
+}
+</style>
+
+<script>
+function clockEditor() {
+    // Parse existing slots
+    let existingSlots = [];
+    {{if $clock.Slots}}
+    {{range $clock.Slots}}
+    existingSlots.push({
+        type: '{{.Type}}',
+        offsetMinutes: {{div .Offset 60000000000}},
+        payload: {{if .Payload}}{{jsonMarshal .Payload}}{{else}}{}{{end}}
+    });
+    {{end}}
+    {{end}}
+
+    // Smart blocks and webstreams lookup
+    const smartBlocks = {
+        {{range $smartBlocks}}
+        '{{.ID}}': '{{.Name}}',
+        {{end}}
+    };
+    const webstreams = {
+        {{range $webstreams}}
+        '{{.ID}}': '{{.Name}}',
+        {{end}}
+    };
+
+    return {
+        slots: existingSlots,
+        newSlot: {
+            type: 'smart_block',
+            offsetMinutes: 0,
+            payload: {}
+        },
+
+        addSlot() {
+            if (this.newSlot.type === 'smart_block' && !this.newSlot.payload.smart_block_id) {
+                alert('Please select a smart block');
+                return;
+            }
+            if (this.newSlot.type === 'webstream' && !this.newSlot.payload.webstream_id) {
+                alert('Please select a webstream');
+                return;
+            }
+
+            this.slots.push({
+                type: this.newSlot.type,
+                offsetMinutes: this.newSlot.offsetMinutes,
+                payload: {...this.newSlot.payload}
+            });
+
+            // Sort by offset
+            this.slots.sort((a, b) => a.offsetMinutes - b.offsetMinutes);
+
+            // Reset new slot
+            this.newSlot = {
+                type: 'smart_block',
+                offsetMinutes: 0,
+                payload: {}
+            };
+        },
+
+        removeSlot(index) {
+            this.slots.splice(index, 1);
+        },
+
+        selectSlot(index) {
+            // Could be used to edit a slot
+            console.log('Selected slot', index);
+        },
+
+        getSlotColor(type) {
+            const colors = {
+                'smart_block': 'var(--bs-info)',
+                'webstream': 'var(--bs-success)',
+                'stopset': 'var(--bs-warning)',
+                'hard_item': 'var(--bs-primary)'
+            };
+            return colors[type] || 'var(--bs-secondary)';
+        },
+
+        getSlotBadgeClass(type) {
+            const classes = {
+                'smart_block': 'bg-info',
+                'webstream': 'bg-success',
+                'stopset': 'bg-warning text-dark',
+                'hard_item': 'bg-primary'
+            };
+            return classes[type] || 'bg-secondary';
+        },
+
+        getSlotTypeName(type) {
+            const names = {
+                'smart_block': 'Smart Block',
+                'webstream': 'Webstream',
+                'stopset': 'Stopset',
+                'hard_item': 'Hard Item'
+            };
+            return names[type] || type;
+        },
+
+        getSlotContentName(slot) {
+            if (slot.type === 'smart_block' && slot.payload.smart_block_id) {
+                return smartBlocks[slot.payload.smart_block_id] || 'Unknown';
+            }
+            if (slot.type === 'webstream' && slot.payload.webstream_id) {
+                return webstreams[slot.payload.webstream_id] || 'Unknown';
+            }
+            if (slot.type === 'stopset') return 'Commercial break';
+            if (slot.type === 'hard_item') return 'Fixed item';
+            return '-';
+        },
+
+        getSlotArc(slot, index) {
+            const startAngle = (slot.offsetMinutes / 60) * 360;
+            const nextSlot = this.slots[index + 1];
+            const endMinutes = nextSlot ? nextSlot.offsetMinutes : 60;
+            const endAngle = (endMinutes / 60) * 360;
+
+            const startRad = (startAngle * Math.PI) / 180;
+            const endRad = (endAngle * Math.PI) / 180;
+
+            const innerR = 20;
+            const outerR = 40;
+
+            const x1 = 50 + outerR * Math.cos(startRad);
+            const y1 = 50 + outerR * Math.sin(startRad);
+            const x2 = 50 + outerR * Math.cos(endRad);
+            const y2 = 50 + outerR * Math.sin(endRad);
+            const x3 = 50 + innerR * Math.cos(endRad);
+            const y3 = 50 + innerR * Math.sin(endRad);
+            const x4 = 50 + innerR * Math.cos(startRad);
+            const y4 = 50 + innerR * Math.sin(startRad);
+
+            const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+
+            return `M ${x1} ${y1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+        },
+
+        getSlotsForSubmit() {
+            return this.slots.map((slot, index) => ({
+                position: index,
+                offset: slot.offsetMinutes * 60 * 1000000000, // Convert to nanoseconds (Go time.Duration)
+                type: slot.type,
+                payload: slot.payload
+            }));
+        }
+    };
+}
+</script>
+{{end}}

@@ -1,0 +1,185 @@
+{{define "pages/dashboard/clocks/detail"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+{{$clock := .Data}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/clocks">Clock Templates</a></li>
+        <li class="breadcrumb-item active">{{$clock.Name}}</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$clock := .Data}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i>{{$clock.Name}}</h4>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-info"
+                hx-post="/dashboard/clocks/{{$clock.ID}}/simulate"
+                hx-target="#simulationResults"
+                hx-indicator="#simSpinner">
+            <i class="bi bi-play me-1"></i>Simulate
+        </button>
+        <a href="/dashboard/clocks/{{$clock.ID}}/edit" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i>Edit
+        </a>
+        <button class="btn btn-outline-danger"
+                hx-delete="/dashboard/clocks/{{$clock.ID}}"
+                hx-confirm="Delete this clock template?">
+            <i class="bi bi-trash me-1"></i>Delete
+        </button>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Clock Visualization -->
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Hour Layout</h5>
+            </div>
+            <div class="card-body text-center">
+                <div class="clock-visual mx-auto" style="width: 280px; height: 280px;">
+                    <svg viewBox="0 0 100 100" class="w-100 h-100" style="transform: rotate(-90deg);">
+                        <!-- Clock face -->
+                        <circle cx="50" cy="50" r="48" fill="var(--bs-body-bg)" stroke="var(--bs-border-color)" stroke-width="1"/>
+
+                        <!-- Hour markers -->
+                        {{range $i := list 1 2 3 4 5 6 7 8 9 10 11 12}}
+                        <line x1="50" y1="8" x2="50" y2="5" stroke="var(--bs-secondary)" stroke-width="1"
+                              transform="rotate({{mul $i 30}} 50 50)"/>
+                        {{end}}
+
+                        <!-- Minute markers -->
+                        {{range $i := list 0 5 10 15 20 25 30 35 40 45 50 55}}
+                        <text x="50" y="15" font-size="4" text-anchor="middle" fill="var(--bs-secondary)"
+                              transform="rotate({{mul $i 6}} 50 50) rotate({{sub 0 (mul $i 6)}} 50 15)"
+                              style="transform-origin: 50px 50px;">{{$i}}</text>
+                        {{end}}
+
+                        <!-- Slot segments - would need JavaScript for dynamic rendering -->
+                        {{range $i, $slot := $clock.Slots}}
+                        <circle cx="50" cy="50" r="35" fill="none"
+                                stroke="{{if eq $slot.Type "smart_block"}}var(--bs-info){{else if eq $slot.Type "webstream"}}var(--bs-success){{else if eq $slot.Type "stopset"}}var(--bs-warning){{else}}var(--bs-primary){{end}}"
+                                stroke-width="15"
+                                stroke-opacity="0.6"/>
+                        {{end}}
+
+                        <!-- Center -->
+                        <circle cx="50" cy="50" r="3" fill="var(--bs-primary)"/>
+                    </svg>
+                </div>
+
+                <!-- Legend -->
+                <div class="d-flex justify-content-center gap-3 mt-3 small">
+                    <span><span class="badge bg-info">Smart Block</span></span>
+                    <span><span class="badge bg-success">Webstream</span></span>
+                    <span><span class="badge bg-warning text-dark">Stopset</span></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slots List -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Slots ({{len $clock.Slots}})</h5>
+            </div>
+            <div class="card-body p-0">
+                {{if $clock.Slots}}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width: 60px">#</th>
+                                <th>Type</th>
+                                <th>Offset</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range $i, $slot := $clock.Slots}}
+                            <tr>
+                                <td>{{add $i 1}}</td>
+                                <td>
+                                    {{if eq $slot.Type "smart_block"}}
+                                    <span class="badge bg-info">Smart Block</span>
+                                    {{else if eq $slot.Type "webstream"}}
+                                    <span class="badge bg-success">Webstream</span>
+                                    {{else if eq $slot.Type "stopset"}}
+                                    <span class="badge bg-warning text-dark">Stopset</span>
+                                    {{else if eq $slot.Type "hard_item"}}
+                                    <span class="badge bg-primary">Hard Item</span>
+                                    {{else}}
+                                    <span class="badge bg-secondary">{{$slot.Type}}</span>
+                                    {{end}}
+                                </td>
+                                <td>{{formatDuration $slot.Offset}} into hour</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <div class="text-center py-5 text-body-secondary">
+                    <i class="bi bi-clock fs-1 mb-2 d-block"></i>
+                    <p class="mb-0">No slots configured yet.</p>
+                    <a href="/dashboard/clocks/{{$clock.ID}}/edit" class="btn btn-sm btn-outline-primary mt-2">
+                        Add Slots
+                    </a>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Simulation Results -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Simulation</h5>
+                <div id="simSpinner" class="htmx-indicator">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0" id="simulationResults">
+                <div class="text-center py-4 text-body-secondary">
+                    <i class="bi bi-play-circle mb-2 d-block"></i>
+                    Click Simulate to see how this hour would play out
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Meta Info -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Details</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Created</label>
+                        <p class="mb-0">{{formatTime $clock.CreatedAt}}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Last Updated</label>
+                        <p class="mb-0">{{formatTime $clock.UpdatedAt}}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">ID</label>
+                        <p class="mb-0"><code>{{$clock.ID}}</code></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

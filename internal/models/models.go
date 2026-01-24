@@ -8,6 +8,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package models
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -94,6 +97,8 @@ type MediaItem struct {
 	Tags          []MediaTagLink
 	CuePoints     CuePointSet `gorm:"type:jsonb"`
 	Waveform      []byte
+	Artwork       []byte            // Embedded album art (JPEG/PNG)
+	ArtworkMime   string            `gorm:"type:varchar(32)"` // MIME type of artwork
 	AnalysisState AnalysisState `gorm:"type:varchar(32)"`
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -103,6 +108,28 @@ type MediaItem struct {
 type CuePointSet struct {
 	IntroEnd float64 `json:"intro_end"`
 	OutroIn  float64 `json:"outro_in"`
+}
+
+// Value implements driver.Valuer for database serialization.
+func (c CuePointSet) Value() (driver.Value, error) {
+	return json.Marshal(c)
+}
+
+// Scan implements sql.Scanner for database deserialization.
+func (c *CuePointSet) Scan(value interface{}) error {
+	if value == nil {
+		*c = CuePointSet{}
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal CuePointSet: %v", value)
+	}
+	if len(bytes) == 0 {
+		*c = CuePointSet{}
+		return nil
+	}
+	return json.Unmarshal(bytes, c)
 }
 
 // AnalysisState tracks analyzer progress.

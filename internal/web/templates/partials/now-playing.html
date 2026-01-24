@@ -1,0 +1,6 @@
+{{define "partials/now-playing"}}
+<i class="bi bi-music-note text-success"></i>
+<span class="text-truncate" style="max-width: 200px;" title="{{.Artist}} - {{.Title}}">
+    {{if .Artist}}{{.Artist}} - {{end}}{{.Title}}
+</span>
+{{end}}

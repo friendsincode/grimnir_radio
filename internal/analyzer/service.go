@@ -9,13 +9,17 @@ package analyzer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
-    "github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -120,9 +124,33 @@ func (s *Service) processJob(ctx context.Context, job *models.AnalysisJob) error
 
 	updates := map[string]any{
 		"analysis_state": models.AnalysisComplete,
+		"duration":       result.Duration,
 		"loudness_lufs":  result.Loudness,
 		"replay_gain":    result.ReplayGain,
+		"bitrate":        result.Bitrate,
+		"samplerate":     result.Samplerate,
 		"cue_points":     models.CuePointSet{IntroEnd: result.IntroEnd, OutroIn: result.OutroIn},
+	}
+
+	// Only update metadata if we found it and the media doesn't already have it
+	if result.Title != "" && media.Title == strings.TrimSuffix(filepath.Base(media.Path), filepath.Ext(media.Path)) {
+		updates["title"] = result.Title
+	}
+	if result.Artist != "" && media.Artist == "" {
+		updates["artist"] = result.Artist
+	}
+	if result.Album != "" && media.Album == "" {
+		updates["album"] = result.Album
+	}
+	if result.Genre != "" && media.Genre == "" {
+		updates["genre"] = result.Genre
+	}
+	if result.Year != "" && media.Year == "" {
+		updates["year"] = result.Year
+	}
+	if len(result.Artwork) > 0 && len(media.Artwork) == 0 {
+		updates["artwork"] = result.Artwork
+		updates["artwork_mime"] = result.ArtworkMime
 	}
 	if err := s.db.WithContext(ctx).Model(&models.MediaItem{}).Where("id = ?", media.ID).Updates(updates).Error; err != nil {
 		return err
@@ -154,34 +182,156 @@ func (s *Service) failJob(ctx context.Context, jobID, mediaID string, jobErr err
 }
 
 type analysisResult struct {
-	Loudness   float64
-	ReplayGain float64
-	IntroEnd   float64
-	OutroIn    float64
+	Duration    time.Duration
+	Loudness    float64
+	ReplayGain  float64
+	IntroEnd    float64
+	OutroIn     float64
+	Bitrate     int
+	Samplerate  int
+	Title       string
+	Artist      string
+	Album       string
+	Genre       string
+	Year        string
+	Artwork     []byte
+	ArtworkMime string
 }
 
 func (s *Service) performAnalysis(ctx context.Context, media *models.MediaItem) (analysisResult, error) {
-	if _, err := os.Stat(media.Path); err != nil {
+	// Build full path from media root + relative path
+	fullPath := filepath.Join(s.workDir, media.Path)
+
+	if _, err := os.Stat(fullPath); err != nil {
 		return analysisResult{}, err
 	}
 
-	duration := media.Duration
+	result := analysisResult{
+		Loudness:   -14.0, // Default LUFS
+		ReplayGain: -9.0,  // Default replay gain
+	}
+
+	// Use ffprobe to extract metadata
+	cmd := exec.CommandContext(ctx, "ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_format",
+		"-show_streams",
+		fullPath,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		s.logger.Warn().Err(err).Str("media", media.ID).Msg("ffprobe failed, using defaults")
+	} else {
+		s.parseFFProbeOutput(output, &result)
+	}
+
+	// Calculate cue points based on duration
+	duration := result.Duration
 	if duration <= 0 {
 		duration = 3 * time.Minute
 	}
+	result.IntroEnd = math.Min(15, duration.Seconds()*0.1)
+	result.OutroIn = math.Max(duration.Seconds()-10, result.IntroEnd+5)
 
-	intro := math.Min(15, duration.Seconds()*0.1)
-	outro := math.Max(duration.Seconds()-10, intro+5)
-
-	cmd := exec.CommandContext(ctx, "gst-discoverer-1.0", media.Path)
-	if err := cmd.Run(); err != nil {
-		s.logger.Debug().Err(err).Str("media", media.ID).Msg("gst-discoverer unavailable, using defaults")
+	// Extract embedded album art
+	artwork, mime := s.extractArtwork(ctx, fullPath)
+	if artwork != nil {
+		result.Artwork = artwork
+		result.ArtworkMime = mime
 	}
 
-	return analysisResult{
-		Loudness:   -14.0,
-		ReplayGain: -9.0,
-		IntroEnd:   intro,
-		OutroIn:    outro,
-	}, nil
+	return result, nil
+}
+
+// extractArtwork extracts embedded album art from an audio file using ffmpeg.
+func (s *Service) extractArtwork(ctx context.Context, filePath string) ([]byte, string) {
+	// Create temp file for artwork output
+	tmpFile, err := os.CreateTemp("", "artwork-*.jpg")
+	if err != nil {
+		return nil, ""
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	// Extract artwork using ffmpeg
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-i", filePath,
+		"-an",           // No audio
+		"-vcodec", "mjpeg", // Output as JPEG
+		"-vframes", "1", // Only one frame
+		"-f", "image2",
+		"-y", // Overwrite
+		tmpPath,
+	)
+	if err := cmd.Run(); err != nil {
+		// No artwork or extraction failed - not an error
+		return nil, ""
+	}
+
+	// Read the extracted artwork
+	data, err := os.ReadFile(tmpPath)
+	if err != nil || len(data) == 0 {
+		return nil, ""
+	}
+
+	return data, "image/jpeg"
+}
+
+func (s *Service) parseFFProbeOutput(output []byte, result *analysisResult) {
+	var data struct {
+		Format struct {
+			Duration string            `json:"duration"`
+			BitRate  string            `json:"bit_rate"`
+			Tags     map[string]string `json:"tags"`
+		} `json:"format"`
+		Streams []struct {
+			SampleRate string `json:"sample_rate"`
+		} `json:"streams"`
+	}
+
+	if err := json.Unmarshal(output, &data); err != nil {
+		return
+	}
+
+	// Parse duration
+	if data.Format.Duration != "" {
+		if secs, err := strconv.ParseFloat(data.Format.Duration, 64); err == nil {
+			result.Duration = time.Duration(secs * float64(time.Second))
+		}
+	}
+
+	// Parse bitrate
+	if data.Format.BitRate != "" {
+		if br, err := strconv.Atoi(data.Format.BitRate); err == nil {
+			result.Bitrate = br / 1000 // Convert to kbps
+		}
+	}
+
+	// Parse sample rate from first audio stream
+	for _, stream := range data.Streams {
+		if stream.SampleRate != "" {
+			if sr, err := strconv.Atoi(stream.SampleRate); err == nil {
+				result.Samplerate = sr
+				break
+			}
+		}
+	}
+
+	// Parse ID3 tags (case-insensitive)
+	for key, value := range data.Format.Tags {
+		switch strings.ToLower(key) {
+		case "title":
+			result.Title = value
+		case "artist":
+			result.Artist = value
+		case "album":
+			result.Album = value
+		case "genre":
+			result.Genre = value
+		case "date", "year":
+			result.Year = value
+		}
+	}
 }

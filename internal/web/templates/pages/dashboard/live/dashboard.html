@@ -1,0 +1,226 @@
+{{define "pages/dashboard/live/dashboard"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Live DJ</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="row g-4">
+    <!-- Status Panel -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-broadcast me-2"></i>Live Control</h5>
+                {{if .Data.UserSession}}
+                <span class="badge on-air bg-danger">ON AIR</span>
+                {{end}}
+            </div>
+            <div class="card-body">
+                {{if .Data.UserSession}}
+                <!-- User is connected -->
+                <div class="alert alert-success d-flex align-items-center">
+                    <i class="bi bi-broadcast fs-4 me-3"></i>
+                    <div>
+                        <strong>You are connected</strong>
+                        <br>
+                        <span class="text-body-secondary">
+                            Connected since {{formatTime .Data.UserSession.ConnectedAt}}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="card bg-body-tertiary">
+                            <div class="card-body text-center">
+                                <h6 class="text-body-secondary">Priority Level</h6>
+                                <h2>{{.Data.UserSession.Priority}}</h2>
+                                <small class="text-body-secondary">
+                                    {{if eq .Data.UserSession.Priority 0}}Emergency{{end}}
+                                    {{if eq .Data.UserSession.Priority 1}}Live Override{{end}}
+                                    {{if eq .Data.UserSession.Priority 2}}Scheduled Live{{end}}
+                                    {{if eq .Data.UserSession.Priority 3}}Automation{{end}}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card bg-body-tertiary">
+                            <div class="card-body text-center">
+                                <h6 class="text-body-secondary">Session Duration</h6>
+                                <h2 id="sessionDuration">--:--:--</h2>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2 justify-content-center">
+                    <button class="btn btn-warning btn-lg"
+                            hx-post="/dashboard/live/handover"
+                            hx-confirm="Initiate handover to automation?">
+                        <i class="bi bi-arrow-right-circle me-2"></i>Handover to Automation
+                    </button>
+                    <button class="btn btn-danger btn-lg"
+                            hx-delete="/dashboard/live/sessions/{{.Data.UserSession.ID}}"
+                            hx-confirm="Disconnect your live session?">
+                        <i class="bi bi-stop-circle me-2"></i>Disconnect
+                    </button>
+                </div>
+
+                {{else}}
+                <!-- User is not connected -->
+                <div class="text-center py-4">
+                    <i class="bi bi-mic fs-1 text-body-secondary mb-3"></i>
+                    <h5>Ready to Go Live?</h5>
+                    <p class="text-body-secondary">
+                        Generate a token and connect using your streaming software.
+                    </p>
+
+                    {{if roleAtLeast .User "manager"}}
+                    <form hx-post="/dashboard/live/tokens" hx-target="#tokenResult" class="mb-4">
+                        <div class="row g-2 justify-content-center">
+                            <div class="col-auto">
+                                <select name="mount_id" class="form-select" required>
+                                    <option value="">Select Mount...</option>
+                                    {{range .Data.Mounts}}
+                                    <option value="{{.ID}}">{{.Name}}</option>
+                                    {{end}}
+                                </select>
+                            </div>
+                            <div class="col-auto">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-key me-2"></i>Generate Token
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                    {{end}}
+
+                    <div id="tokenResult"></div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Transport Controls -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-sliders me-2"></i>Playout Controls</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex gap-3 justify-content-center">
+                    <button class="btn btn-lg btn-outline-warning transport-btn"
+                            hx-post="/dashboard/playout/skip"
+                            hx-confirm="Skip current track?">
+                        <i class="bi bi-skip-forward-fill"></i>
+                    </button>
+                    {{if roleAtLeast .User "manager"}}
+                    <button class="btn btn-lg btn-outline-danger transport-btn"
+                            hx-post="/dashboard/playout/stop"
+                            hx-confirm="Stop playout completely?">
+                        <i class="bi bi-stop-fill"></i>
+                    </button>
+                    <button class="btn btn-lg btn-outline-secondary transport-btn"
+                            hx-post="/dashboard/playout/reload"
+                            hx-confirm="Reload playout pipeline?">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Sessions -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-people me-2"></i>Active Sessions</h5>
+            </div>
+            <div class="card-body p-0"
+                 hx-get="/dashboard/live/sessions"
+                 hx-trigger="every 10s"
+                 hx-swap="innerHTML">
+                {{if .Data.Sessions}}
+                <ul class="list-group list-group-flush">
+                    {{range .Data.Sessions}}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{.Username}}</strong>
+                            <br>
+                            <small class="text-body-secondary">
+                                Priority {{.Priority}}
+                            </small>
+                        </div>
+                        <div>
+                            {{if .Active}}
+                            <span class="badge bg-success">Active</span>
+                            {{end}}
+                            {{if roleAtLeast $.User "manager"}}
+                            <button class="btn btn-sm btn-outline-danger ms-2"
+                                    hx-delete="/dashboard/live/sessions/{{.ID}}"
+                                    hx-confirm="Disconnect this session?">
+                                <i class="bi bi-x"></i>
+                            </button>
+                            {{end}}
+                        </div>
+                    </li>
+                    {{end}}
+                </ul>
+                {{else}}
+                <div class="text-center py-4 text-body-secondary">
+                    <i class="bi bi-person-x fs-1 mb-2"></i>
+                    <p class="mb-0">No active live sessions</p>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Connection Info -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>Connection Info</h5>
+            </div>
+            <div class="card-body">
+                <p class="small text-body-secondary mb-2">
+                    Connect your streaming software (BUTT, Mixxx, etc.) using:
+                </p>
+                <ul class="small mb-0">
+                    <li><strong>Protocol:</strong> Icecast / SHOUTcast</li>
+                    <li><strong>Host:</strong> <code>{{$.Station.Name}}</code></li>
+                    <li><strong>Port:</strong> <code>8000</code></li>
+                    <li><strong>Mount:</strong> Use token mount</li>
+                    <li><strong>Password:</strong> Use generated token</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+{{if .Data.UserSession}}
+// Update session duration timer
+const connectedAt = new Date('{{.Data.UserSession.ConnectedAt}}');
+function updateDuration() {
+    const now = new Date();
+    const diff = Math.floor((now - connectedAt) / 1000);
+    const hours = Math.floor(diff / 3600);
+    const mins = Math.floor((diff % 3600) / 60);
+    const secs = diff % 60;
+    document.getElementById('sessionDuration').textContent =
+        `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+updateDuration();
+setInterval(updateDuration, 1000);
+{{end}}
+</script>
+{{end}}

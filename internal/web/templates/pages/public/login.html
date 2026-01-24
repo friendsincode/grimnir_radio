@@ -1,0 +1,57 @@
+{{define "pages/public/login"}}
+{{template "layouts/base" .}}
+{{end}}
+
+{{define "content"}}
+<div class="min-vh-100 d-flex align-items-center justify-content-center bg-body-tertiary">
+    <div class="card shadow-sm" style="width: 400px; max-width: 95%;">
+        <div class="card-body p-4">
+            <div class="text-center mb-4">
+                <i class="bi bi-broadcast-pin fs-1 text-primary"></i>
+                <h1 class="h4 mt-2">Grimnir Radio</h1>
+                <p class="text-body-secondary">Sign in to your account</p>
+            </div>
+
+            {{if .Flash}}
+            <div class="alert alert-{{if eq .Flash.Type "error"}}danger{{else}}{{.Flash.Type}}{{end}} alert-dismissible fade show" role="alert">
+                {{.Flash.Message}}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {{end}}
+
+            <div id="loginError"></div>
+
+            <form method="POST" action="/login"
+                  hx-post="/login"
+                  hx-target="#loginError"
+                  hx-swap="innerHTML">
+
+                <input type="hidden" name="redirect" value="{{with .Data}}{{index . "Redirect"}}{{end}}">
+
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" class="form-control" id="email" name="email"
+                           value="{{with .Data}}{{index . "Email"}}{{end}}" required autofocus>
+                </div>
+
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="password" name="password" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
+                </button>
+            </form>
+
+            <hr class="my-4">
+
+            <div class="text-center">
+                <a href="/" class="text-body-secondary">
+                    <i class="bi bi-arrow-left me-1"></i>Back to home
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

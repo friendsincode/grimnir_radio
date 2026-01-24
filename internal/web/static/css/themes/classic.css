@@ -1,0 +1,183 @@
+/* Classic Theme - Traditional radio software look */
+
+[data-bs-theme="classic"] {
+    --bs-body-color: #333333;
+    --bs-body-color-rgb: 51, 51, 51;
+    --bs-body-bg: #d4d0c8;
+    --bs-body-bg-rgb: 212, 208, 200;
+
+    --bs-emphasis-color: #000000;
+    --bs-emphasis-color-rgb: 0, 0, 0;
+
+    --bs-secondary-color: rgba(51, 51, 51, 0.75);
+    --bs-secondary-color-rgb: 51, 51, 51;
+    --bs-secondary-bg: #ece9d8;
+    --bs-secondary-bg-rgb: 236, 233, 216;
+
+    --bs-tertiary-color: rgba(51, 51, 51, 0.5);
+    --bs-tertiary-color-rgb: 51, 51, 51;
+    --bs-tertiary-bg: #ffffff;
+    --bs-tertiary-bg-rgb: 255, 255, 255;
+
+    --bs-primary: #0078d4;
+    --bs-primary-rgb: 0, 120, 212;
+
+    --bs-success: #107c10;
+    --bs-success-rgb: 16, 124, 16;
+
+    --bs-info: #0078d4;
+    --bs-info-rgb: 0, 120, 212;
+
+    --bs-warning: #ff8c00;
+    --bs-warning-rgb: 255, 140, 0;
+
+    --bs-danger: #d13438;
+    --bs-danger-rgb: 209, 52, 56;
+
+    --bs-border-color: #808080;
+    --bs-border-color-translucent: rgba(0, 0, 0, 0.2);
+
+    --bs-link-color: #0066cc;
+    --bs-link-hover-color: #003399;
+
+    --bs-code-color: #0078d4;
+}
+
+[data-bs-theme="classic"] .bg-body-tertiary {
+    background-color: #ece9d8 !important;
+}
+
+[data-bs-theme="classic"] .sidebar {
+    background: linear-gradient(180deg, #ece9d8 0%, #d4d0c8 100%) !important;
+    border-right: 1px solid #808080 !important;
+}
+
+/* Classic 3D borders */
+[data-bs-theme="classic"] .card {
+    background: #ffffff;
+    border: none;
+    box-shadow: inset -1px -1px 0 #808080, inset 1px 1px 0 #ffffff,
+                inset -2px -2px 0 #404040, inset 2px 2px 0 #dfdfdf;
+}
+
+[data-bs-theme="classic"] .btn {
+    border-radius: 0;
+    box-shadow: inset -1px -1px 0 #808080, inset 1px 1px 0 #ffffff;
+}
+
+[data-bs-theme="classic"] .btn:active {
+    box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff;
+}
+
+[data-bs-theme="classic"] .btn-primary {
+    --bs-btn-bg: #0078d4;
+    --bs-btn-border-color: #808080;
+    --bs-btn-color: #ffffff;
+}
+
+/* Classic form controls */
+[data-bs-theme="classic"] .form-control,
+[data-bs-theme="classic"] .form-select {
+    background-color: #ffffff;
+    border: none;
+    border-radius: 0;
+    box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff,
+                inset 2px 2px 0 #404040;
+}
+
+[data-bs-theme="classic"] .form-control:focus,
+[data-bs-theme="classic"] .form-select:focus {
+    box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff,
+                inset 2px 2px 0 #404040, 0 0 0 2px #0078d4;
+}
+
+/* Title bars */
+[data-bs-theme="classic"] .modal-header {
+    background: linear-gradient(90deg, #0a246a 0%, #a6caf0 100%);
+    color: #ffffff;
+    border-radius: 0;
+}
+
+[data-bs-theme="classic"] .modal-content {
+    border-radius: 0;
+    border: none;
+    box-shadow: inset -1px -1px 0 #808080, inset 1px 1px 0 #ffffff;
+}
+
+/* Table styling */
+[data-bs-theme="classic"] .table {
+    --bs-table-bg: #ffffff;
+    --bs-table-striped-bg: #f0f0f0;
+    --bs-table-hover-bg: #0078d4;
+    --bs-table-hover-color: #ffffff;
+}
+
+[data-bs-theme="classic"] .table th {
+    background: linear-gradient(180deg, #ffffff 0%, #d4d0c8 100%);
+    border-bottom: 1px solid #808080;
+}
+
+/* Navigation */
+[data-bs-theme="classic"] .nav-link.active {
+    background: #0078d4 !important;
+    color: #ffffff !important;
+}
+
+[data-bs-theme="classic"] .nav-link:hover {
+    background: #ece9d8;
+}
+
+/* Header bar */
+[data-bs-theme="classic"] header.border-bottom {
+    background: linear-gradient(180deg, #ffffff 0%, #d4d0c8 100%) !important;
+    border-bottom: 1px solid #808080 !important;
+}
+
+/* Status bar */
+[data-bs-theme="classic"] .status-bar {
+    background: #ece9d8;
+    border-top: 1px solid #ffffff;
+    box-shadow: inset 0 1px 0 #808080;
+}
+
+/* Progress bars */
+[data-bs-theme="classic"] .progress {
+    border-radius: 0;
+    background: #ffffff;
+    box-shadow: inset 1px 1px 0 #808080;
+}
+
+[data-bs-theme="classic"] .progress-bar {
+    background: linear-gradient(180deg, #000080 0%, #1084d0 50%, #000080 100%);
+}
+
+/* Dropdown menus */
+[data-bs-theme="classic"] .dropdown-menu {
+    border-radius: 0;
+    border: 1px solid #808080;
+    box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Audio meters - classic LED style */
+[data-bs-theme="classic"] .audio-meter .segment {
+    background: #2a2a2a;
+    border: 1px solid #404040;
+}
+
+[data-bs-theme="classic"] .audio-meter .segment.active.green {
+    background: #00ff00;
+}
+
+[data-bs-theme="classic"] .audio-meter .segment.active.yellow {
+    background: #ffff00;
+}
+
+[data-bs-theme="classic"] .audio-meter .segment.active.red {
+    background: #ff0000;
+}
+
+/* Waveform */
+[data-bs-theme="classic"] .waveform-container {
+    background: #000000;
+    border: 2px inset #808080;
+}

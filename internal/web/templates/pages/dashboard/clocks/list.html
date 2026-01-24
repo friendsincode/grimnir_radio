@@ -1,0 +1,80 @@
+{{define "pages/dashboard/clocks/list"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Clock Templates</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i>Clock Templates</h4>
+    <a href="/dashboard/clocks/new" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-2"></i>New Clock
+    </a>
+</div>
+
+<div class="row g-4">
+    {{range .Data}}
+    <div class="col-sm-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-clock-history text-primary me-2"></i>{{.Name}}
+                </h5>
+                <p class="card-text text-body-secondary">
+                    {{len .Slots}} slots configured
+                </p>
+                <div class="d-flex gap-2">
+                    <a href="/dashboard/clocks/{{.ID}}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-eye me-1"></i>View
+                    </a>
+                    <a href="/dashboard/clocks/{{.ID}}/edit" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-pencil me-1"></i>Edit
+                    </a>
+                    <button class="btn btn-sm btn-outline-info"
+                            hx-post="/dashboard/clocks/{{.ID}}/simulate"
+                            hx-target="#simulateModal .modal-body"
+                            data-bs-toggle="modal" data-bs-target="#simulateModal">
+                        <i class="bi bi-play me-1"></i>Simulate
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{else}}
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body text-center py-5 text-body-secondary">
+                <i class="bi bi-clock-history fs-1 mb-3"></i>
+                <p class="mb-0">No clock templates. <a href="/dashboard/clocks/new">Create your first one</a></p>
+            </div>
+        </div>
+    </div>
+    {{end}}
+</div>
+
+<!-- Simulate Modal -->
+<div class="modal fade" id="simulateModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Clock Simulation</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center py-4">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
