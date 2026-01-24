@@ -225,10 +225,10 @@ func (i *Importer) importMedia(ctx context.Context, ltDB *sql.DB, stationID stri
 			}
 		}
 
-		// Parse year
-		var yearInt int
+		// Parse year as string
+		yearStr := ""
 		if year.Valid {
-			yearInt, _ = strconv.Atoi(year.String)
+			yearStr = year.String
 		}
 
 		// Create media item
@@ -242,7 +242,7 @@ func (i *Importer) importMedia(ctx context.Context, ltDB *sql.DB, stationID stri
 			Mood:          f.Mood,
 			Label:         f.Label,
 			Language:      f.Language,
-			Year:          yearInt,
+			Year:          yearStr,
 			Duration:      duration,
 			Path:          destPath,
 			CuePoints:     cuePoints,
@@ -543,7 +543,14 @@ func (i *Importer) importUsers(ctx context.Context, ltDB *sql.DB) error {
 // reportProgress calls the progress callback if set
 func (i *Importer) reportProgress(step, total int, message string) {
 	if i.progress != nil {
-		i.progress(step, total, message)
+		progress := migration.Progress{
+			Phase:          "importing",
+			TotalSteps:     total,
+			CompletedSteps: step,
+			CurrentStep:    message,
+			Percentage:     float64(step) / float64(total) * 100,
+		}
+		i.progress(progress)
 	}
 	i.logger.Info().
 		Int("step", step).

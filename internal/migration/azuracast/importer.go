@@ -633,7 +633,14 @@ func convertPlaylistOrder(order string) string {
 // reportProgress calls the progress callback if set
 func (i *Importer) reportProgress(step, total int, message string) {
 	if i.progress != nil {
-		i.progress(step, total, message)
+		progress := migration.Progress{
+			Phase:          "importing",
+			TotalSteps:     total,
+			CompletedSteps: step,
+			CurrentStep:    message,
+			Percentage:     float64(step) / float64(total) * 100,
+		}
+		i.progress(progress)
 	}
 	i.logger.Info().
 		Int("step", step).

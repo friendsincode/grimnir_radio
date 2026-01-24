@@ -154,3 +154,23 @@ func (e ValidationErrors) Error() string {
 	}
 	return e[0].Error()
 }
+
+// MigrationOptions is used by the legacy importers (libretime, azuracast).
+type MigrationOptions struct {
+	DryRun          bool
+	SkipMedia       bool
+	SkipPlaylists   bool
+	SkipUsers       bool
+	MediaCopyMethod string // "copy", "symlink", or "none"
+}
+
+// MigrationStats tracks import statistics for legacy importers.
+type MigrationStats struct {
+	StationsImported  int
+	MountsImported    int
+	MediaImported     int
+	PlaylistsImported int
+	SchedulesImported int
+	UsersImported     int
+	ErrorsEncountered int
+}

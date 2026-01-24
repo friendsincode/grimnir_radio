@@ -546,7 +546,7 @@ func (a *API) handleMountsCreate(w http.ResponseWriter, r *http.Request) {
 		Bitrate:         req.Bitrate,
 		Channels:        req.Channels,
 		SampleRate:      req.SampleRate,
-		EncoderPresetID: "",
+		EncoderPresetID: nil, // Nullable - no preset selected
 	}
 	if err := a.db.WithContext(r.Context()).Create(&mount).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")

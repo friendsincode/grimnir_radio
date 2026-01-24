@@ -20,42 +20,31 @@
     {{block "head" .}}{{end}}
 </head>
 <body class="dashboard-layout">
-<div class="d-flex min-vh-100" x-data="{ sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true' }">
-    <!-- Sidebar -->
-    <aside class="sidebar bg-body-tertiary border-end d-flex flex-column"
-           :class="{ 'collapsed': sidebarCollapsed }"
-           style="width: 260px; transition: width 0.2s;">
+<!-- Apply collapsed class immediately if saved in localStorage -->
+<script>
+    if (localStorage.getItem('sidebarCollapsed') === 'true') {
+        document.body.classList.add('sidebar-collapsed');
+    }
+</script>
 
+<div class="d-flex min-vh-100">
+    <!-- Sidebar -->
+    <aside class="sidebar bg-body-tertiary border-end d-flex flex-column" id="sidebar">
         <!-- Brand -->
-        <div class="p-3 border-bottom d-flex align-items-center" :class="sidebarCollapsed ? 'justify-content-center' : 'justify-content-between'">
-            <!-- Expanded: full brand -->
-            <a class="text-decoration-none d-flex align-items-center" href="/dashboard" x-show="!sidebarCollapsed" x-cloak>
-                <i class="bi bi-soundwave fs-4 text-info me-2"></i>
-                <span class="fw-bold">Grimnir</span>
-            </a>
-            <!-- Collapsed: just icon -->
-            <a class="text-decoration-none" href="/dashboard" x-show="sidebarCollapsed" x-cloak>
+        <div class="sidebar-header p-2 border-bottom d-flex align-items-center">
+            <a class="text-decoration-none d-flex align-items-center" href="/dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Grimnir Radio">
                 <i class="bi bi-soundwave fs-4 text-info"></i>
+                <span class="sidebar-text fw-bold ms-2">Grimnir</span>
             </a>
-            <!-- Collapse toggle button -->
-            <button class="btn btn-sm btn-outline-secondary ms-2"
-                    @click="sidebarCollapsed = !sidebarCollapsed; localStorage.setItem('sidebarCollapsed', sidebarCollapsed)"
-                    x-show="!sidebarCollapsed" x-cloak>
-                <i class="bi bi-chevron-left"></i>
-            </button>
-        </div>
-        <!-- Expand button shown below brand when collapsed -->
-        <div class="text-center py-2 border-bottom" x-show="sidebarCollapsed" x-cloak>
-            <button class="btn btn-sm btn-outline-secondary"
-                    @click="sidebarCollapsed = !sidebarCollapsed; localStorage.setItem('sidebarCollapsed', sidebarCollapsed)">
-                <i class="bi bi-chevron-right"></i>
+            <button class="btn btn-sm btn-outline-secondary ms-auto sidebar-toggle" id="sidebarToggle" data-bs-toggle="tooltip" data-bs-placement="right" title="Toggle sidebar">
+                <i class="bi bi-chevron-left" id="toggleIcon"></i>
             </button>
         </div>
 
         <!-- Station Selector -->
         {{if .Station}}{{if gt (len .Stations) 0}}
-        <div class="p-3 border-bottom" x-show="!sidebarCollapsed">
-            <label class="form-label small text-body-secondary mb-1">Station</label>
+        <div class="sidebar-section p-3 border-bottom">
+            <label class="form-label small text-body-secondary mb-1 sidebar-text">Station</label>
             <select class="form-select form-select-sm"
                     hx-post="/dashboard/stations/select"
                     hx-trigger="change"
@@ -72,121 +61,109 @@
         <!-- Navigation -->
         <nav class="flex-grow-1 overflow-auto p-2">
             <ul class="nav flex-column">
-                <!-- Dashboard Home -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if eq .CurrentPath "/dashboard"}}active bg-primary text-white{{end}}" href="/dashboard">
-                        <i class="bi bi-speedometer2 me-2"></i>
-                        <span x-show="!sidebarCollapsed">Dashboard</span>
+                    <a class="nav-link rounded {{if eq .CurrentPath "/dashboard"}}active bg-primary text-white{{end}}" href="/dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Dashboard">
+                        <i class="bi bi-speedometer2"></i>
+                        <span class="sidebar-text ms-2">Dashboard</span>
                     </a>
                 </li>
 
-                <li class="nav-item mt-3 mb-1" x-show="!sidebarCollapsed">
-                    <span class="nav-link text-body-secondary small text-uppercase">Content</span>
+                <li class="nav-item mt-3 mb-1 sidebar-section">
+                    <span class="nav-link text-body-secondary small text-uppercase sidebar-text">Content</span>
                 </li>
 
-                <!-- Media -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/media"}}active bg-primary text-white{{end}}" href="/dashboard/media">
-                        <i class="bi bi-music-note-list me-2"></i>
-                        <span x-show="!sidebarCollapsed">Media Library</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/media"}}active bg-primary text-white{{end}}" href="/dashboard/media" data-bs-toggle="tooltip" data-bs-placement="right" title="Media Library">
+                        <i class="bi bi-music-note-list"></i>
+                        <span class="sidebar-text ms-2">Media Library</span>
                     </a>
                 </li>
 
-                <!-- Playlists -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/playlists"}}active bg-primary text-white{{end}}" href="/dashboard/playlists">
-                        <i class="bi bi-list-ul me-2"></i>
-                        <span x-show="!sidebarCollapsed">Playlists</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/playlists"}}active bg-primary text-white{{end}}" href="/dashboard/playlists" data-bs-toggle="tooltip" data-bs-placement="right" title="Playlists">
+                        <i class="bi bi-list-ul"></i>
+                        <span class="sidebar-text ms-2">Playlists</span>
                     </a>
                 </li>
 
                 {{if roleAtLeast .User "manager"}}
-                <!-- Smart Blocks -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/smart-blocks"}}active bg-primary text-white{{end}}" href="/dashboard/smart-blocks">
-                        <i class="bi bi-magic me-2"></i>
-                        <span x-show="!sidebarCollapsed">Smart Blocks</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/smart-blocks"}}active bg-primary text-white{{end}}" href="/dashboard/smart-blocks" data-bs-toggle="tooltip" data-bs-placement="right" title="Smart Blocks">
+                        <i class="bi bi-magic"></i>
+                        <span class="sidebar-text ms-2">Smart Blocks</span>
                     </a>
                 </li>
 
-                <!-- Clocks -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/clocks"}}active bg-primary text-white{{end}}" href="/dashboard/clocks">
-                        <i class="bi bi-clock-history me-2"></i>
-                        <span x-show="!sidebarCollapsed">Clock Templates</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/clocks"}}active bg-primary text-white{{end}}" href="/dashboard/clocks" data-bs-toggle="tooltip" data-bs-placement="right" title="Clock Templates">
+                        <i class="bi bi-clock-history"></i>
+                        <span class="sidebar-text ms-2">Clock Templates</span>
                     </a>
                 </li>
                 {{end}}
 
-                <li class="nav-item mt-3 mb-1" x-show="!sidebarCollapsed">
-                    <span class="nav-link text-body-secondary small text-uppercase">Broadcast</span>
+                <li class="nav-item mt-3 mb-1 sidebar-section">
+                    <span class="nav-link text-body-secondary small text-uppercase sidebar-text">Broadcast</span>
                 </li>
 
-                <!-- Schedule -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/schedule"}}active bg-primary text-white{{end}}" href="/dashboard/schedule">
-                        <i class="bi bi-calendar3 me-2"></i>
-                        <span x-show="!sidebarCollapsed">Schedule</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/schedule"}}active bg-primary text-white{{end}}" href="/dashboard/schedule" data-bs-toggle="tooltip" data-bs-placement="right" title="Schedule">
+                        <i class="bi bi-calendar3"></i>
+                        <span class="sidebar-text ms-2">Schedule</span>
                     </a>
                 </li>
 
-                <!-- Live -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/live"}}active bg-primary text-white{{end}}" href="/dashboard/live">
-                        <i class="bi bi-broadcast me-2"></i>
-                        <span x-show="!sidebarCollapsed">Live DJ</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/live"}}active bg-primary text-white{{end}}" href="/dashboard/live" data-bs-toggle="tooltip" data-bs-placement="right" title="Live DJ">
+                        <i class="bi bi-broadcast"></i>
+                        <span class="sidebar-text ms-2">Live DJ</span>
                     </a>
                 </li>
 
                 {{if roleAtLeast .User "manager"}}
-                <!-- Webstreams -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/webstreams"}}active bg-primary text-white{{end}}" href="/dashboard/webstreams">
-                        <i class="bi bi-globe me-2"></i>
-                        <span x-show="!sidebarCollapsed">Webstreams</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/webstreams"}}active bg-primary text-white{{end}}" href="/dashboard/webstreams" data-bs-toggle="tooltip" data-bs-placement="right" title="Webstreams">
+                        <i class="bi bi-globe"></i>
+                        <span class="sidebar-text ms-2">Webstreams</span>
                     </a>
                 </li>
                 {{end}}
 
-                <li class="nav-item mt-3 mb-1" x-show="!sidebarCollapsed">
-                    <span class="nav-link text-body-secondary small text-uppercase">Insights</span>
+                <li class="nav-item mt-3 mb-1 sidebar-section">
+                    <span class="nav-link text-body-secondary small text-uppercase sidebar-text">Insights</span>
                 </li>
 
-                <!-- Analytics -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/analytics"}}active bg-primary text-white{{end}}" href="/dashboard/analytics">
-                        <i class="bi bi-graph-up me-2"></i>
-                        <span x-show="!sidebarCollapsed">Analytics</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/analytics"}}active bg-primary text-white{{end}}" href="/dashboard/analytics" data-bs-toggle="tooltip" data-bs-placement="right" title="Analytics">
+                        <i class="bi bi-graph-up"></i>
+                        <span class="sidebar-text ms-2">Analytics</span>
                     </a>
                 </li>
 
                 {{if roleAtLeast .User "manager"}}
-                <li class="nav-item mt-3 mb-1" x-show="!sidebarCollapsed">
-                    <span class="nav-link text-body-secondary small text-uppercase">Admin</span>
+                <li class="nav-item mt-3 mb-1 sidebar-section">
+                    <span class="nav-link text-body-secondary small text-uppercase sidebar-text">Admin</span>
                 </li>
 
-                <!-- Stations -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/stations"}}active bg-primary text-white{{end}}" href="/dashboard/stations">
-                        <i class="bi bi-broadcast-pin me-2"></i>
-                        <span x-show="!sidebarCollapsed">Stations</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/stations"}}active bg-primary text-white{{end}}" href="/dashboard/stations" data-bs-toggle="tooltip" data-bs-placement="right" title="Stations">
+                        <i class="bi bi-broadcast-pin"></i>
+                        <span class="sidebar-text ms-2">Stations</span>
                     </a>
                 </li>
 
-                <!-- Users -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/users"}}active bg-primary text-white{{end}}" href="/dashboard/users">
-                        <i class="bi bi-people me-2"></i>
-                        <span x-show="!sidebarCollapsed">Users</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/users"}}active bg-primary text-white{{end}}" href="/dashboard/users" data-bs-toggle="tooltip" data-bs-placement="right" title="Users">
+                        <i class="bi bi-people"></i>
+                        <span class="sidebar-text ms-2">Users</span>
                     </a>
                 </li>
 
                 {{if roleAtLeast .User "admin"}}
-                <!-- Settings -->
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/settings"}}active bg-primary text-white{{end}}" href="/dashboard/settings">
-                        <i class="bi bi-gear me-2"></i>
-                        <span x-show="!sidebarCollapsed">Settings</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/settings"}}active bg-primary text-white{{end}}" href="/dashboard/settings" data-bs-toggle="tooltip" data-bs-placement="right" title="Settings">
+                        <i class="bi bi-gear"></i>
+                        <span class="sidebar-text ms-2">Settings</span>
                     </a>
                 </li>
                 {{end}}
@@ -196,43 +173,24 @@
 
         <!-- User Menu -->
         <div class="p-2 border-top mt-auto">
-            <!-- Expanded state -->
-            <template x-if="!sidebarCollapsed">
-                <div>
-                    <div class="d-flex align-items-center gap-2 mb-2 px-1">
-                        <i class="bi bi-person-circle fs-4"></i>
-                        <div class="flex-grow-1 text-truncate">
-                            <div class="fw-semibold text-truncate small">{{.User.Email}}</div>
-                            <div class="text-body-secondary small">{{.User.Role}}</div>
-                        </div>
-                    </div>
-                    <div class="d-flex gap-2">
-                        <a href="/dashboard/profile" class="btn btn-sm btn-outline-secondary flex-grow-1" title="Profile">
-                            <i class="bi bi-person-gear"></i>
-                        </a>
-                        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#themeModal" title="Theme">
-                            <i class="bi bi-palette"></i>
-                        </button>
-                        <a href="/logout" class="btn btn-sm btn-outline-danger" title="Logout">
-                            <i class="bi bi-box-arrow-right"></i>
-                        </a>
-                    </div>
+            <div class="user-info d-flex align-items-center gap-2 mb-2 px-1">
+                <i class="bi bi-person-circle fs-4"></i>
+                <div class="sidebar-text flex-grow-1 text-truncate">
+                    <div class="fw-semibold text-truncate small">{{.User.Email}}</div>
+                    <div class="text-body-secondary small">{{.User.Role}}</div>
                 </div>
-            </template>
-            <!-- Collapsed state - vertical stack of icons -->
-            <template x-if="sidebarCollapsed">
-                <div class="d-flex flex-column align-items-center gap-2">
-                    <a href="/dashboard/profile" class="btn btn-sm btn-outline-secondary" title="Profile">
-                        <i class="bi bi-person-gear"></i>
-                    </a>
-                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#themeModal" title="Theme">
-                        <i class="bi bi-palette"></i>
-                    </button>
-                    <a href="/logout" class="btn btn-sm btn-outline-danger" title="Logout">
-                        <i class="bi bi-box-arrow-right"></i>
-                    </a>
-                </div>
-            </template>
+            </div>
+            <div class="d-flex gap-2 user-actions">
+                <a href="/dashboard/profile" class="btn btn-sm btn-outline-secondary flex-fill" data-bs-toggle="tooltip" data-bs-placement="top" title="Profile">
+                    <i class="bi bi-person-gear"></i>
+                </a>
+                <button class="btn btn-sm btn-outline-secondary flex-fill" data-bs-toggle="modal" data-bs-target="#themeModal" title="Theme">
+                    <i class="bi bi-palette"></i>
+                </button>
+                <a href="/logout" class="btn btn-sm btn-outline-danger flex-fill" data-bs-toggle="tooltip" data-bs-placement="top" title="Logout">
+                    <i class="bi bi-box-arrow-right"></i>
+                </a>
+            </div>
         </div>
     </aside>
 
@@ -241,6 +199,10 @@
         <!-- Top Header -->
         <header class="bg-body border-bottom px-4 py-2 d-flex align-items-center justify-content-between">
             <div class="d-flex align-items-center gap-3">
+                <!-- Mobile menu toggle (hidden on large screens) -->
+                <button class="btn btn-outline-secondary d-lg-none" id="mobileMenuToggle" type="button">
+                    <i class="bi bi-list"></i>
+                </button>
                 {{block "breadcrumb" .}}
                 <nav aria-label="breadcrumb">
                     <ol class="breadcrumb mb-0">
@@ -326,7 +288,6 @@
 
 <!-- Global Audio Player - Floating & Draggable -->
 <div id="globalPlayer" class="global-player" style="display: none;">
-    <!-- Draggable Header -->
     <div class="global-player-header" id="playerDragHandle">
         <div class="d-flex align-items-center gap-2">
             <i class="bi bi-grip-vertical drag-handle"></i>
@@ -341,13 +302,10 @@
             </button>
         </div>
     </div>
-    <!-- Player Body -->
     <div class="global-player-body">
-        <!-- Progress Bar -->
         <div class="global-player-progress" id="globalPlayerProgress">
             <div class="global-player-progress-bar" id="globalPlayerProgressBar"></div>
         </div>
-        <!-- Track Info -->
         <div class="d-flex align-items-center gap-3 mb-2">
             <div id="playerArtwork" class="player-artwork">
                 <i class="bi bi-music-note-beamed"></i>
@@ -357,7 +315,6 @@
                 <div id="playerArtist" class="small text-body-secondary text-truncate">-</div>
             </div>
         </div>
-        <!-- Controls -->
         <div class="d-flex align-items-center justify-content-between">
             <span class="small text-body-secondary">
                 <span id="playerCurrentTime">0:00</span> / <span id="playerDuration">0:00</span>
@@ -387,7 +344,65 @@
         integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/htmx.org@1.9.12"
         integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+
+<!-- Sidebar Toggle Script -->
+<script>
+(function() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sidebarToggle');
+    const toggleIcon = document.getElementById('toggleIcon');
+    const mobileToggle = document.getElementById('mobileMenuToggle');
+
+    // Create backdrop element for mobile
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sidebar-backdrop';
+    backdrop.style.display = 'none';
+    document.body.appendChild(backdrop);
+
+    // Initialize tooltips (only when collapsed)
+    function initTooltips() {
+        const tooltipElements = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+        tooltipElements.forEach(el => {
+            const existing = bootstrap.Tooltip.getInstance(el);
+            if (existing) existing.dispose();
+
+            if (document.body.classList.contains('sidebar-collapsed')) {
+                new bootstrap.Tooltip(el);
+            }
+        });
+    }
+
+    // Toggle sidebar collapse (desktop)
+    toggle.addEventListener('click', function() {
+        document.body.classList.toggle('sidebar-collapsed');
+        const isCollapsed = document.body.classList.contains('sidebar-collapsed');
+        localStorage.setItem('sidebarCollapsed', isCollapsed);
+        toggleIcon.className = isCollapsed ? 'bi bi-chevron-right' : 'bi bi-chevron-left';
+        initTooltips();
+    });
+
+    // Toggle sidebar visibility (mobile)
+    mobileToggle.addEventListener('click', function() {
+        sidebar.classList.toggle('show');
+        backdrop.style.display = sidebar.classList.contains('show') ? 'block' : 'none';
+    });
+
+    // Close sidebar when clicking backdrop
+    backdrop.addEventListener('click', function() {
+        sidebar.classList.remove('show');
+        backdrop.style.display = 'none';
+    });
+
+    // Set initial icon state
+    if (document.body.classList.contains('sidebar-collapsed')) {
+        toggleIcon.className = 'bi bi-chevron-right';
+    }
+
+    // Initialize tooltips on load
+    document.addEventListener('DOMContentLoaded', initTooltips);
+})();
+</script>
+
 <!-- WebSocket Auth Token (short-lived) -->
 {{if .WSToken}}<script>window.GRIMNIR_WS_TOKEN = "{{.WSToken}}";</script>{{end}}
 <script src="/static/js/app.js"></script>
