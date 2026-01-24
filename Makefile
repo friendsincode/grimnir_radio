@@ -88,6 +88,7 @@ run-control:
 	GRIMNIR_DB_DSN="host=localhost port=5432 user=grimnir password=grimnir_secret dbname=grimnir sslmode=disable" \
 	GRIMNIR_REDIS_ADDR="localhost:6379" \
 	GRIMNIR_MEDIA_ENGINE_GRPC_ADDR="localhost:9091" \
+	GRIMNIR_JWT_SIGNING_KEY="dev-secret-key-do-not-use-in-production" \
 	$(GO) run ./cmd/grimnirradio serve
 
 run-media:
