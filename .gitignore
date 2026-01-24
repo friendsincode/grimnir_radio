@@ -59,3 +59,5 @@ web/build/
 Thumbs.db
 /mediaengine
 /grimnirradio
+.docker-deploy/
+docker-compose.override.yml

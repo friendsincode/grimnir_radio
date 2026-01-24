@@ -563,22 +563,31 @@ configure_production_mode() {
     print_info "  - Multi-instance support"
     echo ""
 
-    configure_ports
-    configure_production_volumes
-
+    # Ask about external services FIRST so configure_ports knows what to ask
     if prompt_yn "Use external PostgreSQL database?" "y"; then
         USE_EXTERNAL_POSTGRES=true
-        configure_external_postgres
     else
         USE_EXTERNAL_POSTGRES=false
-        configure_volumes_postgres
     fi
 
     if prompt_yn "Use external Redis?" "n"; then
         USE_EXTERNAL_REDIS=true
-        configure_external_redis
     else
         USE_EXTERNAL_REDIS=false
+    fi
+
+    configure_ports
+    configure_production_volumes
+
+    if [ "$USE_EXTERNAL_POSTGRES" = true ]; then
+        configure_external_postgres
+    else
+        configure_volumes_postgres
+    fi
+
+    if [ "$USE_EXTERNAL_REDIS" = true ]; then
+        configure_external_redis
+    else
         configure_volumes_redis
     fi
 
