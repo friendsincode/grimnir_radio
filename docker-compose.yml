@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL database (shared state)
   postgres:
@@ -41,7 +39,7 @@ services:
 
   # Icecast2 (streaming server)
   icecast:
-    image: moul/icecast:2.4.4
+    image: infiniteproject/icecast:latest
     container_name: grimnir-icecast
     environment:
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
