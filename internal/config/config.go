@@ -29,6 +29,7 @@ type Config struct {
 	Environment        string
 	HTTPBind           string
 	HTTPPort           int
+	BaseURL            string // Public base URL (e.g., http://192.168.195.6:8080)
 	DBBackend          DatabaseBackend
 	DBDSN              string
 	MediaRoot          string
@@ -58,6 +59,10 @@ type Config struct {
 	RedisPassword         string
 	RedisDB               int
 	InstanceID            string
+
+	// Icecast configuration
+	IcecastURL      string // Internal URL for stream proxy (e.g., http://icecast:8000)
+	IcecastPublicURL string // Public URL for direct access (e.g., http://radio.example.com:8000)
 }
 
 // Load reads environment variables, applies defaults, and validates the result.
@@ -66,6 +71,7 @@ func Load() (*Config, error) {
         Environment:        getEnvAny([]string{"GRIMNIR_ENV", "RLM_ENV"}, "development"),
         HTTPBind:           getEnvAny([]string{"GRIMNIR_HTTP_BIND", "RLM_HTTP_BIND"}, "0.0.0.0"),
         HTTPPort:           getEnvIntAny([]string{"GRIMNIR_HTTP_PORT", "RLM_HTTP_PORT"}, 8080),
+        BaseURL:            getEnvAny([]string{"GRIMNIR_BASE_URL", "RLM_BASE_URL"}, ""),
         DBBackend:          DatabaseBackend(getEnvAny([]string{"GRIMNIR_DB_BACKEND", "RLM_DB_BACKEND"}, string(DatabasePostgres))),
         DBDSN:              getEnvAny([]string{"GRIMNIR_DB_DSN", "RLM_DB_DSN"}, ""),
         MediaRoot:          getEnvAny([]string{"GRIMNIR_MEDIA_ROOT", "RLM_MEDIA_ROOT"}, "./media"),
@@ -95,6 +101,10 @@ func Load() (*Config, error) {
         RedisPassword:         getEnvAny([]string{"GRIMNIR_REDIS_PASSWORD", "RLM_REDIS_PASSWORD"}, ""),
         RedisDB:               getEnvIntAny([]string{"GRIMNIR_REDIS_DB", "RLM_REDIS_DB"}, 0),
         InstanceID:            getEnvAny([]string{"GRIMNIR_INSTANCE_ID", "RLM_INSTANCE_ID"}, ""),
+
+        // Icecast configuration
+        IcecastURL:       getEnvAny([]string{"GRIMNIR_ICECAST_URL", "ICECAST_URL"}, "http://icecast:8000"),
+        IcecastPublicURL: getEnvAny([]string{"GRIMNIR_ICECAST_PUBLIC_URL", "ICECAST_PUBLIC_URL"}, ""),
     }
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {

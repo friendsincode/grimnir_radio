@@ -186,7 +186,7 @@ func (s *Server) initDependencies() error {
 	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
 
 	// Web UI handler
-	webHandler, err := web.NewHandler(database, []byte(s.cfg.JWTSigningKey), s.cfg.MediaRoot, s.logger)
+	webHandler, err := web.NewHandler(database, []byte(s.cfg.JWTSigningKey), s.cfg.MediaRoot, s.cfg.IcecastURL, s.logger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize web handler: %w", err)
 	}

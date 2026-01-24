@@ -11,42 +11,134 @@
 }
 
 .sidebar {
+    width: 260px;
     min-width: 260px;
     max-width: 260px;
-    transition: all 0.2s ease;
+    transition: width 0.3s ease, min-width 0.3s ease, max-width 0.3s ease;
     z-index: 100;
     position: relative;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
-.sidebar.collapsed {
-    min-width: 60px !important;
-    max-width: 60px !important;
-    width: 60px !important;
+/* Text elements - prepare for animation */
+.sidebar .sidebar-text {
+    display: inline-block;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    white-space: nowrap;
 }
 
-/* Center nav icons when collapsed */
-.sidebar.collapsed .nav-link {
+/* Collapsed sidebar styles - triggered by body class */
+body.sidebar-collapsed .sidebar {
+    width: 52px;
+    min-width: 52px;
+    max-width: 52px;
+    overflow: hidden;
+}
+
+body.sidebar-collapsed .sidebar nav {
+    overflow: hidden;
+    padding: 0.5rem 0;
+}
+
+body.sidebar-collapsed .sidebar nav .nav {
+    overflow: hidden;
+}
+
+/* Hide text with transform (smoother than display:none) */
+body.sidebar-collapsed .sidebar .sidebar-text {
+    opacity: 0;
+    transform: translateX(-20px);
+    position: absolute;
+    pointer-events: none;
+}
+
+/* Hide section headers when collapsed */
+body.sidebar-collapsed .sidebar .sidebar-section {
+    display: none;
+}
+
+/* Center nav items when collapsed */
+body.sidebar-collapsed .sidebar .nav-link {
+    justify-content: center;
     text-align: center;
-    padding: 0.5rem;
+    padding: 0.5rem 0;
+    width: 100%;
+    margin: 0;
 }
 
-.sidebar.collapsed .nav-link i {
+body.sidebar-collapsed .sidebar .nav-link i {
+    font-size: 1.1rem;
     margin: 0 !important;
 }
 
-.sidebar.collapsed .nav-link span {
+body.sidebar-collapsed .sidebar .nav-item {
+    margin: 0;
+    padding: 0;
+}
+
+/* Center header when collapsed */
+body.sidebar-collapsed .sidebar .sidebar-header {
+    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem 0;
+    overflow: hidden;
+}
+
+body.sidebar-collapsed .sidebar .sidebar-header a {
+    justify-content: center;
+}
+
+body.sidebar-collapsed .sidebar .sidebar-header .sidebar-toggle {
+    padding: 0.25rem 0.5rem;
+}
+
+/* Hide toggle button text, keep icon */
+body.sidebar-collapsed .sidebar .sidebar-toggle {
+    margin: 0.25rem auto 0;
+}
+
+/* Hide user info text, center icon when collapsed */
+body.sidebar-collapsed .sidebar .user-info {
+    justify-content: center;
+}
+
+body.sidebar-collapsed .sidebar .user-info > div {
     display: none;
 }
 
-/* Hide section labels when collapsed */
-.sidebar.collapsed .nav-item .text-uppercase {
-    display: none;
+/* Stack user action buttons vertically when collapsed */
+body.sidebar-collapsed .sidebar .user-actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0;
+}
+
+body.sidebar-collapsed .sidebar .user-actions .btn {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Hide bottom padding section overflow when collapsed */
+body.sidebar-collapsed .sidebar > .p-2.border-top {
+    padding: 0.5rem 0 !important;
+    overflow: hidden;
 }
 
 .sidebar .nav-link {
     padding: 0.5rem 0.75rem;
     margin-bottom: 0.125rem;
+    display: flex;
+    align-items: center;
+    position: relative;
 }
 
 .sidebar .nav-link:hover {

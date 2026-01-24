@@ -33,12 +33,13 @@ const (
 
 // Handler provides web UI endpoints with server-rendered templates.
 type Handler struct {
-	db        *gorm.DB
-	logger    zerolog.Logger
-	jwtSecret []byte
-	mediaRoot string                         // Root directory for media files
-	templates map[string]*template.Template // Each page gets its own template set
-	partials  *template.Template            // Shared partials
+	db         *gorm.DB
+	logger     zerolog.Logger
+	jwtSecret  []byte
+	mediaRoot  string                         // Root directory for media files
+	icecastURL string                         // Internal Icecast URL for stream proxy
+	templates  map[string]*template.Template // Each page gets its own template set
+	partials   *template.Template            // Shared partials
 }
 
 // PageData holds common data passed to all templates.
@@ -62,12 +63,13 @@ type FlashMessage struct {
 }
 
 // NewHandler creates a new web handler.
-func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, icecastURL string, logger zerolog.Logger) (*Handler, error) {
 	h := &Handler{
-		db:        db,
-		logger:    logger,
-		jwtSecret: jwtSecret,
-		mediaRoot: mediaRoot,
+		db:         db,
+		logger:     logger,
+		jwtSecret:  jwtSecret,
+		mediaRoot:  mediaRoot,
+		icecastURL: icecastURL,
 	}
 
 	if err := h.loadTemplates(); err != nil {

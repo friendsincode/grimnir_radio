@@ -47,15 +47,15 @@ type Station struct {
 
 // Mount describes an output encoder pipeline.
 type Mount struct {
-	ID              string `gorm:"type:uuid;primaryKey"`
-	StationID       string `gorm:"type:uuid;index"`
-	Name            string `gorm:"index"`
+	ID              string  `gorm:"type:uuid;primaryKey"`
+	StationID       string  `gorm:"type:uuid;index"`
+	Name            string  `gorm:"index"`
 	URL             string
-	Format          string `gorm:"type:varchar(16)"`
+	Format          string  `gorm:"type:varchar(16)"`
 	Bitrate         int
 	Channels        int
 	SampleRate      int
-	EncoderPresetID string `gorm:"type:uuid"`
+	EncoderPresetID *string `gorm:"type:uuid"` // Nullable foreign key
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
