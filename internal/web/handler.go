@@ -211,6 +211,9 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 		data.User = user
 		// Generate short-lived WS token for JavaScript access
 		data.WSToken = h.GenerateWSToken(user)
+		if data.WSToken == "" {
+			h.logger.Warn().Str("user_id", user.ID).Msg("failed to generate WS token")
+		}
 	}
 
 	// Get selected station from context

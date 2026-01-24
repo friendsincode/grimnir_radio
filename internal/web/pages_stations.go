@@ -238,8 +238,14 @@ func (h *Handler) MountCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.db.Create(&mount).Error; err != nil {
-		h.logger.Error().Err(err).Msg("failed to create mount")
-		http.Error(w, "Failed to create mount", http.StatusInternalServerError)
+		h.logger.Error().Err(err).Str("station_id", stationID).Str("name", mount.Name).Msg("failed to create mount")
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`<div class="alert alert-danger">Failed to create mount: ` + err.Error() + `</div>`))
+			return
+		}
+		http.Error(w, "Failed to create mount: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

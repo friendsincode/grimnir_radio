@@ -255,6 +255,7 @@ func (h *Handler) GenerateWSToken(user *models.User) string {
 
 	tokenStr, err := token.SignedString(h.jwtSecret)
 	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to sign WS token")
 		return ""
 	}
 	return tokenStr
