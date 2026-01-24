@@ -39,6 +39,34 @@ services:
     networks:
       - grimnir-network
 
+  # Icecast2 (streaming server)
+  icecast:
+    image: moul/icecast:2.4.4
+    container_name: grimnir-icecast
+    environment:
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
+      ICECAST_RELAY_PASSWORD: ${ICECAST_RELAY_PASSWORD:-hackme}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:-hackme}
+      ICECAST_ADMIN_USERNAME: ${ICECAST_ADMIN_USERNAME:-admin}
+      ICECAST_ADMIN_EMAIL: ${ICECAST_ADMIN_EMAIL:-admin@localhost}
+      ICECAST_LOCATION: ${ICECAST_LOCATION:-Earth}
+      ICECAST_HOSTNAME: ${ICECAST_HOSTNAME:-localhost}
+      ICECAST_MAX_CLIENTS: ${ICECAST_MAX_CLIENTS:-100}
+      ICECAST_MAX_SOURCES: ${ICECAST_MAX_SOURCES:-10}
+    ports:
+      - "${ICECAST_PORT:-8000}:8000"
+    volumes:
+      - icecast-logs:/var/log/icecast2
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/status.xsl"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - grimnir-network
+    restart: unless-stopped
+
   # Media Engine (GStreamer process)
   mediaengine:
     build:
@@ -143,6 +171,8 @@ volumes:
   media-data:
     driver: local
   media-cache:
+    driver: local
+  icecast-logs:
     driver: local
 
 networks:

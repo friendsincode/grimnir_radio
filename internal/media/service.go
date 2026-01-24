@@ -32,12 +32,32 @@ type Service struct {
 }
 
 // NewService creates a media service using filesystem or S3 storage based on config.
-func NewService(cfg *config.Config, logger zerolog.Logger) *Service {
+func NewService(cfg *config.Config, logger zerolog.Logger) (*Service, error) {
 	var storage Storage
 
-	if cfg.ObjectStorageURL != "" {
-		// Use S3-compatible storage if ObjectStorageURL is configured
-		storage = NewS3Storage(cfg.ObjectStorageURL, cfg.MediaRoot, logger)
+	// Use S3 storage if bucket is configured
+	if cfg.S3Bucket != "" {
+		s3cfg := S3Config{
+			AccessKeyID:     cfg.S3AccessKeyID,
+			SecretAccessKey: cfg.S3SecretAccessKey,
+			Region:          cfg.S3Region,
+			Bucket:          cfg.S3Bucket,
+			Endpoint:        cfg.S3Endpoint,
+			PublicBaseURL:   cfg.S3PublicBaseURL,
+			UsePathStyle:    cfg.S3UsePathStyle,
+			ForcePathStyle:  cfg.S3UsePathStyle,
+		}
+
+		// Use default values if not configured
+		if s3cfg.AccessKeyID == "" || s3cfg.SecretAccessKey == "" {
+			logger.Warn().Msg("S3 credentials not configured, some operations may fail")
+		}
+
+		s3Storage, err := NewS3Storage(context.Background(), s3cfg, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize S3 storage: %w", err)
+		}
+		storage = s3Storage
 	} else {
 		// Default to filesystem storage
 		storage = NewFilesystemStorage(cfg.MediaRoot, logger)
@@ -46,7 +66,7 @@ func NewService(cfg *config.Config, logger zerolog.Logger) *Service {
 	return &Service{
 		storage: storage,
 		logger:  logger,
-	}
+	}, nil
 }
 
 // Store saves an uploaded file and returns the storage path.

@@ -10,10 +10,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/spf13/cobra"
 )
@@ -100,12 +99,18 @@ func runImportAzuracast(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initialize database: %w", err)
 	}
 
+	// Initialize media service
+	mediaService, err := media.NewService(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("initialize media service: %w", err)
+	}
+
 	// Create event bus
 	bus := events.NewBus()
 
 	// Create migration service
 	migrationSvc := migration.NewService(db, bus, logger)
-	migrationSvc.RegisterImporter(migration.SourceTypeAzuraCast, migration.NewAzuraCastImporter(db, logger))
+	migrationSvc.RegisterImporter(migration.SourceTypeAzuraCast, migration.NewAzuraCastImporter(db, mediaService, logger))
 
 	// Create job options
 	options := migration.Options{
@@ -118,7 +123,7 @@ func runImportAzuracast(cmd *cobra.Command, args []string) error {
 	// Dry run: just analyze
 	if azuracastDryRun {
 		logger.Info().Msg("performing dry run analysis...")
-		importer := migration.NewAzuraCastImporter(db, logger)
+		importer := migration.NewAzuraCastImporter(db, mediaService, logger)
 
 		if err := importer.Validate(ctx, options); err != nil {
 			return fmt.Errorf("validation failed: %w", err)
@@ -163,7 +168,7 @@ func runImportAzuracast(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run import directly (not via service to show progress)
-	importer := migration.NewAzuraCastImporter(db, logger)
+	importer := migration.NewAzuraCastImporter(db, mediaService, logger)
 	result, err := importer.Import(ctx, options, progressCallback)
 	if err != nil {
 		logger.Error().Err(err).Msg("import failed")
@@ -212,12 +217,18 @@ func runImportLibretime(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initialize database: %w", err)
 	}
 
+	// Initialize media service
+	mediaService, err := media.NewService(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("initialize media service: %w", err)
+	}
+
 	// Create event bus
 	bus := events.NewBus()
 
 	// Create migration service
 	migrationSvc := migration.NewService(db, bus, logger)
-	migrationSvc.RegisterImporter(migration.SourceTypeLibreTime, migration.NewLibreTimeImporter(db, logger))
+	migrationSvc.RegisterImporter(migration.SourceTypeLibreTime, migration.NewLibreTimeImporter(db, mediaService, logger))
 
 	// Create job options
 	options := migration.Options{
@@ -237,7 +248,7 @@ func runImportLibretime(cmd *cobra.Command, args []string) error {
 	// Dry run: just analyze
 	if libretimeDryRun {
 		logger.Info().Msg("performing dry run analysis...")
-		importer := migration.NewLibreTimeImporter(db, logger)
+		importer := migration.NewLibreTimeImporter(db, mediaService, logger)
 
 		if err := importer.Validate(ctx, options); err != nil {
 			return fmt.Errorf("validation failed: %w", err)
@@ -292,7 +303,7 @@ func runImportLibretime(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run import directly (not via service to show progress)
-	importer := migration.NewLibreTimeImporter(db, logger)
+	importer := migration.NewLibreTimeImporter(db, mediaService, logger)
 	result, err := importer.Import(ctx, options, progressCallback)
 	if err != nil {
 		logger.Error().Err(err).Msg("import failed")

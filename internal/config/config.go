@@ -38,6 +38,15 @@ type Config struct {
 	JWTSigningKey      string
 	MetricsBind        string
 
+	// S3 Object Storage configuration
+	S3AccessKeyID     string
+	S3SecretAccessKey string
+	S3Region          string
+	S3Bucket          string
+	S3Endpoint        string // For S3-compatible services (MinIO, Spaces, etc.)
+	S3PublicBaseURL   string // Optional CDN/CloudFront URL
+	S3UsePathStyle    bool   // Required for MinIO
+
 	// Tracing configuration
 	TracingEnabled    bool
 	OTLPEndpoint      string
@@ -65,6 +74,15 @@ func Load() (*Config, error) {
         SchedulerLookahead: time.Duration(getEnvIntAny([]string{"GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES", "RLM_SCHEDULER_LOOKAHEAD_MINUTES"}, 48)) * time.Hour,
         JWTSigningKey:      getEnvAny([]string{"GRIMNIR_JWT_SIGNING_KEY", "RLM_JWT_SIGNING_KEY"}, ""),
         MetricsBind:        getEnvAny([]string{"GRIMNIR_METRICS_BIND", "RLM_METRICS_BIND"}, "127.0.0.1:9000"),
+
+        // S3 Object Storage configuration
+        S3AccessKeyID:     getEnvAny([]string{"GRIMNIR_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"}, ""),
+        S3SecretAccessKey: getEnvAny([]string{"GRIMNIR_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"}, ""),
+        S3Region:          getEnvAny([]string{"GRIMNIR_S3_REGION", "AWS_REGION"}, "us-east-1"),
+        S3Bucket:          getEnvAny([]string{"GRIMNIR_S3_BUCKET", "S3_BUCKET"}, ""),
+        S3Endpoint:        getEnvAny([]string{"GRIMNIR_S3_ENDPOINT", "S3_ENDPOINT"}, ""),
+        S3PublicBaseURL:   getEnvAny([]string{"GRIMNIR_S3_PUBLIC_BASE_URL", "S3_PUBLIC_BASE_URL"}, ""),
+        S3UsePathStyle:    getEnvBoolAny([]string{"GRIMNIR_S3_USE_PATH_STYLE", "S3_USE_PATH_STYLE"}, false),
 
         // Tracing configuration
         TracingEnabled:    getEnvBoolAny([]string{"GRIMNIR_TRACING_ENABLED", "RLM_TRACING_ENABLED"}, false),

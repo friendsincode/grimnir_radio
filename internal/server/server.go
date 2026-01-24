@@ -142,7 +142,10 @@ func (s *Server) initDependencies() error {
 	}
 
 	s.analyzer = analyzer.New(database, s.cfg.MediaRoot, s.logger)
-	mediaService := media.NewService(s.cfg, s.logger)
+	mediaService, err := media.NewService(s.cfg, s.logger)
+	if err != nil {
+		return fmt.Errorf("failed to initialize media service: %w", err)
+	}
 
 	// Webstream service with health checking (created early for director dependency)
 	webstreamService := webstream.NewService(database, s.bus, s.logger)
