@@ -22,10 +22,13 @@ NC='\033[0m'
 # Directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_DIR="$PROJECT_ROOT/.docker-deploy"
-CONFIG_FILE="$CONFIG_DIR/deployment.conf"
-ENV_FILE="$PROJECT_ROOT/.env"
-OVERRIDE_FILE="$PROJECT_ROOT/docker-compose.override.yml"
+# DEPLOY_DIR and DATA_DIR will be set interactively
+DEPLOY_DIR=""
+DATA_DIR=""
+CONFIG_DIR=""
+CONFIG_FILE=""
+ENV_FILE=""
+OVERRIDE_FILE=""
 
 # Default values
 DEFAULT_HTTP_PORT=8080
@@ -200,17 +203,104 @@ suggest_port() {
         local suggested_port=$(find_available_port $default_port)
 
         if [ -n "$suggested_port" ]; then
-            print_warning "Port $default_port ($description) is in use"
-            print_info "Suggesting available port: $suggested_port"
+            # Send messages to stderr so they don't get captured in $()
+            print_warning "Port $default_port ($description) is in use" >&2
+            print_info "Suggesting available port: $suggested_port" >&2
             echo "$suggested_port"
         else
-            print_error "Could not find available port near $default_port"
+            print_error "Could not find available port near $default_port" >&2
             echo "$default_port"
         fi
     else
         # Port is available
         echo "$default_port"
     fi
+}
+
+# Configure deployment directory
+configure_deploy_dir() {
+    print_section "Directory Configuration"
+
+    local current_dir="$(pwd)"
+
+    # Docker files directory
+    print_info "Where should Docker configuration files be stored?"
+    print_info "  (.env, docker-compose.yml, docker-compose.override.yml)"
+    echo ""
+
+    prompt "Docker config directory" "$current_dir" "DEPLOY_DIR"
+
+    # Expand ~ to home directory
+    DEPLOY_DIR="${DEPLOY_DIR/#\~/$HOME}"
+
+    # Convert to absolute path
+    if [[ "$DEPLOY_DIR" != /* ]]; then
+        DEPLOY_DIR="$current_dir/$DEPLOY_DIR"
+    fi
+
+    # Check if directory exists or create it
+    if [ ! -d "$DEPLOY_DIR" ]; then
+        print_warning "Directory does not exist: $DEPLOY_DIR"
+        if prompt_yn "Create directory?" "y"; then
+            mkdir -p "$DEPLOY_DIR"
+            print_success "Created $DEPLOY_DIR"
+        else
+            print_error "Cannot proceed without a valid directory"
+            exit 1
+        fi
+    fi
+
+    # Check if writable
+    if [ ! -w "$DEPLOY_DIR" ]; then
+        print_error "Directory is not writable: $DEPLOY_DIR"
+        exit 1
+    fi
+
+    # Set docker config path variables
+    CONFIG_DIR="$DEPLOY_DIR/.docker-deploy"
+    CONFIG_FILE="$CONFIG_DIR/deployment.conf"
+    ENV_FILE="$DEPLOY_DIR/.env"
+    OVERRIDE_FILE="$DEPLOY_DIR/docker-compose.override.yml"
+
+    print_success "Docker config: $DEPLOY_DIR"
+    echo ""
+
+    # Data directory
+    print_info "Where should application data be stored?"
+    print_info "  (media-data/, postgres-data/, redis-data/, icecast-logs/)"
+    print_info "  This can be a separate mount point (e.g., NFS)"
+    echo ""
+
+    prompt "Data directory" "/srv/data" "DATA_DIR"
+
+    # Expand ~ to home directory
+    DATA_DIR="${DATA_DIR/#\~/$HOME}"
+
+    # Convert to absolute path
+    if [[ "$DATA_DIR" != /* ]]; then
+        DATA_DIR="$current_dir/$DATA_DIR"
+    fi
+
+    # Check if directory exists or create it
+    if [ ! -d "$DATA_DIR" ]; then
+        print_warning "Directory does not exist: $DATA_DIR"
+        if prompt_yn "Create directory?" "y"; then
+            mkdir -p "$DATA_DIR"
+            print_success "Created $DATA_DIR"
+        else
+            print_error "Cannot proceed without a valid directory"
+            exit 1
+        fi
+    fi
+
+    # Check if writable
+    if [ ! -w "$DATA_DIR" ]; then
+        print_error "Directory is not writable: $DATA_DIR"
+        exit 1
+    fi
+
+    print_success "Data directory: $DATA_DIR"
+    echo ""
 }
 
 # Check prerequisites
@@ -318,6 +408,9 @@ save_config() {
 # Deployment mode
 DEPLOYMENT_MODE="$DEPLOYMENT_MODE"
 
+# Directories
+DATA_DIR="$DATA_DIR"
+
 # Ports
 HTTP_PORT=$HTTP_PORT
 METRICS_PORT=$METRICS_PORT
@@ -416,10 +509,10 @@ configure_quick_mode() {
     print_info "  PostgreSQL:    $POSTGRES_PORT"
     print_info "  Redis:         $REDIS_PORT"
 
-    MEDIA_STORAGE_PATH="$PROJECT_ROOT/media-data"
-    POSTGRES_DATA_PATH="$PROJECT_ROOT/postgres-data"
-    REDIS_DATA_PATH="$PROJECT_ROOT/redis-data"
-    ICECAST_LOGS_PATH="$PROJECT_ROOT/icecast-logs"
+    MEDIA_STORAGE_PATH="$DATA_DIR/media-data"
+    POSTGRES_DATA_PATH="$DATA_DIR/postgres-data"
+    REDIS_DATA_PATH="$DATA_DIR/redis-data"
+    ICECAST_LOGS_PATH="$DATA_DIR/icecast-logs"
 
     USE_EXTERNAL_POSTGRES=false
     USE_EXTERNAL_REDIS=false
@@ -627,10 +720,10 @@ configure_ports() {
 configure_volumes() {
     print_section "Volume Configuration"
 
-    prompt "Media storage path" "$PROJECT_ROOT/media-data" "MEDIA_STORAGE_PATH"
-    prompt "PostgreSQL data path" "$PROJECT_ROOT/postgres-data" "POSTGRES_DATA_PATH"
-    prompt "Redis data path" "$PROJECT_ROOT/redis-data" "REDIS_DATA_PATH"
-    prompt "Icecast logs path" "$PROJECT_ROOT/icecast-logs" "ICECAST_LOGS_PATH"
+    prompt "Media storage path" "$DATA_DIR/media-data" "MEDIA_STORAGE_PATH"
+    prompt "PostgreSQL data path" "$DATA_DIR/postgres-data" "POSTGRES_DATA_PATH"
+    prompt "Redis data path" "$DATA_DIR/redis-data" "REDIS_DATA_PATH"
+    prompt "Icecast logs path" "$DATA_DIR/icecast-logs" "ICECAST_LOGS_PATH"
 }
 
 # Configure production volumes
@@ -1002,11 +1095,28 @@ EOF
     print_success "Created $OVERRIDE_FILE"
 }
 
+# Copy docker-compose.yml to deploy directory if needed
+copy_compose_file() {
+    local src_compose="$PROJECT_ROOT/docker-compose.yml"
+    local dst_compose="$DEPLOY_DIR/docker-compose.yml"
+
+    if [ "$DEPLOY_DIR" != "$PROJECT_ROOT" ]; then
+        if [ -f "$src_compose" ]; then
+            cp "$src_compose" "$dst_compose"
+            print_success "Copied docker-compose.yml to $DEPLOY_DIR"
+        else
+            print_error "docker-compose.yml not found in $PROJECT_ROOT"
+            exit 1
+        fi
+    fi
+}
+
 # Build images
 build_images() {
     print_section "Building Docker Images"
 
-    cd "$PROJECT_ROOT"
+    copy_compose_file
+    cd "$DEPLOY_DIR"
 
     print_info "Building images (this may take several minutes)..."
     docker-compose build --parallel
@@ -1018,7 +1128,7 @@ build_images() {
 start_services() {
     print_section "Starting Services"
 
-    cd "$PROJECT_ROOT"
+    cd "$DEPLOY_DIR"
 
     print_info "Starting Grimnir Radio stack..."
     docker-compose up -d
@@ -1029,6 +1139,8 @@ start_services() {
 # Wait for health
 wait_for_health() {
     print_section "Waiting for Services"
+
+    cd "$DEPLOY_DIR"
 
     local max_wait=120
     local elapsed=0
@@ -1121,7 +1233,11 @@ display_summary() {
     echo -e "  Saved Config:  $CONFIG_FILE"
     echo ""
 
-    echo -e "${CYAN}Useful Commands:${NC}"
+    echo -e "${CYAN}Deployment Directory:${NC}"
+    echo -e "  $DEPLOY_DIR"
+    echo ""
+
+    echo -e "${CYAN}Useful Commands:${NC} (run from $DEPLOY_DIR)"
     echo -e "  View logs:       docker-compose logs -f"
     echo -e "  Stop services:   docker-compose down"
     echo -e "  Restart:         docker-compose restart"
@@ -1144,9 +1260,10 @@ display_summary() {
 # Stop services
 stop_services() {
     print_header
+    configure_deploy_dir
     print_section "Stopping Services"
 
-    cd "$PROJECT_ROOT"
+    cd "$DEPLOY_DIR"
     docker-compose down
 
     print_success "Services stopped"
@@ -1155,6 +1272,7 @@ stop_services() {
 # Clean everything
 clean_all() {
     print_header
+    configure_deploy_dir
     print_section "Clean Deployment"
 
     print_warning "This will:"
@@ -1175,7 +1293,7 @@ clean_all() {
         exit 0
     fi
 
-    cd "$PROJECT_ROOT"
+    cd "$DEPLOY_DIR"
 
     print_info "Stopping and removing containers..."
     docker-compose down -v
@@ -1210,6 +1328,7 @@ main() {
         *)
             print_header
             check_prerequisites
+            configure_deploy_dir
 
             # Try to load saved config
             if ! load_config; then
