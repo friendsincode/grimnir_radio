@@ -85,10 +85,11 @@ dev-stack:
 	@echo "Dev stack running (postgres + redis)"
 
 run-control:
-	GRIMNIR_DB_DSN="host=localhost port=5432 user=grimnir password=grimnir_secret dbname=grimnir sslmode=disable" \
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	GRIMNIR_DB_DSN="host=localhost port=5432 user=grimnir password=$${POSTGRES_PASSWORD:-grimnir_secret} dbname=grimnir sslmode=disable" \
 	GRIMNIR_REDIS_ADDR="localhost:6379" \
 	GRIMNIR_MEDIA_ENGINE_GRPC_ADDR="localhost:9091" \
-	GRIMNIR_JWT_SIGNING_KEY="dev-secret-key-do-not-use-in-production" \
+	GRIMNIR_JWT_SIGNING_KEY="$${GRIMNIR_JWT_SIGNING_KEY:-dev-secret-key}" \
 	$(GO) run ./cmd/grimnirradio serve
 
 run-media:
