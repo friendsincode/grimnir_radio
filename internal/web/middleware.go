@@ -241,16 +241,19 @@ func (h *Handler) GetAuthToken(r *http.Request) string {
 
 // GenerateWSToken creates a short-lived token for WebSocket connections.
 // This token is safe to expose in JavaScript as it has a short TTL.
+// Uses the same Claims structure as the API auth middleware expects.
 func (h *Handler) GenerateWSToken(user *models.User) string {
 	if user == nil {
 		return ""
 	}
 
+	// Use the same claim structure as auth.Claims for API compatibility
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": user.ID,
-		"purpose": "websocket",
-		"exp":     time.Now().Add(5 * time.Minute).Unix(),
-		"iat":     time.Now().Unix(),
+		"uid":   user.ID,
+		"roles": []string{string(user.Role)},
+		"exp":   time.Now().Add(5 * time.Minute).Unix(),
+		"iat":   time.Now().Unix(),
+		"sub":   user.ID,
 	})
 
 	tokenStr, err := token.SignedString(h.jwtSecret)
