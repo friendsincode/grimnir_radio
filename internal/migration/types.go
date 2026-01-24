@@ -85,6 +85,7 @@ type Progress struct {
 	StationsImported  int       `json:"stations_imported"`
 	MediaTotal        int       `json:"media_total"`
 	MediaImported     int       `json:"media_imported"`
+	MediaCopied       int       `json:"media_copied"`
 	PlaylistsTotal    int       `json:"playlists_total"`
 	PlaylistsImported int       `json:"playlists_imported"`
 	SchedulesTotal    int       `json:"schedules_total"`

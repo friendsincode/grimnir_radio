@@ -26,6 +26,7 @@ const (
 	EventLiveReleased    EventType = "live.released"
 	EventWebstreamFailover EventType = "webstream.failover"
 	EventWebstreamRecovered EventType = "webstream.recovered"
+	EventMigration       EventType = "migration"
 )
 
 // Payload generic event payload.
