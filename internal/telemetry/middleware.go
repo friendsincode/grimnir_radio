@@ -8,6 +8,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package telemetry
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -17,6 +19,7 @@ import (
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code.
+// Implements http.Hijacker to support WebSocket upgrades.
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -36,6 +39,14 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		rw.WriteHeader(http.StatusOK)
 	}
 	return rw.ResponseWriter.Write(b)
+}
+
+// Hijack implements http.Hijacker to support WebSocket upgrades.
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
 }
 
 // MetricsMiddleware tracks HTTP request metrics.
