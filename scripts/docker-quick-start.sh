@@ -1018,8 +1018,8 @@ EOF
             cat >> "$OVERRIDE_FILE" <<EOF
 
   grimnir-$i:
-    image: grimnir-radio:latest
-    container_name: grimnir-radio-$i
+    image: grimnir_radio:latest
+    container_name: grimnir_radio-$i
     environment:
       GRIMNIR_HTTP_PORT: 8080
       GRIMNIR_HTTP_BIND: 0.0.0.0
