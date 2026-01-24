@@ -1096,18 +1096,43 @@ EOF
 
 # Copy docker-compose.yml to deploy directory if needed
 copy_compose_file() {
-    local src_compose="$PROJECT_ROOT/docker-compose.yml"
     local dst_compose="$DEPLOY_DIR/docker-compose.yml"
 
-    if [ "$DEPLOY_DIR" != "$PROJECT_ROOT" ]; then
-        if [ -f "$src_compose" ]; then
-            cp "$src_compose" "$dst_compose"
-            print_success "Copied docker-compose.yml to $DEPLOY_DIR"
-        else
-            print_error "docker-compose.yml not found in $PROJECT_ROOT"
-            exit 1
-        fi
+    # If docker-compose.yml already exists in deploy dir, we're done
+    if [ -f "$dst_compose" ]; then
+        return 0
     fi
+
+    # Try to find it in PROJECT_ROOT (where the script came from)
+    local src_compose="$PROJECT_ROOT/docker-compose.yml"
+
+    if [ -f "$src_compose" ]; then
+        cp "$src_compose" "$dst_compose"
+        print_success "Copied docker-compose.yml to $DEPLOY_DIR"
+        return 0
+    fi
+
+    # Not found - ask user for the grimnir_radio source location
+    print_warning "docker-compose.yml not found"
+    print_info "Please provide the path to the Grimnir Radio source directory"
+    echo ""
+
+    local source_dir=""
+    while true; do
+        prompt "Grimnir Radio source directory" "" "source_dir"
+
+        # Expand ~ to home directory
+        source_dir="${source_dir/#\~/$HOME}"
+
+        if [ -f "$source_dir/docker-compose.yml" ]; then
+            cp "$source_dir/docker-compose.yml" "$dst_compose"
+            print_success "Copied docker-compose.yml to $DEPLOY_DIR"
+            return 0
+        else
+            print_error "docker-compose.yml not found in $source_dir"
+            print_info "Make sure you point to the grimnir_radio project root"
+        fi
+    done
 }
 
 # Build images
