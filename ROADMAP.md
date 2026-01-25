@@ -64,6 +64,29 @@ Implement audio fingerprinting to detect true duplicate audio files regardless o
 
 ---
 
+## Version 2.0.0 (Future)
+
+### MediaEngine Migration
+**Priority:** High
+**Status:** Planned
+**Details:** [v2-migration.md](docs/v2-migration.md)
+
+Move GStreamer audio processing from grimnir container to dedicated mediaengine container via gRPC. This separation improves reliability (GStreamer crashes won't kill the API) and enables independent scaling.
+
+#### Key Changes:
+- [ ] Add MediaEngine gRPC client to grimnir
+- [ ] Update Director to use gRPC instead of exec.Command
+- [ ] Remove GStreamer from main Dockerfile
+- [ ] Delete unused playout/manager.go and playout/pipeline.go
+
+### Other 2.0.0 Features
+- [ ] DSP graph UI (visual audio processing)
+- [ ] Crossfade with cue points
+- [ ] Multi-engine scaling (multiple mediaengine instances)
+- [ ] Live input routing UI
+
+---
+
 ## Contributing
 
 To contribute to any roadmap item, please open an issue first to discuss the implementation approach.
