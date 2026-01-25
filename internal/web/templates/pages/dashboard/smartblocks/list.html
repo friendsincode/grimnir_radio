@@ -13,79 +13,127 @@
 
 {{define "main"}}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h4 class="mb-0"><i class="bi bi-magic me-2"></i>Smart Blocks</h4>
+    <div>
+        <h4 class="mb-0"><i class="bi bi-magic me-2"></i>Smart Blocks</h4>
+        <p class="text-body-secondary mb-0 small">Intelligent music selection based on rules</p>
+    </div>
     <a href="/dashboard/smart-blocks/new" class="btn btn-primary">
         <i class="bi bi-plus-circle me-2"></i>New Smart Block
     </a>
 </div>
 
-<div class="card">
-    <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Description</th>
-                    <th>Created</th>
-                    <th style="width: 150px;"></th>
-                </tr>
-            </thead>
-            <tbody>
-                {{range .Data}}
-                <tr onclick="window.location='/dashboard/smart-blocks/{{.ID}}'" style="cursor: pointer;">
-                    <td>
-                        <i class="bi bi-magic text-info me-2"></i>
-                        <strong>{{.Name}}</strong>
-                    </td>
-                    <td>{{if .Description}}{{truncate .Description 60}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
-                    <td><small class="text-body-secondary">{{formatTime .CreatedAt}}</small></td>
-                    <td class="text-end">
-                        <div class="btn-group btn-group-sm" onclick="event.stopPropagation()">
-                            <button class="btn btn-outline-info" title="Preview"
-                                    hx-post="/dashboard/smart-blocks/{{.ID}}/preview"
-                                    hx-target="#previewModal .modal-body"
-                                    data-bs-toggle="modal" data-bs-target="#previewModal">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                            <a href="/dashboard/smart-blocks/{{.ID}}/edit" class="btn btn-outline-secondary">
-                                <i class="bi bi-pencil"></i>
-                            </a>
-                            <button class="btn btn-outline-danger"
-                                    hx-delete="/dashboard/smart-blocks/{{.ID}}"
-                                    hx-confirm="Delete this smart block?">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-                {{else}}
-                <tr>
-                    <td colspan="4" class="text-center py-5 text-body-secondary">
-                        No smart blocks. <a href="/dashboard/smart-blocks/new">Create your first one</a>
-                    </td>
-                </tr>
+{{if .Data}}
+<div class="row g-3">
+    {{range .Data}}
+    {{$rules := .Rules}}
+    {{$seq := .Sequence}}
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 hover-shadow" style="cursor: pointer;" onclick="window.location='/dashboard/smart-blocks/{{.ID}}'">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-magic text-info me-2"></i>{{.Name}}
+                    </h5>
+                    <div class="btn-group btn-group-sm" onclick="event.stopPropagation()">
+                        <a href="/dashboard/smart-blocks/{{.ID}}/edit" class="btn btn-outline-secondary btn-sm" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        <button class="btn btn-outline-danger btn-sm" title="Delete"
+                                hx-delete="/dashboard/smart-blocks/{{.ID}}"
+                                hx-confirm="Delete this smart block?">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                {{if .Description}}
+                <p class="card-text text-body-secondary small mb-3">{{truncate .Description 80}}</p>
                 {{end}}
-            </tbody>
-        </table>
+
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    {{with index $rules "targetMinutes"}}
+                    <span class="badge bg-primary">
+                        <i class="bi bi-clock me-1"></i>
+                        {{if ge . 1440}}{{div . 1440}}d{{else if ge . 60}}{{div . 60}}h{{else}}{{.}}m{{end}}
+                    </span>
+                    {{end}}
+
+                    {{with $seq}}{{with index . "mode"}}
+                    <span class="badge bg-secondary">
+                        {{if eq . "random"}}<i class="bi bi-shuffle me-1"></i>Random{{end}}
+                        {{if eq . "shuffle"}}<i class="bi bi-arrow-repeat me-1"></i>Shuffle{{end}}
+                        {{if eq . "weighted"}}<i class="bi bi-bar-chart me-1"></i>Weighted{{end}}
+                    </span>
+                    {{end}}{{end}}
+
+                    {{with index $rules "genre"}}
+                    <span class="badge bg-info text-dark"><i class="bi bi-music-note me-1"></i>{{.}}</span>
+                    {{end}}
+
+                    {{with index $rules "mood"}}
+                    <span class="badge bg-warning text-dark">{{.}}</span>
+                    {{end}}
+
+                    {{if index $rules "interstitials"}}
+                    <span class="badge bg-success"><i class="bi bi-megaphone me-1"></i>Ads</span>
+                    {{end}}
+
+                    {{with index $rules "weights"}}
+                    <span class="badge bg-warning text-dark"><i class="bi bi-lightning me-1"></i>{{len .}} boosts</span>
+                    {{end}}
+                </div>
+
+                <div class="text-body-secondary small d-flex justify-content-between">
+                    <span><i class="bi bi-calendar3 me-1"></i>{{formatTime .CreatedAt}}</span>
+                    <button class="btn btn-link btn-sm p-0 text-info" onclick="event.stopPropagation()"
+                            hx-post="/dashboard/smart-blocks/{{.ID}}/preview"
+                            hx-target="#previewModal .modal-body"
+                            data-bs-toggle="modal" data-bs-target="#previewModal">
+                        <i class="bi bi-eye me-1"></i>Preview
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-magic fs-1 text-body-secondary mb-3 d-block"></i>
+        <h5 class="text-body-secondary">No Smart Blocks Yet</h5>
+        <p class="text-body-secondary mb-4">Smart blocks automatically select music based on rules like genre, mood, BPM, and more.</p>
+        <a href="/dashboard/smart-blocks/new" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-2"></i>Create Your First Smart Block
+        </a>
     </div>
 </div>
+{{end}}
 
 <!-- Preview Modal -->
 <div class="modal fade" id="previewModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Smart Block Preview</h5>
+                <h5 class="modal-title"><i class="bi bi-eye me-2"></i>Smart Block Preview</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="text-center py-4">
-                    <div class="spinner-border" role="status">
+                    <div class="spinner-border text-primary" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
+                    <div class="small text-muted mt-2">Generating preview...</div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<style>
+.hover-shadow:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    transition: box-shadow 0.2s ease-in-out;
+}
+</style>
 {{end}}

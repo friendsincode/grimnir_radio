@@ -136,6 +136,7 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Put("/{id}", h.SmartBlockUpdate)
 					r.Delete("/{id}", h.SmartBlockDelete)
 					r.Post("/{id}/preview", h.SmartBlockPreview)
+					r.Post("/{id}/duplicate", h.SmartBlockDuplicate)
 				})
 
 				// Clock Templates

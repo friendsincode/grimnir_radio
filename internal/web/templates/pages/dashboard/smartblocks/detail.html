@@ -15,6 +15,8 @@
 
 {{define "main"}}
 {{$block := .Data}}
+{{$rules := $block.Rules}}
+{{$seq := $block.Sequence}}
 <div class="row">
     <div class="col-lg-8">
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -25,130 +27,319 @@
                 {{end}}
             </div>
             <div class="d-flex gap-2">
-                <a href="/dashboard/smart-blocks/{{$block.ID}}/edit" class="btn btn-outline-secondary">
+                <button class="btn btn-outline-secondary"
+                        hx-post="/dashboard/smart-blocks/{{$block.ID}}/duplicate"
+                        hx-swap="none">
+                    <i class="bi bi-copy me-1"></i>Duplicate
+                </button>
+                <a href="/dashboard/smart-blocks/{{$block.ID}}/edit" class="btn btn-primary">
                     <i class="bi bi-pencil me-1"></i>Edit
                 </a>
                 <button class="btn btn-outline-danger"
                         hx-delete="/dashboard/smart-blocks/{{$block.ID}}"
                         hx-confirm="Delete this smart block?">
-                    <i class="bi bi-trash me-1"></i>Delete
+                    <i class="bi bi-trash"></i>
                 </button>
             </div>
         </div>
 
-        <!-- Rules Display -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">Selection Rules</h5>
+        <!-- Core Settings -->
+        <div class="card mb-3 border-primary">
+            <div class="card-header bg-primary text-white">
+                <i class="bi bi-sliders me-2"></i>Core Settings
             </div>
             <div class="card-body">
-                {{if $block.Rules}}
                 <div class="row g-3">
-                    {{with index $block.Rules "genre"}}
                     <div class="col-md-4">
-                        <label class="form-label small text-body-secondary">Genre</label>
-                        <p class="mb-0 fw-medium">{{.}}</p>
-                    </div>
-                    {{end}}
-                    {{with index $block.Rules "artist"}}
-                    <div class="col-md-4">
-                        <label class="form-label small text-body-secondary">Artist</label>
-                        <p class="mb-0 fw-medium">{{.}}</p>
-                    </div>
-                    {{end}}
-                    {{with index $block.Rules "mood"}}
-                    <div class="col-md-4">
-                        <label class="form-label small text-body-secondary">Mood</label>
-                        <p class="mb-0 fw-medium">{{.}}</p>
-                    </div>
-                    {{end}}
-                    {{with index $block.Rules "language"}}
-                    <div class="col-md-4">
-                        <label class="form-label small text-body-secondary">Language</label>
-                        <p class="mb-0 fw-medium">{{.}}</p>
-                    </div>
-                    {{end}}
-                    {{if or (index $block.Rules "yearFrom") (index $block.Rules "yearTo")}}
-                    <div class="col-md-4">
-                        <label class="form-label small text-body-secondary">Year Range</label>
-                        <p class="mb-0 fw-medium">
-                            {{with index $block.Rules "yearFrom"}}{{.}}{{else}}Any{{end}}
-                            -
-                            {{with index $block.Rules "yearTo"}}{{.}}{{else}}Any{{end}}
+                        <label class="form-label small text-body-secondary mb-1">Target Duration</label>
+                        <p class="mb-0 fw-medium fs-5">
+                            {{with index $rules "targetMinutes"}}
+                            {{if ge . 1440}}{{div . 1440}} days{{else if ge . 60}}{{div . 60}}h {{mod . 60}}m{{else}}{{.}} min{{end}}
+                            {{else}}<span class="text-body-secondary">Not set</span>{{end}}
                         </p>
                     </div>
-                    {{end}}
-                    {{if or (index $block.Rules "bpmFrom") (index $block.Rules "bpmTo")}}
                     <div class="col-md-4">
-                        <label class="form-label small text-body-secondary">BPM Range</label>
+                        <label class="form-label small text-body-secondary mb-1">Accuracy</label>
                         <p class="mb-0 fw-medium">
-                            {{with index $block.Rules "bpmFrom"}}{{.}}{{else}}Any{{end}}
-                            -
-                            {{with index $block.Rules "bpmTo"}}{{.}}{{else}}Any{{end}}
+                            ±{{with index $rules "durationAccuracy"}}{{.}}{{else}}2{{end}} seconds
                         </p>
                     </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Selection Mode</label>
+                        <p class="mb-0 fw-medium">
+                            {{with $seq}}{{with index . "mode"}}
+                            {{if eq . "random"}}<i class="bi bi-shuffle me-1"></i>Random{{end}}
+                            {{if eq . "shuffle"}}<i class="bi bi-arrow-repeat me-1"></i>Shuffle{{end}}
+                            {{if eq . "weighted"}}<i class="bi bi-bar-chart me-1"></i>Weighted{{end}}
+                            {{else}}<i class="bi bi-shuffle me-1"></i>Random{{end}}
+                            {{else}}<i class="bi bi-shuffle me-1"></i>Random{{end}}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Source Playlists -->
+        {{with index $rules "sourcePlaylists"}}
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-collection-play me-2"></i>Source Playlists
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2">
+                    {{range .}}
+                    <span class="badge bg-secondary">{{.}}</span>
                     {{end}}
-                    {{if index $block.Rules "excludeExplicit"}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- Selection Filters -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-funnel me-2"></i>Selection Filters
+            </div>
+            <div class="card-body">
+                {{if or (index $rules "genre") (index $rules "artist") (index $rules "mood") (index $rules "era") (index $rules "language") (index $rules "bpmRange") (index $rules "excludeExplicit")}}
+                <div class="row g-3">
+                    {{with index $rules "genre"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Genre</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index $rules "artist"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Artist</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index $rules "mood"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Mood</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index $rules "era"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Era</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index $rules "language"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Language</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index $rules "bpmRange"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">BPM Range</label>
+                        <p class="mb-0 fw-medium">{{index . "min"}} - {{index . "max"}}</p>
+                    </div>
+                    {{end}}
+                    {{if index $rules "excludeExplicit"}}
                     <div class="col-12">
-                        <span class="badge bg-warning text-dark">
-                            <i class="bi bi-ban me-1"></i>Excludes explicit content
-                        </span>
+                        <span class="badge bg-warning text-dark"><i class="bi bi-ban me-1"></i>Excludes explicit</span>
                     </div>
                     {{end}}
                 </div>
                 {{else}}
-                <p class="text-body-secondary mb-0">No specific rules - matches all media</p>
+                <p class="text-body-secondary mb-0"><i class="bi bi-check-circle me-1"></i>Matches all media</p>
                 {{end}}
             </div>
         </div>
 
-        <!-- Sequence Settings -->
-        <div class="card mb-4">
+        <!-- Repeat Prevention -->
+        {{with index $rules "separation"}}
+        <div class="card mb-3">
             <div class="card-header">
-                <h5 class="mb-0">Sequence Settings</h5>
+                <i class="bi bi-clock-history me-2"></i>Repeat Prevention
             </div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label small text-body-secondary">Selection Mode</label>
-                        <p class="mb-0 fw-medium">
-                            {{with $block.Sequence}}
-                            {{with index . "mode"}}
-                            {{if eq . "random"}}Random{{end}}
-                            {{if eq . "shuffle"}}Shuffle (no repeats){{end}}
-                            {{if eq . "sequential"}}Sequential{{end}}
-                            {{if eq . "weighted"}}Weighted by plays{{end}}
-                            {{else}}Random{{end}}
-                            {{else}}Random{{end}}
-                        </p>
+                    {{with index . "artist"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Artist</label>
+                        <p class="mb-0 fw-medium">{{.}} min</p>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label small text-body-secondary">Avoid Repeat</label>
-                        <p class="mb-0 fw-medium">
-                            {{with $block.Sequence}}
-                            {{with index . "avoidRepeatMinutes"}}
-                            {{.}} minutes
-                            {{else}}60 minutes{{end}}
-                            {{else}}60 minutes{{end}}
-                        </p>
+                    {{end}}
+                    {{with index . "title"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Title</label>
+                        <p class="mb-0 fw-medium">{{.}} min</p>
                     </div>
+                    {{end}}
+                    {{with index . "album"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Album</label>
+                        <p class="mb-0 fw-medium">{{.}} min</p>
+                    </div>
+                    {{end}}
+                    {{with index . "label"}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary mb-1">Label</label>
+                        <p class="mb-0 fw-medium">{{.}} min</p>
+                    </div>
+                    {{end}}
                 </div>
             </div>
         </div>
+        {{end}}
+
+        <!-- Priority Boosters -->
+        {{with index $rules "weights"}}
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-lightning-charge me-2"></i>Priority Boosters
+                <span class="badge bg-warning text-dark ms-2">{{len .}}</span>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Field</th><th>Value</th><th>Weight</th></tr></thead>
+                    <tbody>
+                        {{range .}}
+                        <tr>
+                            <td>{{index . "field"}}</td>
+                            <td><strong>{{index . "value"}}</strong></td>
+                            <td><span class="badge bg-success">+{{index . "weight"}}%</span></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- Quotas -->
+        {{with index $rules "quotas"}}
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-pie-chart me-2"></i>Category Quotas
+                <span class="badge bg-info ms-2">{{len .}}</span>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Field</th><th>Value</th><th>Min %</th><th>Max %</th></tr></thead>
+                    <tbody>
+                        {{range .}}
+                        <tr>
+                            <td>{{index . "field"}}</td>
+                            <td><strong>{{index . "value"}}</strong></td>
+                            <td>{{index . "minPct"}}%</td>
+                            <td>{{index . "maxPct"}}%</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- Ads / Interstitials -->
+        {{with index $rules "interstitials"}}
+        {{if index . "enabled"}}
+        <div class="card mb-3 border-success">
+            <div class="card-header bg-success text-white">
+                <i class="bi bi-megaphone me-2"></i>Ads / Interstitials
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Source</label>
+                        <p class="mb-0 fw-medium">
+                            {{if eq (index . "sourceType") "playlist"}}Playlist{{else}}Genre{{end}}
+                        </p>
+                    </div>
+                    {{with index . "playlistID"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Playlist ID</label>
+                        <p class="mb-0 fw-medium text-truncate">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index . "genre"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Genre</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Frequency</label>
+                        <p class="mb-0 fw-medium">Every {{index . "every"}} tracks</p>
+                    </div>
+                    {{with index . "perBreak"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Per Break</label>
+                        <p class="mb-0 fw-medium">{{.}} ads</p>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+        {{end}}
+
+        <!-- Fallbacks -->
+        {{with index $rules "fallbacks"}}
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-arrow-repeat me-2"></i>Fallback Blocks
+                <span class="badge bg-secondary ms-2">{{len .}}</span>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>#</th><th>Block ID</th><th>Limit</th></tr></thead>
+                    <tbody>
+                        {{range $i, $f := .}}
+                        <tr>
+                            <td><span class="badge bg-secondary">{{add $i 1}}</span></td>
+                            <td class="text-truncate" style="max-width: 250px;">{{index $f "blockID"}}</td>
+                            <td>{{index $f "limit"}} tracks max</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- Energy Curve -->
+        {{with index $seq "energyCurve"}}
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-activity me-2"></i>Energy Curve
+            </div>
+            <div class="card-body">
+                <div class="d-flex align-items-end justify-content-around" style="height: 80px;">
+                    {{range $i, $v := .}}
+                    <div class="text-center" style="flex: 1;">
+                        <div class="bg-primary rounded" style="height: {{$v}}%; min-height: 4px; margin: 0 2px;"></div>
+                        <small class="text-body-secondary">{{add $i 1}}</small>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
 
         <!-- Meta Info -->
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0">Details</h5>
+                <i class="bi bi-info-circle me-2"></i>Details
             </div>
             <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label small text-body-secondary">Created</label>
+                <div class="row g-3 small">
+                    <div class="col-md-4">
+                        <label class="form-label text-body-secondary mb-0">ID</label>
+                        <p class="mb-0 font-monospace text-truncate">{{$block.ID}}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label text-body-secondary mb-0">Created</label>
                         <p class="mb-0">{{formatTime $block.CreatedAt}}</p>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label small text-body-secondary">Last Updated</label>
+                    <div class="col-md-4">
+                        <label class="form-label text-body-secondary mb-0">Updated</label>
                         <p class="mb-0">{{formatTime $block.UpdatedAt}}</p>
                     </div>
                 </div>
@@ -159,30 +350,26 @@
     <!-- Preview Panel -->
     <div class="col-lg-4">
         <div class="card sticky-top" style="top: 1rem;">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Preview</h5>
-                <button class="btn btn-sm btn-outline-info"
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-eye me-2"></i>Preview</span>
+                <button class="btn btn-sm btn-light"
                         hx-post="/dashboard/smart-blocks/{{$block.ID}}/preview"
-                        hx-target="#previewList"
+                        hx-target="#previewResults"
                         hx-indicator="#previewSpinner">
-                    <i class="bi bi-arrow-clockwise me-1"></i>Generate
+                    <i class="bi bi-play-fill"></i> Generate
                 </button>
             </div>
             <div class="card-body p-0">
-                <div id="previewSpinner" class="htmx-indicator text-center py-3">
-                    <div class="spinner-border spinner-border-sm" role="status">
-                        <span class="visually-hidden">Loading...</span>
+                <div id="previewSpinner" class="htmx-indicator text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="small text-muted mt-2">Generating...</div>
+                </div>
+                <div id="previewResults" style="max-height: 500px; overflow-y: auto;">
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-play-circle fs-1 d-block mb-2 opacity-50"></i>
+                        <small>Click Generate to preview</small>
                     </div>
                 </div>
-                <div id="previewList" class="list-group list-group-flush" style="max-height: 500px; overflow-y: auto;">
-                    <div class="list-group-item text-center text-body-secondary py-4">
-                        <i class="bi bi-magic fs-1 mb-2 d-block"></i>
-                        Click Generate to see sample tracks
-                    </div>
-                </div>
-            </div>
-            <div class="card-footer text-body-secondary small">
-                Preview shows 10 random tracks that match the rules
             </div>
         </div>
     </div>

@@ -84,6 +84,7 @@ func (h *Handler) loadTemplates() error {
 	funcMap := template.FuncMap{
 		"formatTime":     formatTime,
 		"formatDuration": formatDuration,
+		"formatMs":       formatMs,
 		"formatBytes":    formatBytes,
 		"truncate":       truncate,
 		"lower":          strings.ToLower,
@@ -272,6 +273,22 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
+func formatMs(ms any) string {
+	msVal := toInt(ms)
+	if msVal < 0 {
+		msVal = -msVal
+	}
+	totalSec := msVal / 1000
+	h := totalSec / 3600
+	m := (totalSec % 3600) / 60
+	s := totalSec % 60
+
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", m, s)
+}
+
 func formatBytes(b int64) string {
 	const unit = 1024
 	if b < unit {
@@ -323,17 +340,33 @@ func safeURL(s string) template.URL {
 	return template.URL(s)
 }
 
-func add(a, b int) int      { return a + b }
-func sub(a, b int) int      { return a - b }
-func mul(a, b int) int      { return a * b }
-func div(a, b int) int      { return a / b }
-func mod(a, b int) int      { return a % b }
+func add(a, b any) int      { return toInt(a) + toInt(b) }
+func sub(a, b any) int      { return toInt(a) - toInt(b) }
+func mul(a, b any) int      { return toInt(a) * toInt(b) }
+func div(a, b any) int      { ai, bi := toInt(a), toInt(b); if bi == 0 { return 0 }; return ai / bi }
+func mod(a, b any) int      { ai, bi := toInt(a), toInt(b); if bi == 0 { return 0 }; return ai % bi }
 func eq(a, b any) bool      { return a == b }
 func ne(a, b any) bool      { return a != b }
-func lt(a, b int) bool      { return a < b }
-func le(a, b int) bool      { return a <= b }
-func gt(a, b int) bool      { return a > b }
-func ge(a, b int) bool      { return a >= b }
+func lt(a, b any) bool      { return toInt(a) < toInt(b) }
+func le(a, b any) bool      { return toInt(a) <= toInt(b) }
+func gt(a, b any) bool      { return toInt(a) > toInt(b) }
+func ge(a, b any) bool      { return toInt(a) >= toInt(b) }
+
+// toInt converts various numeric types to int
+func toInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case float32:
+		return int(n)
+	default:
+		return 0
+	}
+}
 func and(a, b bool) bool    { return a && b }
 func or(a, b bool) bool     { return a || b }
 func not(a bool) bool       { return !a }

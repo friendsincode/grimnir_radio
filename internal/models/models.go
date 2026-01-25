@@ -162,8 +162,8 @@ type SmartBlock struct {
 	StationID   string         `gorm:"type:uuid;index"`
 	Name        string         `gorm:"index"`
 	Description string         `gorm:"type:text"`
-	Rules       map[string]any `gorm:"type:jsonb"`
-	Sequence    map[string]any `gorm:"type:jsonb"`
+	Rules       map[string]any `gorm:"type:jsonb;serializer:json"`
+	Sequence    map[string]any `gorm:"type:jsonb;serializer:json"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
