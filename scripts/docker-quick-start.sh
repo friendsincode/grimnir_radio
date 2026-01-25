@@ -1101,56 +1101,82 @@ EOF
     print_success "Created $OVERRIDE_FILE"
 }
 
-# Source directory for build context (set by copy_compose_file)
+# Source directory for build context
 SOURCE_DIR=""
+IN_SOURCE_DIR=false
+
+# Detect if we're running from the grimnir_radio source directory
+detect_source_dir() {
+    local check_dir="$1"
+
+    # Check for indicators that this is the grimnir_radio source
+    if [ -d "$check_dir/.git" ] && \
+       [ -f "$check_dir/go.mod" ] && \
+       [ -f "$check_dir/Dockerfile" ] && \
+       [ -f "$check_dir/Dockerfile.mediaengine" ] && \
+       [ -f "$check_dir/docker-compose.yml" ]; then
+        # Verify it's actually grimnir_radio by checking go.mod
+        if grep -q "grimnir_radio" "$check_dir/go.mod" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Find and set up source directory
+setup_source_dir() {
+    # First check if we're IN the source directory (current working directory)
+    if detect_source_dir "$(pwd)"; then
+        SOURCE_DIR="$(pwd)"
+        IN_SOURCE_DIR=true
+        print_success "Detected: Running from source directory"
+        print_info "Source: $SOURCE_DIR"
+        return 0
+    fi
+
+    # Check PROJECT_ROOT (where the script lives)
+    if detect_source_dir "$PROJECT_ROOT"; then
+        SOURCE_DIR="$PROJECT_ROOT"
+        print_success "Detected: Source directory found"
+        print_info "Source: $SOURCE_DIR"
+        return 0
+    fi
+
+    # No source found
+    SOURCE_DIR=""
+    print_info "No source directory detected - will pull images from registry"
+    return 1
+}
 
 # Copy docker-compose.yml and related files to deploy directory
 copy_compose_file() {
     local dst_compose="$DEPLOY_DIR/docker-compose.yml"
 
-    # Try to find source in PROJECT_ROOT (where the script came from)
-    if [ -f "$PROJECT_ROOT/docker-compose.yml" ]; then
-        SOURCE_DIR="$PROJECT_ROOT"
-    fi
-
-    # If docker-compose.yml already exists in deploy dir, check if we still need source
+    # If docker-compose.yml already exists in deploy dir, we're good
     if [ -f "$dst_compose" ]; then
-        # If we have source, set SOURCE_DIR for potential builds
-        if [ -n "$SOURCE_DIR" ]; then
-            print_info "Using existing docker-compose.yml in $DEPLOY_DIR"
-            print_info "Source code available at: $SOURCE_DIR"
-        fi
+        print_info "Using existing docker-compose.yml in $DEPLOY_DIR"
         return 0
     fi
 
-    # Try PROJECT_ROOT
-    if [ -n "$SOURCE_DIR" ]; then
+    # Try to copy from SOURCE_DIR
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/docker-compose.yml" ]; then
         cp "$SOURCE_DIR/docker-compose.yml" "$dst_compose"
         print_success "Copied docker-compose.yml to $DEPLOY_DIR"
         return 0
     fi
 
-    # Not found - ask user for the grimnir_radio source location
-    print_warning "docker-compose.yml not found"
-    print_info "Please provide the path to the Grimnir Radio source directory"
-    echo ""
+    # No source - we'll need to pull, but still need compose file
+    # Download from GitHub
+    print_info "Downloading docker-compose.yml from GitHub..."
+    if curl -fsSL "https://raw.githubusercontent.com/friendsincode/grimnir_radio/main/docker-compose.yml" -o "$dst_compose" 2>/dev/null; then
+        print_success "Downloaded docker-compose.yml"
+        return 0
+    fi
 
-    while true; do
-        prompt "Grimnir Radio source directory" "" "SOURCE_DIR"
-
-        # Expand ~ to home directory
-        SOURCE_DIR="${SOURCE_DIR/#\~/$HOME}"
-
-        if [ -f "$SOURCE_DIR/docker-compose.yml" ]; then
-            cp "$SOURCE_DIR/docker-compose.yml" "$dst_compose"
-            print_success "Copied docker-compose.yml to $DEPLOY_DIR"
-            return 0
-        else
-            print_error "docker-compose.yml not found in $SOURCE_DIR"
-            print_info "Make sure you point to the grimnir_radio project root"
-            SOURCE_DIR=""
-        fi
-    done
+    print_error "Could not find or download docker-compose.yml"
+    print_info "Please run this script from the grimnir_radio source directory"
+    print_info "Or ensure you have internet access to download from GitHub"
+    exit 1
 }
 
 # Track whether using registry images
@@ -1162,58 +1188,108 @@ build_images() {
 
     copy_compose_file
 
-    # Check if user wants to pull release images or build locally
-    echo ""
-    echo "Image source options:"
-    echo "  1) Pull latest release from GitHub Container Registry (recommended)"
-    echo "  2) Build from source (requires full source code)"
-    echo ""
+    # If we're in the source directory, build by default
+    if [ "$IN_SOURCE_DIR" = true ]; then
+        echo ""
+        print_info "Source code detected - defaulting to build from source"
+        echo ""
+        echo "Image source options:"
+        echo "  1) Build from source (recommended - you have the code)"
+        echo "  2) Pull from GitHub Container Registry"
+        echo ""
+        prompt "Select image source [1-2]" "1" "image_source"
 
-    prompt "Select image source [1-2]" "1" "image_source"
-
-    if [ "$image_source" = "1" ]; then
-        USE_REGISTRY_IMAGES=true
-        cd "$DEPLOY_DIR"
-        # Create a production compose file that uses ghcr.io images
-        create_prod_compose_file
-        print_info "Pulling images from ghcr.io..."
-        get_compose_cmd pull
-        print_success "Images pulled successfully"
-    else
-        USE_REGISTRY_IMAGES=false
-        # For building, we need to be in the source directory
-        if [ -z "$SOURCE_DIR" ] || [ ! -f "$SOURCE_DIR/Dockerfile" ]; then
-            print_error "Cannot build: source directory with Dockerfiles not found"
-            print_info "Please ensure you're running this script from the grimnir_radio source"
-            print_info "Or choose option 1 to pull pre-built images"
-            exit 1
+        if [ "$image_source" = "1" ]; then
+            build_from_source
+        else
+            pull_from_registry
         fi
+    else
+        # No source, pull from registry
+        echo ""
+        if [ -n "$SOURCE_DIR" ]; then
+            print_info "Source available at: $SOURCE_DIR"
+            echo ""
+            echo "Image source options:"
+            echo "  1) Pull from GitHub Container Registry (recommended)"
+            echo "  2) Build from source"
+            echo ""
+            prompt "Select image source [1-2]" "1" "image_source"
 
-        print_info "Building from source: $SOURCE_DIR"
-        cd "$SOURCE_DIR"
+            if [ "$image_source" = "2" ]; then
+                build_from_source
+            else
+                pull_from_registry
+            fi
+        else
+            print_info "No source code found - pulling from registry"
+            pull_from_registry
+        fi
+    fi
+}
 
-        print_info "Building images (this may take several minutes)..."
-        docker-compose build --parallel
+# Build images from source
+build_from_source() {
+    USE_REGISTRY_IMAGES=false
 
-        # Tag images for use by deploy directory
-        print_info "Tagging images..."
-        docker tag grimnir_radio:latest grimnir_radio:latest
-        docker tag grimnir_mediaengine:latest grimnir_mediaengine:latest
+    if [ -z "$SOURCE_DIR" ] || [ ! -f "$SOURCE_DIR/Dockerfile" ]; then
+        print_error "Cannot build: source directory with Dockerfiles not found"
+        exit 1
+    fi
 
-        print_success "Images built successfully"
+    print_info "Building from source: $SOURCE_DIR"
+    cd "$SOURCE_DIR"
 
-        # Go back to deploy directory
-        cd "$DEPLOY_DIR"
+    if [ -z "$COMPOSE_CMD" ]; then
+        detect_compose_cmd
+    fi
+
+    print_info "Building images (this may take several minutes)..."
+    $COMPOSE_CMD build --parallel
+
+    print_success "Images built successfully"
+
+    # Go back to deploy directory
+    cd "$DEPLOY_DIR"
+}
+
+# Pull images from GitHub Container Registry
+pull_from_registry() {
+    USE_REGISTRY_IMAGES=true
+    cd "$DEPLOY_DIR"
+
+    # Create production compose file with ghcr.io images
+    create_prod_compose_file
+
+    print_info "Pulling images from ghcr.io..."
+    get_compose_cmd pull
+    print_success "Images pulled successfully"
+}
+
+# Determine which docker compose command to use
+COMPOSE_CMD=""
+detect_compose_cmd() {
+    if docker compose version >/dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    elif command -v docker-compose >/dev/null 2>&1; then
+        COMPOSE_CMD="docker-compose"
+    else
+        print_error "Docker Compose not found"
+        exit 1
     fi
 }
 
 # Get the docker-compose command with appropriate files
 get_compose_cmd() {
     local cmd="$1"
+    if [ -z "$COMPOSE_CMD" ]; then
+        detect_compose_cmd
+    fi
+
     if [ "$USE_REGISTRY_IMAGES" = true ] && [ -f "$DEPLOY_DIR/docker-compose.prod.yml" ]; then
-        docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml $cmd
+        $COMPOSE_CMD -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml $cmd
     else
-        docker-compose $cmd
+        $COMPOSE_CMD $cmd
     fi
 }
 
@@ -1247,7 +1323,15 @@ EOF
 #   ./grimnir pull       Pull latest images
 
 cd "$(dirname "$0")"
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml "$@"
+
+# Use docker compose (v2) if available, else docker-compose
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE="docker compose"
+else
+    COMPOSE="docker-compose"
+fi
+
+$COMPOSE -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml "$@"
 SCRIPT
 
     chmod +x "$DEPLOY_DIR/grimnir"
@@ -1486,6 +1570,7 @@ main() {
         *)
             print_header
             check_prerequisites
+            setup_source_dir
             configure_deploy_dir
 
             # Try to load saved config
