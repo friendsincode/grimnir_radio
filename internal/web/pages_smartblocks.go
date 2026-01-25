@@ -834,7 +834,9 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 		maxLoops = 100
 	}
 
-	usedInLoop := make(map[int]bool) // Track which indices we've used this loop
+	usedInLoop := make(map[int]bool)    // Track which indices we've used this loop
+	lastAddedID := ""                    // Track last added track ID to prevent consecutive repeats
+	recentlyPlayed := make(map[string]int) // Track ID -> how many tracks ago it was played
 
 	for loopCount < maxLoops {
 		addedThisLoop := false
@@ -855,6 +857,23 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 				}
 
 				track := musicTracks[i]
+
+				// Never play the same track twice in a row (check by ID, not index)
+				if track.ID == lastAddedID && len(musicTracks) > 1 {
+					continue
+				}
+
+				// In loop mode, prefer tracks that haven't been played recently
+				// Skip if played within last N tracks (where N = min(3, total_tracks/2))
+				if loopEnabled && len(musicTracks) > 2 {
+					minGap := 3
+					if len(musicTracks)/2 < minGap {
+						minGap = len(musicTracks) / 2
+					}
+					if ago, played := recentlyPlayed[track.ID]; played && ago < minGap {
+						continue
+					}
+				}
 				trackMs := track.Duration.Milliseconds()
 
 				// Check if this track fits within accuracy bounds (hard constraint)
@@ -867,11 +886,15 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 					continue
 				}
 
+				// Check separation (hard constraint when enabled)
+				sepScore := separationScore(track, totalMs)
+				if cfg.separationEnabled && sepScore > 0 {
+					// Track violates separation rules - skip it
+					continue
+				}
+
 				// Score how close this gets us to target duration
 				durScore := durationScore(trackMs)
-
-				// Calculate separation score (0 = no violation)
-				sepScore := separationScore(track, totalMs)
 
 				// Calculate energy match score (only if enabled)
 				var energyScore int64
@@ -900,7 +923,14 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 			track := musicTracks[bestIdx]
 			addTrack(track, false)
 			usedInLoop[bestIdx] = true
+			lastAddedID = track.ID
 			addedThisLoop = true
+
+			// Update recently played - increment all counters and add this track
+			for id := range recentlyPlayed {
+				recentlyPlayed[id]++
+			}
+			recentlyPlayed[track.ID] = 0
 
 			// Insert ads if enabled and it's time
 			if cfg.adsEnabled && len(adTracks) > 0 && musicCount%cfg.adsEveryN == 0 {
@@ -935,7 +965,6 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 		for totalMs < cfg.targetMs+cfg.accuracyMs {
 			bestIdx := -1
 			var bestDurScore int64 = -1
-			var bestSepScore int64 = -1
 
 			for i := 0; i < len(fallbackTracks); i++ {
 				if usedFallback[i] {
@@ -955,17 +984,19 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 					continue
 				}
 
+				// Check separation (hard constraint when enabled)
+				sepScore := separationScore(track, totalMs)
+				if cfg.separationEnabled && sepScore > 0 {
+					continue
+				}
+
 				// Score by duration closeness
 				durScore := durationScore(trackMs)
 
-				// Calculate separation score
-				sepScore := separationScore(track, totalMs)
-
-				// Prefer tracks closest to target, then by separation
-				if durScore > bestDurScore || (durScore == bestDurScore && (bestIdx == -1 || sepScore < bestSepScore)) {
+				// Prefer tracks closest to target
+				if durScore > bestDurScore || (durScore == bestDurScore && bestIdx == -1) {
 					bestIdx = i
 					bestDurScore = durScore
-					bestSepScore = sepScore
 				}
 			}
 

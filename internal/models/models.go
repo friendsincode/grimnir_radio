@@ -195,7 +195,7 @@ type ClockSlot struct {
 	Position    int
 	Offset      time.Duration
 	Type        ClockSlotType  `gorm:"type:varchar(32)"`
-	Payload     map[string]any `gorm:"type:jsonb"`
+	Payload     map[string]any `gorm:"type:jsonb;serializer:json"`
 }
 
 // ScheduleEntry materializes a planned item.
@@ -207,7 +207,7 @@ type ScheduleEntry struct {
 	EndsAt     time.Time
 	SourceType string         `gorm:"type:varchar(32)"`
 	SourceID   string         `gorm:"type:uuid"`
-	Metadata   map[string]any `gorm:"type:jsonb"`
+	Metadata   map[string]any `gorm:"type:jsonb;serializer:json"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -225,7 +225,7 @@ type PlayHistory struct {
 	StartedAt  time.Time
 	EndedAt    time.Time
 	Transition string         `gorm:"type:varchar(32)"`
-	Metadata   map[string]any `gorm:"type:jsonb"`
+	Metadata   map[string]any `gorm:"type:jsonb;serializer:json"`
 }
 
 // MetadataString retrieves string metadata with fallback to struct fields.
