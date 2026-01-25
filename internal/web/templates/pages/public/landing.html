@@ -27,22 +27,27 @@
     </div>
 
     <!-- Now Playing Card -->
+    {{if .Data.StreamURL}}
     <div class="row justify-content-center py-5">
         <div class="col-lg-8">
             <div class="card bg-body-tertiary">
                 <div class="card-body p-4">
                     <div class="d-flex align-items-center gap-4">
-                        <div class="bg-primary rounded-3 p-3">
+                        <div class="bg-primary rounded-3 p-3" id="playerIcon">
                             <i class="bi bi-music-note-beamed text-white fs-1"></i>
                         </div>
                         <div class="flex-grow-1">
                             <p class="text-body-secondary small mb-1">NOW PLAYING</p>
-                            <h3 class="mb-1" id="nowPlayingTitle">Loading...</h3>
-                            <p class="text-body-secondary mb-0" id="nowPlayingArtist"></p>
+                            <h3 class="mb-1" id="nowPlayingTitle">{{.Data.StationName}}</h3>
+                            <p class="text-body-secondary mb-0" id="nowPlayingArtist">Click play to listen</p>
                         </div>
-                        <div>
-                            <button class="btn btn-primary btn-lg rounded-circle" onclick="window.location='/listen'">
-                                <i class="bi bi-play-fill"></i>
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-outline-secondary btn-sm" id="qualityHQ" onclick="setQuality('hq')" title="High Quality">HQ</button>
+                                <button class="btn btn-secondary btn-sm" id="qualityLQ" onclick="setQuality('lq')" title="Low Quality - Save Bandwidth">LQ</button>
+                            </div>
+                            <button class="btn btn-primary btn-lg rounded-circle" id="playBtn" onclick="togglePlay()">
+                                <i class="bi bi-play-fill" id="playIcon"></i>
                             </button>
                         </div>
                     </div>
@@ -50,6 +55,7 @@
             </div>
         </div>
     </div>
+    {{end}}
 
     <!-- Features -->
     <div class="row g-4 py-5">
@@ -92,18 +98,105 @@
 
 {{define "scripts"}}
 <script>
-// Fetch now playing info
+const stationId = '{{.Data.StationID}}';
+const stationName = '{{.Data.StationName}}';
+const streamUrlHQ = '{{.Data.StreamURL}}';
+const streamUrlLQ = '{{.Data.StreamURLLQ}}';
+let currentQuality = localStorage.getItem('streamQuality') || 'hq';
+
+function getStreamUrl() {
+    return currentQuality === 'lq' ? streamUrlLQ : streamUrlHQ;
+}
+
+function setQuality(q) {
+    currentQuality = q;
+    localStorage.setItem('streamQuality', q);
+    updateQualityButtons();
+
+    // If currently playing, restart with new quality
+    if (window.globalPlayer?.currentTrack?.url && !window.globalPlayer?.audio?.paused) {
+        const wasPlaying = !window.globalPlayer.audio.paused;
+        if (wasPlaying) {
+            // Add nobuffer=1 when switching quality to maintain audio sync
+            // This prevents the audio from "jumping" when switching HQ/LQ
+            const streamUrl = getStreamUrl();
+            const switchUrl = streamUrl + (streamUrl.includes('?') ? '&' : '?') + 'nobuffer=1';
+            window.globalPlayer.playLive(switchUrl, stationName || 'Live Stream', stationId);
+        }
+    }
+}
+
+function updateQualityButtons() {
+    const hqBtn = document.getElementById('qualityHQ');
+    const lqBtn = document.getElementById('qualityLQ');
+    if (currentQuality === 'hq') {
+        hqBtn.className = 'btn btn-secondary btn-sm';
+        lqBtn.className = 'btn btn-outline-secondary btn-sm';
+    } else {
+        hqBtn.className = 'btn btn-outline-secondary btn-sm';
+        lqBtn.className = 'btn btn-secondary btn-sm';
+    }
+}
+
+// Check if URL is one of our stream URLs (handles ?nobuffer=1 and cache-busting params)
+function isOurStream(url) {
+    if (!url) return false;
+    const baseUrl = url.split('?')[0];
+    return baseUrl === streamUrlHQ || baseUrl === streamUrlLQ;
+}
+
+function togglePlay() {
+    const streamUrl = getStreamUrl();
+    if (!streamUrl || !window.globalPlayer) return;
+
+    // Check if already playing this stream
+    const player = window.globalPlayer;
+    if (player.currentTrack && isOurStream(player.currentTrack.url) && !player.audio.paused) {
+        // Pause the current stream
+        player.audio.pause();
+        document.getElementById('playIcon').className = 'bi bi-play-fill';
+        document.getElementById('nowPlayingArtist').textContent = 'Paused';
+    } else {
+        // Play the live stream using the global player
+        player.playLive(streamUrl, stationName || 'Live Stream', stationId);
+        document.getElementById('playIcon').className = 'bi bi-pause-fill';
+        document.getElementById('nowPlayingArtist').textContent = 'Connecting...';
+    }
+}
+
+// Update local UI when global player state changes
+function syncPlayerUI() {
+    if (!window.globalPlayer) return;
+    const player = window.globalPlayer;
+
+    // Check if we're playing our stream (either HQ or LQ)
+    if (player.currentTrack && isOurStream(player.currentTrack.url)) {
+        if (player.audio.paused) {
+            document.getElementById('playIcon').className = 'bi bi-play-fill';
+        } else {
+            document.getElementById('playIcon').className = 'bi bi-pause-fill';
+        }
+    } else {
+        document.getElementById('playIcon').className = 'bi bi-play-fill';
+        document.getElementById('nowPlayingArtist').textContent = 'Click play to listen';
+    }
+}
+
+// Poll for player state changes
+setInterval(syncPlayerUI, 500);
+
 async function updateNowPlaying() {
+    if (!stationId) return;
     try {
-        const response = await fetch('/api/v1/analytics/now-playing');
+        const response = await fetch(`/api/v1/analytics/now-playing?station_id=${stationId}`);
         if (response.ok) {
             const data = await response.json();
-            if (data.title) {
+            if (data.title && data.status === 'playing') {
                 document.getElementById('nowPlayingTitle').textContent = data.title;
-                document.getElementById('nowPlayingArtist').textContent = data.artist || '';
-            } else {
-                document.getElementById('nowPlayingTitle').textContent = 'Nothing playing';
-                document.getElementById('nowPlayingArtist').textContent = '';
+                // Only update artist if player is playing this stream
+                if (isOurStream(window.globalPlayer?.currentTrack?.url) && !window.globalPlayer?.audio?.paused) {
+                    document.getElementById('nowPlayingArtist').textContent = data.artist || 'Streaming live...';
+                }
             }
         }
     } catch (e) {
@@ -111,7 +204,12 @@ async function updateNowPlaying() {
     }
 }
 
-updateNowPlaying();
-setInterval(updateNowPlaying, 15000);
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    updateQualityButtons();
+    updateNowPlaying();
+    setInterval(updateNowPlaying, 15000);
+    syncPlayerUI();
+});
 </script>
 {{end}}

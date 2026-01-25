@@ -27,6 +27,7 @@
     }
 </script>
 
+<div id="page-content">
 <div class="d-flex min-vh-100">
     <!-- Sidebar -->
     <aside class="sidebar bg-body-tertiary border-end d-flex flex-column" id="sidebar">
@@ -187,7 +188,7 @@
                 <button class="btn btn-sm btn-outline-secondary flex-fill" data-bs-toggle="modal" data-bs-target="#themeModal" title="Theme">
                     <i class="bi bi-palette"></i>
                 </button>
-                <a href="/logout" class="btn btn-sm btn-outline-danger flex-fill" data-bs-toggle="tooltip" data-bs-placement="top" title="Logout">
+                <a href="/logout" class="btn btn-sm btn-outline-danger flex-fill" hx-boost="false" data-bs-toggle="tooltip" data-bs-placement="top" title="Logout">
                     <i class="bi bi-box-arrow-right"></i>
                 </a>
             </div>
@@ -234,6 +235,7 @@
             {{block "main" .}}{{end}}
         </main>
     </div>
+</div>
 </div>
 
 <!-- Theme Modal -->
@@ -347,17 +349,23 @@
 
 <!-- Sidebar Toggle Script -->
 <script>
-(function() {
+window.initDashboardSidebar = function() {
     const sidebar = document.getElementById('sidebar');
     const toggle = document.getElementById('sidebarToggle');
     const toggleIcon = document.getElementById('toggleIcon');
     const mobileToggle = document.getElementById('mobileMenuToggle');
 
-    // Create backdrop element for mobile
-    const backdrop = document.createElement('div');
-    backdrop.className = 'sidebar-backdrop';
-    backdrop.style.display = 'none';
-    document.body.appendChild(backdrop);
+    if (!sidebar || !toggle || !mobileToggle) return;
+
+    // Create or get backdrop element for mobile
+    let backdrop = document.getElementById('sidebar-backdrop');
+    if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.id = 'sidebar-backdrop';
+        backdrop.className = 'sidebar-backdrop';
+        backdrop.style.display = 'none';
+        document.body.appendChild(backdrop);
+    }
 
     // Initialize tooltips (only when collapsed)
     function initTooltips() {
@@ -372,35 +380,53 @@
         });
     }
 
+    // Remove old event listeners by cloning elements
+    const newToggle = toggle.cloneNode(true);
+    toggle.parentNode.replaceChild(newToggle, toggle);
+
+    const newMobileToggle = mobileToggle.cloneNode(true);
+    mobileToggle.parentNode.replaceChild(newMobileToggle, mobileToggle);
+
     // Toggle sidebar collapse (desktop)
-    toggle.addEventListener('click', function() {
+    newToggle.addEventListener('click', function() {
         document.body.classList.toggle('sidebar-collapsed');
         const isCollapsed = document.body.classList.contains('sidebar-collapsed');
         localStorage.setItem('sidebarCollapsed', isCollapsed);
-        toggleIcon.className = isCollapsed ? 'bi bi-chevron-right' : 'bi bi-chevron-left';
+        const icon = document.getElementById('toggleIcon');
+        if (icon) icon.className = isCollapsed ? 'bi bi-chevron-right' : 'bi bi-chevron-left';
         initTooltips();
     });
 
     // Toggle sidebar visibility (mobile)
-    mobileToggle.addEventListener('click', function() {
+    newMobileToggle.addEventListener('click', function() {
         sidebar.classList.toggle('show');
         backdrop.style.display = sidebar.classList.contains('show') ? 'block' : 'none';
     });
 
-    // Close sidebar when clicking backdrop
-    backdrop.addEventListener('click', function() {
+    // Close sidebar when clicking backdrop (set once)
+    backdrop.onclick = function() {
         sidebar.classList.remove('show');
         backdrop.style.display = 'none';
-    });
+    };
 
     // Set initial icon state
-    if (document.body.classList.contains('sidebar-collapsed')) {
+    if (document.body.classList.contains('sidebar-collapsed') && toggleIcon) {
         toggleIcon.className = 'bi bi-chevron-right';
     }
 
-    // Initialize tooltips on load
-    document.addEventListener('DOMContentLoaded', initTooltips);
-})();
+    // Initialize tooltips
+    initTooltips();
+};
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', window.initDashboardSidebar);
+
+// Re-initialize after HTMX swap
+document.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'page-content') {
+        window.initDashboardSidebar();
+    }
+});
 </script>
 
 <!-- WebSocket Auth Token (short-lived) -->

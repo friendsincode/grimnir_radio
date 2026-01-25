@@ -9,6 +9,7 @@ package playout
 
 import (
 	"context"
+	"io"
 	"sync"
 
     "github.com/friendsincode/grimnir_radio/internal/config"
@@ -31,6 +32,11 @@ func NewManager(cfg *config.Config, logger zerolog.Logger) *Manager {
 
 // EnsurePipeline starts or reuses an existing pipeline.
 func (m *Manager) EnsurePipeline(ctx context.Context, mountID string, launch string) error {
+	return m.EnsurePipelineWithOutput(ctx, mountID, launch, nil)
+}
+
+// EnsurePipelineWithOutput starts a pipeline with optional stdout capture.
+func (m *Manager) EnsurePipelineWithOutput(ctx context.Context, mountID string, launch string, outputHandler func(io.Reader)) error {
 	m.mu.Lock()
 	pipeline, ok := m.pipelines[mountID]
 	if !ok {
@@ -39,7 +45,21 @@ func (m *Manager) EnsurePipeline(ctx context.Context, mountID string, launch str
 	}
 	m.mu.Unlock()
 
-	return pipeline.Start(ctx, launch)
+	return pipeline.StartWithOutput(ctx, launch, outputHandler)
+}
+
+// EnsurePipelineWithDualOutput starts a pipeline with HQ and LQ output streams.
+// The pipeline should use fd=3 for HQ output and fd=4 for LQ output.
+func (m *Manager) EnsurePipelineWithDualOutput(ctx context.Context, mountID string, launch string, hqHandler, lqHandler func(io.Reader)) error {
+	m.mu.Lock()
+	pipeline, ok := m.pipelines[mountID]
+	if !ok {
+		pipeline = NewPipeline(m.cfg, mountID, m.logger)
+		m.pipelines[mountID] = pipeline
+	}
+	m.mu.Unlock()
+
+	return pipeline.StartWithDualOutput(ctx, launch, hqHandler, lqHandler)
 }
 
 // StopPipeline stops the pipeline for a mount.

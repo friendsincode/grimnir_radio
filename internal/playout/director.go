@@ -10,12 +10,19 @@ package playout
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/url"
+	"path/filepath"
 	"sync"
 	"time"
 
-    "github.com/friendsincode/grimnir_radio/internal/events"
-    "github.com/friendsincode/grimnir_radio/internal/models"
-    "github.com/friendsincode/grimnir_radio/internal/webstream"
+	"github.com/friendsincode/grimnir_radio/internal/broadcast"
+	"github.com/friendsincode/grimnir_radio/internal/config"
+	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/mediaengine"
+	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/webstream"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
@@ -31,10 +38,17 @@ type playoutState struct {
 // Director drives schedule execution and emits now playing events.
 type Director struct {
 	db             *gorm.DB
+	cfg            *config.Config
 	manager        *Manager
 	bus            *events.Bus
 	webstreamSvc   *webstream.Service
+	broadcast      *broadcast.Server
+	mediaRoot      string
 	logger         zerolog.Logger
+
+	// WebRTC RTP output configuration
+	webrtcEnabled bool
+	webrtcRTPPort int
 
 	mu     sync.Mutex
 	played map[string]time.Time
@@ -42,16 +56,26 @@ type Director struct {
 }
 
 // NewDirector creates a playout director.
-func NewDirector(db *gorm.DB, manager *Manager, bus *events.Bus, webstreamSvc *webstream.Service, logger zerolog.Logger) *Director {
+func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.Bus, webstreamSvc *webstream.Service, broadcastSrv *broadcast.Server, logger zerolog.Logger) *Director {
 	return &Director{
-		db:           db,
-		manager:      manager,
-		bus:          bus,
-		webstreamSvc: webstreamSvc,
-		logger:       logger,
-		played:       make(map[string]time.Time),
-		active:       make(map[string]playoutState),
+		db:            db,
+		cfg:           cfg,
+		manager:       manager,
+		bus:           bus,
+		webstreamSvc:  webstreamSvc,
+		broadcast:     broadcastSrv,
+		mediaRoot:     cfg.MediaRoot,
+		logger:        logger,
+		webrtcEnabled: cfg.WebRTCEnabled,
+		webrtcRTPPort: cfg.WebRTCRTPPort,
+		played:        make(map[string]time.Time),
+		active:        make(map[string]playoutState),
 	}
+}
+
+// Broadcast returns the broadcast server for registering HTTP handlers.
+func (d *Director) Broadcast() *broadcast.Server {
+	return d.broadcast
 }
 
 // Run executes the director loop until context cancellation.
@@ -112,8 +136,18 @@ func (d *Director) handleEntry(ctx context.Context, entry models.ScheduleEntry) 
 	switch entry.SourceType {
 	case "media":
 		return d.startMediaEntry(ctx, entry)
+	case "playlist":
+		return d.startPlaylistEntry(ctx, entry)
+	case "smart_block":
+		return d.startSmartBlockEntry(ctx, entry)
+	case "clock_template":
+		return d.startClockEntry(ctx, entry)
 	case "webstream":
 		return d.startWebstreamEntry(ctx, entry)
+	case "live":
+		// Live sessions are handled by the live DJ system
+		d.publishNowPlaying(entry, map[string]any{"type": "live"})
+		return nil
 	default:
 		d.publishNowPlaying(entry, nil)
 		return nil
@@ -127,26 +161,13 @@ func (d *Director) startMediaEntry(ctx context.Context, entry models.ScheduleEnt
 		return err
 	}
 
-	launch := fmt.Sprintf("filesrc location=%q ! decodebin ! audioconvert ! audioresample ! queue max-size-buffers=0 max-size-time=0 ! audioconvert ! autoaudiosink sync=true", media.Path)
-
+	// Use the common playMedia helper
 	d.mu.Lock()
 	prev, hasPrev := d.active[entry.MountID]
-	d.active[entry.MountID] = playoutState{MediaID: media.ID, EntryID: entry.ID, StationID: entry.StationID, Started: entry.StartsAt, Ends: entry.EndsAt}
 	d.mu.Unlock()
 
-	if err := d.manager.StopPipeline(entry.MountID); err != nil {
-		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
-	}
-
-	if err := d.manager.EnsurePipeline(ctx, entry.MountID, launch); err != nil {
-		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start pipeline")
-	}
-
-	payload := map[string]any{
-		"media_id": media.ID,
-		"title":    media.Title,
-		"artist":   media.Artist,
-		"album":    media.Album,
+	if err := d.playMedia(ctx, entry, media, nil); err != nil {
+		return err
 	}
 
 	if hasPrev && prev.MediaID != media.ID {
@@ -160,9 +181,6 @@ func (d *Director) startMediaEntry(ctx context.Context, entry models.ScheduleEnt
 			"event":             "crossfade",
 		})
 	}
-
-	d.publishNowPlaying(entry, payload)
-	d.scheduleStop(entry.MountID, entry.EndsAt)
 
 	return nil
 }
@@ -192,22 +210,22 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		return fmt.Errorf("no URL configured for webstream %s", webstreamID)
 	}
 
-	// Build GStreamer pipeline for webstream
-	// souphttpsrc for HTTP/Icecast streams with ICY metadata
-	pipeline := fmt.Sprintf("souphttpsrc location=%q is-live=true do-timestamp=true", currentURL)
-
-	// Add ICY metadata extraction if passthrough is enabled
-	if ws.PassthroughMetadata {
-		pipeline += " iradio-mode=true"
+	// Get mount configuration from database
+	var mount models.Mount
+	if err := d.db.WithContext(ctx).First(&mount, "id = ?", entry.MountID).Error; err != nil {
+		d.logger.Warn().Err(err).Str("mount_id", entry.MountID).Msg("failed to load mount config, using defaults")
+		mount.Format = "mp3"
+		mount.Bitrate = 128
+		mount.SampleRate = 44100
+		mount.Channels = 2
+		mount.Name = "stream"
 	}
 
-	// Add buffer
-	if ws.BufferSizeMS > 0 {
-		pipeline += fmt.Sprintf(" ! queue max-size-time=%d000000", ws.BufferSizeMS) // Convert ms to ns
+	// Build pipeline: webstream source -> decode -> encode -> icecast
+	pipeline, err := d.buildWebstreamIcecastPipeline(currentURL, mount, ws)
+	if err != nil {
+		return fmt.Errorf("build webstream pipeline: %w", err)
 	}
-
-	// Add decoder and output
-	pipeline += " ! decodebin ! audioconvert ! audioresample ! queue max-size-buffers=0 max-size-time=0 ! audioconvert ! autoaudiosink sync=true"
 
 	d.mu.Lock()
 	prev, hasPrev := d.active[entry.MountID]
@@ -224,6 +242,12 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 	if err := d.manager.StopPipeline(entry.MountID); err != nil {
 		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
 	}
+
+	d.logger.Info().
+		Str("mount", entry.MountID).
+		Str("webstream", ws.Name).
+		Str("url", currentURL).
+		Msg("starting webstream playout")
 
 	// Start webstream pipeline
 	if err := d.manager.EnsurePipeline(ctx, entry.MountID, pipeline); err != nil {
@@ -262,6 +286,545 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 	d.scheduleStop(entry.MountID, entry.EndsAt)
 
 	return nil
+}
+
+// buildWebstreamIcecastPipeline creates a GStreamer pipeline that relays a webstream to Icecast
+func (d *Director) buildWebstreamIcecastPipeline(sourceURL string, mount models.Mount, ws *models.Webstream) (string, error) {
+	// Parse Icecast URL
+	icecastURL, err := url.Parse(d.cfg.IcecastURL)
+	if err != nil {
+		return "", fmt.Errorf("parse icecast URL: %w", err)
+	}
+
+	host := icecastURL.Hostname()
+	port := icecastURL.Port()
+	if port == "" {
+		port = "8000"
+	}
+
+	// Determine mount point
+	mountPoint := mount.Name
+	if mountPoint == "" {
+		mountPoint = "stream"
+	}
+	if mountPoint[0] != '/' {
+		mountPoint = "/" + mountPoint
+	}
+
+	// Determine format
+	format := mediaengine.AudioFormat(mount.Format)
+	if format == "" {
+		format = mediaengine.AudioFormatMP3
+	}
+
+	// Set defaults for encoding
+	bitrate := mount.Bitrate
+	if bitrate == 0 {
+		bitrate = 128
+	}
+	sampleRate := mount.SampleRate
+	if sampleRate == 0 {
+		sampleRate = 44100
+	}
+	channels := mount.Channels
+	if channels == 0 {
+		channels = 2
+	}
+
+	// Build encoder configuration
+	encoderCfg := mediaengine.EncoderConfig{
+		OutputType:  mediaengine.OutputTypeIcecast,
+		OutputURL:   d.cfg.IcecastURL,
+		Username:    "source",
+		Password:    d.cfg.IcecastSourcePassword,
+		Mount:       mountPoint,
+		StreamName:  ws.Name,
+		Description: ws.Description,
+		Format:      format,
+		Bitrate:     bitrate,
+		SampleRate:  sampleRate,
+		Channels:    channels,
+	}
+
+	builder := mediaengine.NewEncoderBuilder(encoderCfg)
+	encoderPipeline, err := builder.Build()
+	if err != nil {
+		return "", fmt.Errorf("build encoder: %w", err)
+	}
+
+	// Build source element
+	var sourceElement string
+	sourceElement = fmt.Sprintf("souphttpsrc location=%q is-live=true do-timestamp=true", sourceURL)
+	if ws.PassthroughMetadata {
+		sourceElement += " iradio-mode=true"
+	}
+
+	// Add buffer if configured
+	bufferElement := ""
+	if ws.BufferSizeMS > 0 {
+		bufferElement = fmt.Sprintf(" ! queue max-size-time=%d000000", ws.BufferSizeMS)
+	}
+
+	// Build complete pipeline: webstream source -> buffer -> decode -> encoder -> icecast
+	pipeline := fmt.Sprintf("%s%s ! decodebin ! %s", sourceElement, bufferElement, encoderPipeline)
+
+	d.logger.Debug().
+		Str("pipeline", pipeline).
+		Str("icecast", fmt.Sprintf("%s:%s%s", host, port, mountPoint)).
+		Msg("built webstream icecast pipeline")
+
+	return pipeline, nil
+}
+
+func (d *Director) startPlaylistEntry(ctx context.Context, entry models.ScheduleEntry) error {
+	// Load playlist
+	var playlist models.Playlist
+	if err := d.db.WithContext(ctx).Preload("Items").First(&playlist, "id = ?", entry.SourceID).Error; err != nil {
+		return fmt.Errorf("failed to load playlist: %w", err)
+	}
+
+	if len(playlist.Items) == 0 {
+		d.logger.Warn().Str("playlist", playlist.ID).Msg("playlist is empty")
+		d.publishNowPlaying(entry, map[string]any{"playlist_id": playlist.ID, "playlist_name": playlist.Name, "error": "empty playlist"})
+		return nil
+	}
+
+	// Get first media item (TODO: implement proper playlist sequencing with position tracking)
+	firstItem := playlist.Items[0]
+	var media models.MediaItem
+	if err := d.db.WithContext(ctx).First(&media, "id = ?", firstItem.MediaID).Error; err != nil {
+		return fmt.Errorf("failed to load media item: %w", err)
+	}
+
+	// Play the media
+	return d.playMedia(ctx, entry, media, map[string]any{
+		"playlist_id":   playlist.ID,
+		"playlist_name": playlist.Name,
+		"position":      0,
+		"total_items":   len(playlist.Items),
+	})
+}
+
+func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.ScheduleEntry) error {
+	// Load smart block
+	var block models.SmartBlock
+	if err := d.db.WithContext(ctx).First(&block, "id = ?", entry.SourceID).Error; err != nil {
+		return fmt.Errorf("failed to load smart block: %w", err)
+	}
+
+	// For now, pick a random media item that matches the station
+	// TODO: implement full smart block rule evaluation
+	var media models.MediaItem
+	err := d.db.WithContext(ctx).
+		Where("station_id = ?", entry.StationID).
+		Order("RANDOM()").
+		First(&media).Error
+	if err != nil {
+		d.logger.Warn().Str("block", block.ID).Msg("no media found for smart block")
+		d.publishNowPlaying(entry, map[string]any{"smart_block_id": block.ID, "smart_block_name": block.Name, "error": "no matching media"})
+		return nil
+	}
+
+	return d.playMedia(ctx, entry, media, map[string]any{
+		"smart_block_id":   block.ID,
+		"smart_block_name": block.Name,
+	})
+}
+
+func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEntry) error {
+	// Load clock template with slots
+	var clock models.ClockHour
+	if err := d.db.WithContext(ctx).Preload("Slots").First(&clock, "id = ?", entry.SourceID).Error; err != nil {
+		return fmt.Errorf("failed to load clock: %w", err)
+	}
+
+	if len(clock.Slots) == 0 {
+		d.logger.Warn().Str("clock", clock.ID).Msg("clock has no slots")
+		d.publishNowPlaying(entry, map[string]any{"clock_id": clock.ID, "clock_name": clock.Name, "error": "no slots"})
+		return nil
+	}
+
+	// For now, pick a random media item from the station
+	// TODO: implement proper clock slot execution based on slot types (smart_block, hard_item, etc.)
+	var media models.MediaItem
+	err := d.db.WithContext(ctx).
+		Where("station_id = ?", entry.StationID).
+		Order("RANDOM()").
+		First(&media).Error
+	if err != nil {
+		d.logger.Warn().Str("clock", clock.ID).Msg("no media found for clock")
+		d.publishNowPlaying(entry, map[string]any{"clock_id": clock.ID, "clock_name": clock.Name, "error": "no matching media"})
+		return nil
+	}
+
+	return d.playMedia(ctx, entry, media, map[string]any{
+		"clock_id":   clock.ID,
+		"clock_name": clock.Name,
+		"slot_count": len(clock.Slots),
+	})
+}
+
+// playMedia is a helper to start playing a media item
+func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, extraPayload map[string]any) error {
+	// Build full path using media root
+	fullPath := filepath.Join(d.mediaRoot, media.Path)
+
+	// Get mount configuration from database
+	var mount models.Mount
+	if err := d.db.WithContext(ctx).First(&mount, "id = ?", entry.MountID).Error; err != nil {
+		d.logger.Warn().Err(err).Str("mount_id", entry.MountID).Msg("failed to load mount config, using defaults")
+		// Use defaults
+		mount.Format = "mp3"
+		mount.Bitrate = 128
+		mount.SampleRate = 44100
+		mount.Channels = 2
+		mount.Name = "main"
+	}
+
+	// Set mount defaults
+	mountBitrate := mount.Bitrate
+	if mountBitrate == 0 {
+		mountBitrate = 128
+	}
+	lqBitrate := 64
+
+	// Build single GStreamer pipeline for both HQ and LQ (using tee for perfect sync)
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate)
+	if err != nil {
+		return fmt.Errorf("build pipeline: %w", err)
+	}
+
+	d.mu.Lock()
+	d.active[entry.MountID] = playoutState{MediaID: media.ID, EntryID: entry.ID, StationID: entry.StationID, Started: entry.StartsAt, Ends: entry.EndsAt}
+	d.mu.Unlock()
+
+	// Stop any existing pipeline
+	if err := d.manager.StopPipeline(entry.MountID); err != nil {
+		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
+	}
+
+	// Ensure broadcast mounts exist (HQ and LQ)
+	contentType := "audio/mpeg"
+	if mount.Format == "aac" {
+		contentType = "audio/aac"
+	} else if mount.Format == "ogg" || mount.Format == "vorbis" {
+		contentType = "audio/ogg"
+	}
+
+	// Create high-quality mount
+	broadcastMount := d.broadcast.GetMount(mount.Name)
+	if broadcastMount == nil {
+		broadcastMount = d.broadcast.CreateMount(mount.Name, contentType, mountBitrate)
+		d.logger.Info().Str("mount", mount.Name).Int("bitrate", mountBitrate).Msg("created broadcast mount (HQ)")
+	}
+
+	// Create low-quality mount
+	lqMountName := mount.Name + "-lq"
+	lqMount := d.broadcast.GetMount(lqMountName)
+	if lqMount == nil {
+		lqMount = d.broadcast.CreateMount(lqMountName, contentType, lqBitrate)
+		d.logger.Info().Str("mount", lqMountName).Int("bitrate", lqBitrate).Msg("created broadcast mount (LQ)")
+	}
+
+	d.logger.Info().
+		Str("mount", entry.MountID).
+		Str("media", media.Title).
+		Str("artist", media.Artist).
+		Msg("starting media playout")
+
+	// Clear both buffers synchronously BEFORE starting feeds
+	// This ensures HQ and LQ mounts transition to the new track together
+	broadcastMount.ClearBuffer()
+	lqMount.ClearBuffer()
+
+	// HQ output handler (fd=3) - triggers next track when done
+	hqHandler := func(r io.Reader) {
+		if err := broadcastMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
+		}
+		// Track ended - try to start next track if still within schedule window
+		d.handleTrackEnded(entry, mount.Name)
+	}
+
+	// LQ output handler (fd=4)
+	lqHandler := func(r io.Reader) {
+		if err := lqMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
+		}
+	}
+
+	// Start single pipeline with dual output (HQ and LQ perfectly synchronized)
+	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
+		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
+	}
+
+	payload := map[string]any{
+		"media_id": media.ID,
+		"title":    media.Title,
+		"artist":   media.Artist,
+		"album":    media.Album,
+	}
+	for k, v := range extraPayload {
+		payload[k] = v
+	}
+
+	d.publishNowPlaying(entry, payload)
+	d.scheduleStop(entry.MountID, entry.EndsAt)
+
+	return nil
+}
+
+// buildBroadcastPipeline creates a GStreamer pipeline that outputs to stdout for the broadcast server
+func (d *Director) buildBroadcastPipeline(filePath string, mount models.Mount) (string, error) {
+	// Determine format
+	format := mediaengine.AudioFormat(mount.Format)
+	if format == "" {
+		format = mediaengine.AudioFormatMP3
+	}
+
+	// Set defaults for encoding
+	bitrate := mount.Bitrate
+	if bitrate == 0 {
+		bitrate = 128
+	}
+	sampleRate := mount.SampleRate
+	if sampleRate == 0 {
+		sampleRate = 44100
+	}
+	channels := mount.Channels
+	if channels == 0 {
+		channels = 2
+	}
+
+	// Build encoder configuration - outputs to stdout
+	encoderCfg := mediaengine.EncoderConfig{
+		OutputType: mediaengine.OutputTypeStdout,
+		Format:     format,
+		Bitrate:    bitrate,
+		SampleRate: sampleRate,
+		Channels:   channels,
+	}
+
+	builder := mediaengine.NewEncoderBuilder(encoderCfg)
+	encoderPipeline, err := builder.Build()
+	if err != nil {
+		return "", fmt.Errorf("build encoder: %w", err)
+	}
+
+	// Build complete pipeline: file source -> decode -> encoder -> stdout
+	pipeline := fmt.Sprintf("filesrc location=%q ! decodebin ! %s", filePath, encoderPipeline)
+
+	d.logger.Debug().
+		Str("pipeline", pipeline).
+		Str("mount", mount.Name).
+		Int("bitrate", bitrate).
+		Msg("built broadcast pipeline")
+
+	return pipeline, nil
+}
+
+// buildDualBroadcastPipeline creates a GStreamer pipeline that outputs both HQ and LQ streams.
+// Uses tee to split decoded audio, encodes to HQ (fd=3) and LQ (fd=4) simultaneously.
+// If WebRTC is enabled, also outputs RTP/Opus to UDP for low-latency streaming.
+// This ensures all streams are perfectly synchronized from the same decode.
+func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Mount, hqBitrate, lqBitrate int) (string, error) {
+	// Determine format
+	format := mount.Format
+	if format == "" {
+		format = "mp3"
+	}
+
+	// Set defaults
+	sampleRate := mount.SampleRate
+	if sampleRate == 0 {
+		sampleRate = 44100
+	}
+	channels := mount.Channels
+	if channels == 0 {
+		channels = 2
+	}
+	if hqBitrate == 0 {
+		hqBitrate = 128
+	}
+	if lqBitrate == 0 {
+		lqBitrate = 64
+	}
+
+	// Build encoder element based on format
+	var hqEncoder, lqEncoder string
+	switch format {
+	case "aac":
+		hqEncoder = fmt.Sprintf("faac bitrate=%d ! audio/mpeg,mpegversion=4", hqBitrate*1000)
+		lqEncoder = fmt.Sprintf("faac bitrate=%d ! audio/mpeg,mpegversion=4", lqBitrate*1000)
+	case "ogg", "vorbis":
+		hqEncoder = fmt.Sprintf("vorbisenc bitrate=%d ! oggmux", hqBitrate*1000)
+		lqEncoder = fmt.Sprintf("vorbisenc bitrate=%d ! oggmux", lqBitrate*1000)
+	default: // mp3
+		hqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", hqBitrate)
+		lqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", lqBitrate)
+	}
+
+	// Build pipeline with tee:
+	// filesrc -> decodebin -> audioconvert -> audioresample -> tee
+	//   tee.src_0 -> queue -> HQ encoder -> identity sync=true -> fdsink fd=3
+	//   tee.src_1 -> queue -> LQ encoder -> identity sync=true -> fdsink fd=4
+	//   tee.src_2 -> queue -> Opus encoder -> rtpopuspay -> udpsink (WebRTC)
+	// NOTE: identity sync=true is CRITICAL - it throttles output to real-time speed
+	// Without it, GStreamer processes the file as fast as possible (sub-second for a 7-min track)
+
+	var webrtcBranch string
+	if d.webrtcEnabled {
+		// WebRTC branch: resample to 48kHz for Opus, encode, packetize, send via UDP
+		rtpPort := d.webrtcRTPPort
+		if rtpPort == 0 {
+			rtpPort = 5004
+		}
+		// Opus requires 48kHz, so we resample here since the main tee outputs at mount sampleRate
+		webrtcBranch = fmt.Sprintf(
+			` t. ! queue ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=128000 ! rtpopuspay pt=111 ! udpsink host=127.0.0.1 port=%d`,
+			rtpPort,
+		)
+	}
+
+	pipeline := fmt.Sprintf(
+		`filesrc location=%q ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! tee name=t `+
+			`t. ! queue ! %s ! identity sync=true ! fdsink fd=3 `+
+			`t. ! queue ! %s ! identity sync=true ! fdsink fd=4%s`,
+		filePath, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
+	)
+
+	d.logger.Debug().
+		Str("pipeline", pipeline).
+		Str("mount", mount.Name).
+		Int("hq_bitrate", hqBitrate).
+		Int("lq_bitrate", lqBitrate).
+		Bool("webrtc", d.webrtcEnabled).
+		Msg("built dual broadcast pipeline")
+
+	return pipeline, nil
+}
+
+// handleTrackEnded picks and plays the next track when the current one finishes
+func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string) {
+	now := time.Now().UTC()
+
+	// Check if we're still within the schedule window
+	if now.After(entry.EndsAt) {
+		d.logger.Debug().Str("entry", entry.ID).Msg("schedule entry ended, not starting next track")
+		return
+	}
+
+	// Wait a small delay before starting next track to avoid race conditions
+	time.Sleep(100 * time.Millisecond)
+
+	// Get the active state to check if something else started playing
+	d.mu.Lock()
+	state, ok := d.active[entry.MountID]
+	d.mu.Unlock()
+
+	if !ok || state.EntryID != entry.ID {
+		// Different entry now active, don't interfere
+		return
+	}
+
+	// Pick a random track for the station
+	var media models.MediaItem
+	err := d.db.
+		Where("station_id = ?", entry.StationID).
+		Order("RANDOM()").
+		First(&media).Error
+	if err != nil {
+		d.logger.Warn().Err(err).Str("station", entry.StationID).Msg("no media found for next track")
+		return
+	}
+
+	// Get mount config
+	var mount models.Mount
+	if err := d.db.First(&mount, "id = ?", entry.MountID).Error; err != nil {
+		d.logger.Warn().Err(err).Str("mount_id", entry.MountID).Msg("failed to load mount config")
+		return
+	}
+
+	// Set bitrates
+	hqBitrate := mount.Bitrate
+	if hqBitrate == 0 {
+		hqBitrate = 128
+	}
+	lqBitrate := 64
+
+	// Build single dual-output pipeline for new track
+	fullPath := filepath.Join(d.mediaRoot, media.Path)
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate)
+	if err != nil {
+		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
+		return
+	}
+
+	// Update active state
+	d.mu.Lock()
+	d.active[entry.MountID] = playoutState{
+		MediaID:   media.ID,
+		EntryID:   entry.ID,
+		StationID: entry.StationID,
+		Started:   now,
+		Ends:      entry.EndsAt,
+	}
+	d.mu.Unlock()
+
+	// Get broadcast mounts (should already exist)
+	broadcastMount := d.broadcast.GetMount(mount.Name)
+	if broadcastMount == nil {
+		d.logger.Warn().Str("mount", mount.Name).Msg("broadcast mount not found for next track")
+		return
+	}
+
+	lqMountName := mount.Name + "-lq"
+	lqMount := d.broadcast.GetMount(lqMountName)
+	if lqMount == nil {
+		d.logger.Warn().Str("mount", lqMountName).Msg("LQ broadcast mount not found for next track")
+		return
+	}
+
+	d.logger.Info().
+		Str("mount", entry.MountID).
+		Str("media", media.Title).
+		Str("artist", media.Artist).
+		Msg("starting next track")
+
+	// Clear both buffers synchronously BEFORE starting feeds
+	// This ensures HQ and LQ mounts transition to the new track together
+	broadcastMount.ClearBuffer()
+	lqMount.ClearBuffer()
+
+	// HQ output handler (fd=3) - triggers next track when done
+	ctx := context.Background()
+	hqHandler := func(r io.Reader) {
+		if err := broadcastMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
+		}
+		// Recursively handle next track
+		d.handleTrackEnded(entry, mount.Name)
+	}
+
+	// LQ output handler (fd=4)
+	lqHandler := func(r io.Reader) {
+		if err := lqMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
+		}
+	}
+
+	// Start single pipeline with dual output
+	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
+		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track dual pipeline")
+	}
+
+	// Publish now playing for the new track
+	d.publishNowPlaying(entry, map[string]any{
+		"media_id": media.ID,
+		"title":    media.Title,
+		"artist":   media.Artist,
+		"album":    media.Album,
+	})
 }
 
 func (d *Director) scheduleStop(mountID string, endsAt time.Time) {
@@ -334,6 +897,70 @@ func (d *Director) publishNowPlaying(entry models.ScheduleEntry, extra map[strin
 		payload[k] = v
 	}
 	d.bus.Publish(events.EventNowPlaying, payload)
+
+	// Record to play history
+	d.recordPlayHistory(entry, extra)
+}
+
+func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[string]any) {
+	// Extract media info from extra payload
+	title, _ := extra["title"].(string)
+	artist, _ := extra["artist"].(string)
+	album, _ := extra["album"].(string)
+	mediaID, _ := extra["media_id"].(string)
+
+	// For webstreams, use webstream name as title
+	if entry.SourceType == "webstream" {
+		if name, ok := extra["webstream_name"].(string); ok && title == "" {
+			title = name
+		}
+	}
+
+	// For live, set title to "Live DJ"
+	if entry.SourceType == "live" {
+		if title == "" {
+			title = "Live DJ"
+		}
+	}
+
+	// Don't record if no title
+	if title == "" {
+		return
+	}
+
+	// Use actual current time for started_at, not schedule entry time
+	now := time.Now().UTC()
+	startedAt := now
+
+	// Try to get media duration to estimate end time
+	var endedAt time.Time
+	if mediaID != "" {
+		var media models.MediaItem
+		if err := d.db.First(&media, "id = ?", mediaID).Error; err == nil && media.Duration > 0 {
+			endedAt = startedAt.Add(media.Duration)
+		}
+	}
+	// If we couldn't get duration, use a default of 5 minutes
+	if endedAt.IsZero() {
+		endedAt = startedAt.Add(5 * time.Minute)
+	}
+
+	history := models.PlayHistory{
+		ID:        uuid.New().String(),
+		StationID: entry.StationID,
+		MountID:   entry.MountID,
+		MediaID:   mediaID,
+		Artist:    artist,
+		Title:     title,
+		Album:     album,
+		StartedAt: startedAt,
+		EndedAt:   endedAt,
+		Metadata:  extra,
+	}
+
+	if err := d.db.Create(&history).Error; err != nil {
+		d.logger.Warn().Err(err).Msg("failed to record play history")
+	}
 }
 
 func (d *Director) isPlayed(entryID string) bool {

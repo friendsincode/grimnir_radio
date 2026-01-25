@@ -198,6 +198,17 @@ type ClockSlot struct {
 	Payload     map[string]any `gorm:"type:jsonb;serializer:json"`
 }
 
+// RecurrenceType defines how a schedule entry repeats
+type RecurrenceType string
+
+const (
+	RecurrenceNone     RecurrenceType = ""
+	RecurrenceDaily    RecurrenceType = "daily"
+	RecurrenceWeekdays RecurrenceType = "weekdays"
+	RecurrenceWeekly   RecurrenceType = "weekly"
+	RecurrenceCustom   RecurrenceType = "custom"
+)
+
 // ScheduleEntry materializes a planned item.
 type ScheduleEntry struct {
 	ID         string `gorm:"type:uuid;primaryKey"`
@@ -208,24 +219,32 @@ type ScheduleEntry struct {
 	SourceType string         `gorm:"type:varchar(32)"`
 	SourceID   string         `gorm:"type:uuid"`
 	Metadata   map[string]any `gorm:"type:jsonb;serializer:json"`
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+
+	// Recurrence fields
+	RecurrenceType    RecurrenceType `gorm:"type:varchar(16)"`
+	RecurrenceDays    []int          `gorm:"type:jsonb;serializer:json"` // 0=Sun, 1=Mon, ..., 6=Sat
+	RecurrenceEndDate *time.Time     // When recurrence stops (nil = forever)
+	RecurrenceParentID *string       `gorm:"type:uuid;index"` // Links instance to parent
+	IsInstance        bool           `gorm:"default:false"`   // True if this is a generated instance
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // PlayHistory stores executed playout events.
 type PlayHistory struct {
-	ID         string `gorm:"type:uuid;primaryKey"`
-	StationID  string `gorm:"type:uuid;index"`
-	MountID    string `gorm:"type:uuid;index"`
-	MediaID    string `gorm:"type:uuid"`
-	Artist     string `gorm:"index"`
-	Title      string `gorm:"index"`
-	Album      string `gorm:"index"`
-	Label      string
-	StartedAt  time.Time
-	EndedAt    time.Time
-	Transition string         `gorm:"type:varchar(32)"`
-	Metadata   map[string]any `gorm:"type:jsonb;serializer:json"`
+	ID         string         `gorm:"type:uuid;primaryKey" json:"id"`
+	StationID  string         `gorm:"type:uuid;index" json:"station_id"`
+	MountID    string         `gorm:"type:uuid;index" json:"mount_id"`
+	MediaID    string         `gorm:"type:uuid" json:"media_id"`
+	Artist     string         `gorm:"index" json:"artist"`
+	Title      string         `gorm:"index" json:"title"`
+	Album      string         `gorm:"index" json:"album"`
+	Label      string         `json:"label"`
+	StartedAt  time.Time      `json:"started_at"`
+	EndedAt    time.Time      `json:"ended_at"`
+	Transition string         `gorm:"type:varchar(32)" json:"transition"`
+	Metadata   map[string]any `gorm:"type:jsonb;serializer:json" json:"metadata"`
 }
 
 // MetadataString retrieves string metadata with fallback to struct fields.

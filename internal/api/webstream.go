@@ -166,7 +166,7 @@ func (a *API) handleListWebstreams(w http.ResponseWriter, r *http.Request) {
 		response[i] = toWebstreamResponse(&ws)
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, map[string]any{"webstreams": response})
 }
 
 func (a *API) handleUpdateWebstream(w http.ResponseWriter, r *http.Request) {

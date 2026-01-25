@@ -142,6 +142,15 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 
 func (s *Service) slotAlreadyScheduled(ctx context.Context, stationID string, plan clock.SlotPlan) (bool, error) {
 	mountID := stringValue(plan.Payload["mount_id"])
+	// If mount_id is empty, try to get the station's default mount
+	if mountID == "" {
+		mountID = s.getDefaultMountID(ctx, stationID)
+	}
+	// If still no mount, we can't check for duplicates, so return false to allow
+	// the entry creation which will also handle the missing mount_id
+	if mountID == "" {
+		return false, nil
+	}
 	var count int64
 	err := s.db.WithContext(ctx).
 		Model(&models.ScheduleEntry{}).
@@ -155,13 +164,34 @@ func (s *Service) slotAlreadyScheduled(ctx context.Context, stationID string, pl
 	return count > 0, nil
 }
 
+// getDefaultMountID retrieves the first mount for a station
+func (s *Service) getDefaultMountID(ctx context.Context, stationID string) string {
+	var mount models.Mount
+	err := s.db.WithContext(ctx).
+		Where("station_id = ?", stationID).
+		Order("created_at ASC").
+		First(&mount).Error
+	if err != nil {
+		return ""
+	}
+	return mount.ID
+}
+
 func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, plan clock.SlotPlan) error {
 	startTime := time.Now()
 
 	blockID := stringValue(plan.Payload["smart_block_id"])
 	mountID := stringValue(plan.Payload["mount_id"])
-	if blockID == "" || mountID == "" {
-		s.logger.Warn().Str("slot", plan.SlotID).Msg("smart block slot missing identifiers")
+	// If mount_id is missing, use the station's default mount
+	if mountID == "" {
+		mountID = s.getDefaultMountID(ctx, stationID)
+	}
+	if blockID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Msg("smart block slot missing smart_block_id")
+		return nil
+	}
+	if mountID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Str("station", stationID).Msg("no mount found for station")
 		return nil
 	}
 
@@ -219,6 +249,14 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 
 func (s *Service) createPlaceholderEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {
 	mountID := stringValue(plan.Payload["mount_id"])
+	// If mount_id is missing, use the station's default mount
+	if mountID == "" {
+		mountID = s.getDefaultMountID(ctx, stationID)
+	}
+	if mountID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Str("station", stationID).Msg("no mount found for placeholder entry")
+		return nil
+	}
 	entry := models.ScheduleEntry{
 		ID:         uuid.NewString(),
 		StationID:  stationID,

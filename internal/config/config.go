@@ -61,8 +61,14 @@ type Config struct {
 	InstanceID            string
 
 	// Icecast configuration
-	IcecastURL      string // Internal URL for stream proxy (e.g., http://icecast:8000)
-	IcecastPublicURL string // Public URL for direct access (e.g., http://radio.example.com:8000)
+	IcecastURL            string // Internal URL for stream proxy (e.g., http://icecast:8000)
+	IcecastPublicURL      string // Public URL for direct access (e.g., http://radio.example.com:8000)
+	IcecastSourcePassword string // Source password for connecting to Icecast
+
+	// WebRTC configuration
+	WebRTCEnabled  bool   // Enable WebRTC audio streaming
+	WebRTCRTPPort  int    // UDP port for RTP audio input (default: 5004)
+	WebRTCSTUNURL  string // STUN server for NAT traversal
 }
 
 // Load reads environment variables, applies defaults, and validates the result.
@@ -103,8 +109,14 @@ func Load() (*Config, error) {
         InstanceID:            getEnvAny([]string{"GRIMNIR_INSTANCE_ID", "RLM_INSTANCE_ID"}, ""),
 
         // Icecast configuration
-        IcecastURL:       getEnvAny([]string{"GRIMNIR_ICECAST_URL", "ICECAST_URL"}, "http://icecast:8000"),
-        IcecastPublicURL: getEnvAny([]string{"GRIMNIR_ICECAST_PUBLIC_URL", "ICECAST_PUBLIC_URL"}, ""),
+        IcecastURL:            getEnvAny([]string{"GRIMNIR_ICECAST_URL", "ICECAST_URL"}, "http://icecast:8000"),
+        IcecastPublicURL:      getEnvAny([]string{"GRIMNIR_ICECAST_PUBLIC_URL", "ICECAST_PUBLIC_URL"}, ""),
+        IcecastSourcePassword: getEnvAny([]string{"GRIMNIR_ICECAST_SOURCE_PASSWORD", "ICECAST_SOURCE_PASSWORD"}, "hackme"),
+
+        // WebRTC configuration
+        WebRTCEnabled:  getEnvBoolAny([]string{"GRIMNIR_WEBRTC_ENABLED", "WEBRTC_ENABLED"}, true),
+        WebRTCRTPPort:  getEnvIntAny([]string{"GRIMNIR_WEBRTC_RTP_PORT", "WEBRTC_RTP_PORT"}, 5004),
+        WebRTCSTUNURL:  getEnvAny([]string{"GRIMNIR_WEBRTC_STUN_URL", "WEBRTC_STUN_URL"}, "stun:stun.l.google.com:19302"),
     }
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {

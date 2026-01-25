@@ -18,6 +18,7 @@
                     <p class="text-body-secondary">{{.Station.Description}}</p>
                     {{end}}
 
+                    {{$station := .Station}}
                     {{if .Mounts}}
                     <div class="list-group">
                         {{range .Mounts}}
@@ -29,11 +30,20 @@
                                 <span class="text-body-secondary small">{{.Bitrate}}kbps</span>
                                 {{end}}
                             </div>
-                            <button class="btn btn-primary btn-sm"
-                                    onclick="playStream('{{.URL}}', '{{.Name}}')"
-                                    data-mount-id="{{.ID}}">
-                                <i class="bi bi-play-fill me-1"></i>Play
-                            </button>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-primary btn-sm"
+                                        onclick="playStream('{{.URL}}', '{{$station.Name}}', '{{$station.ID}}')"
+                                        data-mount-id="{{.ID}}"
+                                        title="High Quality">
+                                    <i class="bi bi-play-fill me-1"></i>HQ
+                                </button>
+                                <button class="btn btn-outline-primary btn-sm"
+                                        onclick="playStream('{{.LQURL}}', '{{$station.Name}}', '{{$station.ID}}')"
+                                        data-mount-id="{{.ID}}-lq"
+                                        title="Low Quality - Save Bandwidth">
+                                    <i class="bi bi-play-fill me-1"></i>LQ
+                                </button>
+                            </div>
                         </div>
                         {{end}}
                     </div>
@@ -78,52 +88,31 @@
 
 {{define "scripts"}}
 <script>
-let audio = null;
-let currentStreamUrl = null;
-
-function playStream(url, name) {
-    if (audio) {
-        audio.pause();
+// Use the global player for persistent playback across page navigation
+function playStream(url, name, stationId) {
+    if (window.globalPlayer) {
+        // Check if already playing a stream (switching quality)
+        // Add nobuffer=1 to maintain audio sync when switching
+        let streamUrl = url;
+        if (window.globalPlayer.isLive && !window.globalPlayer.audio.paused) {
+            streamUrl = url + (url.includes('?') ? '&' : '?') + 'nobuffer=1';
+        }
+        // Use the global player which persists across navigation
+        window.globalPlayer.playLive(streamUrl, name, stationId);
+        // Hide the local player card since we use the global one
+        document.getElementById('playerCard').classList.add('d-none');
     }
-
-    audio = new Audio(url);
-    audio.volume = document.getElementById('volumeSlider').value / 100;
-    currentStreamUrl = url;
-
-    audio.addEventListener('playing', () => {
-        document.getElementById('playerStatus').textContent = 'Playing';
-        document.getElementById('playPauseIcon').className = 'bi bi-pause-fill';
-    });
-
-    audio.addEventListener('waiting', () => {
-        document.getElementById('playerStatus').textContent = 'Buffering...';
-    });
-
-    audio.addEventListener('error', () => {
-        document.getElementById('playerStatus').textContent = 'Connection error';
-    });
-
-    audio.play();
-
-    document.getElementById('playerStreamName').textContent = name;
-    document.getElementById('playerCard').classList.remove('d-none');
 }
 
 function togglePlay() {
-    if (!audio) return;
-
-    if (audio.paused) {
-        audio.play();
-        document.getElementById('playPauseIcon').className = 'bi bi-pause-fill';
-    } else {
-        audio.pause();
-        document.getElementById('playPauseIcon').className = 'bi bi-play-fill';
+    if (window.globalPlayer) {
+        window.globalPlayer.togglePlayPause();
     }
 }
 
 function setVolume(value) {
-    if (audio) {
-        audio.volume = value / 100;
+    if (window.globalPlayer && window.globalPlayer.audio) {
+        window.globalPlayer.audio.volume = value / 100;
     }
 }
 
