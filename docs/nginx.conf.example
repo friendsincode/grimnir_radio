@@ -1,0 +1,133 @@
+# =============================================================================
+# Grimnir Radio - Nginx Reverse Proxy Configuration
+# =============================================================================
+#
+# Simple HTTP configuration ready for certbot to add SSL automatically.
+#
+# SETUP:
+#   1. Copy to /etc/nginx/sites-available/grimnir-radio.conf
+#   2. Replace "radio.example.com" with your domain
+#   3. Enable: ln -s /etc/nginx/sites-available/grimnir-radio.conf /etc/nginx/sites-enabled/
+#   4. Test & reload: nginx -t && systemctl reload nginx
+#   5. Run certbot: certbot --nginx -d radio.example.com
+#
+# Certbot will automatically:
+#   - Add SSL certificates
+#   - Create HTTPS server block
+#   - Add HTTP->HTTPS redirect
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# UPSTREAM - Backend Servers
+# -----------------------------------------------------------------------------
+# Grimnir runs on port 8081 (see docker-compose.override.yml)
+# Change if your setup uses a different port
+# -----------------------------------------------------------------------------
+
+upstream grimnir {
+    server 127.0.0.1:8081;
+    keepalive 32;
+}
+
+# -----------------------------------------------------------------------------
+# HTTP SERVER
+# -----------------------------------------------------------------------------
+
+server {
+    listen 80;
+    listen [::]:80;
+
+    # >>> CHANGE THIS to your domain <<<
+    server_name radio.example.com;
+
+    # -------------------------------------------------------------------------
+    # Certbot ACME Challenge
+    # -------------------------------------------------------------------------
+    # Required for Let's Encrypt certificate issuance and renewal
+    # Certbot places challenge files in /var/www/certbot
+    # Create this directory: mkdir -p /var/www/certbot
+    # -------------------------------------------------------------------------
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # -------------------------------------------------------------------------
+    # Main Application
+    # -------------------------------------------------------------------------
+    # All regular requests: pages, API, static files
+    # -------------------------------------------------------------------------
+    location / {
+        proxy_pass http://grimnir;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # -------------------------------------------------------------------------
+    # WebSocket - Real-time Events
+    # -------------------------------------------------------------------------
+    # Live updates: now playing, schedule changes, health status
+    # -------------------------------------------------------------------------
+    location /api/v1/events {
+        proxy_pass http://grimnir;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400;
+    }
+
+    # -------------------------------------------------------------------------
+    # WebSocket - WebRTC Signaling
+    # -------------------------------------------------------------------------
+    # WebRTC connection setup for low-latency audio streaming
+    # -------------------------------------------------------------------------
+    location /webrtc/signal {
+        proxy_pass http://grimnir;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400;
+    }
+
+    # -------------------------------------------------------------------------
+    # Live Audio Streams
+    # -------------------------------------------------------------------------
+    # HTTP chunked streaming (fallback when WebRTC unavailable)
+    #   /live/main     - HQ stream (128kbps)
+    #   /live/main-lq  - LQ stream (64kbps)
+    #
+    # IMPORTANT: proxy_buffering must be OFF for real-time audio
+    # -------------------------------------------------------------------------
+    location /live/ {
+        proxy_pass http://grimnir;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # Disable buffering - critical for streaming
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_request_buffering off;
+        chunked_transfer_encoding on;
+
+        # No timeout - streams run continuously
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+}
+
+# =============================================================================
+# AFTER CERTBOT
+# =============================================================================
+# Certbot will add an HTTPS server block automatically.
+# It will also modify the HTTP block to redirect to HTTPS.
+# No manual SSL configuration needed!
+# =============================================================================
