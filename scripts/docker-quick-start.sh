@@ -228,7 +228,7 @@ configure_deploy_dir() {
     print_info "  (.env, docker-compose.yml, docker-compose.override.yml)"
     echo ""
 
-    prompt "Docker config directory" "$current_dir" "DEPLOY_DIR"
+    prompt "Docker config directory" "/srv/docker/grimnir_radio" "DEPLOY_DIR"
 
     # Expand ~ to home directory
     DEPLOY_DIR="${DEPLOY_DIR/#\~/$HOME}"
@@ -271,7 +271,7 @@ configure_deploy_dir() {
     print_info "  This can be a separate mount point (e.g., NFS)"
     echo ""
 
-    prompt "Data directory" "/srv/data" "DATA_DIR"
+    prompt "Data directory" "/srv/data/grimnir_radio" "DATA_DIR"
 
     # Expand ~ to home directory
     DATA_DIR="${DATA_DIR/#\~/$HOME}"
@@ -1101,20 +1101,31 @@ EOF
     print_success "Created $OVERRIDE_FILE"
 }
 
-# Copy docker-compose.yml to deploy directory if needed
+# Source directory for build context (set by copy_compose_file)
+SOURCE_DIR=""
+
+# Copy docker-compose.yml and related files to deploy directory
 copy_compose_file() {
     local dst_compose="$DEPLOY_DIR/docker-compose.yml"
 
-    # If docker-compose.yml already exists in deploy dir, we're done
+    # Try to find source in PROJECT_ROOT (where the script came from)
+    if [ -f "$PROJECT_ROOT/docker-compose.yml" ]; then
+        SOURCE_DIR="$PROJECT_ROOT"
+    fi
+
+    # If docker-compose.yml already exists in deploy dir, check if we still need source
     if [ -f "$dst_compose" ]; then
+        # If we have source, set SOURCE_DIR for potential builds
+        if [ -n "$SOURCE_DIR" ]; then
+            print_info "Using existing docker-compose.yml in $DEPLOY_DIR"
+            print_info "Source code available at: $SOURCE_DIR"
+        fi
         return 0
     fi
 
-    # Try to find it in PROJECT_ROOT (where the script came from)
-    local src_compose="$PROJECT_ROOT/docker-compose.yml"
-
-    if [ -f "$src_compose" ]; then
-        cp "$src_compose" "$dst_compose"
+    # Try PROJECT_ROOT
+    if [ -n "$SOURCE_DIR" ]; then
+        cp "$SOURCE_DIR/docker-compose.yml" "$dst_compose"
         print_success "Copied docker-compose.yml to $DEPLOY_DIR"
         return 0
     fi
@@ -1124,35 +1135,123 @@ copy_compose_file() {
     print_info "Please provide the path to the Grimnir Radio source directory"
     echo ""
 
-    local source_dir=""
     while true; do
-        prompt "Grimnir Radio source directory" "" "source_dir"
+        prompt "Grimnir Radio source directory" "" "SOURCE_DIR"
 
         # Expand ~ to home directory
-        source_dir="${source_dir/#\~/$HOME}"
+        SOURCE_DIR="${SOURCE_DIR/#\~/$HOME}"
 
-        if [ -f "$source_dir/docker-compose.yml" ]; then
-            cp "$source_dir/docker-compose.yml" "$dst_compose"
+        if [ -f "$SOURCE_DIR/docker-compose.yml" ]; then
+            cp "$SOURCE_DIR/docker-compose.yml" "$dst_compose"
             print_success "Copied docker-compose.yml to $DEPLOY_DIR"
             return 0
         else
-            print_error "docker-compose.yml not found in $source_dir"
+            print_error "docker-compose.yml not found in $SOURCE_DIR"
             print_info "Make sure you point to the grimnir_radio project root"
+            SOURCE_DIR=""
         fi
     done
 }
 
-# Build images
+# Track whether using registry images
+USE_REGISTRY_IMAGES=false
+
+# Pull or build images
 build_images() {
-    print_section "Building Docker Images"
+    print_section "Docker Images"
 
     copy_compose_file
-    cd "$DEPLOY_DIR"
 
-    print_info "Building images (this may take several minutes)..."
-    docker-compose build --parallel
+    # Check if user wants to pull release images or build locally
+    echo ""
+    echo "Image source options:"
+    echo "  1) Pull latest release from GitHub Container Registry (recommended)"
+    echo "  2) Build from source (requires full source code)"
+    echo ""
 
-    print_success "Images built successfully"
+    prompt "Select image source [1-2]" "1" "image_source"
+
+    if [ "$image_source" = "1" ]; then
+        USE_REGISTRY_IMAGES=true
+        cd "$DEPLOY_DIR"
+        # Create a production compose file that uses ghcr.io images
+        create_prod_compose_file
+        print_info "Pulling images from ghcr.io..."
+        get_compose_cmd pull
+        print_success "Images pulled successfully"
+    else
+        USE_REGISTRY_IMAGES=false
+        # For building, we need to be in the source directory
+        if [ -z "$SOURCE_DIR" ] || [ ! -f "$SOURCE_DIR/Dockerfile" ]; then
+            print_error "Cannot build: source directory with Dockerfiles not found"
+            print_info "Please ensure you're running this script from the grimnir_radio source"
+            print_info "Or choose option 1 to pull pre-built images"
+            exit 1
+        fi
+
+        print_info "Building from source: $SOURCE_DIR"
+        cd "$SOURCE_DIR"
+
+        print_info "Building images (this may take several minutes)..."
+        docker-compose build --parallel
+
+        # Tag images for use by deploy directory
+        print_info "Tagging images..."
+        docker tag grimnir_radio:latest grimnir_radio:latest
+        docker tag grimnir_mediaengine:latest grimnir_mediaengine:latest
+
+        print_success "Images built successfully"
+
+        # Go back to deploy directory
+        cd "$DEPLOY_DIR"
+    fi
+}
+
+# Get the docker-compose command with appropriate files
+get_compose_cmd() {
+    local cmd="$1"
+    if [ "$USE_REGISTRY_IMAGES" = true ] && [ -f "$DEPLOY_DIR/docker-compose.prod.yml" ]; then
+        docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml $cmd
+    else
+        docker-compose $cmd
+    fi
+}
+
+# Create production compose file with ghcr.io images
+create_prod_compose_file() {
+    cat > "$DEPLOY_DIR/docker-compose.prod.yml" <<'EOF'
+# Production override - use pre-built images from GitHub Container Registry
+# Generated by docker-quick-start.sh
+#
+# This file overrides the build: directives with image: to pull from ghcr.io
+
+services:
+  mediaengine:
+    image: ghcr.io/friendsincode/grimnir_mediaengine:latest
+
+  grimnir:
+    image: ghcr.io/friendsincode/grimnir_radio:latest
+EOF
+
+    print_success "Created docker-compose.prod.yml"
+
+    # Create helper script for easier management
+    cat > "$DEPLOY_DIR/grimnir" <<'SCRIPT'
+#!/bin/bash
+# Grimnir Radio - Docker Compose Wrapper
+# Usage: ./grimnir [command]
+#   ./grimnir up -d      Start services
+#   ./grimnir down       Stop services
+#   ./grimnir logs -f    Follow logs
+#   ./grimnir ps         Show status
+#   ./grimnir pull       Pull latest images
+
+cd "$(dirname "$0")"
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml "$@"
+SCRIPT
+
+    chmod +x "$DEPLOY_DIR/grimnir"
+    print_success "Created grimnir helper script"
 }
 
 # Start services
@@ -1162,7 +1261,7 @@ start_services() {
     cd "$DEPLOY_DIR"
 
     print_info "Starting Grimnir Radio stack..."
-    docker-compose up -d
+    get_compose_cmd "up -d"
 
     print_success "Services started"
 }
@@ -1179,7 +1278,7 @@ wait_for_health() {
     print_info "Waiting for all services to be healthy (max ${max_wait}s)..."
 
     while [ $elapsed -lt $max_wait ]; do
-        if docker-compose ps | grep -q "unhealthy\|starting"; then
+        if get_compose_cmd "ps" | grep -q "unhealthy\|starting"; then
             echo -n "."
             sleep 2
             elapsed=$((elapsed + 2))
@@ -1192,7 +1291,7 @@ wait_for_health() {
 
     echo ""
     print_warning "Some services may not be fully healthy yet"
-    print_info "Check status with: docker-compose ps"
+    print_info "Check status with: cd $DEPLOY_DIR && docker-compose ps"
 }
 
 # Display summary
@@ -1261,6 +1360,10 @@ display_summary() {
     echo -e "${CYAN}Configuration Files:${NC}"
     echo -e "  Environment:   $ENV_FILE"
     echo -e "  Override:      $OVERRIDE_FILE"
+    if [ "$USE_REGISTRY_IMAGES" = true ]; then
+        echo -e "  Registry:      $DEPLOY_DIR/docker-compose.prod.yml"
+        echo -e "  Helper:        $DEPLOY_DIR/grimnir"
+    fi
     echo -e "  Saved Config:  $CONFIG_FILE"
     echo ""
 
@@ -1269,10 +1372,18 @@ display_summary() {
     echo ""
 
     echo -e "${CYAN}Useful Commands:${NC} (run from $DEPLOY_DIR)"
-    echo -e "  View logs:       docker-compose logs -f"
-    echo -e "  Stop services:   docker-compose down"
-    echo -e "  Restart:         docker-compose restart"
-    echo -e "  Status:          docker-compose ps"
+    if [ "$USE_REGISTRY_IMAGES" = true ]; then
+        echo -e "  View logs:       ./grimnir logs -f"
+        echo -e "  Stop services:   ./grimnir down"
+        echo -e "  Restart:         ./grimnir restart"
+        echo -e "  Status:          ./grimnir ps"
+        echo -e "  Pull updates:    ./grimnir pull && ./grimnir up -d"
+    else
+        echo -e "  View logs:       docker-compose logs -f"
+        echo -e "  Stop services:   docker-compose down"
+        echo -e "  Restart:         docker-compose restart"
+        echo -e "  Status:          docker-compose ps"
+    fi
     echo ""
 
     echo -e "${CYAN}Next Steps:${NC}"
@@ -1295,7 +1406,13 @@ stop_services() {
     print_section "Stopping Services"
 
     cd "$DEPLOY_DIR"
-    docker-compose down
+
+    # Check if using registry images
+    if [ -f "$DEPLOY_DIR/docker-compose.prod.yml" ]; then
+        USE_REGISTRY_IMAGES=true
+    fi
+
+    get_compose_cmd "down"
 
     print_success "Services stopped"
 }
@@ -1326,8 +1443,13 @@ clean_all() {
 
     cd "$DEPLOY_DIR"
 
+    # Check if using registry images
+    if [ -f "$DEPLOY_DIR/docker-compose.prod.yml" ]; then
+        USE_REGISTRY_IMAGES=true
+    fi
+
     print_info "Stopping and removing containers..."
-    docker-compose down -v
+    get_compose_cmd "down -v"
 
     if [ -f "$ENV_FILE" ]; then
         rm "$ENV_FILE"
@@ -1337,6 +1459,11 @@ clean_all() {
     if [ -f "$OVERRIDE_FILE" ]; then
         rm "$OVERRIDE_FILE"
         print_info "Removed $OVERRIDE_FILE"
+    fi
+
+    if [ -f "$DEPLOY_DIR/docker-compose.prod.yml" ]; then
+        rm "$DEPLOY_DIR/docker-compose.prod.yml"
+        print_info "Removed docker-compose.prod.yml"
     fi
 
     if [ -d "$CONFIG_DIR" ]; then
