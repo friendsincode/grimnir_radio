@@ -487,8 +487,8 @@ class GlobalPlayer {
         this.isLive = false;
         this.isMinimized = false;
 
-        // WebRTC state
-        this.webrtcEnabled = true;  // Try WebRTC first for live streams
+        // WebRTC state - enabled for lower latency when available
+        this.webrtcEnabled = true;  // Try WebRTC first, fall back to HTTP
         this.peerConnection = null;
         this.signalingWs = null;
         this.useWebRTC = false;  // Currently using WebRTC vs HTTP
@@ -706,8 +706,16 @@ class GlobalPlayer {
     }
 
     playLive(url, stationName, stationId) {
+        // Determine LQ URL for HTTP fallback (append -lq to mount name)
+        // e.g., /live/main -> /live/main-lq
+        let lqUrl = url;
+        if (url.includes('/live/')) {
+            lqUrl = url.replace(/\/live\/([^/?]+)/, '/live/$1-lq');
+        }
+
         this.currentTrack = {
-            url: url,
+            url: url,        // HQ URL (for reference)
+            lqUrl: lqUrl,    // LQ URL (for HTTP streaming)
             title: stationName || 'Live Stream',
             artist: 'Connecting...',
             artwork: null,
@@ -719,21 +727,21 @@ class GlobalPlayer {
         this.updateUI();
         this.show();
 
-        // Try WebRTC first for lower latency
+        // Try WebRTC first for HQ low-latency streaming
         if (this.webrtcEnabled && 'RTCPeerConnection' in window) {
             this.connectWebRTC().then(connected => {
                 if (!connected) {
-                    // Fall back to HTTP streaming
-                    console.log('WebRTC failed, falling back to HTTP streaming');
-                    this.fallbackToHTTP(url);
+                    // Fall back to HTTP LQ streaming (bandwidth friendly)
+                    console.log('WebRTC failed, falling back to HTTP LQ streaming');
+                    this.fallbackToHTTP(lqUrl);
                 }
             }).catch(err => {
-                console.log('WebRTC error, falling back to HTTP:', err);
-                this.fallbackToHTTP(url);
+                console.log('WebRTC error, falling back to HTTP LQ:', err);
+                this.fallbackToHTTP(lqUrl);
             });
         } else {
-            // WebRTC not available, use HTTP streaming
-            this.fallbackToHTTP(url);
+            // WebRTC not available, use HTTP LQ streaming
+            this.fallbackToHTTP(lqUrl);
         }
 
         // Start fetching now-playing metadata
@@ -743,7 +751,18 @@ class GlobalPlayer {
     fallbackToHTTP(url) {
         this.useWebRTC = false;
         this.closeWebRTC();
-        this.audio.src = url;
+
+        // Fully reset audio element to avoid stale buffer issues
+        this.audio.pause();
+        this.audio.removeAttribute('src');
+        this.audio.load();  // Reset internal state
+
+        // Add cache-busting timestamp to prevent browser caching
+        const cacheBustUrl = url.includes('?')
+            ? `${url}&_t=${Date.now()}`
+            : `${url}?_t=${Date.now()}`;
+
+        this.audio.src = cacheBustUrl;
         this.audio.play().catch(e => console.error('HTTP play error:', e));
     }
 
@@ -888,15 +907,15 @@ class GlobalPlayer {
                                 if (this.currentTrack && this.isLive) {
                                     this.connectWebRTC().then(connected => {
                                         if (!connected && this._webrtcReconnectAttempts >= 3) {
-                                            console.log('WebRTC reconnect failed, falling back to HTTP');
-                                            this.fallbackToHTTP(this.currentTrack.url);
+                                            console.log('WebRTC reconnect failed, falling back to HTTP LQ');
+                                            this.fallbackToHTTP(this.currentTrack.lqUrl || this.currentTrack.url);
                                         }
                                     });
                                 }
                             }, 500);
                         } else {
-                            console.log('WebRTC reconnect failed, falling back to HTTP');
-                            this.fallbackToHTTP(this.currentTrack.url);
+                            console.log('WebRTC reconnect failed, falling back to HTTP LQ');
+                            this.fallbackToHTTP(this.currentTrack.lqUrl || this.currentTrack.url);
                         }
                     }
                 }
@@ -1309,14 +1328,11 @@ class GlobalPlayer {
                 return;
             }
 
-            // Get base URL without cache busters
-            let baseUrl = this.currentTrack.url.split('?')[0];
-            // Preserve nobuffer param if switching quality
-            if (this.currentTrack.url.includes('nobuffer=1')) {
-                baseUrl += '?nobuffer=1&_t=' + Date.now();
-            } else {
-                baseUrl += '?_t=' + Date.now();
-            }
+            // Get LQ URL for HTTP reconnection (bandwidth friendly)
+            const streamUrl = this.currentTrack.lqUrl || this.currentTrack.url;
+            let baseUrl = streamUrl.split('?')[0];
+            // Add cache buster
+            baseUrl += '?_t=' + Date.now();
 
             this.audio.src = baseUrl;
             this.audio.play().then(() => {
