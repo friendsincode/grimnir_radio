@@ -23,256 +23,961 @@
 {{$isNew := index $data "IsNew"}}
 {{$genres := index $data "Genres"}}
 {{$artists := index $data "Artists"}}
+{{$otherBlocks := index $data "OtherBlocks"}}
+{{$playlists := index $data "Playlists"}}
+
+{{/* Extract existing values */}}
+{{$rules := $block.Rules}}
+{{$seq := $block.Sequence}}
+
 <div class="row">
     <div class="col-lg-8">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h4 class="mb-0">
-                <i class="bi bi-magic me-2"></i>
-                {{if $isNew}}New Smart Block{{else}}Edit Smart Block{{end}}
-            </h4>
-            <a href="/dashboard/smart-blocks" class="btn btn-outline-secondary">
-                <i class="bi bi-x me-1"></i>Cancel
-            </a>
-        </div>
-
-        <form method="POST"
+        <form id="smartBlockForm" method="POST"
               action="{{if $isNew}}/dashboard/smart-blocks{{else}}/dashboard/smart-blocks/{{$block.ID}}{{end}}"
-              {{if $isNew}}
-              hx-post="/dashboard/smart-blocks"
-              {{else}}
-              hx-put="/dashboard/smart-blocks/{{$block.ID}}"
-              {{end}}
-              hx-swap="none"
-              x-data="smartBlockForm()">
+              {{if $isNew}}hx-post="/dashboard/smart-blocks"{{else}}hx-put="/dashboard/smart-blocks/{{$block.ID}}"{{end}}
+              hx-swap="none">
 
-            <!-- Basic Info -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0">Basic Information</h5>
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="name"
-                               value="{{$block.Name}}" required autofocus
-                               placeholder="e.g. Rock Mix, Top 40">
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Description</label>
-                        <textarea class="form-control" name="description" rows="2"
-                                  placeholder="Optional description">{{$block.Description}}</textarea>
-                    </div>
+            <!-- Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h4 class="mb-0">
+                    <i class="bi bi-magic me-2"></i>
+                    {{if $isNew}}New Smart Block{{else}}Edit Smart Block{{end}}
+                </h4>
+                <div class="d-flex gap-2">
+                    {{if not $isNew}}
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            hx-post="/dashboard/smart-blocks/{{$block.ID}}/duplicate" hx-swap="none">
+                        <i class="bi bi-copy me-1"></i>Duplicate
+                    </button>
+                    {{end}}
+                    <a href="/dashboard/smart-blocks" class="btn btn-outline-secondary btn-sm">Cancel</a>
                 </div>
             </div>
 
-            <!-- Rules Builder -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0">Selection Rules</h5>
-                </div>
-                <div class="card-body">
-                    <p class="text-body-secondary small mb-3">
-                        Define criteria for selecting media. All conditions must be met (AND logic).
-                    </p>
-
-                    <div class="mb-3">
-                        <label class="form-label">Genre</label>
-                        <select class="form-select" x-model="rules.genre">
-                            <option value="">Any genre</option>
-                            {{range $genres}}
-                            <option value="{{.}}">{{.}}</option>
-                            {{end}}
-                        </select>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Artist</label>
-                        <select class="form-select" x-model="rules.artist">
-                            <option value="">Any artist</option>
-                            {{range $artists}}
-                            <option value="{{.}}">{{.}}</option>
-                            {{end}}
-                        </select>
-                    </div>
-
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Mood</label>
-                            <select class="form-select" x-model="rules.mood">
-                                <option value="">Any mood</option>
-                                <option value="energetic">Energetic</option>
-                                <option value="happy">Happy</option>
-                                <option value="uplifting">Uplifting</option>
-                                <option value="relaxed">Relaxed</option>
-                                <option value="chill">Chill</option>
-                                <option value="melancholic">Melancholic</option>
-                                <option value="sad">Sad</option>
-                                <option value="dark">Dark</option>
-                                <option value="aggressive">Aggressive</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Language</label>
-                            <select class="form-select" x-model="rules.language">
-                                <option value="">Any language</option>
-                                <option value="en">English</option>
-                                <option value="es">Spanish</option>
-                                <option value="fr">French</option>
-                                <option value="de">German</option>
-                                <option value="instrumental">Instrumental</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="row g-3 mt-2">
-                        <div class="col-md-6">
-                            <label class="form-label">Year Range</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control" placeholder="From"
-                                       x-model.number="rules.yearFrom" min="1900" max="2100">
-                                <span class="input-group-text">-</span>
-                                <input type="number" class="form-control" placeholder="To"
-                                       x-model.number="rules.yearTo" min="1900" max="2100">
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">BPM Range</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control" placeholder="From"
-                                       x-model.number="rules.bpmFrom" min="0" max="300">
-                                <span class="input-group-text">-</span>
-                                <input type="number" class="form-control" placeholder="To"
-                                       x-model.number="rules.bpmTo" min="0" max="300">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-check mt-3">
-                        <input type="checkbox" class="form-check-input" id="excludeExplicit"
-                               x-model="rules.excludeExplicit">
-                        <label class="form-check-label" for="excludeExplicit">
-                            Exclude explicit content
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Sequence Settings -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0">Sequence Settings</h5>
+            <!-- CORE SETTINGS -->
+            <div class="card mb-3 border-primary">
+                <div class="card-header bg-primary text-white">
+                    <i class="bi bi-sliders me-2"></i>Core Settings
                 </div>
                 <div class="card-body">
                     <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label fw-bold">Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-lg" name="name"
+                                   value="{{$block.Name}}" required placeholder="e.g. Rock Hits, Morning Energy">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Duration</label>
+                            {{$targetMins := 60}}{{with $rules}}{{with index . "targetMinutes"}}{{$targetMins = .}}{{end}}{{end}}
+                            <div class="input-group">
+                                <input type="number" class="form-control form-control-lg" name="duration_value"
+                                       value="{{$targetMins}}" min="1">
+                                <select class="form-select" name="duration_unit" style="max-width: 100px;">
+                                    <option value="minutes" selected>min</option>
+                                    <option value="hours">hrs</option>
+                                    <option value="days">days</option>
+                                </select>
+                            </div>
+                            <div class="btn-group btn-group-sm w-100 mt-2" role="group">
+                                <button type="button" class="btn btn-outline-primary duration-preset" data-hours="1">1h</button>
+                                <button type="button" class="btn btn-outline-primary duration-preset" data-hours="2">2h</button>
+                                <button type="button" class="btn btn-outline-primary duration-preset" data-hours="3">3h</button>
+                                <button type="button" class="btn btn-outline-primary duration-preset" data-hours="4">4h</button>
+                                <button type="button" class="btn btn-outline-primary duration-preset" data-hours="5">5h</button>
+                            </div>
+                            <div class="mt-2">
+                                <label class="form-label small text-muted mb-1">Accuracy ±</label>
+                                {{$accuracy := 2}}{{with $rules}}{{with index . "durationAccuracy"}}{{$accuracy = .}}{{end}}{{end}}
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" name="duration_accuracy"
+                                           value="{{$accuracy}}" min="1" max="60">
+                                    <span class="input-group-text">sec</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <input type="text" class="form-control" name="description"
+                                   value="{{$block.Description}}" placeholder="What's this block for?">
+                        </div>
                         <div class="col-md-6">
                             <label class="form-label">Selection Mode</label>
-                            <select class="form-select" x-model="sequence.mode">
-                                <option value="random">Random</option>
-                                <option value="shuffle">Shuffle (no repeats)</option>
-                                <option value="sequential">Sequential</option>
-                                <option value="weighted">Weighted by plays</option>
+                            <select class="form-select" name="sequence_mode">
+                                <option value="random" {{if eq (index $seq "mode") "random"}}selected{{end}}>Random</option>
+                                <option value="shuffle" {{if eq (index $seq "mode") "shuffle"}}selected{{end}}>Shuffle (exhaust before repeat)</option>
+                                <option value="weighted" {{if eq (index $seq "mode") "weighted"}}selected{{end}}>Weighted (prefer less-played)</option>
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Avoid Repeat (minutes)</label>
-                            <input type="number" class="form-control"
-                                   x-model.number="sequence.avoidRepeatMinutes"
-                                   min="0" max="1440" placeholder="0 = no limit">
-                            <div class="form-text">Time before a track can repeat</div>
+                            <label class="form-label">Apply Template</label>
+                            <select class="form-select" id="templateSelect">
+                                <option value="">Choose a preset...</option>
+                                <option value="top40">Top 40 Radio</option>
+                                <option value="chill">Chill/Ambient</option>
+                                <option value="energy">High Energy</option>
+                                <option value="80s">80s Hits</option>
+                                <option value="90s">90s Hits</option>
+                            </select>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Hidden fields for JSON data -->
-            <input type="hidden" name="rules" :value="JSON.stringify(rules)">
-            <input type="hidden" name="sequence" :value="JSON.stringify(sequence)">
+            <!-- ACCORDION FOR OTHER SECTIONS -->
+            <div class="accordion" id="settingsAccordion">
 
-            <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-primary">
-                    <i class="bi bi-check-lg me-1"></i>
-                    {{if $isNew}}Create Smart Block{{else}}Save Changes{{end}}
+                <!-- SOURCE PLAYLISTS -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sourceSection">
+                            <i class="bi bi-collection-play me-2"></i>Source Playlists
+                            <span class="badge bg-secondary ms-auto me-2" id="sourceCount">All Media</span>
+                        </button>
+                    </h2>
+                    <div id="sourceSection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <p class="text-body-secondary small">Limit to tracks from specific playlists, or leave empty for all media.</p>
+                            <div class="row g-2">
+                                {{range $playlists}}
+                                <div class="col-6 col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input source-playlist" type="checkbox"
+                                               name="source_playlists" value="{{.ID}}" id="src-{{.ID}}">
+                                        <label class="form-check-label" for="src-{{.ID}}">{{.Name}}</label>
+                                    </div>
+                                </div>
+                                {{else}}
+                                <div class="col-12 text-muted text-center py-3">
+                                    No playlists yet. <a href="/dashboard/playlists/new">Create one</a>
+                                </div>
+                                {{end}}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FILTERS -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#filterSection">
+                            <i class="bi bi-funnel me-2"></i>Selection Filters
+                            <span class="badge bg-info ms-auto me-2" id="filterCount" style="display:none;">0 active</span>
+                        </button>
+                    </h2>
+                    <div id="filterSection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Genre</label>
+                                    <select class="form-select filter-field" name="filter_genre">
+                                        <option value="">Any</option>
+                                        {{range $genres}}<option value="{{.}}" {{if eq (index $rules "genre") .}}selected{{end}}>{{.}}</option>{{end}}
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Artist</label>
+                                    <select class="form-select filter-field" name="filter_artist">
+                                        <option value="">Any</option>
+                                        {{range $artists}}<option value="{{.}}" {{if eq (index $rules "artist") .}}selected{{end}}>{{.}}</option>{{end}}
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Mood</label>
+                                    <select class="form-select filter-field" name="filter_mood">
+                                        <option value="">Any</option>
+                                        <option value="energetic">Energetic</option>
+                                        <option value="happy">Happy</option>
+                                        <option value="relaxed">Relaxed</option>
+                                        <option value="melancholic">Melancholic</option>
+                                        <option value="dark">Dark</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Era</label>
+                                    <select class="form-select filter-field" name="filter_era">
+                                        <option value="">Any</option>
+                                        <option value="current">Current (2 yrs)</option>
+                                        <option value="2020s">2020s</option>
+                                        <option value="2010s">2010s</option>
+                                        <option value="2000s">2000s</option>
+                                        <option value="90s">90s</option>
+                                        <option value="80s">80s</option>
+                                        <option value="70s">70s</option>
+                                        <option value="classic">Classic</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">BPM Range</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control filter-field" name="filter_bpm_min" placeholder="Min" min="0" max="300">
+                                        <span class="input-group-text">-</span>
+                                        <input type="number" class="form-control filter-field" name="filter_bpm_max" placeholder="Max" min="0" max="300">
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Language</label>
+                                    <select class="form-select filter-field" name="filter_language">
+                                        <option value="">Any</option>
+                                        <option value="en">English</option>
+                                        <option value="es">Spanish</option>
+                                        <option value="instrumental">Instrumental</option>
+                                    </select>
+                                </div>
+                                <div class="col-12">
+                                    <div class="form-check">
+                                        <input class="form-check-input filter-field" type="checkbox" name="filter_exclude_explicit" id="excludeExplicit">
+                                        <label class="form-check-label" for="excludeExplicit">Exclude explicit content</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REPEAT PREVENTION -->
+                {{$sep := index $rules "separation"}}
+                {{$sepEnabled := index $rules "separationEnabled"}}
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#separationSection">
+                            <i class="bi bi-clock-history me-2"></i>Repeat Prevention
+                            <span class="badge bg-success ms-auto me-2 section-badge" id="separationBadge" style="display:none;">ON</span>
+                        </button>
+                    </h2>
+                    <div id="separationSection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input section-toggle" type="checkbox" name="separation_enabled" id="separationToggle" data-section="separationFields" data-badge="separationBadge">
+                                <label class="form-check-label fw-bold" for="separationToggle">Enable Repeat Prevention</label>
+                            </div>
+                            <div id="separationFields" style="display:none;">
+                                <p class="text-body-secondary small">Minimum time before repeating the same artist, title, etc.</p>
+                                <div class="row g-3">
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small text-uppercase text-muted">Artist</label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" name="sep_artist" value="{{with $sep}}{{index . "artist" | default 30}}{{else}}30{{end}}" min="0" max="999">
+                                            <span class="input-group-text">min</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small text-uppercase text-muted">Title</label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" name="sep_title" value="{{with $sep}}{{index . "title" | default 180}}{{else}}180{{end}}" min="0" max="999">
+                                            <span class="input-group-text">min</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small text-uppercase text-muted">Album</label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" name="sep_album" value="{{with $sep}}{{index . "album" | default 15}}{{else}}15{{end}}" min="0" max="999">
+                                            <span class="input-group-text">min</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small text-uppercase text-muted">Label</label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" name="sep_label" value="{{with $sep}}{{index . "label" | default 0}}{{else}}0{{end}}" min="0" max="999">
+                                            <span class="input-group-text">min</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PRIORITY BOOSTERS -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#boostersSection">
+                            <i class="bi bi-lightning-charge me-2"></i>Priority Boosters
+                            <span class="badge bg-success ms-auto me-2 section-badge" id="boostersBadge" style="display:none;">ON</span>
+                        </button>
+                    </h2>
+                    <div id="boostersSection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input section-toggle" type="checkbox" name="boosters_enabled" id="boostersToggle" data-section="boostersFields" data-badge="boostersBadge">
+                                <label class="form-check-label fw-bold" for="boostersToggle">Enable Priority Boosters</label>
+                            </div>
+                            <div id="boostersFields" style="display:none;">
+                                <p class="text-body-secondary small">Increase selection probability for matching tracks.</p>
+                                <div id="boosterList"></div>
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addBooster">
+                                    <i class="bi bi-plus-lg me-1"></i>Add Booster
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QUOTAS -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#quotasSection">
+                            <i class="bi bi-pie-chart me-2"></i>Category Quotas
+                            <span class="badge bg-success ms-auto me-2 section-badge" id="quotasBadge" style="display:none;">ON</span>
+                        </button>
+                    </h2>
+                    <div id="quotasSection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input section-toggle" type="checkbox" name="quotas_enabled" id="quotasToggle" data-section="quotasFields" data-badge="quotasBadge">
+                                <label class="form-check-label fw-bold" for="quotasToggle">Enable Category Quotas</label>
+                            </div>
+                            <div id="quotasFields" style="display:none;">
+                                <p class="text-body-secondary small">Set min/max track counts per category.</p>
+                                <div id="quotaList"></div>
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addQuota">
+                                    <i class="bi bi-plus-lg me-1"></i>Add Quota
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ADS / INTERSTITIALS -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#adsSection">
+                            <i class="bi bi-megaphone me-2"></i>Ads / Interstitials
+                            <span class="badge bg-success ms-auto me-2" id="adsEnabled" style="display:none;">ON</span>
+                        </button>
+                    </h2>
+                    <div id="adsSection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" name="ads_enabled" id="adsToggle">
+                                <label class="form-check-label fw-bold" for="adsToggle">Enable Ad Insertion</label>
+                            </div>
+                            <div id="adsConfig" style="display:none;">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small">Source</label>
+                                        <select class="form-select" name="ads_source_type" id="adsSourceType">
+                                            <option value="playlist">From Playlist</option>
+                                            <option value="genre">By Genre</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6" id="adsPlaylistSelect">
+                                        <label class="form-label small">Playlist</label>
+                                        <select class="form-select" name="ads_playlist">
+                                            <option value="">Select...</option>
+                                            {{range $playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6" id="adsGenreSelect" style="display:none;">
+                                        <label class="form-label small">Genre</label>
+                                        <select class="form-select" name="ads_genre">
+                                            <option value="">Select...</option>
+                                            <option value="Advertisement">Advertisement</option>
+                                            <option value="Jingle">Jingle</option>
+                                            <option value="Promo">Promo</option>
+                                            <option value="Station ID">Station ID</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small">Insert every</label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" name="ads_every_n" value="4" min="2" max="20">
+                                            <span class="input-group-text">tracks</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small">Ads per break</label>
+                                        <input type="number" class="form-control" name="ads_per_break" value="1" min="1" max="5">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ENERGY CURVE -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#energySection">
+                            <i class="bi bi-activity me-2"></i>Energy Curve
+                            <span class="badge bg-success ms-auto me-2 section-badge" id="energyBadge" style="display:none;">ON</span>
+                        </button>
+                    </h2>
+                    <div id="energySection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input section-toggle" type="checkbox" name="energy_enabled" id="energyToggle" data-section="energyFields" data-badge="energyBadge">
+                                <label class="form-check-label fw-bold" for="energyToggle">Enable Energy Curve</label>
+                            </div>
+                            <div id="energyFields" style="display:none;">
+                                <div class="btn-group btn-group-sm mb-3">
+                                    <button type="button" class="btn btn-outline-secondary energy-preset active" data-curve="flat">Flat</button>
+                                    <button type="button" class="btn btn-outline-secondary energy-preset" data-curve="ramp-up">Ramp Up</button>
+                                    <button type="button" class="btn btn-outline-secondary energy-preset" data-curve="ramp-down">Ramp Down</button>
+                                    <button type="button" class="btn btn-outline-secondary energy-preset" data-curve="peak">Peak</button>
+                                    <button type="button" class="btn btn-outline-secondary energy-preset" data-curve="wave">Wave</button>
+                                </div>
+                                <div class="energy-curve-container bg-body-tertiary rounded p-3">
+                                    <div class="d-flex align-items-end justify-content-around" style="height: 100px;" id="energySliders">
+                                        <!-- Generated by JS -->
+                                    </div>
+                                    <input type="hidden" name="energy_curve" id="energyCurveInput" value="50,50,50,50,50,50">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FALLBACKS -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#fallbackSection">
+                            <i class="bi bi-arrow-repeat me-2"></i>Fallback Blocks
+                            <span class="badge bg-success ms-auto me-2 section-badge" id="fallbackBadge" style="display:none;">ON</span>
+                        </button>
+                    </h2>
+                    <div id="fallbackSection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input section-toggle" type="checkbox" name="fallbacks_enabled" id="fallbacksToggle" data-section="fallbacksFields" data-badge="fallbackBadge">
+                                <label class="form-check-label fw-bold" for="fallbacksToggle">Enable Fallback Blocks</label>
+                            </div>
+                            <div id="fallbacksFields" style="display:none;">
+                                <p class="text-body-secondary small">If this block can't fill the duration, use these as backup.</p>
+                                <div id="fallbackList"></div>
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addFallback">
+                                    <i class="bi bi-plus-lg me-1"></i>Add Fallback
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /accordion -->
+
+            <!-- SUBMIT -->
+            <div class="d-grid gap-2 d-md-flex justify-content-md-start mt-4 mb-5">
+                <button type="submit" class="btn btn-primary btn-lg px-5">
+                    <i class="bi bi-check-lg me-2"></i>{{if $isNew}}Create Smart Block{{else}}Save Changes{{end}}
                 </button>
-                <a href="/dashboard/smart-blocks" class="btn btn-outline-secondary">Cancel</a>
+                <a href="/dashboard/smart-blocks" class="btn btn-outline-secondary btn-lg">Cancel</a>
             </div>
         </form>
     </div>
 
-    <!-- Preview Panel -->
+    <!-- PREVIEW PANEL -->
     <div class="col-lg-4">
         <div class="card sticky-top" style="top: 1rem;">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Preview</h5>
-                <button class="btn btn-sm btn-outline-info" type="button"
-                        {{if not $isNew}}
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-eye me-2"></i>Preview</span>
+                {{if not $isNew}}
+                <button class="btn btn-sm btn-light" type="button" id="generatePreviewBtn"
                         hx-post="/dashboard/smart-blocks/{{$block.ID}}/preview"
-                        hx-target="#previewList"
+                        hx-target="#previewResults"
                         hx-indicator="#previewSpinner"
-                        {{else}}
-                        disabled
-                        title="Save the block first to preview"
-                        {{end}}>
-                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                        hx-vals="js:{loop: document.getElementById('loopTracks').checked}">
+                    <i class="bi bi-play-fill"></i> Generate
                 </button>
+                {{end}}
             </div>
-            <div class="card-body p-0">
-                <div id="previewSpinner" class="htmx-indicator text-center py-3">
-                    <div class="spinner-border spinner-border-sm" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
+            {{if not $isNew}}
+            <div class="card-body py-2 border-bottom bg-body-tertiary">
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="loopTracks">
+                    <label class="form-check-label small" for="loopTracks">
+                        <i class="bi bi-repeat me-1"></i>Loop tracks to fill duration
+                    </label>
                 </div>
-                <div id="previewList" class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
-                    {{if $isNew}}
-                    <div class="list-group-item text-center text-body-secondary py-4">
-                        <i class="bi bi-magic fs-1 mb-2 d-block"></i>
-                        Save the block to see a preview
+            </div>
+            {{end}}
+            <div class="card-body p-0">
+                <div id="previewSpinner" class="htmx-indicator text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="small text-muted mt-2">Generating...</div>
+                </div>
+                <div id="previewResults" style="max-height: 450px; overflow-y: auto;">
+                    <div class="text-center text-muted py-5">
+                        {{if $isNew}}
+                        <i class="bi bi-magic fs-1 d-block mb-2 opacity-50"></i>
+                        <small>Save first to preview</small>
+                        {{else}}
+                        <i class="bi bi-play-circle fs-1 d-block mb-2 opacity-50"></i>
+                        <small>Click Generate</small>
+                        {{end}}
                     </div>
-                    {{else}}
-                    <div class="list-group-item text-center text-body-secondary py-4">
-                        <i class="bi bi-arrow-clockwise mb-2 d-block"></i>
-                        Click Refresh to generate preview
-                    </div>
-                    {{end}}
                 </div>
             </div>
         </div>
     </div>
 </div>
+{{end}}
 
+{{define "scripts"}}
+{{$data := .Data}}
+{{$block := index $data "Block"}}
+{{$rules := $block.Rules}}
+{{$seq := $block.Sequence}}
+{{$otherBlocks := index $data "OtherBlocks"}}
+{{$playlists := index $data "Playlists"}}
 <script>
-function smartBlockForm() {
-    // Parse existing rules or use defaults
-    let existingRules = {};
-    let existingSequence = {};
-    {{if $block.Rules}}
-    try {
-        existingRules = {{jsonMarshal $block.Rules}};
-    } catch(e) {}
-    {{end}}
-    {{if $block.Sequence}}
-    try {
-        existingSequence = {{jsonMarshal $block.Sequence}};
-    } catch(e) {}
-    {{end}}
+(function() {
+    'use strict';
 
-    return {
-        rules: {
-            genre: existingRules.genre || '',
-            artist: existingRules.artist || '',
-            mood: existingRules.mood || '',
-            language: existingRules.language || '',
-            yearFrom: existingRules.yearFrom || null,
-            yearTo: existingRules.yearTo || null,
-            bpmFrom: existingRules.bpmFrom || null,
-            bpmTo: existingRules.bpmTo || null,
-            excludeExplicit: existingRules.excludeExplicit || false
-        },
-        sequence: {
-            mode: existingSequence.mode || 'random',
-            avoidRepeatMinutes: existingSequence.avoidRepeatMinutes || 60
+    // Existing data for restoration
+    const existingRules = {{jsonMarshal $rules}};
+    const existingSeq = {{jsonMarshal $seq}};
+    const isNew = {{index $data "IsNew"}};
+
+    // ========== SECTION TOGGLES ==========
+    document.querySelectorAll('.section-toggle').forEach(function(toggle) {
+        const sectionId = toggle.dataset.section;
+        const badgeId = toggle.dataset.badge;
+        const section = document.getElementById(sectionId);
+        const badge = document.getElementById(badgeId);
+
+        toggle.addEventListener('change', function() {
+            if (section) section.style.display = this.checked ? '' : 'none';
+            if (badge) badge.style.display = this.checked ? '' : 'none';
+        });
+
+        // Initialize state
+        if (section) section.style.display = toggle.checked ? '' : 'none';
+        if (badge) badge.style.display = toggle.checked ? '' : 'none';
+    });
+
+    // ========== DURATION HANDLING ==========
+    (function() {
+        const valueInput = document.querySelector('[name="duration_value"]');
+        const unitSelect = document.querySelector('[name="duration_unit"]');
+
+        // Store previous unit - starts as whatever is selected in HTML
+        let prevUnit = unitSelect.value;
+
+        // Conversion multipliers to/from minutes
+        const toMinutes = { minutes: 1, hours: 60, days: 1440 };
+        const fromMinutes = { minutes: 1, hours: 1/60, days: 1/1440 };
+
+        unitSelect.addEventListener('change', function(e) {
+            const newUnit = this.value;
+            const currentValue = parseFloat(valueInput.value) || 1;
+
+            // Convert: currentValue in prevUnit -> minutes -> newUnit
+            const inMinutes = currentValue * toMinutes[prevUnit];
+            let newValue = inMinutes * fromMinutes[newUnit];
+
+            // Round to 2 decimals, minimum 1
+            newValue = Math.round(newValue * 100) / 100;
+            if (newValue < 1) newValue = 1;
+
+            // Show as integer if whole number
+            valueInput.value = (newValue % 1 === 0) ? Math.floor(newValue) : newValue;
+
+            // Update previous unit for next conversion
+            prevUnit = newUnit;
+        });
+
+        // Presets - set hours directly
+        document.querySelectorAll('.duration-preset').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const hours = parseInt(this.dataset.hours);
+                valueInput.value = hours;
+                unitSelect.value = 'hours';
+                prevUnit = 'hours';
+            });
+        });
+    })();
+
+    // ========== SOURCE PLAYLIST COUNTER ==========
+    function updateSourceCount() {
+        const checked = document.querySelectorAll('.source-playlist:checked').length;
+        const badge = document.getElementById('sourceCount');
+        badge.textContent = checked ? checked + ' selected' : 'All Media';
+        badge.className = 'badge ms-auto me-2 ' + (checked ? 'bg-primary' : 'bg-secondary');
+    }
+    document.querySelectorAll('.source-playlist').forEach(cb => {
+        cb.addEventListener('change', updateSourceCount);
+    });
+
+    // ========== FILTER COUNTER ==========
+    function updateFilterCount() {
+        let count = 0;
+        document.querySelectorAll('.filter-field').forEach(f => {
+            if (f.type === 'checkbox' && f.checked) count++;
+            else if (f.value) count++;
+        });
+        const badge = document.getElementById('filterCount');
+        badge.textContent = count + ' active';
+        badge.style.display = count ? '' : 'none';
+    }
+    document.querySelectorAll('.filter-field').forEach(f => {
+        f.addEventListener('change', updateFilterCount);
+        f.addEventListener('input', updateFilterCount);
+    });
+
+    // ========== BOOSTERS ==========
+    let boosterIndex = 0;
+    const boosterList = document.getElementById('boosterList');
+    const boosterCount = document.getElementById('boosterCount');
+
+    function addBooster(field = 'genre', value = '', weight = 20) {
+        const idx = boosterIndex++;
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 align-items-center booster-row';
+        row.innerHTML = `
+            <div class="col-4">
+                <select class="form-select form-select-sm" name="booster_${idx}_field">
+                    <option value="genre" ${field==='genre'?'selected':''}>Genre</option>
+                    <option value="artist" ${field==='artist'?'selected':''}>Artist</option>
+                    <option value="mood" ${field==='mood'?'selected':''}>Mood</option>
+                    <option value="year" ${field==='year'?'selected':''}>Year</option>
+                </select>
+            </div>
+            <div class="col-4">
+                <input type="text" class="form-control form-control-sm" name="booster_${idx}_value" value="${value}" placeholder="Value">
+            </div>
+            <div class="col-3">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">+</span>
+                    <input type="number" class="form-control" name="booster_${idx}_weight" value="${weight}" min="0" max="100">
+                    <span class="input-group-text">%</span>
+                </div>
+            </div>
+            <div class="col-1">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0 remove-booster"><i class="bi bi-x-lg"></i></button>
+            </div>
+        `;
+        boosterList.appendChild(row);
+        updateBoosterCount();
+    }
+
+    function updateBoosterCount() {
+        const count = boosterList.querySelectorAll('.booster-row').length;
+        boosterCount.textContent = count;
+        boosterCount.style.display = count ? '' : 'none';
+    }
+
+    document.getElementById('addBooster').addEventListener('click', () => addBooster());
+    boosterList.addEventListener('click', e => {
+        if (e.target.closest('.remove-booster')) {
+            e.target.closest('.booster-row').remove();
+            updateBoosterCount();
         }
+    });
+
+    // ========== QUOTAS ==========
+    let quotaIndex = 0;
+    const quotaList = document.getElementById('quotaList');
+    const quotaCount = document.getElementById('quotaCount');
+
+    function addQuota(field = 'genre', value = '', min = 0, max = 5) {
+        const idx = quotaIndex++;
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 align-items-center quota-row';
+        row.innerHTML = `
+            <div class="col-3">
+                <select class="form-select form-select-sm" name="quota_${idx}_field">
+                    <option value="genre" ${field==='genre'?'selected':''}>Genre</option>
+                    <option value="artist" ${field==='artist'?'selected':''}>Artist</option>
+                    <option value="mood" ${field==='mood'?'selected':''}>Mood</option>
+                </select>
+            </div>
+            <div class="col-3">
+                <input type="text" class="form-control form-control-sm" name="quota_${idx}_value" value="${value}" placeholder="Value">
+            </div>
+            <div class="col-2">
+                <input type="number" class="form-control form-control-sm" name="quota_${idx}_min" value="${min}" min="0" placeholder="Min">
+            </div>
+            <div class="col-2">
+                <input type="number" class="form-control form-control-sm" name="quota_${idx}_max" value="${max}" min="0" placeholder="Max">
+            </div>
+            <div class="col-1">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0 remove-quota"><i class="bi bi-x-lg"></i></button>
+            </div>
+        `;
+        quotaList.appendChild(row);
+        updateQuotaCount();
+    }
+
+    function updateQuotaCount() {
+        const count = quotaList.querySelectorAll('.quota-row').length;
+        quotaCount.textContent = count;
+        quotaCount.style.display = count ? '' : 'none';
+    }
+
+    document.getElementById('addQuota').addEventListener('click', () => addQuota());
+    quotaList.addEventListener('click', e => {
+        if (e.target.closest('.remove-quota')) {
+            e.target.closest('.quota-row').remove();
+            updateQuotaCount();
+        }
+    });
+
+    // ========== ADS TOGGLE ==========
+    const adsToggle = document.getElementById('adsToggle');
+    const adsConfig = document.getElementById('adsConfig');
+    const adsEnabled = document.getElementById('adsEnabled');
+    const adsSourceType = document.getElementById('adsSourceType');
+
+    adsToggle.addEventListener('change', () => {
+        adsConfig.style.display = adsToggle.checked ? '' : 'none';
+        adsEnabled.style.display = adsToggle.checked ? '' : 'none';
+    });
+
+    adsSourceType.addEventListener('change', () => {
+        document.getElementById('adsPlaylistSelect').style.display = adsSourceType.value === 'playlist' ? '' : 'none';
+        document.getElementById('adsGenreSelect').style.display = adsSourceType.value === 'genre' ? '' : 'none';
+    });
+
+    // ========== ENERGY CURVE ==========
+    const energySliders = document.getElementById('energySliders');
+    const energyCurveInput = document.getElementById('energyCurveInput');
+    const curves = {
+        'flat': [50,50,50,50,50,50],
+        'ramp-up': [20,35,50,65,80,95],
+        'ramp-down': [95,80,65,50,35,20],
+        'peak': [30,55,80,100,80,55],
+        'wave': [40,70,50,85,55,75]
     };
-}
+
+    function renderEnergyCurve(values) {
+        energySliders.innerHTML = '';
+        values.forEach((val, i) => {
+            const col = document.createElement('div');
+            col.className = 'text-center';
+            col.style.flex = '1';
+            col.innerHTML = `
+                <input type="range" class="energy-slider" orient="vertical" min="0" max="100" value="${val}"
+                       style="height:80px; writing-mode:vertical-lr; direction:rtl; width:100%;">
+                <div class="small text-muted">${i+1}</div>
+            `;
+            energySliders.appendChild(col);
+        });
+        updateEnergyCurveInput();
+
+        energySliders.querySelectorAll('.energy-slider').forEach(s => {
+            s.addEventListener('input', updateEnergyCurveInput);
+        });
+    }
+
+    function updateEnergyCurveInput() {
+        const vals = Array.from(energySliders.querySelectorAll('.energy-slider')).map(s => s.value);
+        energyCurveInput.value = vals.join(',');
+    }
+
+    document.querySelectorAll('.energy-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.energy-preset').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderEnergyCurve(curves[btn.dataset.curve]);
+        });
+    });
+
+    renderEnergyCurve(curves['flat']);
+
+    // ========== FALLBACKS ==========
+    let fallbackIndex = 0;
+    const fallbackList = document.getElementById('fallbackList');
+    const fallbackCount = document.getElementById('fallbackCount');
+    const otherBlocks = [
+        {{range $otherBlocks}}{ id: "{{.ID}}", name: "{{.Name}}" },{{end}}
+    ];
+
+    function addFallback(blockId = '', limit = 10) {
+        const idx = fallbackIndex++;
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 align-items-center fallback-row';
+        let options = '<option value="">Select block...</option>';
+        otherBlocks.forEach(b => {
+            options += `<option value="${b.id}" ${blockId===b.id?'selected':''}>${b.name}</option>`;
+        });
+        row.innerHTML = `
+            <div class="col-1 text-center"><span class="badge bg-secondary">${idx+1}</span></div>
+            <div class="col-7"><select class="form-select form-select-sm" name="fallback_${idx}_block">${options}</select></div>
+            <div class="col-3">
+                <div class="input-group input-group-sm">
+                    <input type="number" class="form-control" name="fallback_${idx}_limit" value="${limit}" min="1" max="50">
+                    <span class="input-group-text">max</span>
+                </div>
+            </div>
+            <div class="col-1">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0 remove-fallback"><i class="bi bi-x-lg"></i></button>
+            </div>
+        `;
+        fallbackList.appendChild(row);
+        updateFallbackCount();
+    }
+
+    function updateFallbackCount() {
+        const count = fallbackList.querySelectorAll('.fallback-row').length;
+        fallbackCount.textContent = count;
+        fallbackCount.style.display = count ? '' : 'none';
+    }
+
+    document.getElementById('addFallback').addEventListener('click', () => addFallback());
+    fallbackList.addEventListener('click', e => {
+        if (e.target.closest('.remove-fallback')) {
+            e.target.closest('.fallback-row').remove();
+            // Re-number badges
+            fallbackList.querySelectorAll('.fallback-row').forEach((row, i) => {
+                row.querySelector('.badge').textContent = i + 1;
+            });
+            updateFallbackCount();
+        }
+    });
+
+    // ========== TEMPLATES ==========
+    const templates = {
+        'top40': { mood: 'happy', bpmMin: 100, bpmMax: 140, sepArtist: 45, sepTitle: 240, curve: 'peak' },
+        'chill': { mood: 'relaxed', bpmMin: 60, bpmMax: 100, sepArtist: 30, sepTitle: 180, curve: 'flat' },
+        'energy': { mood: 'energetic', bpmMin: 120, bpmMax: 160, sepArtist: 60, sepTitle: 300, curve: 'ramp-up' },
+        '80s': { era: '80s', sepArtist: 40, sepTitle: 200, curve: 'wave' },
+        '90s': { era: '90s', sepArtist: 40, sepTitle: 200, curve: 'wave' }
+    };
+
+    document.getElementById('templateSelect').addEventListener('change', function() {
+        const t = templates[this.value];
+        if (!t) return;
+
+        if (t.mood) document.querySelector('[name="filter_mood"]').value = t.mood;
+        if (t.era) document.querySelector('[name="filter_era"]').value = t.era;
+        if (t.bpmMin) document.querySelector('[name="filter_bpm_min"]').value = t.bpmMin;
+        if (t.bpmMax) document.querySelector('[name="filter_bpm_max"]').value = t.bpmMax;
+        if (t.sepArtist) document.querySelector('[name="sep_artist"]').value = t.sepArtist;
+        if (t.sepTitle) document.querySelector('[name="sep_title"]').value = t.sepTitle;
+        if (t.curve) {
+            document.querySelectorAll('.energy-preset').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.energy-preset[data-curve="${t.curve}"]`).classList.add('active');
+            renderEnergyCurve(curves[t.curve]);
+        }
+
+        updateFilterCount();
+        this.value = '';
+    });
+
+    // ========== HELPER: Enable section toggle ==========
+    function enableSectionToggle(toggleId) {
+        const toggle = document.getElementById(toggleId);
+        if (toggle) {
+            toggle.checked = true;
+            toggle.dispatchEvent(new Event('change'));
+        }
+    }
+
+    // ========== RESTORE EXISTING DATA ==========
+    if (!isNew && existingRules) {
+        // Restore duration accuracy
+        if (existingRules.durationAccuracy) {
+            document.querySelector('[name="duration_accuracy"]').value = existingRules.durationAccuracy;
+        }
+
+        // Restore source playlists
+        if (existingRules.sourcePlaylists) {
+            existingRules.sourcePlaylists.forEach(id => {
+                const cb = document.getElementById('src-' + id);
+                if (cb) cb.checked = true;
+            });
+            updateSourceCount();
+        }
+
+        // Restore filters
+        if (existingRules.genre) document.querySelector('[name="filter_genre"]').value = existingRules.genre;
+        if (existingRules.artist) document.querySelector('[name="filter_artist"]').value = existingRules.artist;
+        if (existingRules.mood) document.querySelector('[name="filter_mood"]').value = existingRules.mood;
+        if (existingRules.era) document.querySelector('[name="filter_era"]').value = existingRules.era;
+        if (existingRules.language) document.querySelector('[name="filter_language"]').value = existingRules.language;
+        if (existingRules.bpmRange) {
+            if (existingRules.bpmRange.min) document.querySelector('[name="filter_bpm_min"]').value = existingRules.bpmRange.min;
+            if (existingRules.bpmRange.max) document.querySelector('[name="filter_bpm_max"]').value = existingRules.bpmRange.max;
+        }
+        if (existingRules.excludeExplicit) document.getElementById('excludeExplicit').checked = true;
+        updateFilterCount();
+
+        // Restore separation/repeat prevention
+        if (existingRules.separationEnabled) {
+            enableSectionToggle('separationToggle');
+        } else if (existingRules.separation && Object.keys(existingRules.separation).length > 0) {
+            // Backwards compatibility: enable if separation data exists
+            enableSectionToggle('separationToggle');
+        }
+
+        // Restore boosters
+        if (existingRules.boostersEnabled && existingRules.weights) {
+            enableSectionToggle('boostersToggle');
+            existingRules.weights.forEach(w => addBooster(w.field, w.value, w.weight));
+        } else if (existingRules.weights && existingRules.weights.length > 0) {
+            enableSectionToggle('boostersToggle');
+            existingRules.weights.forEach(w => addBooster(w.field, w.value, w.weight));
+        }
+
+        // Restore quotas
+        if (existingRules.quotasEnabled && existingRules.quotas) {
+            enableSectionToggle('quotasToggle');
+            existingRules.quotas.forEach(q => addQuota(q.field, q.value, q.minPct, q.maxPct));
+        } else if (existingRules.quotas && existingRules.quotas.length > 0) {
+            enableSectionToggle('quotasToggle');
+            existingRules.quotas.forEach(q => addQuota(q.field, q.value, q.minPct, q.maxPct));
+        }
+
+        // Restore ads/interstitials
+        if (existingRules.interstitials && existingRules.interstitials.enabled) {
+            adsToggle.checked = true;
+            adsConfig.style.display = '';
+            adsEnabled.style.display = '';
+            if (existingRules.interstitials.sourceType) {
+                adsSourceType.value = existingRules.interstitials.sourceType;
+                if (existingRules.interstitials.sourceType === 'genre') {
+                    document.getElementById('adsPlaylistSelect').style.display = 'none';
+                    document.getElementById('adsGenreSelect').style.display = '';
+                }
+            }
+            if (existingRules.interstitials.playlistID) document.querySelector('[name="ads_playlist"]').value = existingRules.interstitials.playlistID;
+            if (existingRules.interstitials.genre) document.querySelector('[name="ads_genre"]').value = existingRules.interstitials.genre;
+            if (existingRules.interstitials.every) document.querySelector('[name="ads_every_n"]').value = existingRules.interstitials.every;
+            if (existingRules.interstitials.perBreak) document.querySelector('[name="ads_per_break"]').value = existingRules.interstitials.perBreak;
+        }
+
+        // Restore fallbacks
+        if (existingRules.fallbacksEnabled && existingRules.fallbacks) {
+            enableSectionToggle('fallbacksToggle');
+            existingRules.fallbacks.forEach(f => addFallback(f.blockID, f.limit || 10));
+        } else if (existingRules.fallbacks && existingRules.fallbacks.length > 0) {
+            enableSectionToggle('fallbacksToggle');
+            existingRules.fallbacks.forEach(f => addFallback(f.blockID, f.limit || 10));
+        }
+    }
+
+    // Restore energy curve from sequence
+    if (!isNew && existingSeq) {
+        if (existingSeq.energyEnabled) {
+            enableSectionToggle('energyToggle');
+        } else if (existingSeq.energyCurve && existingSeq.energyCurve.length > 0) {
+            // Backwards compatibility: enable if energy curve data exists
+            enableSectionToggle('energyToggle');
+        }
+        if (existingSeq.energyCurve) {
+            renderEnergyCurve(existingSeq.energyCurve);
+            document.querySelectorAll('.energy-preset').forEach(b => b.classList.remove('active'));
+        }
+    }
+
+    // Restore sequence mode
+    if (!isNew && existingSeq && existingSeq.mode) {
+        document.querySelector('[name="sequence_mode"]').value = existingSeq.mode;
+    }
+
+})();
 </script>
+
+<style>
+.energy-slider {
+    cursor: pointer;
+    accent-color: var(--bs-primary);
+}
+input[type="range"][orient="vertical"] {
+    appearance: slider-vertical;
+    -webkit-appearance: slider-vertical;
+}
+.accordion-button:not(.collapsed) {
+    background-color: var(--bs-primary-bg-subtle);
+}
+</style>
 {{end}}
