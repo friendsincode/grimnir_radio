@@ -66,9 +66,12 @@ type Config struct {
 	IcecastSourcePassword string // Source password for connecting to Icecast
 
 	// WebRTC configuration
-	WebRTCEnabled  bool   // Enable WebRTC audio streaming
-	WebRTCRTPPort  int    // UDP port for RTP audio input (default: 5004)
-	WebRTCSTUNURL  string // STUN server for NAT traversal
+	WebRTCEnabled      bool   // Enable WebRTC audio streaming
+	WebRTCRTPPort      int    // UDP port for RTP audio input (default: 5004)
+	WebRTCSTUNURL      string // STUN server for NAT traversal
+	WebRTCTURNURL      string // TURN server for relaying (optional)
+	WebRTCTURNUsername string // TURN username
+	WebRTCTURNPassword string // TURN password
 }
 
 // Load reads environment variables, applies defaults, and validates the result.
@@ -114,9 +117,13 @@ func Load() (*Config, error) {
         IcecastSourcePassword: getEnvAny([]string{"GRIMNIR_ICECAST_SOURCE_PASSWORD", "ICECAST_SOURCE_PASSWORD"}, "hackme"),
 
         // WebRTC configuration (enabled by default for low-latency streaming)
-        WebRTCEnabled:  getEnvBoolAny([]string{"GRIMNIR_WEBRTC_ENABLED", "WEBRTC_ENABLED"}, true),
-        WebRTCRTPPort:  getEnvIntAny([]string{"GRIMNIR_WEBRTC_RTP_PORT", "WEBRTC_RTP_PORT"}, 5004),
-        WebRTCSTUNURL:  getEnvAny([]string{"GRIMNIR_WEBRTC_STUN_URL", "WEBRTC_STUN_URL"}, "stun:stun.l.google.com:19302"),
+        WebRTCEnabled:      getEnvBoolAny([]string{"GRIMNIR_WEBRTC_ENABLED", "WEBRTC_ENABLED"}, true),
+        WebRTCRTPPort:      getEnvIntAny([]string{"GRIMNIR_WEBRTC_RTP_PORT", "WEBRTC_RTP_PORT"}, 5004),
+        WebRTCSTUNURL:      getEnvAny([]string{"GRIMNIR_WEBRTC_STUN_URL", "WEBRTC_STUN_URL"}, "stun:stun.l.google.com:19302"),
+        // Free public TURN server from Open Relay Project (for users behind strict NATs)
+        WebRTCTURNURL:      getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_URL", "WEBRTC_TURN_URL"}, "turn:openrelay.metered.ca:443"),
+        WebRTCTURNUsername: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_USERNAME", "WEBRTC_TURN_USERNAME"}, "openrelayproject"),
+        WebRTCTURNPassword: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_PASSWORD", "WEBRTC_TURN_PASSWORD"}, "openrelayproject"),
     }
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {

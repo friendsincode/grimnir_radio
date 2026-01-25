@@ -192,8 +192,11 @@ func (s *Server) initDependencies() error {
 	// WebRTC broadcaster for low-latency streaming
 	if s.cfg.WebRTCEnabled {
 		webrtcCfg := webrtc.Config{
-			RTPPort:    s.cfg.WebRTCRTPPort,
-			STUNServer: s.cfg.WebRTCSTUNURL,
+			RTPPort:      s.cfg.WebRTCRTPPort,
+			STUNServer:   s.cfg.WebRTCSTUNURL,
+			TURNServer:   s.cfg.WebRTCTURNURL,
+			TURNUsername: s.cfg.WebRTCTURNUsername,
+			TURNPassword: s.cfg.WebRTCTURNPassword,
 		}
 		var err error
 		s.webrtcBroadcaster, err = webrtc.NewBroadcaster(webrtcCfg, s.logger)
@@ -201,7 +204,10 @@ func (s *Server) initDependencies() error {
 			return fmt.Errorf("create webrtc broadcaster: %w", err)
 		}
 		s.DeferClose(func() error { return s.webrtcBroadcaster.Stop() })
-		s.logger.Info().Int("rtp_port", s.cfg.WebRTCRTPPort).Msg("WebRTC broadcaster initialized")
+		s.logger.Info().
+			Int("rtp_port", s.cfg.WebRTCRTPPort).
+			Bool("turn_enabled", s.cfg.WebRTCTURNURL != "").
+			Msg("WebRTC broadcaster initialized")
 	}
 
 	s.playout = playout.NewManager(s.cfg, s.logger)

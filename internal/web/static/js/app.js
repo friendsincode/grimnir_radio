@@ -851,10 +851,25 @@ class GlobalPlayer {
 
     async handleWebRTCOffer(offer) {
         try {
-            // Create peer connection with STUN server
+            // Create peer connection with STUN and TURN servers
             const config = {
                 iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' }
+                    // Multiple STUN servers for reliability
+                    { urls: [
+                        'stun:stun.l.google.com:19302',
+                        'stun:stun1.l.google.com:19302',
+                        'stun:stun2.l.google.com:19302'
+                    ]},
+                    // Free TURN server from Open Relay Project (for strict NATs)
+                    {
+                        urls: [
+                            'turn:openrelay.metered.ca:80',
+                            'turn:openrelay.metered.ca:443',
+                            'turn:openrelay.metered.ca:443?transport=tcp'
+                        ],
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    }
                 ]
             };
 

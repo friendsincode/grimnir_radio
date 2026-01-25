@@ -33,6 +33,7 @@ type Broadcaster struct {
 	peers  map[string]*peerConnection
 	track  *webrtc.TrackLocalStaticRTP
 	api    *webrtc.API
+	config Config
 	logger zerolog.Logger
 
 	// RTP listener
@@ -61,9 +62,11 @@ type SignalMessage struct {
 
 // Config holds broadcaster configuration.
 type Config struct {
-	RTPPort    int      // UDP port to receive RTP audio (default: 5004)
-	STUNServer string   // STUN server URL (default: stun:stun.l.google.com:19302)
-	ICEServers []string // Additional ICE servers
+	RTPPort      int    // UDP port to receive RTP audio (default: 5004)
+	STUNServer   string // STUN server URL (default: stun:stun.l.google.com:19302)
+	TURNServer   string // TURN server URL (optional)
+	TURNUsername string // TURN username
+	TURNPassword string // TURN password
 }
 
 // NewBroadcaster creates a new WebRTC audio broadcaster.
@@ -120,6 +123,7 @@ func NewBroadcaster(cfg Config, logger zerolog.Logger) (*Broadcaster, error) {
 		peers:   make(map[string]*peerConnection),
 		track:   track,
 		api:     api,
+		config:  cfg,
 		rtpPort: cfg.RTPPort,
 		logger:  logger.With().Str("component", "webrtc-broadcaster").Logger(),
 	}
@@ -347,10 +351,31 @@ func (b *Broadcaster) HandleSignaling(w http.ResponseWriter, r *http.Request) {
 
 // createPeerConnection creates a new peer connection with the audio track.
 func (b *Broadcaster) createPeerConnection(peerID string) (*webrtc.PeerConnection, error) {
+	// Build ICE servers list with multiple STUN servers for reliability
+	iceServers := []webrtc.ICEServer{
+		{URLs: []string{
+			"stun:stun.l.google.com:19302",
+			"stun:stun1.l.google.com:19302",
+			"stun:stun2.l.google.com:19302",
+		}},
+	}
+
+	// Add TURN server if configured (for users behind strict NATs)
+	if b.config.TURNServer != "" {
+		turnServer := webrtc.ICEServer{
+			URLs: []string{b.config.TURNServer},
+		}
+		if b.config.TURNUsername != "" {
+			turnServer.Username = b.config.TURNUsername
+			turnServer.Credential = b.config.TURNPassword
+			turnServer.CredentialType = webrtc.ICECredentialTypePassword
+		}
+		iceServers = append(iceServers, turnServer)
+		b.logger.Debug().Str("turn", b.config.TURNServer).Msg("TURN server configured")
+	}
+
 	config := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
-		},
+		ICEServers: iceServers,
 	}
 
 	pc, err := b.api.NewPeerConnection(config)
