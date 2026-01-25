@@ -7,6 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -14,6 +16,13 @@ import (
 func (h *Handler) Routes(r chi.Router) {
 	// Static files (no setup check needed)
 	r.Handle("/static/*", h.StaticHandler())
+
+	// Favicon - simple SVG radio icon
+	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#6366f1"/><circle cx="16" cy="16" r="6" fill="white"/><circle cx="16" cy="16" r="2" fill="#6366f1"/></svg>`))
+	})
 
 	// Setup route (before RequireSetup middleware)
 	r.Get("/setup", h.SetupPage)
@@ -26,6 +35,7 @@ func (h *Handler) Routes(r chi.Router) {
 		// Stream proxy (no auth needed, before other routes)
 		r.Get("/stream/{station}/{mount}", h.StreamProxy)
 		r.Get("/stream/{station}", h.StreamInfo)
+		r.Get("/ws/stream/{station}/{mount}", h.StreamWebSocket)
 
 		// Public routes (with optional auth context)
 		r.Group(func(r chi.Router) {
@@ -160,6 +170,13 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Put("/entries/{id}", h.ScheduleUpdateEntry)
 					r.Delete("/entries/{id}", h.ScheduleDeleteEntry)
 					r.Post("/refresh", h.ScheduleRefresh)
+
+					// JSON endpoints for schedule dropdowns
+					r.Get("/playlists.json", h.SchedulePlaylistsJSON)
+					r.Get("/smart-blocks.json", h.ScheduleSmartBlocksJSON)
+					r.Get("/clocks.json", h.ScheduleClocksJSON)
+					r.Get("/webstreams.json", h.ScheduleWebstreamsJSON)
+					r.Get("/media.json", h.ScheduleMediaSearchJSON)
 				})
 
 				// Live DJ

@@ -7,8 +7,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
-	"io"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -18,7 +19,7 @@ import (
 
 // StreamProxy proxies audio streams from Icecast to provide clean URLs.
 // URL format: /stream/{station}/{mount}
-// Example: /stream/rockradio/live.mp3 -> proxies to icecast:8000/rockradio/live.mp3
+// Example: /stream/rockradio/live.mp3 -> proxies to icecast:8000/live.mp3
 func (h *Handler) StreamProxy(w http.ResponseWriter, r *http.Request) {
 	stationSlug := chi.URLParam(r, "station")
 	mountName := chi.URLParam(r, "mount")
@@ -55,102 +56,60 @@ func (h *Handler) StreamProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build the Icecast URL
-	// Mount.URL should be the full path like /rockradio/live.mp3
-	// or we construct it from station name + mount name
+	// Build the Icecast path
 	icecastPath := mount.URL
-	if icecastPath == "" {
-		// Construct path: /{station-slug}/{mount-name}
-		stationPath := strings.ToLower(strings.ReplaceAll(station.Name, " ", "-"))
-		ext := ".mp3" // default
-		switch strings.ToLower(mount.Format) {
-		case "opus":
-			ext = ".opus"
-		case "ogg", "vorbis":
-			ext = ".ogg"
-		case "aac":
-			ext = ".aac"
-		case "flac":
-			ext = ".flac"
-		}
-		icecastPath = "/" + stationPath + "/" + mount.Name + ext
+	if icecastPath == "" || strings.HasPrefix(icecastPath, "http") {
+		icecastPath = "/" + mount.Name
 	}
-
-	// Ensure path starts with /
 	if !strings.HasPrefix(icecastPath, "/") {
 		icecastPath = "/" + icecastPath
 	}
 
-	targetURL := strings.TrimSuffix(h.icecastURL, "/") + icecastPath
-
 	h.logger.Debug().
 		Str("station", station.Name).
 		Str("mount", mount.Name).
-		Str("target", targetURL).
+		Str("icecast_path", icecastPath).
 		Msg("proxying stream")
 
-	// Create proxy request
-	proxyReq, err := http.NewRequestWithContext(r.Context(), "GET", targetURL, nil)
+	// Parse icecast URL
+	target, err := url.Parse(h.icecastURL)
 	if err != nil {
-		h.logger.Error().Err(err).Str("url", targetURL).Msg("failed to create proxy request")
+		h.logger.Error().Err(err).Msg("invalid icecast URL")
 		http.Error(w, "Stream unavailable", http.StatusBadGateway)
 		return
 	}
 
-	// Copy relevant headers
-	if ua := r.Header.Get("User-Agent"); ua != "" {
-		proxyReq.Header.Set("User-Agent", ua)
-	}
-	if icyMeta := r.Header.Get("Icy-MetaData"); icyMeta != "" {
-		proxyReq.Header.Set("Icy-MetaData", icyMeta)
-	}
+	// Create reverse proxy
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL.Scheme = target.Scheme
+			req.URL.Host = target.Host
+			req.URL.Path = icecastPath
+			req.Host = target.Host
 
-	// Make the request to Icecast
-	client := &http.Client{}
-	resp, err := client.Do(proxyReq)
-	if err != nil {
-		h.logger.Error().Err(err).Str("url", targetURL).Msg("failed to connect to icecast")
-		http.Error(w, "Stream unavailable", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		h.logger.Warn().
-			Int("status", resp.StatusCode).
-			Str("url", targetURL).
-			Msg("icecast returned non-200")
-		http.Error(w, "Stream unavailable", resp.StatusCode)
-		return
-	}
-
-	// Copy response headers
-	for _, header := range []string{
-		"Content-Type",
-		"Icy-Br",
-		"Icy-Genre",
-		"Icy-Name",
-		"Icy-Description",
-		"Icy-Url",
-		"Icy-Pub",
-		"Icy-MetaInt",
-	} {
-		if val := resp.Header.Get(header); val != "" {
-			w.Header().Set(header, val)
-		}
+			// Keep original headers that Icecast needs
+			if icyMeta := r.Header.Get("Icy-MetaData"); icyMeta != "" {
+				req.Header.Set("Icy-MetaData", icyMeta)
+			}
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			// Add CORS headers
+			resp.Header.Set("Access-Control-Allow-Origin", "*")
+			resp.Header.Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			resp.Header.Set("Access-Control-Allow-Headers", "Range, Icy-MetaData")
+			// Disable buffering
+			resp.Header.Set("X-Accel-Buffering", "no")
+			resp.Header.Set("Cache-Control", "no-cache, no-store")
+			return nil
+		},
+		FlushInterval: -1, // Flush immediately for streaming
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			h.logger.Error().Err(err).Msg("stream proxy error")
+			http.Error(w, "Stream unavailable", http.StatusBadGateway)
+		},
 	}
 
-	// Set CORS headers for web players
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Range, Icy-MetaData")
-
-	// Stream the response
-	w.WriteHeader(http.StatusOK)
-
-	// Use a buffer for efficient copying
-	buf := make([]byte, 32*1024)
-	io.CopyBuffer(w, resp.Body, buf)
+	proxy.ServeHTTP(w, r)
 }
 
 // StreamInfo returns JSON info about available streams for a station.

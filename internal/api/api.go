@@ -25,6 +25,7 @@ import (
 
     "github.com/friendsincode/grimnir_radio/internal/analyzer"
     "github.com/friendsincode/grimnir_radio/internal/auth"
+    "github.com/friendsincode/grimnir_radio/internal/broadcast"
     "github.com/friendsincode/grimnir_radio/internal/events"
     "github.com/friendsincode/grimnir_radio/internal/executor"
     "github.com/friendsincode/grimnir_radio/internal/live"
@@ -51,13 +52,14 @@ type API struct {
 	prioritySvc      *priority.Service
 	executorStateMgr *executor.StateManager
 	migrationHandler *MigrationHandler
+	broadcast        *broadcast.Server
 	bus              *events.Bus
 	logger           zerolog.Logger
 	jwtSecret        []byte
 }
 
 // New creates the API router wrapper.
-func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
+func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, broadcastSrv *broadcast.Server, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
 	migrationHandler := NewMigrationHandler(db, media, bus, logger)
 
 	return &API{
@@ -71,6 +73,7 @@ func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, 
 		prioritySvc:      prioritySvc,
 		executorStateMgr: executorStateMgr,
 		migrationHandler: migrationHandler,
+		broadcast:        broadcastSrv,
 		bus:              bus,
 		logger:           logger,
 		jwtSecret:        jwtSecret,
@@ -163,6 +166,10 @@ func (a *API) Routes(r chi.Router) {
 		r.Get("/health", a.handleHealth)
 		r.Post("/auth/login", a.handleAuthLogin)
 
+		// Public analytics endpoints (no auth required)
+		r.Get("/analytics/now-playing", a.handleAnalyticsNowPlaying)
+		r.Get("/analytics/listeners", a.handleAnalyticsListeners)
+
 		r.Group(func(pr chi.Router) {
 			pr.Use(a.authMiddleware())
 
@@ -184,6 +191,10 @@ func (a *API) Routes(r chi.Router) {
 			pr.Route("/media", func(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager, models.RoleDJ)).Post("/upload", a.handleMediaUpload)
 				r.Get("/{mediaID}", a.handleMediaGet)
+			})
+
+			pr.Route("/playlists", func(r chi.Router) {
+				r.Get("/", a.handlePlaylistsList)
 			})
 
 			pr.Route("/smart-blocks", func(r chi.Router) {
@@ -577,6 +588,20 @@ func (a *API) handleMediaGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (a *API) handlePlaylistsList(w http.ResponseWriter, r *http.Request) {
+	stationID := r.URL.Query().Get("station_id")
+	query := a.db.WithContext(r.Context())
+	if stationID != "" {
+		query = query.Where("station_id = ?", stationID)
+	}
+	var playlists []models.Playlist
+	if err := query.Order("name ASC").Find(&playlists).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"playlists": playlists})
+}
+
 func (a *API) handleSmartBlocksList(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")
 	query := a.db.WithContext(r.Context())
@@ -584,11 +609,11 @@ func (a *API) handleSmartBlocksList(w http.ResponseWriter, r *http.Request) {
 		query = query.Where("station_id = ?", stationID)
 	}
 	var blocks []models.SmartBlock
-	if err := query.Find(&blocks).Error; err != nil {
+	if err := query.Order("name ASC").Find(&blocks).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
-	writeJSON(w, http.StatusOK, blocks)
+	writeJSON(w, http.StatusOK, map[string]any{"smart_blocks": blocks})
 }
 
 func (a *API) handleSmartBlocksCreate(w http.ResponseWriter, r *http.Request) {
@@ -664,18 +689,18 @@ func (a *API) handleSmartBlockMaterialize(w http.ResponseWriter, r *http.Request
 
 func (a *API) handleClocksList(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")
-	if stationID == "" {
-		writeError(w, http.StatusBadRequest, "station_id_required")
-		return
+	query := a.db.WithContext(r.Context())
+	if stationID != "" {
+		query = query.Where("station_id = ?", stationID)
 	}
 
 	var clocks []models.ClockHour
-	if err := a.db.WithContext(r.Context()).Where("station_id = ?", stationID).Preload("Slots").Find(&clocks).Error; err != nil {
+	if err := query.Preload("Slots").Order("name ASC").Find(&clocks).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, clocks)
+	writeJSON(w, http.StatusOK, map[string]any{"clocks": clocks})
 }
 
 func (a *API) handleClocksCreate(w http.ResponseWriter, r *http.Request) {
@@ -974,7 +999,7 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 	var history models.PlayHistory
 	result := a.db.WithContext(r.Context()).Where("station_id = ?", stationID).Order("started_at DESC").First(&history)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		writeJSON(w, http.StatusOK, map[string]string{})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "idle"})
 		return
 	}
 	if result.Error != nil {
@@ -982,7 +1007,43 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, history)
+	// Determine if track is currently playing or has ended
+	now := time.Now()
+	status := "idle"
+	if history.EndedAt.IsZero() || history.EndedAt.After(now) {
+		status = "playing"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":         history.ID,
+		"station_id": history.StationID,
+		"mount_id":   history.MountID,
+		"media_id":   history.MediaID,
+		"artist":     history.Artist,
+		"title":      history.Title,
+		"album":      history.Album,
+		"started_at": history.StartedAt,
+		"ended_at":   history.EndedAt,
+		"status":     status,
+	})
+}
+
+func (a *API) handleAnalyticsListeners(w http.ResponseWriter, r *http.Request) {
+	if a.broadcast == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"total":  0,
+			"mounts": []broadcast.MountStats{},
+		})
+		return
+	}
+
+	stats := a.broadcast.GetListenerStats()
+	total := a.broadcast.TotalListeners()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total":  total,
+		"mounts": stats,
+	})
 }
 
 func (a *API) handleAnalyticsSpins(w http.ResponseWriter, r *http.Request) {

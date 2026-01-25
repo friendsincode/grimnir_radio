@@ -30,6 +30,13 @@ RUN apk add --no-cache \
     curl \
     su-exec \
     ffmpeg \
+    gstreamer \
+    gstreamer-tools \
+    gst-plugins-base \
+    gst-plugins-good \
+    gst-plugins-bad \
+    gst-plugins-ugly \
+    libshout \
     && addgroup -S grimnir \
     && adduser -S -G grimnir grimnir
 

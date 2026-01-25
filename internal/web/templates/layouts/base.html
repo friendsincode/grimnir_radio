@@ -22,7 +22,9 @@
     {{block "head" .}}{{end}}
 </head>
 <body class="{{block "bodyClass" .}}{{end}}">
+    <div id="page-content">
     {{block "content" .}}{{end}}
+    </div>
 
     <!-- Bootstrap JS Bundle (CDN with fallback) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
@@ -43,51 +45,58 @@
 
     {{block "scripts" .}}{{end}}
 
-    <!-- Global Audio Player Bar -->
+    <!-- Global Audio Player - Floating & Draggable -->
     <div id="globalPlayer" class="global-player" style="display: none;">
-        <div class="global-player-progress" id="globalPlayerProgress">
-            <div class="global-player-progress-bar" id="globalPlayerProgressBar"></div>
+        <!-- Drag Handle Header -->
+        <div class="global-player-header" id="playerDragHandle">
+            <span class="drag-handle"><i class="bi bi-grip-horizontal"></i> Drag to move</span>
+            <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-link text-body p-1" id="playerMinimize" title="Minimize">
+                    <i class="bi bi-dash-lg"></i>
+                </button>
+                <button class="btn btn-sm btn-link text-body p-1" id="playerClose" title="Close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
         </div>
-        <div class="container-fluid">
-            <div class="row align-items-center py-2">
-                <!-- Track Info -->
-                <div class="col-4 col-md-3 d-flex align-items-center gap-2">
-                    <div id="playerArtwork" class="player-artwork">
-                        <i class="bi bi-music-note-beamed"></i>
-                    </div>
-                    <div class="player-info text-truncate">
-                        <div id="playerTitle" class="fw-semibold text-truncate">-</div>
-                        <div id="playerArtist" class="small text-body-secondary text-truncate">-</div>
-                    </div>
+        <div class="global-player-body">
+            <!-- Progress Bar -->
+            <div class="global-player-progress" id="globalPlayerProgress">
+                <div class="global-player-progress-bar" id="globalPlayerProgressBar"></div>
+            </div>
+            <!-- Player Content -->
+            <div class="d-flex align-items-center gap-3">
+                <!-- Artwork -->
+                <div id="playerArtwork" class="player-artwork">
+                    <i class="bi bi-music-note-beamed"></i>
                 </div>
-
+                <!-- Track Info -->
+                <div class="player-info flex-grow-1 text-truncate">
+                    <div id="playerTitle" class="fw-semibold text-truncate">-</div>
+                    <div id="playerArtist" class="small text-body-secondary text-truncate">-</div>
+                </div>
                 <!-- Controls -->
-                <div class="col-4 col-md-6 d-flex justify-content-center align-items-center gap-2">
-                    <button class="btn btn-sm btn-link text-body" id="playerPrev" title="Previous">
+                <div class="d-flex align-items-center gap-1">
+                    <button class="btn btn-sm btn-link text-body" id="playerPrev" title="Previous" style="visibility: hidden;">
                         <i class="bi bi-skip-start-fill fs-5"></i>
                     </button>
                     <button class="btn btn-light rounded-circle d-flex align-items-center justify-content-center"
                             id="playerPlayPause" style="width: 42px; height: 42px;">
                         <i class="bi bi-play-fill fs-4" id="playerPlayIcon"></i>
                     </button>
-                    <button class="btn btn-sm btn-link text-body" id="playerNext" title="Next">
+                    <button class="btn btn-sm btn-link text-body" id="playerNext" title="Next" style="visibility: hidden;">
                         <i class="bi bi-skip-end-fill fs-5"></i>
                     </button>
                 </div>
-
-                <!-- Time & Volume -->
-                <div class="col-4 col-md-3 d-flex justify-content-end align-items-center gap-3">
-                    <span class="small text-body-secondary d-none d-md-inline">
-                        <span id="playerCurrentTime">0:00</span> / <span id="playerDuration">0:00</span>
-                    </span>
-                    <div class="d-none d-md-flex align-items-center gap-2">
-                        <i class="bi bi-volume-up"></i>
-                        <input type="range" class="form-range" id="playerVolume" min="0" max="100" value="80" style="width: 80px;">
-                    </div>
-                    <button class="btn btn-sm btn-link text-body" id="playerClose" title="Close">
-                        <i class="bi bi-x-lg"></i>
-                    </button>
-                </div>
+            </div>
+            <!-- Volume (collapsible) -->
+            <div class="d-flex align-items-center gap-2 mt-2 pt-2 border-top">
+                <span class="small text-body-secondary">
+                    <span id="playerCurrentTime">0:00</span> / <span id="playerDuration">LIVE</span>
+                </span>
+                <div class="flex-grow-1"></div>
+                <i class="bi bi-volume-up small"></i>
+                <input type="range" class="form-range" id="playerVolume" min="0" max="100" value="80" style="width: 80px;">
             </div>
         </div>
     </div>

@@ -37,6 +37,11 @@ type EncoderConfig struct {
 
 	// Advanced encoder options
 	EncoderOptions map[string]string
+
+	// RTP settings (for WebRTC output)
+	RTPHost        string // UDP destination host (default: 127.0.0.1)
+	RTPPort        int    // UDP destination port (default: 5004)
+	RTPPayloadType int    // RTP payload type (default: 111 for Opus)
 }
 
 // OutputType represents the type of output destination
@@ -48,6 +53,8 @@ const (
 	OutputTypeHTTP      OutputType = "http"      // Generic HTTP PUT/POST
 	OutputTypeFile      OutputType = "file"      // File output
 	OutputTypeTest      OutputType = "test"      // Test sink (no actual output)
+	OutputTypeStdout    OutputType = "stdout"    // Output to stdout for Go broadcast server
+	OutputTypeRTP       OutputType = "rtp"       // RTP/UDP output for WebRTC broadcaster
 )
 
 // AudioFormat represents supported audio encoding formats
@@ -97,10 +104,17 @@ func NewEncoderBuilder(config EncoderConfig) *EncoderBuilder {
 func (eb *EncoderBuilder) Build() (string, error) {
 	var pipeline strings.Builder
 
+	// For RTP/WebRTC output, force Opus at 48kHz (required by WebRTC)
+	sampleRate := eb.config.SampleRate
+	if eb.config.OutputType == OutputTypeRTP {
+		sampleRate = 48000 // WebRTC requires 48kHz for Opus
+		eb.config.Format = AudioFormatOpus
+	}
+
 	// Add audio conversion and resampling
 	pipeline.WriteString("audioconvert ! ")
 	pipeline.WriteString(fmt.Sprintf("audioresample ! audio/x-raw,rate=%d,channels=%d ! ",
-		eb.config.SampleRate, eb.config.Channels))
+		sampleRate, eb.config.Channels))
 
 	// Add encoder
 	encoderElement, err := eb.buildEncoder()
@@ -199,6 +213,11 @@ func (eb *EncoderBuilder) buildFLACEncoder() string {
 
 // buildMuxer generates the muxer element if needed
 func (eb *EncoderBuilder) buildMuxer() string {
+	// RTP output doesn't need a muxer - rtpopuspay handles it
+	if eb.config.OutputType == OutputTypeRTP {
+		return ""
+	}
+
 	switch eb.config.Format {
 	case AudioFormatMP3:
 		// MP3 doesn't need a muxer for streaming
@@ -243,6 +262,12 @@ func (eb *EncoderBuilder) buildOutput() (string, error) {
 
 	case OutputTypeTest:
 		return "fakesink", nil
+
+	case OutputTypeStdout:
+		return "fdsink fd=1", nil
+
+	case OutputTypeRTP:
+		return eb.buildRTPOutput(), nil
 
 	default:
 		return "", fmt.Errorf("unsupported output type: %s", eb.config.OutputType)
@@ -335,6 +360,25 @@ func (eb *EncoderBuilder) buildFileOutput() string {
 	return fmt.Sprintf("filesink location=\"%s\"", eb.config.OutputURL)
 }
 
+// buildRTPOutput builds RTP/UDP output for WebRTC streaming
+func (eb *EncoderBuilder) buildRTPOutput() string {
+	host := eb.config.RTPHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := eb.config.RTPPort
+	if port == 0 {
+		port = 5004
+	}
+	pt := eb.config.RTPPayloadType
+	if pt == 0 {
+		pt = 111 // Default payload type for Opus
+	}
+
+	// RTP output: rtpopuspay wraps Opus in RTP packets, udpsink sends to WebRTC broadcaster
+	return fmt.Sprintf("rtpopuspay pt=%d ! udpsink host=%s port=%d", pt, host, port)
+}
+
 // GetContentType returns the MIME content type for the configured format
 func (eb *EncoderBuilder) GetContentType() string {
 	switch eb.config.Format {
@@ -383,7 +427,7 @@ func (eb *EncoderBuilder) ValidateConfig() error {
 		return fmt.Errorf("output type is required")
 	}
 
-	if eb.config.OutputType != OutputTypeTest && eb.config.OutputURL == "" {
+	if eb.config.OutputType != OutputTypeTest && eb.config.OutputType != OutputTypeRTP && eb.config.OutputURL == "" {
 		return fmt.Errorf("output URL is required for output type: %s", eb.config.OutputType)
 	}
 

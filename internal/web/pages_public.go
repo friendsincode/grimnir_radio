@@ -19,18 +19,33 @@ import (
 
 // Landing renders the public landing page
 func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
-	// Get now playing info
-	var nowPlaying struct {
-		Title   string
-		Artist  string
-		Station string
+	// Get the first active station and its mount for the player
+	var station models.Station
+	h.db.Where("active = ?", true).First(&station)
+
+	var mount models.Mount
+	if station.ID != "" {
+		h.db.Where("station_id = ?", station.ID).First(&mount)
 	}
 
-	// TODO: Get actual now playing from analytics
+	// Build stream URLs using the Go broadcast server
+	streamURL := ""
+	streamURLLQ := ""
+	if station.ID != "" && mount.ID != "" {
+		// Use the built-in broadcast server at /live/{mount}
+		streamURL = "/live/" + mount.Name
+		streamURLLQ = "/live/" + mount.Name + "-lq"
+	}
 
 	h.Render(w, r, "pages/public/landing", PageData{
 		Title: "Welcome",
-		Data:  nowPlaying,
+		Data: map[string]any{
+			"StationID":   station.ID,
+			"StationName": station.Name,
+			"MountName":   mount.Name,
+			"StreamURL":   streamURL,
+			"StreamURLLQ": streamURLLQ,
+		},
 	})
 }
 
@@ -40,16 +55,35 @@ func (h *Handler) Listen(w http.ResponseWriter, r *http.Request) {
 	var stations []models.Station
 	h.db.Where("active = ?", true).Find(&stations)
 
+	type mountWithURL struct {
+		models.Mount
+		URL   string
+		LQURL string // Low-quality stream URL
+	}
+
 	type stationWithMounts struct {
 		Station models.Station
-		Mounts  []models.Mount
+		Mounts  []mountWithURL
 	}
 
 	var data []stationWithMounts
 	for _, s := range stations {
 		var mounts []models.Mount
 		h.db.Where("station_id = ?", s.ID).Find(&mounts)
-		data = append(data, stationWithMounts{Station: s, Mounts: mounts})
+
+		var mountsWithURLs []mountWithURL
+		for _, m := range mounts {
+			// Use the built-in broadcast server at /live/{mount}
+			streamURL := "/live/" + m.Name
+			lqStreamURL := "/live/" + m.Name + "-lq"
+			mountsWithURLs = append(mountsWithURLs, mountWithURL{
+				Mount: m,
+				URL:   streamURL,
+				LQURL: lqStreamURL,
+			})
+		}
+
+		data = append(data, stationWithMounts{Station: s, Mounts: mountsWithURLs})
 	}
 
 	h.Render(w, r, "pages/public/listen", PageData{

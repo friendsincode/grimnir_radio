@@ -126,6 +126,11 @@ services:
       # Media Engine
       GRIMNIR_MEDIA_ENGINE_GRPC_ADDR: mediaengine:9091
 
+      # Icecast
+      GRIMNIR_ICECAST_URL: http://icecast:8000
+      GRIMNIR_ICECAST_PUBLIC_URL: ${GRIMNIR_ICECAST_PUBLIC_URL:-}
+      GRIMNIR_ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
+
       # JWT Authentication
       GRIMNIR_JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-change-this-in-production}
       GRIMNIR_JWT_TTL_MINUTES: 15

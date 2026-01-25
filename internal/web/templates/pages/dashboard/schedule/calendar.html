@@ -3,9 +3,7 @@
 {{end}}
 
 {{define "head"}}
-<!-- FullCalendar CSS -->
-<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet"
-      onerror="this.onerror=null;this.href='/static/css/fullcalendar.min.css';">
+<!-- FullCalendar 6.x includes CSS in JS bundle -->
 <style>
     #calendar {
         height: calc(100vh - 200px);
@@ -71,6 +69,9 @@
     .fc-event.event-smart_block { background: var(--bs-info) !important; border-color: var(--bs-info) !important; }
     .fc-event.event-live { background: var(--bs-danger) !important; border-color: var(--bs-danger) !important; }
     .fc-event.event-webstream { background: var(--bs-warning) !important; border-color: var(--bs-warning) !important; color: var(--bs-dark) !important; }
+    .fc-event.event-clock_template { background: var(--bs-purple, #6f42c1) !important; border-color: var(--bs-purple, #6f42c1) !important; }
+    /* Badge for purple/clock type */
+    .badge.bg-purple { background-color: var(--bs-purple, #6f42c1) !important; }
 </style>
 {{end}}
 
@@ -122,6 +123,10 @@
     <div class="context-menu-item" data-action="add-smartblock">
         <i class="bi bi-magic"></i>
         <span>Add Smart Block</span>
+    </div>
+    <div class="context-menu-item" data-action="add-clock">
+        <i class="bi bi-clock-history"></i>
+        <span>Add Clock Template</span>
     </div>
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" data-action="add-webstream">
@@ -196,15 +201,93 @@
                     <input type="hidden" id="scheduleStartTime" name="starts_at">
                     <input type="hidden" id="scheduleEndTime" name="ends_at">
 
-                    <div class="row g-3">
+                    <!-- Date Selection -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="scheduleStartDate" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="scheduleEndDate" required>
+                        </div>
+                    </div>
+
+                    <!-- Time Selection -->
+                    <div class="row g-3 mb-3">
                         <div class="col-md-6">
                             <label class="form-label">Start Time</label>
-                            <input type="datetime-local" class="form-control" id="scheduleStartInput" required>
+                            <div class="d-flex gap-2">
+                                <select class="form-select" id="scheduleStartHour" style="width: 80px;">
+                                    {{range $i := iterate 24}}<option value="{{$i}}">{{printf "%02d" $i}}</option>{{end}}
+                                </select>
+                                <span class="align-self-center">:</span>
+                                <select class="form-select" id="scheduleStartMinute" style="width: 80px;">
+                                    <option value="0">00</option>
+                                    <option value="5">05</option>
+                                    <option value="10">10</option>
+                                    <option value="15">15</option>
+                                    <option value="20">20</option>
+                                    <option value="25">25</option>
+                                    <option value="30">30</option>
+                                    <option value="35">35</option>
+                                    <option value="40">40</option>
+                                    <option value="45">45</option>
+                                    <option value="50">50</option>
+                                    <option value="55">55</option>
+                                </select>
+                                <div class="btn-group btn-group-sm ms-2">
+                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="start" data-delta="-15">-15m</button>
+                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="start" data-delta="15">+15m</button>
+                                </div>
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">End Time</label>
-                            <input type="datetime-local" class="form-control" id="scheduleEndInput" required>
+                            <div class="d-flex gap-2">
+                                <select class="form-select" id="scheduleEndHour" style="width: 80px;">
+                                    {{range $i := iterate 24}}<option value="{{$i}}">{{printf "%02d" $i}}</option>{{end}}
+                                </select>
+                                <span class="align-self-center">:</span>
+                                <select class="form-select" id="scheduleEndMinute" style="width: 80px;">
+                                    <option value="0">00</option>
+                                    <option value="5">05</option>
+                                    <option value="10">10</option>
+                                    <option value="15">15</option>
+                                    <option value="20">20</option>
+                                    <option value="25">25</option>
+                                    <option value="30">30</option>
+                                    <option value="35">35</option>
+                                    <option value="40">40</option>
+                                    <option value="45">45</option>
+                                    <option value="50">50</option>
+                                    <option value="55">55</option>
+                                </select>
+                                <div class="btn-group btn-group-sm ms-2">
+                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="end" data-delta="-15">-15m</button>
+                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="end" data-delta="15">+15m</button>
+                                </div>
+                            </div>
                         </div>
+                    </div>
+
+                    <!-- Quick Duration Buttons -->
+                    <div class="mb-3">
+                        <label class="form-label">Quick Duration</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary duration-btn" data-minutes="15">15 min</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary duration-btn" data-minutes="30">30 min</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary duration-btn" data-minutes="60">1 hour</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary duration-btn" data-minutes="120">2 hours</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary duration-btn" data-minutes="180">3 hours</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary duration-btn" data-minutes="240">4 hours</button>
+                        </div>
+                    </div>
+
+                    <!-- Duration Display -->
+                    <div class="alert alert-info py-2 mb-3" id="durationDisplay">
+                        <i class="bi bi-clock me-2"></i>
+                        <span id="durationText">Duration: --</span>
                     </div>
 
                     <hr>
@@ -224,6 +307,11 @@
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="smartblock-tab" data-bs-toggle="tab" data-bs-target="#smartblockPane" type="button">
                                 <i class="bi bi-magic me-1"></i>Smart Block
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="clock-tab" data-bs-toggle="tab" data-bs-target="#clockPane" type="button">
+                                <i class="bi bi-clock-history me-1"></i>Clock
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
@@ -262,6 +350,17 @@
                             </select>
                         </div>
 
+                        <!-- Clock Template Selection -->
+                        <div class="tab-pane fade" id="clockPane" role="tabpanel">
+                            <select class="form-select mb-2" id="clockSelect">
+                                <option value="">Select a clock template...</option>
+                            </select>
+                            <div id="clockInfo" class="small text-body-secondary d-none">
+                                <i class="bi bi-info-circle me-1"></i>
+                                <span id="clockInfoText"></span>
+                            </div>
+                        </div>
+
                         <!-- Webstream Selection -->
                         <div class="tab-pane fade" id="webstreamPane" role="tabpanel">
                             <select class="form-select" id="webstreamSelect">
@@ -286,6 +385,67 @@
                             </div>
                         </div>
                     </div>
+
+                    <hr>
+
+                    <!-- Recurrence Options -->
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-arrow-repeat me-1"></i>Repeat</label>
+                        <select class="form-select" id="recurrenceType">
+                            <option value="">Does not repeat</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekdays">Every weekday (Mon-Fri)</option>
+                            <option value="weekly">Weekly on this day</option>
+                            <option value="custom">Custom days...</option>
+                        </select>
+                    </div>
+
+                    <!-- Custom days (shown when custom selected) -->
+                    <div class="mb-3 d-none" id="customDaysContainer">
+                        <label class="form-label">Repeat on</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="0" id="day-sun">
+                                <label class="form-check-label" for="day-sun">Sun</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="1" id="day-mon">
+                                <label class="form-check-label" for="day-mon">Mon</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="2" id="day-tue">
+                                <label class="form-check-label" for="day-tue">Tue</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="3" id="day-wed">
+                                <label class="form-check-label" for="day-wed">Wed</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="4" id="day-thu">
+                                <label class="form-check-label" for="day-thu">Thu</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="5" id="day-fri">
+                                <label class="form-check-label" for="day-fri">Fri</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="6" id="day-sat">
+                                <label class="form-check-label" for="day-sat">Sat</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recurrence end date (shown when any recurrence selected) -->
+                    <div class="mb-3 d-none" id="recurrenceEndContainer">
+                        <label class="form-label">End repeat</label>
+                        <div class="d-flex gap-2 align-items-center">
+                            <select class="form-select" id="recurrenceEndType" style="width: auto;">
+                                <option value="never">Never</option>
+                                <option value="date">On date</option>
+                            </select>
+                            <input type="date" class="form-control d-none" id="recurrenceEndDate" style="width: auto;">
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -297,12 +457,229 @@
         </div>
     </div>
 </div>
+
+<!-- Edit Schedule Entry Modal -->
+<div class="modal fade" id="editScheduleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Schedule Entry</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editEntryId">
+                <input type="hidden" id="editIsRecurring" value="false">
+
+                <!-- Recurring event notice -->
+                <div class="alert alert-warning d-none" id="editRecurringNotice">
+                    <i class="bi bi-arrow-repeat me-2"></i>
+                    <strong>This is a recurring event.</strong>
+                    <div class="mt-2">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="editMode" id="editModeSingle" value="single">
+                            <label class="form-check-label" for="editModeSingle">Edit only this occurrence</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="editMode" id="editModeAll" value="all" checked>
+                            <label class="form-check-label" for="editModeAll">Edit all occurrences</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current source info -->
+                <div class="mb-3 p-3 bg-body-secondary rounded">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge" id="editEntryTypeBadge">-</span>
+                        <span id="editEntryName" class="fw-medium">-</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="editChangeSourceBtn">
+                            <i class="bi bi-pencil me-1"></i>Change
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Source selection (hidden by default) -->
+                <div class="d-none" id="editSourceSelection">
+                    <div class="mb-3">
+                        <label class="form-label">Source Type</label>
+                        <select class="form-select" id="editSourceType">
+                            <option value="media">Media File</option>
+                            <option value="playlist">Playlist</option>
+                            <option value="smart_block">Smart Block</option>
+                            <option value="clock_template">Clock Template</option>
+                            <option value="webstream">Webstream</option>
+                            <option value="live">Live Session</option>
+                        </select>
+                    </div>
+                    <!-- Media search for edit modal -->
+                    <div class="mb-3 d-none" id="editMediaSearchContainer">
+                        <label class="form-label">Search Media</label>
+                        <input type="text" class="form-control mb-2" id="editMediaSearchInput"
+                               placeholder="Search by title, artist...">
+                        <div id="editMediaSearchResults" class="list-group" style="max-height: 200px; overflow-y: auto;">
+                            <div class="list-group-item text-body-secondary">Type to search media...</div>
+                        </div>
+                    </div>
+                    <div class="mb-3 d-none" id="editSourceSelectContainer">
+                        <label class="form-label">Select Source</label>
+                        <select class="form-select" id="editSourceSelect">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- Date Selection -->
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="editStartDate" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="editEndDate" required>
+                    </div>
+                </div>
+
+                <!-- Time Selection -->
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Start Time</label>
+                        <div class="d-flex gap-2">
+                            <select class="form-select" id="editStartHour" style="width: 80px;">
+                                {{range $i := iterate 24}}<option value="{{$i}}">{{printf "%02d" $i}}</option>{{end}}
+                            </select>
+                            <span class="align-self-center">:</span>
+                            <select class="form-select" id="editStartMinute" style="width: 80px;">
+                                <option value="0">00</option>
+                                <option value="5">05</option>
+                                <option value="10">10</option>
+                                <option value="15">15</option>
+                                <option value="20">20</option>
+                                <option value="25">25</option>
+                                <option value="30">30</option>
+                                <option value="35">35</option>
+                                <option value="40">40</option>
+                                <option value="45">45</option>
+                                <option value="50">50</option>
+                                <option value="55">55</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">End Time</label>
+                        <div class="d-flex gap-2">
+                            <select class="form-select" id="editEndHour" style="width: 80px;">
+                                {{range $i := iterate 24}}<option value="{{$i}}">{{printf "%02d" $i}}</option>{{end}}
+                            </select>
+                            <span class="align-self-center">:</span>
+                            <select class="form-select" id="editEndMinute" style="width: 80px;">
+                                <option value="0">00</option>
+                                <option value="5">05</option>
+                                <option value="10">10</option>
+                                <option value="15">15</option>
+                                <option value="20">20</option>
+                                <option value="25">25</option>
+                                <option value="30">30</option>
+                                <option value="35">35</option>
+                                <option value="40">40</option>
+                                <option value="45">45</option>
+                                <option value="50">50</option>
+                                <option value="55">55</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Duration Display -->
+                <div class="alert alert-info py-2 mb-3" id="editDurationDisplay">
+                    <i class="bi bi-clock me-2"></i>
+                    <span id="editDurationText">Duration: --</span>
+                </div>
+
+                <hr>
+
+                <!-- Recurrence Options (shown for "all occurrences" mode) -->
+                <div id="editRecurrenceSection">
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-arrow-repeat me-1"></i>Repeat</label>
+                        <select class="form-select" id="editRecurrenceType">
+                            <option value="">Does not repeat</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekdays">Every weekday (Mon-Fri)</option>
+                            <option value="weekly">Weekly on this day</option>
+                            <option value="custom">Custom days...</option>
+                        </select>
+                    </div>
+
+                    <!-- Custom days -->
+                    <div class="mb-3 d-none" id="editCustomDaysContainer">
+                        <label class="form-label">Repeat on</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="0" id="edit-day-sun">
+                                <label class="form-check-label" for="edit-day-sun">Sun</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="1" id="edit-day-mon">
+                                <label class="form-check-label" for="edit-day-mon">Mon</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="2" id="edit-day-tue">
+                                <label class="form-check-label" for="edit-day-tue">Tue</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="3" id="edit-day-wed">
+                                <label class="form-check-label" for="edit-day-wed">Wed</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="4" id="edit-day-thu">
+                                <label class="form-check-label" for="edit-day-thu">Thu</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="5" id="edit-day-fri">
+                                <label class="form-check-label" for="edit-day-fri">Fri</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="6" id="edit-day-sat">
+                                <label class="form-check-label" for="edit-day-sat">Sat</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recurrence end date -->
+                    <div class="mb-3 d-none" id="editRecurrenceEndContainer">
+                        <label class="form-label">End repeat</label>
+                        <div class="d-flex gap-2 align-items-center">
+                            <select class="form-select" id="editRecurrenceEndType" style="width: auto;">
+                                <option value="never">Never</option>
+                                <option value="date">On date</option>
+                            </select>
+                            <input type="date" class="form-control d-none" id="editRecurrenceEndDate" style="width: auto;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <button type="button" class="btn btn-danger" id="editDeleteBtn">
+                    <i class="bi bi-trash me-1"></i>Delete
+                </button>
+                <div>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirmEditSchedule">
+                        <i class="bi bi-check-lg me-1"></i>Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {{end}}
 
 {{define "scripts"}}
 <!-- FullCalendar JS -->
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"
-        onerror="this.onerror=null;this.src='/static/js/fullcalendar.min.js';"></script>
+<script src="https://unpkg.com/fullcalendar@6.1.15/index.global.min.js"
+        onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js';"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -310,6 +687,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const mountFilter = document.getElementById('mountFilter');
     const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
     const addScheduleModal = new bootstrap.Modal(document.getElementById('addScheduleModal'));
+    const editScheduleModal = new bootstrap.Modal(document.getElementById('editScheduleModal'));
 
     // Context menu elements
     const calendarContextMenu = document.getElementById('calendarContextMenu');
@@ -335,19 +713,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function showContextMenu(menu, x, y) {
         hideAllContextMenus();
+
+        // Show menu first so we can measure it
         menu.style.left = x + 'px';
         menu.style.top = y + 'px';
+        menu.classList.add('show');
 
-        // Ensure menu stays within viewport
+        // Now adjust position if needed to stay in viewport
         const rect = menu.getBoundingClientRect();
         if (rect.right > window.innerWidth) {
-            menu.style.left = (x - rect.width) + 'px';
+            menu.style.left = Math.max(0, x - rect.width) + 'px';
         }
         if (rect.bottom > window.innerHeight) {
-            menu.style.top = (y - rect.height) + 'px';
+            menu.style.top = Math.max(0, y - rect.height) + 'px';
         }
-
-        menu.classList.add('show');
     }
 
     const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -363,6 +742,9 @@ document.addEventListener('DOMContentLoaded', function() {
         snapDuration: '00:05:00',
         allDaySlot: false,
         nowIndicator: true,
+        navLinks: true, // Enable drill-down: month->week->day
+        navLinkDayClick: 'timeGridDay', // Click day number goes to day view
+        navLinkWeekClick: 'timeGridWeek', // Click week number goes to week view
         editable: {{if roleAtLeast .User "manager"}}true{{else}}false{{end}},
         eventResizableFromStart: true,
         selectable: {{if roleAtLeast .User "manager"}}true{{else}}false{{end}},
@@ -389,10 +771,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 .catch(error => failureCallback(error));
         },
 
-        // Left click on event - show details
+        // Left click on event - open edit modal
         eventClick: function(info) {
             selectedEvent = info.event;
-            showEventDetails(info.event);
+            openEditModal(info.event);
         },
 
         // Right click on event - show context menu
@@ -413,25 +795,30 @@ document.addEventListener('DOMContentLoaded', function() {
             updateEvent(info.event);
         },
 
-        // Time selection - store the range
+        // Time selection (drag only) - store the range and show context menu
         select: function(info) {
+            // Only trigger if actual drag (selection > 5 minutes)
+            const duration = info.end - info.start;
+            if (duration <= 5 * 60 * 1000) {
+                // Too short - likely a click, not a drag. Ignore.
+                calendar.unselect();
+                return;
+            }
+
             selectedTimeRange = { start: info.start, end: info.end };
+
+            // Show context menu at mouse position after selection
+            setTimeout(() => {
+                const evt = info.jsEvent;
+                if (evt) {
+                    contextMenuTarget = 'calendar';
+                    showContextMenu(calendarContextMenu, evt.pageX, evt.pageY);
+                }
+            }, 50);
         },
 
         unselect: function() {
             // Keep the selection for context menu usage
-        },
-
-        // Double click to quickly add
-        dateClick: function(info) {
-            // Double-click detection
-            if (this.lastClick && Date.now() - this.lastClick < 300) {
-                // Double click - open add modal
-                const start = info.date;
-                const end = new Date(start.getTime() + 30 * 60000); // +30 min default
-                openAddScheduleModal(start, end);
-            }
-            this.lastClick = Date.now();
         }
     });
 
@@ -440,16 +827,74 @@ document.addEventListener('DOMContentLoaded', function() {
         const fcEvent = e.target.closest('.fc-event');
         if (fcEvent) return; // Event right-click handled above
 
-        const timeGrid = e.target.closest('.fc-timegrid-slot, .fc-daygrid-day');
-        if (timeGrid || selectedTimeRange) {
-            e.preventDefault();
-            contextMenuTarget = 'calendar';
-            showContextMenu(calendarContextMenu, e.pageX, e.pageY);
-        }
+        // Show context menu on any right-click within calendar
+        e.preventDefault();
+        e.stopPropagation();
+        contextMenuTarget = 'calendar';
+        showContextMenu(calendarContextMenu, e.pageX, e.pageY);
     });
 
     calendar.render();
     window.calendar = calendar;
+
+    // Power features: click time axis for daily recurring, click date header for all-day
+    calendarEl.addEventListener('click', function(e) {
+        // Check if clicking on time axis label (left side in week/day view)
+        const timeLabel = e.target.closest('.fc-timegrid-slot-label');
+        if (timeLabel) {
+            const timeText = timeLabel.getAttribute('data-time');
+            if (timeText) {
+                // Parse time like "09:00:00"
+                const [hours, minutes] = timeText.split(':').map(Number);
+                const start = new Date();
+                start.setHours(hours, minutes, 0, 0);
+                const end = new Date(start.getTime() + 60 * 60000); // 1 hour default
+
+                selectedTimeRange = { start, end };
+                // Pre-set daily recurrence
+                openAddScheduleModal(start, end, 'media', 'daily');
+                return;
+            }
+        }
+
+        // Check if clicking on day header (top in week view)
+        const dayHeader = e.target.closest('.fc-col-header-cell');
+        if (dayHeader) {
+            const dateAttr = dayHeader.getAttribute('data-date');
+            if (dateAttr) {
+                const date = new Date(dateAttr);
+                // All day = midnight to midnight
+                const start = new Date(date);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(date);
+                end.setHours(23, 59, 0, 0);
+
+                selectedTimeRange = { start, end };
+                openAddScheduleModal(start, end, 'media', '');
+                return;
+            }
+        }
+
+        // Check if clicking on month day number
+        const dayNumber = e.target.closest('.fc-daygrid-day-number');
+        if (dayNumber) {
+            const dayCell = dayNumber.closest('.fc-daygrid-day');
+            if (dayCell) {
+                const dateAttr = dayCell.getAttribute('data-date');
+                if (dateAttr) {
+                    const date = new Date(dateAttr);
+                    const start = new Date(date);
+                    start.setHours(0, 0, 0, 0);
+                    const end = new Date(date);
+                    end.setHours(23, 59, 0, 0);
+
+                    selectedTimeRange = { start, end };
+                    openAddScheduleModal(start, end, 'media', '');
+                    return;
+                }
+            }
+        }
+    });
 
     // Context menu action handlers
     document.querySelectorAll('.context-menu-item').forEach(item => {
@@ -466,6 +911,7 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'add-media':
             case 'add-playlist':
             case 'add-smartblock':
+            case 'add-clock':
             case 'add-webstream':
             case 'add-live':
                 if (selectedTimeRange) {
@@ -506,6 +952,7 @@ document.addEventListener('DOMContentLoaded', function() {
             'media': 'primary',
             'playlist': 'success',
             'smart_block': 'info',
+            'clock_template': 'purple',
             'live': 'danger',
             'webstream': 'warning'
         }[props.source_type] || 'secondary';
@@ -548,74 +995,278 @@ document.addEventListener('DOMContentLoaded', function() {
         return `${s}s`;
     }
 
-    function openAddScheduleModal(start, end, sourceType = 'media') {
-        const startInput = document.getElementById('scheduleStartInput');
-        const endInput = document.getElementById('scheduleEndInput');
+    async function openAddScheduleModal(start, end, sourceType = 'media', recurrence = '') {
+        const startDate = new Date(start);
+        const endDate = new Date(end);
 
-        // Format for datetime-local input
-        startInput.value = formatDateTimeLocal(start);
-        endInput.value = formatDateTimeLocal(end);
+        // Set date inputs
+        document.getElementById('scheduleStartDate').value = formatDateOnly(startDate);
+        document.getElementById('scheduleEndDate').value = formatDateOnly(endDate);
+
+        // Set time inputs - snap to nearest 5 minutes
+        const startMinute = Math.round(startDate.getMinutes() / 5) * 5;
+        const endMinute = Math.round(endDate.getMinutes() / 5) * 5;
+
+        document.getElementById('scheduleStartHour').value = startDate.getHours();
+        document.getElementById('scheduleStartMinute').value = startMinute >= 60 ? 55 : startMinute;
+        document.getElementById('scheduleEndHour').value = endDate.getHours();
+        document.getElementById('scheduleEndMinute').value = endMinute >= 60 ? 55 : endMinute;
+
+        // Update duration display
+        updateDurationDisplay();
 
         // Select the appropriate tab
         const tabMap = {
             'media': 'media-tab',
             'playlist': 'playlist-tab',
             'smartblock': 'smartblock-tab',
+            'clock': 'clock-tab',
             'webstream': 'webstream-tab',
             'live': 'live-tab'
         };
         const tabId = tabMap[sourceType] || 'media-tab';
         document.getElementById(tabId)?.click();
 
-        // Load data for dropdowns
-        loadPlaylists();
-        loadSmartBlocks();
-        loadWebstreams();
+        // Set recurrence if provided
+        const recurrenceSelect = document.getElementById('recurrenceType');
+        if (recurrenceSelect) {
+            recurrenceSelect.value = recurrence || '';
+            // Trigger change to show/hide custom days container
+            recurrenceSelect.dispatchEvent(new Event('change'));
+        }
+
+        // Load data for dropdowns and media (await all to complete)
+        await Promise.all([
+            loadPlaylists(),
+            loadSmartBlocks(),
+            loadClockTemplates(),
+            loadWebstreams(),
+            loadInitialMedia()
+        ]);
 
         addScheduleModal.show();
     }
 
-    function formatDateTimeLocal(date) {
+    function formatDateOnly(date) {
         const d = new Date(date);
         const pad = n => n.toString().padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     }
+
+    function getScheduleStartDateTime() {
+        const date = document.getElementById('scheduleStartDate').value;
+        const hour = parseInt(document.getElementById('scheduleStartHour').value);
+        const minute = parseInt(document.getElementById('scheduleStartMinute').value);
+        return new Date(`${date}T${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`);
+    }
+
+    function getScheduleEndDateTime() {
+        const date = document.getElementById('scheduleEndDate').value;
+        const hour = parseInt(document.getElementById('scheduleEndHour').value);
+        const minute = parseInt(document.getElementById('scheduleEndMinute').value);
+        return new Date(`${date}T${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`);
+    }
+
+    function setScheduleEndDateTime(dateTime) {
+        document.getElementById('scheduleEndDate').value = formatDateOnly(dateTime);
+        document.getElementById('scheduleEndHour').value = dateTime.getHours();
+        // Snap to nearest 5 minutes
+        const minute = Math.round(dateTime.getMinutes() / 5) * 5;
+        document.getElementById('scheduleEndMinute').value = minute >= 60 ? 55 : minute;
+    }
+
+    function updateDurationDisplay() {
+        const start = getScheduleStartDateTime();
+        const end = getScheduleEndDateTime();
+        const durationMs = end - start;
+
+        if (durationMs <= 0) {
+            document.getElementById('durationText').textContent = 'Invalid: End time must be after start time';
+            document.getElementById('durationDisplay').classList.remove('alert-info');
+            document.getElementById('durationDisplay').classList.add('alert-danger');
+            return;
+        }
+
+        document.getElementById('durationDisplay').classList.remove('alert-danger');
+        document.getElementById('durationDisplay').classList.add('alert-info');
+
+        const hours = Math.floor(durationMs / (1000 * 60 * 60));
+        const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+
+        let text = 'Duration: ';
+        if (hours > 0) text += `${hours}h `;
+        if (minutes > 0 || hours === 0) text += `${minutes}m`;
+
+        document.getElementById('durationText').textContent = text.trim();
+    }
+
+    // Time adjustment buttons
+    document.querySelectorAll('.time-adjust').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const target = this.dataset.target;
+            const delta = parseInt(this.dataset.delta);
+
+            if (target === 'start') {
+                const current = getScheduleStartDateTime();
+                current.setMinutes(current.getMinutes() + delta);
+                document.getElementById('scheduleStartDate').value = formatDateOnly(current);
+                document.getElementById('scheduleStartHour').value = current.getHours();
+                const minute = Math.round(current.getMinutes() / 5) * 5;
+                document.getElementById('scheduleStartMinute').value = minute >= 60 ? 55 : minute;
+            } else {
+                const current = getScheduleEndDateTime();
+                current.setMinutes(current.getMinutes() + delta);
+                setScheduleEndDateTime(current);
+            }
+            updateDurationDisplay();
+        });
+    });
+
+    // Duration quick buttons
+    document.querySelectorAll('.duration-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const minutes = parseInt(this.dataset.minutes);
+            const start = getScheduleStartDateTime();
+            const end = new Date(start.getTime() + minutes * 60 * 1000);
+            setScheduleEndDateTime(end);
+            updateDurationDisplay();
+        });
+    });
+
+    // Update duration on any time change
+    ['scheduleStartDate', 'scheduleStartHour', 'scheduleStartMinute',
+     'scheduleEndDate', 'scheduleEndHour', 'scheduleEndMinute'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', updateDurationDisplay);
+    });
 
     // Load dropdown data
     async function loadPlaylists() {
         try {
-            const response = await fetch('/api/v1/playlists');
+            const response = await fetch('/dashboard/schedule/playlists.json');
+            if (!response.ok) {
+                console.error('Failed to load playlists:', response.status);
+                return;
+            }
             const data = await response.json();
             const select = document.getElementById('playlistSelect');
             select.innerHTML = '<option value="">Select a playlist...</option>';
-            (data.playlists || []).forEach(p => {
-                select.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+            const playlists = data.playlists || [];
+            console.log('Loaded playlists:', playlists.length);
+            playlists.forEach(p => {
+                select.innerHTML += `<option value="${p.ID}">${p.Name}</option>`;
             });
         } catch (e) { console.error('Failed to load playlists:', e); }
     }
 
     async function loadSmartBlocks() {
         try {
-            const response = await fetch('/api/v1/smart-blocks');
+            const response = await fetch('/dashboard/schedule/smart-blocks.json');
+            if (!response.ok) {
+                console.error('Failed to load smart blocks:', response.status);
+                return;
+            }
             const data = await response.json();
             const select = document.getElementById('smartBlockSelect');
             select.innerHTML = '<option value="">Select a smart block...</option>';
-            (data.smart_blocks || []).forEach(sb => {
-                select.innerHTML += `<option value="${sb.id}">${sb.name}</option>`;
+            const smartBlocks = data.smart_blocks || [];
+            console.log('Loaded smart blocks:', smartBlocks.length);
+            smartBlocks.forEach(sb => {
+                select.innerHTML += `<option value="${sb.ID}">${sb.Name}</option>`;
             });
         } catch (e) { console.error('Failed to load smart blocks:', e); }
     }
 
     async function loadWebstreams() {
         try {
-            const response = await fetch('/api/v1/webstreams');
+            const response = await fetch('/dashboard/schedule/webstreams.json');
             const data = await response.json();
             const select = document.getElementById('webstreamSelect');
             select.innerHTML = '<option value="">Select a webstream...</option>';
             (data.webstreams || []).forEach(ws => {
-                select.innerHTML += `<option value="${ws.id}">${ws.name}</option>`;
+                select.innerHTML += `<option value="${ws.ID}">${ws.Name}</option>`;
             });
         } catch (e) { console.error('Failed to load webstreams:', e); }
+    }
+
+    async function loadClockTemplates() {
+        try {
+            const response = await fetch('/dashboard/schedule/clocks.json');
+            const data = await response.json();
+            const select = document.getElementById('clockSelect');
+            const clockInfo = document.getElementById('clockInfo');
+            const clockInfoText = document.getElementById('clockInfoText');
+
+            select.innerHTML = '<option value="">Select a clock template...</option>';
+            const clocks = data.clocks || [];
+            clocks.forEach(clock => {
+                const slotCount = clock.Slots?.length || 0;
+                select.innerHTML += `<option value="${clock.ID}" data-slots="${slotCount}">${clock.Name} (${slotCount} slots)</option>`;
+            });
+
+            // Show clock info on selection
+            select.addEventListener('change', function() {
+                const option = this.selectedOptions[0];
+                if (option && option.value) {
+                    const slots = option.dataset.slots || 0;
+                    clockInfoText.textContent = `This clock has ${slots} slot(s). Duration will expand to fill the scheduled time.`;
+                    clockInfo.classList.remove('d-none');
+
+                    // Auto-set end time to 1 hour after start
+                    const start = getScheduleStartDateTime();
+                    const end = new Date(start.getTime() + 60 * 60 * 1000); // 1 hour
+                    setScheduleEndDateTime(end);
+                    updateDurationDisplay();
+                } else {
+                    clockInfo.classList.add('d-none');
+                }
+            });
+        } catch (e) { console.error('Failed to load clock templates:', e); }
+    }
+
+    // Load initial media items (without search query)
+    async function loadInitialMedia() {
+        try {
+            const response = await fetch('/dashboard/schedule/media.json');
+            const data = await response.json();
+            displayMediaResults('mediaSearchResults', data.items || []);
+        } catch (e) {
+            console.error('Failed to load media:', e);
+        }
+    }
+
+    // Shared function to display media results
+    function displayMediaResults(containerId, items) {
+        const results = document.getElementById(containerId);
+        results.innerHTML = '';
+
+        if (items.length === 0) {
+            results.innerHTML = '<div class="list-group-item text-body-secondary">No media found. Try uploading some tracks first.</div>';
+            return;
+        }
+
+        items.forEach(item => {
+            const div = document.createElement('a');
+            div.href = '#';
+            div.className = 'list-group-item list-group-item-action';
+            div.dataset.mediaId = item.id;
+            div.dataset.duration = item.duration;
+            div.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${item.title}</strong><br>
+                        <small class="text-body-secondary">${item.artist || 'Unknown'} • ${formatDuration(item.duration)}</small>
+                    </div>
+                    <i class="bi bi-plus-circle text-primary"></i>
+                </div>
+            `;
+            div.addEventListener('click', (e) => {
+                e.preventDefault();
+                // Deselect others
+                results.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
+                div.classList.add('active');
+            });
+            results.appendChild(div);
+        });
     }
 
     // Media search
@@ -623,49 +1274,35 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('mediaSearchInput')?.addEventListener('input', function(e) {
         clearTimeout(mediaSearchTimeout);
         const query = e.target.value;
+
+        if (query.length === 0) {
+            // If search is cleared, reload initial media
+            loadInitialMedia();
+            return;
+        }
+
         if (query.length < 2) return;
 
         mediaSearchTimeout = setTimeout(async () => {
             try {
-                const response = await fetch(`/api/v1/media?q=${encodeURIComponent(query)}&limit=20`);
+                const response = await fetch(`/dashboard/schedule/media.json?q=${encodeURIComponent(query)}`);
                 const data = await response.json();
-                const results = document.getElementById('mediaSearchResults');
-                results.innerHTML = '';
-
-                (data.items || []).forEach(item => {
-                    const div = document.createElement('a');
-                    div.href = '#';
-                    div.className = 'list-group-item list-group-item-action';
-                    div.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <strong>${item.title}</strong><br>
-                                <small class="text-body-secondary">${item.artist || 'Unknown'} • ${formatDuration(item.duration)}</small>
-                            </div>
-                            <i class="bi bi-plus-circle text-primary"></i>
-                        </div>
-                    `;
-                    div.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        div.classList.add('active');
-                        div.dataset.mediaId = item.id;
-                        div.dataset.duration = item.duration;
-                        // Deselect others
-                        results.querySelectorAll('.list-group-item').forEach(el => {
-                            if (el !== div) el.classList.remove('active');
-                        });
-                    });
-                    results.appendChild(div);
-                });
+                displayMediaResults('mediaSearchResults', data.items || []);
             } catch (e) { console.error('Media search failed:', e); }
         }, 300);
     });
 
     // Confirm add schedule
     document.getElementById('confirmAddSchedule')?.addEventListener('click', async function() {
-        const startInput = document.getElementById('scheduleStartInput').value;
-        const endInput = document.getElementById('scheduleEndInput').value;
+        const startDateTime = getScheduleStartDateTime();
+        const endDateTime = getScheduleEndDateTime();
         const activeTab = document.querySelector('#sourceTypeTabs .nav-link.active')?.id;
+
+        // Validate times
+        if (endDateTime <= startDateTime) {
+            grimnirUtils.showToast('End time must be after start time', 'error');
+            return;
+        }
 
         let sourceType, sourceId, metadata = {};
 
@@ -698,6 +1335,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 sourceType = 'smart_block';
                 break;
 
+            case 'clock-tab':
+                sourceId = document.getElementById('clockSelect').value;
+                if (!sourceId) {
+                    grimnirUtils.showToast('Please select a clock template', 'warning');
+                    return;
+                }
+                sourceType = 'clock_template';
+                break;
+
             case 'webstream-tab':
                 sourceId = document.getElementById('webstreamSelect').value;
                 if (!sourceId) {
@@ -717,16 +1363,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 break;
         }
 
+        // Get recurrence settings
+        const recurrenceType = document.getElementById('recurrenceType').value;
+        let recurrenceDays = [];
+        if (recurrenceType === 'custom') {
+            document.querySelectorAll('#customDaysContainer input:checked').forEach(cb => {
+                recurrenceDays.push(parseInt(cb.value));
+            });
+        }
+
+        let recurrenceEndDate = null;
+        if (recurrenceType && document.getElementById('recurrenceEndType').value === 'date') {
+            recurrenceEndDate = document.getElementById('recurrenceEndDate').value;
+        }
+
         try {
             const response = await fetch('/dashboard/schedule/entries', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    starts_at: new Date(startInput).toISOString(),
-                    ends_at: new Date(endInput).toISOString(),
+                    starts_at: startDateTime.toISOString(),
+                    ends_at: endDateTime.toISOString(),
                     source_type: sourceType,
                     source_id: sourceId,
-                    metadata: metadata
+                    metadata: metadata,
+                    recurrence_type: recurrenceType,
+                    recurrence_days: recurrenceDays,
+                    recurrence_end_date: recurrenceEndDate
                 })
             });
 
@@ -742,6 +1405,163 @@ document.addEventListener('DOMContentLoaded', function() {
             grimnirUtils.showToast('Failed to add entry', 'error');
         }
     });
+
+    // Recurrence UI handlers for Add modal
+    document.getElementById('recurrenceType')?.addEventListener('change', function() {
+        const type = this.value;
+        document.getElementById('customDaysContainer').classList.toggle('d-none', type !== 'custom');
+        document.getElementById('recurrenceEndContainer').classList.toggle('d-none', !type);
+    });
+
+    document.getElementById('recurrenceEndType')?.addEventListener('change', function() {
+        document.getElementById('recurrenceEndDate').classList.toggle('d-none', this.value !== 'date');
+    });
+
+    // Recurrence UI handlers for Edit modal
+    document.getElementById('editRecurrenceType')?.addEventListener('change', function() {
+        const type = this.value;
+        document.getElementById('editCustomDaysContainer').classList.toggle('d-none', type !== 'custom');
+        document.getElementById('editRecurrenceEndContainer').classList.toggle('d-none', !type);
+    });
+
+    document.getElementById('editRecurrenceEndType')?.addEventListener('change', function() {
+        document.getElementById('editRecurrenceEndDate').classList.toggle('d-none', this.value !== 'date');
+    });
+
+    // Edit mode handlers
+    document.querySelectorAll('input[name="editMode"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            const isSingle = this.value === 'single';
+            document.getElementById('editRecurrenceSection').classList.toggle('d-none', isSingle);
+        });
+    });
+
+    // Change source button
+    document.getElementById('editChangeSourceBtn')?.addEventListener('click', function() {
+        const container = document.getElementById('editSourceSelection');
+        container.classList.toggle('d-none');
+        if (!container.classList.contains('d-none')) {
+            loadEditSourceOptions();
+        }
+    });
+
+    // Edit source type change
+    document.getElementById('editSourceType')?.addEventListener('change', function() {
+        loadEditSourceOptions();
+    });
+
+    // Edit modal media search
+    let editMediaSearchTimeout;
+    document.getElementById('editMediaSearchInput')?.addEventListener('input', function(e) {
+        clearTimeout(editMediaSearchTimeout);
+        const query = e.target.value;
+        const results = document.getElementById('editMediaSearchResults');
+
+        if (query.length < 2) {
+            results.innerHTML = '<div class="list-group-item text-body-secondary">Type at least 2 characters to search...</div>';
+            return;
+        }
+
+        results.innerHTML = '<div class="list-group-item text-body-secondary">Searching...</div>';
+
+        editMediaSearchTimeout = setTimeout(async () => {
+            try {
+                const response = await fetch(`/dashboard/schedule/media.json?q=${encodeURIComponent(query)}`);
+                const data = await response.json();
+                results.innerHTML = '';
+
+                if (!data.items || data.items.length === 0) {
+                    results.innerHTML = '<div class="list-group-item text-body-secondary">No results found</div>';
+                    return;
+                }
+
+                data.items.forEach(item => {
+                    const div = document.createElement('a');
+                    div.href = '#';
+                    div.className = 'list-group-item list-group-item-action';
+                    div.dataset.mediaId = item.id;
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${item.title}</strong><br>
+                                <small class="text-body-secondary">${item.artist || 'Unknown'} • ${formatDuration(item.duration)}</small>
+                            </div>
+                            <i class="bi bi-plus-circle text-primary"></i>
+                        </div>
+                    `;
+                    div.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        // Deselect others
+                        results.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
+                        div.classList.add('active');
+                    });
+                    results.appendChild(div);
+                });
+            } catch (e) {
+                results.innerHTML = '<div class="list-group-item text-danger">Search failed</div>';
+            }
+        }, 300);
+    });
+
+    async function loadEditSourceOptions() {
+        const sourceType = document.getElementById('editSourceType').value;
+        const select = document.getElementById('editSourceSelect');
+        const mediaSearchContainer = document.getElementById('editMediaSearchContainer');
+        const selectContainer = document.getElementById('editSourceSelectContainer');
+
+        // Reset visibility
+        mediaSearchContainer.classList.add('d-none');
+        selectContainer.classList.add('d-none');
+
+        select.innerHTML = '<option value="">Loading...</option>';
+
+        let url, dataKey, nameKey;
+        switch (sourceType) {
+            case 'media':
+                // Show media search instead of dropdown
+                mediaSearchContainer.classList.remove('d-none');
+                document.getElementById('editMediaSearchInput').value = '';
+                document.getElementById('editMediaSearchResults').innerHTML =
+                    '<div class="list-group-item text-body-secondary">Type to search media...</div>';
+                return;
+            case 'playlist':
+                url = '/dashboard/schedule/playlists.json';
+                dataKey = 'playlists';
+                nameKey = 'Name';
+                break;
+            case 'smart_block':
+                url = '/dashboard/schedule/smart-blocks.json';
+                dataKey = 'smart_blocks';
+                nameKey = 'Name';
+                break;
+            case 'clock_template':
+                url = '/dashboard/schedule/clocks.json';
+                dataKey = 'clocks';
+                nameKey = 'Name';
+                break;
+            case 'webstream':
+                url = '/dashboard/schedule/webstreams.json';
+                dataKey = 'webstreams';
+                nameKey = 'Name';
+                break;
+            case 'live':
+                // Live doesn't need source selection
+                return;
+        }
+
+        selectContainer.classList.remove('d-none');
+
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            select.innerHTML = '<option value="">Select...</option>';
+            (data[dataKey] || []).forEach(item => {
+                select.innerHTML += `<option value="${item.ID}">${item[nameKey]}</option>`;
+            });
+        } catch (e) {
+            select.innerHTML = '<option value="">Error loading options</option>';
+        }
+    }
 
     function updateEvent(event) {
         fetch(`/dashboard/schedule/entries/${event.id}`, {
@@ -788,6 +1608,249 @@ document.addEventListener('DOMContentLoaded', function() {
             grimnirUtils.showToast('Failed to duplicate', 'error');
         }
     }
+
+    // Edit modal functions
+    function openEditModal(event) {
+        const props = event.extendedProps;
+        const startDate = event.start;
+        const endDate = event.end;
+
+        // Store event ID
+        document.getElementById('editEntryId').value = event.id;
+
+        // Reset source selection
+        document.getElementById('editSourceSelection').classList.add('d-none');
+
+        // Set type badge and name
+        const typeColors = {
+            'media': 'bg-primary',
+            'playlist': 'bg-success',
+            'smart_block': 'bg-info',
+            'clock_template': 'bg-purple',
+            'live': 'bg-danger',
+            'webstream': 'bg-warning text-dark'
+        };
+        const badge = document.getElementById('editEntryTypeBadge');
+        badge.className = 'badge ' + (typeColors[props.source_type] || 'bg-secondary');
+        badge.textContent = props.source_label || props.source_type;
+
+        document.getElementById('editEntryName').textContent = props.source_name || event.title;
+
+        // Store source type/id for potential changes
+        document.getElementById('editSourceType').value = props.source_type;
+
+        // Check if recurring
+        const isRecurring = props.recurrence && props.recurrence.type;
+        const isInstance = props.is_instance;
+        document.getElementById('editIsRecurring').value = isRecurring ? 'true' : 'false';
+
+        // Show/hide recurring notice
+        const recurringNotice = document.getElementById('editRecurringNotice');
+        if (isRecurring || isInstance) {
+            recurringNotice.classList.remove('d-none');
+            document.getElementById('editModeAll').checked = true;
+            document.getElementById('editRecurrenceSection').classList.remove('d-none');
+        } else {
+            recurringNotice.classList.add('d-none');
+        }
+
+        // Set recurrence fields
+        if (props.recurrence) {
+            document.getElementById('editRecurrenceType').value = props.recurrence.type || '';
+
+            // Show/hide containers based on type
+            document.getElementById('editCustomDaysContainer').classList.toggle('d-none', props.recurrence.type !== 'custom');
+            document.getElementById('editRecurrenceEndContainer').classList.toggle('d-none', !props.recurrence.type);
+
+            // Set custom days
+            if (props.recurrence.days) {
+                document.querySelectorAll('#editCustomDaysContainer input').forEach(cb => {
+                    cb.checked = props.recurrence.days.includes(parseInt(cb.value));
+                });
+            }
+
+            // Set end date
+            if (props.recurrence.end_date) {
+                document.getElementById('editRecurrenceEndType').value = 'date';
+                document.getElementById('editRecurrenceEndDate').value = props.recurrence.end_date;
+                document.getElementById('editRecurrenceEndDate').classList.remove('d-none');
+            } else {
+                document.getElementById('editRecurrenceEndType').value = 'never';
+                document.getElementById('editRecurrenceEndDate').classList.add('d-none');
+            }
+        } else {
+            document.getElementById('editRecurrenceType').value = '';
+            document.getElementById('editCustomDaysContainer').classList.add('d-none');
+            document.getElementById('editRecurrenceEndContainer').classList.add('d-none');
+        }
+
+        // Set date inputs
+        document.getElementById('editStartDate').value = formatDateOnly(startDate);
+        document.getElementById('editEndDate').value = formatDateOnly(endDate);
+
+        // Set time inputs
+        document.getElementById('editStartHour').value = startDate.getHours();
+        const startMin = Math.round(startDate.getMinutes() / 5) * 5;
+        document.getElementById('editStartMinute').value = startMin >= 60 ? 55 : startMin;
+
+        document.getElementById('editEndHour').value = endDate.getHours();
+        const endMin = Math.round(endDate.getMinutes() / 5) * 5;
+        document.getElementById('editEndMinute').value = endMin >= 60 ? 55 : endMin;
+
+        updateEditDurationDisplay();
+        editScheduleModal.show();
+    }
+
+    function getEditStartDateTime() {
+        const date = document.getElementById('editStartDate').value;
+        const hour = parseInt(document.getElementById('editStartHour').value);
+        const minute = parseInt(document.getElementById('editStartMinute').value);
+        return new Date(`${date}T${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`);
+    }
+
+    function getEditEndDateTime() {
+        const date = document.getElementById('editEndDate').value;
+        const hour = parseInt(document.getElementById('editEndHour').value);
+        const minute = parseInt(document.getElementById('editEndMinute').value);
+        return new Date(`${date}T${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`);
+    }
+
+    function updateEditDurationDisplay() {
+        const start = getEditStartDateTime();
+        const end = getEditEndDateTime();
+        const durationMs = end - start;
+
+        if (durationMs <= 0) {
+            document.getElementById('editDurationText').textContent = 'Invalid: End time must be after start time';
+            document.getElementById('editDurationDisplay').classList.remove('alert-info');
+            document.getElementById('editDurationDisplay').classList.add('alert-danger');
+            return;
+        }
+
+        document.getElementById('editDurationDisplay').classList.remove('alert-danger');
+        document.getElementById('editDurationDisplay').classList.add('alert-info');
+
+        const hours = Math.floor(durationMs / (1000 * 60 * 60));
+        const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+
+        let text = 'Duration: ';
+        if (hours > 0) text += `${hours}h `;
+        if (minutes > 0 || hours === 0) text += `${minutes}m`;
+
+        document.getElementById('editDurationText').textContent = text.trim();
+    }
+
+    // Edit modal time change listeners
+    ['editStartDate', 'editStartHour', 'editStartMinute',
+     'editEndDate', 'editEndHour', 'editEndMinute'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', updateEditDurationDisplay);
+    });
+
+    // Confirm edit
+    document.getElementById('confirmEditSchedule')?.addEventListener('click', async function() {
+        const entryId = document.getElementById('editEntryId').value;
+        const startDateTime = getEditStartDateTime();
+        const endDateTime = getEditEndDateTime();
+
+        if (endDateTime <= startDateTime) {
+            grimnirUtils.showToast('End time must be after start time', 'error');
+            return;
+        }
+
+        // Build update payload
+        const payload = {
+            starts_at: startDateTime.toISOString(),
+            ends_at: endDateTime.toISOString()
+        };
+
+        // Check if source changed
+        const sourceSelection = document.getElementById('editSourceSelection');
+        if (!sourceSelection.classList.contains('d-none')) {
+            const newSourceType = document.getElementById('editSourceType').value;
+            let newSourceId;
+
+            if (newSourceType === 'media') {
+                // Get selected media from search results
+                const selectedMedia = document.querySelector('#editMediaSearchResults .list-group-item.active');
+                if (selectedMedia) {
+                    newSourceId = selectedMedia.dataset.mediaId;
+                }
+            } else if (newSourceType !== 'live') {
+                newSourceId = document.getElementById('editSourceSelect').value;
+            }
+
+            if (newSourceId) {
+                payload.source_type = newSourceType;
+                payload.source_id = newSourceId;
+            } else if (newSourceType === 'live') {
+                payload.source_type = 'live';
+                payload.source_id = '';
+            }
+        }
+
+        // Get edit mode for recurring events
+        const isRecurring = document.getElementById('editIsRecurring').value === 'true';
+        if (isRecurring) {
+            payload.edit_mode = document.querySelector('input[name="editMode"]:checked')?.value || 'all';
+        }
+
+        // Get recurrence settings (only if editing all occurrences)
+        if (!isRecurring || payload.edit_mode === 'all') {
+            const recurrenceType = document.getElementById('editRecurrenceType').value;
+            payload.recurrence_type = recurrenceType;
+
+            if (recurrenceType === 'custom') {
+                const days = [];
+                document.querySelectorAll('#editCustomDaysContainer input:checked').forEach(cb => {
+                    days.push(parseInt(cb.value));
+                });
+                payload.recurrence_days = days;
+            }
+
+            if (recurrenceType && document.getElementById('editRecurrenceEndType').value === 'date') {
+                payload.recurrence_end_date = document.getElementById('editRecurrenceEndDate').value;
+            } else {
+                payload.recurrence_end_date = '';
+            }
+        }
+
+        try {
+            const response = await fetch(`/dashboard/schedule/entries/${entryId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                editScheduleModal.hide();
+                calendar.refetchEvents();
+                grimnirUtils.showToast('Schedule entry updated', 'success');
+            } else {
+                const err = await response.json();
+                grimnirUtils.showToast(err.error || 'Failed to update entry', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to update entry', 'error');
+        }
+    });
+
+    // Delete from edit modal
+    document.getElementById('editDeleteBtn')?.addEventListener('click', function() {
+        const entryId = document.getElementById('editEntryId').value;
+        if (!confirm('Delete this schedule entry?')) return;
+
+        fetch(`/dashboard/schedule/entries/${entryId}`, {
+            method: 'DELETE'
+        }).then(response => {
+            if (response.ok) {
+                editScheduleModal.hide();
+                calendar.refetchEvents();
+                grimnirUtils.showToast('Entry deleted', 'success');
+            } else {
+                grimnirUtils.showToast('Failed to delete entry', 'error');
+            }
+        });
+    });
 
     // Mount filter
     mountFilter.addEventListener('change', () => {

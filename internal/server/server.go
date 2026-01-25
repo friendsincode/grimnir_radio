@@ -23,6 +23,7 @@ import (
 
     "github.com/friendsincode/grimnir_radio/internal/analyzer"
     "github.com/friendsincode/grimnir_radio/internal/api"
+    "github.com/friendsincode/grimnir_radio/internal/broadcast"
     "github.com/friendsincode/grimnir_radio/internal/clock"
     "github.com/friendsincode/grimnir_radio/internal/config"
     "github.com/friendsincode/grimnir_radio/internal/db"
@@ -38,6 +39,7 @@ import (
     "github.com/friendsincode/grimnir_radio/internal/smartblock"
     "github.com/friendsincode/grimnir_radio/internal/telemetry"
     "github.com/friendsincode/grimnir_radio/internal/web"
+    "github.com/friendsincode/grimnir_radio/internal/webrtc"
     "github.com/friendsincode/grimnir_radio/internal/webstream"
 )
 
@@ -49,15 +51,16 @@ type Server struct {
 	httpServer *http.Server
 	closers    []func() error
 
-	db                  *gorm.DB
-	api                 *api.API
-	webHandler          *web.Handler
-	scheduler           *scheduler.Service
+	db                   *gorm.DB
+	api                  *api.API
+	webHandler           *web.Handler
+	scheduler            *scheduler.Service
 	leaderAwareScheduler *scheduler.LeaderAwareScheduler
-	analyzer            *analyzer.Service
-	playout             *playout.Manager
-	director            *playout.Director
-	bus                 *events.Bus
+	analyzer             *analyzer.Service
+	playout              *playout.Manager
+	director             *playout.Director
+	bus                  *events.Bus
+	webrtcBroadcaster    *webrtc.Broadcaster
 
 	bgCancel context.CancelFunc
 	bgWG     sync.WaitGroup
@@ -73,12 +76,22 @@ func New(cfg *config.Config, logger zerolog.Logger) (*Server, error) {
 	router.Use(middleware.Recoverer)
 	router.Use(telemetry.TracingMiddleware("grimnir-radio-api")) // Add OpenTelemetry tracing
 	router.Use(telemetry.MetricsMiddleware)                      // Add Prometheus metrics
-	// Skip timeout for WebSocket connections (they need http.Hijacker)
+	// Skip timeout for WebSocket and streaming connections
 	router.Use(func(next http.Handler) http.Handler {
 		timeout := middleware.Timeout(60 * time.Second)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip timeout middleware for WebSocket upgrade requests
 			if r.Header.Get("Upgrade") == "websocket" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Skip timeout for audio stream proxy (long-running connections)
+			if len(r.URL.Path) >= 8 && r.URL.Path[:8] == "/stream/" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Skip timeout for broadcast streams (long-running connections)
+			if len(r.URL.Path) >= 6 && r.URL.Path[:6] == "/live/" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -102,11 +115,13 @@ func New(cfg *config.Config, logger zerolog.Logger) (*Server, error) {
 
 	addr := fmt.Sprintf("%s:%d", cfg.HTTPBind, cfg.HTTPPort)
 	srv.httpServer = &http.Server{
-		Addr:         addr,
-		Handler:      srv.router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  30 * time.Second,
+		Addr:        addr,
+		Handler:     srv.router,
+		ReadTimeout: 15 * time.Second,
+		// WriteTimeout set to 0 for streaming support - handlers manage their own deadlines
+		// The middleware timeout (60s) handles non-streaming routes
+		WriteTimeout: 0,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	return srv, nil
@@ -171,8 +186,26 @@ func (s *Server) initDependencies() error {
 	webstreamService := webstream.NewService(database, s.bus, s.logger)
 	s.DeferClose(func() error { return webstreamService.Shutdown() })
 
+	// Broadcast server for streaming without Icecast
+	broadcastSrv := broadcast.NewServer(s.logger, s.bus)
+
+	// WebRTC broadcaster for low-latency streaming
+	if s.cfg.WebRTCEnabled {
+		webrtcCfg := webrtc.Config{
+			RTPPort:    s.cfg.WebRTCRTPPort,
+			STUNServer: s.cfg.WebRTCSTUNURL,
+		}
+		var err error
+		s.webrtcBroadcaster, err = webrtc.NewBroadcaster(webrtcCfg, s.logger)
+		if err != nil {
+			return fmt.Errorf("create webrtc broadcaster: %w", err)
+		}
+		s.DeferClose(func() error { return s.webrtcBroadcaster.Stop() })
+		s.logger.Info().Int("rtp_port", s.cfg.WebRTCRTPPort).Msg("WebRTC broadcaster initialized")
+	}
+
 	s.playout = playout.NewManager(s.cfg, s.logger)
-	s.director = playout.NewDirector(database, s.playout, s.bus, webstreamService, s.logger)
+	s.director = playout.NewDirector(database, s.cfg, s.playout, s.bus, webstreamService, broadcastSrv, s.logger)
 
 	// Priority and executor services (needed by live service)
 	priorityService := priority.NewService(database, s.bus, s.logger)
@@ -183,10 +216,10 @@ func (s *Server) initDependencies() error {
 
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
-	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
+	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, broadcastSrv, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
 
 	// Web UI handler
-	webHandler, err := web.NewHandler(database, []byte(s.cfg.JWTSigningKey), s.cfg.MediaRoot, s.cfg.IcecastURL, s.logger)
+	webHandler, err := web.NewHandler(database, []byte(s.cfg.JWTSigningKey), s.cfg.MediaRoot, s.cfg.IcecastURL, s.cfg.IcecastPublicURL, s.logger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize web handler: %w", err)
 	}
@@ -283,6 +316,17 @@ func (s *Server) startBackgroundWorkers() {
 			}
 		}()
 	}
+
+	// Start WebRTC broadcaster
+	if s.webrtcBroadcaster != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			if err := s.webrtcBroadcaster.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				s.logger.Error().Err(err).Msg("WebRTC broadcaster failed to start")
+			}
+		}()
+	}
 }
 
 func (s *Server) stopBackgroundWorkers() {
@@ -316,6 +360,23 @@ func (s *Server) configureRoutes() {
 	})
 
 	s.router.Handle("/metrics", telemetry.Handler())
+
+	// Audio broadcast streams (served directly by Go, no Icecast needed)
+	s.router.HandleFunc("/live/{mount}", func(w http.ResponseWriter, r *http.Request) {
+		mountName := chi.URLParam(r, "mount")
+		mount := s.director.Broadcast().GetMount(mountName)
+		if mount == nil {
+			http.Error(w, "Stream not found", http.StatusNotFound)
+			return
+		}
+		mount.ServeHTTP(w, r)
+	})
+
+	// WebRTC signaling endpoint for low-latency streaming
+	if s.webrtcBroadcaster != nil {
+		s.router.HandleFunc("/webrtc/signal", s.webrtcBroadcaster.HandleSignaling)
+	}
+
 	s.api.Routes(s.router)
 
 	// Web UI routes
