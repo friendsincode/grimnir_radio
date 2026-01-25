@@ -1,28 +1,88 @@
 {{define "partials/clock-simulation"}}
-<div class="table-responsive">
-    <table class="table table-sm mb-0">
-        <thead>
-            <tr>
-                <th>Position</th>
-                <th>Type</th>
-                <th>Content</th>
-                <th>Offset</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .}}
-            <tr>
-                <td>{{.Position}}</td>
-                <td><span class="badge bg-secondary">{{.Type}}</span></td>
-                <td>{{.Content}}</td>
-                <td>{{.Duration}}</td>
-            </tr>
-            {{else}}
-            <tr>
-                <td colspan="4" class="text-center text-body-secondary">No slots defined</td>
-            </tr>
+{{$slots := index . "Slots"}}
+{{$totalMs := index . "TotalDurationMs"}}
+{{$targetMs := index . "TargetMs"}}
+{{$diffMs := sub $totalMs $targetMs}}
+
+<div class="p-3">
+    <!-- Summary header -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <span class="text-body-secondary">
+                <i class="bi bi-clock me-1"></i>
+                {{len $slots}} slots
+            </span>
+        </div>
+        <div>
+            {{if $totalMs}}
+            <span class="badge {{if ge $totalMs $targetMs}}bg-success{{else}}bg-warning text-dark{{end}}">
+                <i class="bi bi-stopwatch me-1"></i>
+                {{formatMs $totalMs}} / {{formatMs $targetMs}}
+            </span>
+            {{if ne $diffMs 0}}
+            <span class="badge {{if ge $diffMs 0}}bg-success{{else}}bg-danger{{end}} ms-1">
+                {{if ge $diffMs 0}}+{{end}}{{if lt $diffMs 0}}-{{end}}{{formatMs $diffMs}}
+            </span>
             {{end}}
-        </tbody>
-    </table>
+            {{end}}
+        </div>
+    </div>
+
+    {{if $slots}}
+    <div class="accordion" id="clockSimAccordion">
+        {{range $i, $slot := $slots}}
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button {{if ne $i 0}}collapsed{{end}} py-2" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#slot{{$i}}">
+                    <span class="badge {{$slot.TypeBadge}} me-2">{{$slot.Type}}</span>
+                    <span class="fw-medium">{{$slot.Name}}</span>
+                    <span class="ms-auto me-3 text-body-secondary small">
+                        {{if $slot.Tracks}}
+                        {{len $slot.Tracks}} tracks •
+                        {{end}}
+                        {{formatMs $slot.DurationMs}}
+                    </span>
+                </button>
+            </h2>
+            <div id="slot{{$i}}" class="accordion-collapse collapse {{if eq $i 0}}show{{end}}"
+                 data-bs-parent="#clockSimAccordion">
+                <div class="accordion-body p-0">
+                    {{if $slot.Tracks}}
+                    <div class="list-group list-group-flush small" style="max-height: 300px; overflow-y: auto;">
+                        {{range $j, $track := $slot.Tracks}}
+                        <div class="list-group-item px-3 py-2 d-flex align-items-center gap-2 border-0 border-bottom">
+                            <span class="badge bg-body-secondary text-body-secondary" style="min-width: 28px;">{{add $j 1}}</span>
+                            <div class="flex-grow-1 text-truncate">
+                                <div class="fw-medium text-truncate">{{$track.Title}}</div>
+                                {{if $track.Artist}}<div class="text-body-secondary small text-truncate">{{$track.Artist}}</div>{{end}}
+                            </div>
+                            <span class="text-body-secondary text-nowrap">{{formatDuration $track.Duration}}</span>
+                        </div>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    <div class="text-center py-3 text-body-secondary">
+                        {{if eq $slot.Type "webstream"}}
+                        <i class="bi bi-broadcast me-1"></i> Live webstream
+                        {{else if eq $slot.Type "stopset"}}
+                        <i class="bi bi-megaphone me-1"></i> Commercial content
+                        {{else}}
+                        <i class="bi bi-music-note me-1"></i> No tracks to display
+                        {{end}}
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+    </div>
+    {{else}}
+    <div class="text-center py-4 text-body-secondary">
+        <i class="bi bi-clock-history fs-3 d-block mb-2 opacity-50"></i>
+        <div>No slots defined</div>
+        <small>Add slots to your clock template to see simulation</small>
+    </div>
+    {{end}}
 </div>
 {{end}}
