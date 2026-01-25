@@ -113,7 +113,7 @@ func Load() (*Config, error) {
         IcecastPublicURL:      getEnvAny([]string{"GRIMNIR_ICECAST_PUBLIC_URL", "ICECAST_PUBLIC_URL"}, ""),
         IcecastSourcePassword: getEnvAny([]string{"GRIMNIR_ICECAST_SOURCE_PASSWORD", "ICECAST_SOURCE_PASSWORD"}, "hackme"),
 
-        // WebRTC configuration
+        // WebRTC configuration (enabled by default for low-latency streaming)
         WebRTCEnabled:  getEnvBoolAny([]string{"GRIMNIR_WEBRTC_ENABLED", "WEBRTC_ENABLED"}, true),
         WebRTCRTPPort:  getEnvIntAny([]string{"GRIMNIR_WEBRTC_RTP_PORT", "WEBRTC_RTP_PORT"}, 5004),
         WebRTCSTUNURL:  getEnvAny([]string{"GRIMNIR_WEBRTC_STUN_URL", "WEBRTC_STUN_URL"}, "stun:stun.l.google.com:19302"),

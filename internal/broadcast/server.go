@@ -204,11 +204,17 @@ func (m *Mount) FeedFrom(r io.Reader) error {
 // ServeHTTP handles HTTP client connections for streaming.
 func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set headers for streaming audio
+	// NOTE: Do NOT set Transfer-Encoding manually - Go handles it automatically
+	// when Content-Length is not set
 	w.Header().Set("Content-Type", m.ContentType)
-	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("X-Accel-Buffering", "no")
+	// Explicitly delete Content-Length to force chunked transfer
+	w.Header().Del("Content-Length")
 
 	// ICY metadata headers
 	w.Header().Set("icy-br", itoa(m.Bitrate))
@@ -224,18 +230,25 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	m.buffer.mu.RUnlock()
 	m.logger.Debug().Int("buffer_pos", bufPos).Bool("skip_buffer", skipBuffer).Msg("client connecting, buffer state")
 
-	// Use ResponseController which properly handles wrapped ResponseWriters
-	rc := http.NewResponseController(w)
+	// Try to get the Flusher interface - check for wrapped writers
+	var flusher http.Flusher
+	if f, ok := w.(http.Flusher); ok {
+		flusher = f
+	} else {
+		// Try ResponseController as fallback (Go 1.20+)
+		rc := http.NewResponseController(w)
+		// Create a wrapper that uses ResponseController
+		flusher = &rcFlusher{rc: rc, logger: m.logger}
+	}
 
-	// Helper to extend write deadline and flush
-	writeWithDeadline := func(data []byte) error {
-		// Extend write deadline for each write - prevents timeout during slow clients
-		_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	// Helper to write and flush data
+	writeAndFlush := func(data []byte) error {
 		_, err := w.Write(data)
 		if err != nil {
 			return err
 		}
-		return rc.Flush()
+		flusher.Flush()
+		return nil
 	}
 
 	// Create client with larger buffer for stability
@@ -267,7 +280,8 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			primeBytes = 1000
 		}
 		if recent := m.buffer.GetRecent(primeBytes); len(recent) > 0 {
-			if err := writeWithDeadline(recent); err != nil {
+			if err := writeAndFlush(recent); err != nil {
+				m.logger.Info().Err(err).Msg("initial buffer write failed (skipBuffer)")
 				return
 			}
 		}
@@ -282,9 +296,11 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			bufferBytes = 8000 // Minimum 8KB
 		}
 		if recent := m.buffer.GetRecent(bufferBytes); len(recent) > 0 {
-			if err := writeWithDeadline(recent); err != nil {
+			if err := writeAndFlush(recent); err != nil {
+				m.logger.Info().Err(err).Int("bytes", len(recent)).Msg("initial buffer write failed")
 				return
 			}
+			m.logger.Info().Int("bytes", len(recent)).Msg("initial buffer sent, entering main loop")
 		}
 	}
 
@@ -310,14 +326,24 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	keepalive := time.NewTimer(30 * time.Second)
 	defer keepalive.Stop()
 
+	m.logger.Info().Int("channel_len", len(c.ch)).Msg("entering main streaming loop")
+
 	// Stream data to client - keep connected through track transitions
+	writeCount := 0
 	for {
 		select {
 		case <-r.Context().Done():
+			m.logger.Info().Int("writes", writeCount).Err(r.Context().Err()).Msg("client context cancelled")
 			return
 		case data := <-c.ch:
-			if err := writeWithDeadline(data); err != nil {
+			if err := writeAndFlush(data); err != nil {
+				m.logger.Info().Err(err).Int("writes", writeCount).Msg("write failed, disconnecting client")
 				return
+			}
+			writeCount++
+			// Log first few writes to debug streaming issues
+			if writeCount <= 5 || writeCount%100 == 0 {
+				m.logger.Info().Int("writes", writeCount).Int("bytes", len(data)).Msg("wrote chunk to client")
 			}
 			// Reset keepalive timer after successful write
 			if !keepalive.Stop() {
@@ -330,7 +356,8 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case <-keepalive.C:
 			// No data for 30 seconds - flush and continue waiting
 			// This keeps the connection alive during gaps between tracks
-			_ = rc.Flush()
+			m.logger.Debug().Int("writes", writeCount).Msg("keepalive flush")
+			flusher.Flush()
 			keepalive.Reset(30 * time.Second)
 		}
 	}
@@ -377,6 +404,18 @@ func (m *Mount) Close() {
 		c.mu.Unlock()
 	}
 	m.clients = make(map[*client]struct{})
+}
+
+// rcFlusher wraps http.ResponseController to implement http.Flusher
+type rcFlusher struct {
+	rc     *http.ResponseController
+	logger zerolog.Logger
+}
+
+func (f *rcFlusher) Flush() {
+	if err := f.rc.Flush(); err != nil {
+		f.logger.Debug().Err(err).Msg("ResponseController flush failed")
+	}
 }
 
 func itoa(i int) string {
