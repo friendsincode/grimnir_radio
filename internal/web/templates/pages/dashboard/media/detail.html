@@ -1,0 +1,333 @@
+{{define "pages/dashboard/media/detail"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/media">Media Library</a></li>
+        <li class="breadcrumb-item active">{{.Title}}</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$media := .Data.Media}}
+<div class="row g-4">
+    <!-- Main Info -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-4">
+                    <div class="d-flex align-items-center gap-3">
+                        {{if len $media.Artwork}}
+                        <img src="/dashboard/media/{{$media.ID}}/artwork" alt="Album art"
+                             class="rounded shadow" style="width: 80px; height: 80px; object-fit: cover;">
+                        {{else}}
+                        <div class="bg-secondary rounded d-flex align-items-center justify-content-center shadow"
+                             style="width: 80px; height: 80px;">
+                            <i class="bi bi-music-note-beamed text-white fs-2"></i>
+                        </div>
+                        {{end}}
+                        <div>
+                            <h3 class="mb-1">{{$media.Title}}</h3>
+                            <p class="lead text-body-secondary mb-0">
+                                {{if $media.Artist}}{{$media.Artist}}{{else}}<em>Unknown Artist</em>{{end}}
+                                {{if $media.Album}} &bull; {{$media.Album}}{{end}}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <a href="/dashboard/media/{{$media.ID}}/edit" class="btn btn-outline-primary">
+                            <i class="bi bi-pencil me-1"></i>Edit
+                        </a>
+                        <button class="btn btn-outline-danger"
+                                hx-delete="/dashboard/media/{{$media.ID}}"
+                                hx-confirm="Delete this track permanently?">
+                            <i class="bi bi-trash me-1"></i>Delete
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Waveform -->
+                <div class="bg-body-tertiary rounded-3 p-3 mb-4">
+                    <div id="waveform" style="height: 100px;">
+                        <div class="d-flex align-items-center justify-content-center h-100 text-body-secondary">
+                            <i class="bi bi-soundwave fs-1 me-2"></i>
+                            Loading waveform...
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-center align-items-center gap-2 mt-3">
+                        <button class="btn btn-primary btn-lg" id="playBtn">
+                            <i class="bi bi-play-fill me-1"></i>Play
+                        </button>
+                        <button class="btn btn-outline-secondary" id="stopBtn">
+                            <i class="bi bi-stop-fill me-1"></i>Stop
+                        </button>
+                        <span id="playerStatus" class="ms-3 text-body-secondary small"></span>
+                    </div>
+                    <div class="progress mt-2" style="height: 4px;">
+                        <div class="progress-bar" id="progressBar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div class="d-flex justify-content-between small text-body-secondary mt-1">
+                        <span id="currentTime">0:00</span>
+                        <span id="totalTime">{{formatDuration $media.Duration}}</span>
+                    </div>
+                </div>
+
+                <!-- Metadata Grid -->
+                <div class="row g-3">
+                    <div class="col-sm-6 col-md-4">
+                        <div class="border rounded p-3">
+                            <small class="text-body-secondary d-block">Duration</small>
+                            <strong>{{formatDuration $media.Duration}}</strong>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-md-4">
+                        <div class="border rounded p-3">
+                            <small class="text-body-secondary d-block">Genre</small>
+                            <strong>{{if $media.Genre}}{{$media.Genre}}{{else}}-{{end}}</strong>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-md-4">
+                        <div class="border rounded p-3">
+                            <small class="text-body-secondary d-block">Year</small>
+                            <strong>{{if $media.Year}}{{$media.Year}}{{else}}-{{end}}</strong>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-md-4">
+                        <div class="border rounded p-3">
+                            <small class="text-body-secondary d-block">BPM</small>
+                            <strong>{{if ne $media.BPM 0.0}}{{printf "%.0f" $media.BPM}}{{else}}-{{end}}</strong>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-md-4">
+                        <div class="border rounded p-3">
+                            <small class="text-body-secondary d-block">Loudness</small>
+                            <strong>{{if ne $media.LoudnessLUFS 0.0}}{{printf "%.1f" $media.LoudnessLUFS}} LUFS{{else}}-{{end}}</strong>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-md-4">
+                        <div class="border rounded p-3">
+                            <small class="text-body-secondary d-block">Label</small>
+                            <strong>{{if $media.Label}}{{$media.Label}}{{else}}-{{end}}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Play History -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Play History</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Played At</th>
+                            <th>Mount</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Data.History}}
+                        <tr>
+                            <td>{{formatTime .StartedAt}}</td>
+                            <td>{{.MountID}}</td>
+                            <td>{{formatDuration .Duration}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="3" class="text-center text-body-secondary py-4">
+                                This track hasn't been played yet
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0">Quick Actions</h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary"
+                            hx-post="/api/v1/playout/queue"
+                            hx-vals='{"media_id": "{{$media.ID}}"}'
+                            hx-swap="none">
+                        <i class="bi bi-plus-circle me-2"></i>Add to Queue
+                    </button>
+                    <a href="/dashboard/playlists?add={{$media.ID}}" class="btn btn-outline-secondary">
+                        <i class="bi bi-list-ul me-2"></i>Add to Playlist
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Info -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0">File Information</h6>
+            </div>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-body-secondary">Path</span>
+                    <span class="text-truncate" style="max-width: 150px;" title="{{$media.Path}}">{{$media.Path}}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-body-secondary">Bitrate</span>
+                    <span>{{if gt $media.Bitrate 0}}{{$media.Bitrate}} kbps{{else}}-{{end}}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-body-secondary">Sample Rate</span>
+                    <span>{{if gt $media.Samplerate 0}}{{$media.Samplerate}} Hz{{else}}-{{end}}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-body-secondary">Replay Gain</span>
+                    <span>{{if $media.ReplayGain}}{{printf "%.2f" $media.ReplayGain}} dB{{else}}-{{end}}</span>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Additional Metadata -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">Additional Info</h6>
+            </div>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-body-secondary">Language</span>
+                    <span>{{if $media.Language}}{{$media.Language}}{{else}}-{{end}}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-body-secondary">Mood</span>
+                    <span>{{if $media.Mood}}{{$media.Mood}}{{else}}-{{end}}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-body-secondary">Explicit</span>
+                    <span>{{if $media.Explicit}}<span class="badge bg-warning">Yes</span>{{else}}No{{end}}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-body-secondary">Added</span>
+                    <span>{{formatTime $media.CreatedAt}}</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+// Audio player with visual feedback
+const playBtn = document.getElementById('playBtn');
+const stopBtn = document.getElementById('stopBtn');
+const playerStatus = document.getElementById('playerStatus');
+const progressBar = document.getElementById('progressBar');
+const currentTimeEl = document.getElementById('currentTime');
+let audio = null;
+
+function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return m + ':' + s.toString().padStart(2, '0');
+}
+
+function updateStatus(text, isPlaying) {
+    playerStatus.textContent = text;
+    if (isPlaying) {
+        playBtn.classList.add('btn-success');
+        playBtn.classList.remove('btn-primary');
+    } else {
+        playBtn.classList.remove('btn-success');
+        playBtn.classList.add('btn-primary');
+    }
+}
+
+playBtn.addEventListener('click', () => {
+    if (!audio) {
+        updateStatus('Loading...', false);
+        audio = new Audio('/dashboard/media/{{.Data.Media.ID}}/stream');
+
+        audio.addEventListener('loadstart', () => {
+            updateStatus('Loading...', false);
+        });
+
+        audio.addEventListener('canplay', () => {
+            updateStatus('Ready', false);
+        });
+
+        audio.addEventListener('playing', () => {
+            updateStatus('Playing', true);
+        });
+
+        audio.addEventListener('pause', () => {
+            if (audio.currentTime > 0) {
+                updateStatus('Paused', false);
+            }
+        });
+
+        audio.addEventListener('ended', () => {
+            playBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Play';
+            updateStatus('Ended', false);
+            progressBar.style.width = '100%';
+        });
+
+        audio.addEventListener('error', (e) => {
+            console.error('Audio error:', e, audio.error);
+            updateStatus('Error: ' + (audio.error?.message || 'Failed to load'), false);
+            playBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Play';
+        });
+
+        audio.addEventListener('timeupdate', () => {
+            if (audio.duration) {
+                const pct = (audio.currentTime / audio.duration) * 100;
+                progressBar.style.width = pct + '%';
+                currentTimeEl.textContent = formatTime(audio.currentTime);
+            }
+        });
+    }
+
+    if (audio.paused) {
+        audio.play().catch(e => {
+            console.error('Play error:', e);
+            updateStatus('Error: ' + e.message, false);
+        });
+        playBtn.innerHTML = '<i class="bi bi-pause-fill me-1"></i>Pause';
+    } else {
+        audio.pause();
+        playBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Play';
+    }
+});
+
+stopBtn.addEventListener('click', () => {
+    if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+        playBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Play';
+        updateStatus('Stopped', false);
+        progressBar.style.width = '0%';
+        currentTimeEl.textContent = '0:00';
+    }
+});
+
+// Click on progress bar to seek
+progressBar.parentElement.addEventListener('click', (e) => {
+    if (audio && audio.duration) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const pct = (e.clientX - rect.left) / rect.width;
+        audio.currentTime = pct * audio.duration;
+    }
+});
+</script>
+{{end}}

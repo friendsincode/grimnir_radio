@@ -1,0 +1,189 @@
+{{define "pages/dashboard/media/list"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Media Library</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-music-note-list me-2"></i>Media Library</h4>
+    <a href="/dashboard/media/upload" class="btn btn-primary">
+        <i class="bi bi-upload me-2"></i>Upload
+    </a>
+</div>
+
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="/dashboard/media" class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Search</label>
+                <input type="text" class="form-control" name="q"
+                       placeholder="Title, artist, album..."
+                       value="{{.Data.Query}}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Genre</label>
+                <select class="form-select" name="genre">
+                    <option value="">All Genres</option>
+                    {{range .Data.Genres}}
+                    <option value="{{.}}" {{if eq . $.Data.Genre}}selected{{end}}>{{.}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Sort By</label>
+                <select class="form-select" name="sort">
+                    <option value="created_at" {{if eq .Data.SortBy "created_at"}}selected{{end}}>Date Added</option>
+                    <option value="title" {{if eq .Data.SortBy "title"}}selected{{end}}>Title</option>
+                    <option value="artist" {{if eq .Data.SortBy "artist"}}selected{{end}}>Artist</option>
+                    <option value="duration" {{if eq .Data.SortBy "duration"}}selected{{end}}>Duration</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Order</label>
+                <select class="form-select" name="order">
+                    <option value="desc" {{if eq .Data.SortOrder "desc"}}selected{{end}}>Newest First</option>
+                    <option value="asc" {{if eq .Data.SortOrder "asc"}}selected{{end}}>Oldest First</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-primary w-100">
+                    <i class="bi bi-funnel me-1"></i>Filter
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Results -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>{{.Data.Total}} items</span>
+        <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-secondary active" data-view="table">
+                <i class="bi bi-list-ul"></i>
+            </button>
+            <button class="btn btn-outline-secondary" data-view="grid">
+                <i class="bi bi-grid"></i>
+            </button>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th style="width: 40px;"></th>
+                    <th style="width: 50px;"></th>
+                    <th>Title</th>
+                    <th>Artist</th>
+                    <th>Album</th>
+                    <th>Genre</th>
+                    <th>Duration</th>
+                    <th>Added</th>
+                    <th style="width: 100px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Data.Media}}
+                <tr onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary rounded-circle"
+                                onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)">
+                            <i class="bi bi-play-fill"></i>
+                        </button>
+                    </td>
+                    <td class="text-center">
+                        {{if len .Artwork}}
+                        <img src="/dashboard/media/{{.ID}}/artwork" alt="" class="rounded" style="width: 40px; height: 40px; object-fit: cover;">
+                        {{else}}
+                        <div class="bg-secondary rounded d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                            <i class="bi bi-music-note text-white"></i>
+                        </div>
+                        {{end}}
+                    </td>
+                    <td>
+                        <strong>{{.Title}}</strong>
+                        {{if .Explicit}}
+                        <span class="badge bg-warning text-dark">E</span>
+                        {{end}}
+                    </td>
+                    <td>{{if .Artist}}{{.Artist}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                    <td>{{if .Album}}{{.Album}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                    <td>
+                        {{if .Genre}}
+                        <span class="badge bg-secondary">{{.Genre}}</span>
+                        {{else}}
+                        <span class="text-body-secondary">-</span>
+                        {{end}}
+                    </td>
+                    <td>{{formatDuration .Duration}}</td>
+                    <td>
+                        <small class="text-body-secondary">{{formatTime .CreatedAt}}</small>
+                    </td>
+                    <td class="actions text-end">
+                        <div class="btn-group btn-group-sm">
+                            <a href="/dashboard/media/{{.ID}}/edit" class="btn btn-outline-secondary"
+                               onclick="event.stopPropagation()">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <button class="btn btn-outline-danger"
+                                    onclick="event.stopPropagation()"
+                                    hx-delete="/dashboard/media/{{.ID}}"
+                                    hx-confirm="Delete this track?">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="9" class="text-center py-5 text-body-secondary">
+                        {{if .Data.Query}}
+                        No results found for "{{.Data.Query}}"
+                        {{else}}
+                        No media items. <a href="/dashboard/media/upload">Upload your first track</a>
+                        {{end}}
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    {{if gt .Data.TotalPages 1}}
+    <div class="card-footer">
+        <nav>
+            <ul class="pagination pagination-sm mb-0 justify-content-center">
+                {{if gt .Data.Page 1}}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{sub .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}">
+                        <i class="bi bi-chevron-left"></i>
+                    </a>
+                </li>
+                {{end}}
+
+                <li class="page-item active">
+                    <span class="page-link">{{.Data.Page}} / {{.Data.TotalPages}}</span>
+                </li>
+
+                {{if lt .Data.Page .Data.TotalPages}}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{add .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}">
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                {{end}}
+            </ul>
+        </nav>
+    </div>
+    {{end}}
+</div>
+{{end}}
