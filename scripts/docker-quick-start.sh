@@ -345,45 +345,6 @@ check_prerequisites() {
     echo ""
 }
 
-# Show port usage summary
-show_port_usage() {
-    print_section "Port Usage Check"
-
-    print_info "Checking default ports for conflicts..."
-    echo ""
-
-    local ports_to_check=("$DEFAULT_HTTP_PORT:HTTP API" \
-                          "$DEFAULT_METRICS_PORT:Metrics" \
-                          "$DEFAULT_GRPC_PORT:gRPC" \
-                          "$DEFAULT_ICECAST_PORT:Icecast" \
-                          "$DEFAULT_POSTGRES_PORT:PostgreSQL" \
-                          "$DEFAULT_REDIS_PORT:Redis")
-
-    local conflicts=0
-
-    for port_info in "${ports_to_check[@]}"; do
-        local port="${port_info%%:*}"
-        local service="${port_info#*:}"
-
-        if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 || \
-           netstat -tuln 2>/dev/null | grep -q ":$port "; then
-            print_warning "$service (port $port) - IN USE, will suggest alternative"
-            conflicts=$((conflicts + 1))
-        else
-            print_success "$service (port $port) - Available"
-        fi
-    done
-
-    echo ""
-    if [ $conflicts -gt 0 ]; then
-        print_info "Found $conflicts port conflict(s). Alternative ports will be suggested."
-    else
-        print_success "All default ports are available!"
-    fi
-
-    echo ""
-}
-
 # Load saved configuration
 load_config() {
     if [ -f "$CONFIG_FILE" ]; then
@@ -564,7 +525,7 @@ configure_production_mode() {
     echo ""
 
     # Ask about external services FIRST so configure_ports knows what to ask
-    if prompt_yn "Use external PostgreSQL database?" "y"; then
+    if prompt_yn "Use external PostgreSQL database?" "n"; then
         USE_EXTERNAL_POSTGRES=true
     else
         USE_EXTERNAL_POSTGRES=false
@@ -1575,7 +1536,6 @@ main() {
 
             # Try to load saved config
             if ! load_config; then
-                show_port_usage
                 configure_deployment
                 save_config
             fi

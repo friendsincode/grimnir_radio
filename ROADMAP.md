@@ -84,6 +84,7 @@ Move GStreamer audio processing from grimnir container to dedicated mediaengine 
 - [ ] Crossfade with cue points
 - [ ] Multi-engine scaling (multiple mediaengine instances)
 - [ ] Live input routing UI
+- [ ] Exhaustive open source dependency audit (all packages with license type and links)
 
 ---
 
