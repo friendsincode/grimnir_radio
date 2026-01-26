@@ -14,7 +14,7 @@ import (
 // LiveSession represents an active live DJ session.
 type LiveSession struct {
 	ID          string    `gorm:"type:uuid;primaryKey"`
-	StationID   string    `gorm:"type:uuid;index:idx_station_active"`
+	StationID   string    `gorm:"type:uuid;index:idx_live_session_station_active"`
 	MountID     string    `gorm:"type:uuid;index"`
 	UserID      string    `gorm:"type:uuid;index"` // DJ user ID
 	Username    string    `gorm:"type:varchar(255)"`
@@ -26,7 +26,7 @@ type LiveSession struct {
 	UserAgent   string    `gorm:"type:varchar(255)"`
 
 	// Session state
-	Active      bool      `gorm:"index:idx_station_active"`
+	Active      bool      `gorm:"index:idx_live_session_station_active"`
 	ConnectedAt time.Time
 	DisconnectedAt *time.Time // NULL if still connected
 
