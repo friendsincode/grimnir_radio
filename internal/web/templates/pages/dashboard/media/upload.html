@@ -1,0 +1,174 @@
+{{define "pages/dashboard/media/upload"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/media">Media Library</a></li>
+        <li class="breadcrumb-item active">Upload</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <h4 class="mb-4"><i class="bi bi-upload me-2"></i>Upload Media</h4>
+
+        <div class="card">
+            <div class="card-body">
+                <div class="upload-zone text-center" id="uploadZone">
+                    <input type="file" class="d-none" id="fileInput"
+                           accept=".mp3,.flac,.wav,.ogg,.m4a" multiple>
+
+                    <i class="bi bi-cloud-upload fs-1 text-primary mb-3"></i>
+                    <h5>Drag & Drop Files Here</h5>
+                    <p class="text-body-secondary mb-3">
+                        or click to browse
+                    </p>
+                    <p class="small text-body-secondary">
+                        Supported formats: MP3, FLAC, WAV, OGG, M4A
+                    </p>
+
+                    <div class="progress d-none" id="uploadProgress" style="height: 25px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+
+                <div id="uploadResults" class="mt-4"></div>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>Upload Tips</h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li>Files will be automatically analyzed for loudness, BPM, and waveform data</li>
+                    <li>Metadata (ID3 tags) will be extracted automatically</li>
+                    <li>For best results, use high-quality source files (FLAC or WAV)</li>
+                    <li>Maximum file size: 100MB per file</li>
+                    <li>You can edit metadata after upload</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+const progress = document.getElementById('uploadProgress');
+const progressBar = progress.querySelector('.progress-bar');
+const results = document.getElementById('uploadResults');
+
+// Track files being uploaded to prevent duplicates
+const uploadingFiles = new Set();
+
+uploadZone.addEventListener('click', (e) => {
+    // Prevent click if we're already uploading
+    if (uploadZone.classList.contains('uploading')) return;
+    fileInput.click();
+});
+
+uploadZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadZone.classList.add('dragover');
+});
+
+uploadZone.addEventListener('dragleave', () => {
+    uploadZone.classList.remove('dragover');
+});
+
+uploadZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+});
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+        handleFiles(fileInput.files);
+    }
+    // Clear input so the same file can be selected again if needed
+    fileInput.value = '';
+});
+
+function handleFiles(files) {
+    Array.from(files).forEach(uploadFile);
+}
+
+function uploadFile(file) {
+    // Create unique key for this file (name + size + lastModified)
+    const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+
+    // Skip if already uploading this exact file
+    if (uploadingFiles.has(fileKey)) {
+        console.log('Skipping duplicate upload:', file.name);
+        return;
+    }
+
+    uploadingFiles.add(fileKey);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    progress.classList.remove('d-none');
+    uploadZone.classList.add('uploading');
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/dashboard/media/upload');
+
+    xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            progressBar.style.width = percent + '%';
+            progressBar.textContent = percent + '%';
+        }
+    });
+
+    xhr.addEventListener('load', () => {
+        uploadZone.classList.remove('uploading');
+        uploadingFiles.delete(fileKey);
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+            addResult(file.name, 'success', 'Uploaded successfully');
+        } else {
+            addResult(file.name, 'danger', 'Upload failed: ' + (xhr.responseText || 'Unknown error'));
+        }
+
+        // Reset for next file
+        setTimeout(() => {
+            progress.classList.add('d-none');
+            progressBar.style.width = '0%';
+        }, 1000);
+    });
+
+    xhr.addEventListener('error', () => {
+        uploadZone.classList.remove('uploading');
+        uploadingFiles.delete(fileKey);
+        addResult(file.name, 'danger', 'Upload failed');
+    });
+
+    xhr.send(formData);
+}
+
+function addResult(filename, status, message) {
+    const div = document.createElement('div');
+    div.className = `alert alert-${status} d-flex align-items-center`;
+    div.innerHTML = `
+        <i class="bi bi-${status === 'success' ? 'check-circle' : 'exclamation-circle'} me-2"></i>
+        <div class="flex-grow-1">
+            <strong>${filename}</strong> - ${message}
+        </div>
+    `;
+    results.appendChild(div);
+}
+</script>
+{{end}}

@@ -1,0 +1,206 @@
+{{define "pages/dashboard/media/edit"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/media">Media Library</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/media/{{.Data.ID}}">{{.Data.Title}}</a></li>
+        <li class="breadcrumb-item active">Edit</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$media := .Data}}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="mb-0"><i class="bi bi-pencil me-2"></i>Edit Media</h4>
+            <a href="/dashboard/media/{{$media.ID}}" class="btn btn-outline-secondary">
+                <i class="bi bi-x me-1"></i>Cancel
+            </a>
+        </div>
+
+        <form method="POST" action="/dashboard/media/{{$media.ID}}"
+              hx-put="/dashboard/media/{{$media.ID}}"
+              hx-swap="none">
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Basic Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Title <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="title"
+                                   value="{{$media.Title}}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Artist</label>
+                            <input type="text" class="form-control" name="artist"
+                                   value="{{$media.Artist}}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Album</label>
+                            <input type="text" class="form-control" name="album"
+                                   value="{{$media.Album}}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Genre</label>
+                            <input type="text" class="form-control" name="genre"
+                                   value="{{$media.Genre}}"
+                                   list="genreList">
+                            <datalist id="genreList">
+                                <option value="Rock">
+                                <option value="Pop">
+                                <option value="Electronic">
+                                <option value="Hip Hop">
+                                <option value="R&B">
+                                <option value="Jazz">
+                                <option value="Classical">
+                                <option value="Country">
+                                <option value="Folk">
+                                <option value="Metal">
+                                <option value="Punk">
+                                <option value="Indie">
+                                <option value="Alternative">
+                                <option value="Dance">
+                                <option value="House">
+                                <option value="Techno">
+                                <option value="Ambient">
+                                <option value="Soul">
+                                <option value="Funk">
+                                <option value="Blues">
+                                <option value="Reggae">
+                                <option value="World">
+                                <option value="Soundtrack">
+                                <option value="Spoken Word">
+                                <option value="Podcast">
+                            </datalist>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Year</label>
+                            <input type="text" class="form-control" name="year"
+                                   value="{{$media.Year}}"
+                                   pattern="[0-9]{4}" maxlength="4"
+                                   placeholder="YYYY">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Label</label>
+                            <input type="text" class="form-control" name="label"
+                                   value="{{$media.Label}}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Additional Metadata</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Language</label>
+                            <select class="form-select" name="language">
+                                <option value="">Not specified</option>
+                                <option value="en" {{if eq $media.Language "en"}}selected{{end}}>English</option>
+                                <option value="es" {{if eq $media.Language "es"}}selected{{end}}>Spanish</option>
+                                <option value="fr" {{if eq $media.Language "fr"}}selected{{end}}>French</option>
+                                <option value="de" {{if eq $media.Language "de"}}selected{{end}}>German</option>
+                                <option value="it" {{if eq $media.Language "it"}}selected{{end}}>Italian</option>
+                                <option value="pt" {{if eq $media.Language "pt"}}selected{{end}}>Portuguese</option>
+                                <option value="ja" {{if eq $media.Language "ja"}}selected{{end}}>Japanese</option>
+                                <option value="ko" {{if eq $media.Language "ko"}}selected{{end}}>Korean</option>
+                                <option value="zh" {{if eq $media.Language "zh"}}selected{{end}}>Chinese</option>
+                                <option value="ru" {{if eq $media.Language "ru"}}selected{{end}}>Russian</option>
+                                <option value="ar" {{if eq $media.Language "ar"}}selected{{end}}>Arabic</option>
+                                <option value="instrumental" {{if eq $media.Language "instrumental"}}selected{{end}}>Instrumental</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Mood</label>
+                            <select class="form-select" name="mood">
+                                <option value="">Not specified</option>
+                                <option value="energetic" {{if eq $media.Mood "energetic"}}selected{{end}}>Energetic</option>
+                                <option value="happy" {{if eq $media.Mood "happy"}}selected{{end}}>Happy</option>
+                                <option value="uplifting" {{if eq $media.Mood "uplifting"}}selected{{end}}>Uplifting</option>
+                                <option value="relaxed" {{if eq $media.Mood "relaxed"}}selected{{end}}>Relaxed</option>
+                                <option value="chill" {{if eq $media.Mood "chill"}}selected{{end}}>Chill</option>
+                                <option value="melancholic" {{if eq $media.Mood "melancholic"}}selected{{end}}>Melancholic</option>
+                                <option value="sad" {{if eq $media.Mood "sad"}}selected{{end}}>Sad</option>
+                                <option value="dark" {{if eq $media.Mood "dark"}}selected{{end}}>Dark</option>
+                                <option value="aggressive" {{if eq $media.Mood "aggressive"}}selected{{end}}>Aggressive</option>
+                                <option value="romantic" {{if eq $media.Mood "romantic"}}selected{{end}}>Romantic</option>
+                                <option value="dreamy" {{if eq $media.Mood "dreamy"}}selected{{end}}>Dreamy</option>
+                                <option value="epic" {{if eq $media.Mood "epic"}}selected{{end}}>Epic</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" name="explicit" id="explicit"
+                                       {{if $media.Explicit}}checked{{end}}>
+                                <label class="form-check-label" for="explicit">
+                                    Contains explicit content
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- File Info (read-only) -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">File Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label text-body-secondary">Duration</label>
+                            <p class="form-control-plaintext">{{formatDuration $media.Duration}}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label text-body-secondary">Format</label>
+                            <p class="form-control-plaintext">{{$media.Format}}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label text-body-secondary">File Size</label>
+                            <p class="form-control-plaintext">{{formatBytes $media.Size}}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label text-body-secondary">BPM</label>
+                            <p class="form-control-plaintext">
+                                {{if gt $media.BPM 0.0}}{{printf "%.0f" $media.BPM}}{{else}}-{{end}}
+                            </p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label text-body-secondary">Loudness</label>
+                            <p class="form-control-plaintext">
+                                {{if $media.LoudnessLUFS}}{{printf "%.1f" $media.LoudnessLUFS}} LUFS{{else}}-{{end}}
+                            </p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label text-body-secondary">Sample Rate</label>
+                            <p class="form-control-plaintext">
+                                {{if gt $media.SampleRate 0}}{{$media.SampleRate}} Hz{{else}}-{{end}}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg me-1"></i>Save Changes
+                </button>
+                <a href="/dashboard/media/{{$media.ID}}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

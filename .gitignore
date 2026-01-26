@@ -36,8 +36,8 @@ tmp/
 *.sqlite
 *.sqlite3
 
-# App data
-media/
+# App data (root-level media storage only)
+/media/
 
 # Web frontend (if used)
 web/node_modules/
