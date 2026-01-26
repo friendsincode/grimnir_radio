@@ -256,7 +256,30 @@ func (h *Handler) RenderPartial(w http.ResponseWriter, r *http.Request, name str
 // StaticHandler returns an http.Handler for static files.
 func (h *Handler) StaticHandler() http.Handler {
 	fsys, _ := fs.Sub(StaticFS, "static")
-	return http.StripPrefix("/static/", http.FileServer(http.FS(fsys)))
+	fileServer := http.FileServer(http.FS(fsys))
+	return http.StripPrefix("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set correct MIME types for embedded files
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, ".css"):
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		case strings.HasSuffix(path, ".js"):
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		case strings.HasSuffix(path, ".json"):
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		case strings.HasSuffix(path, ".svg"):
+			w.Header().Set("Content-Type", "image/svg+xml")
+		case strings.HasSuffix(path, ".png"):
+			w.Header().Set("Content-Type", "image/png")
+		case strings.HasSuffix(path, ".ico"):
+			w.Header().Set("Content-Type", "image/x-icon")
+		case strings.HasSuffix(path, ".woff"):
+			w.Header().Set("Content-Type", "font/woff")
+		case strings.HasSuffix(path, ".woff2"):
+			w.Header().Set("Content-Type", "font/woff2")
+		}
+		fileServer.ServeHTTP(w, r)
+	}))
 }
 
 // Template helper functions
