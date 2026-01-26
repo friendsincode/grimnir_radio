@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Build stage
 FROM golang:1.24-alpine AS builder
 
@@ -13,10 +14,11 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build binary with optimizations
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+# Build binary with optimizations (BuildKit cache for faster rebuilds)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev') -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    -a -installsuffix cgo \
     -o grimnirradio \
     ./cmd/grimnirradio
 

@@ -1206,7 +1206,8 @@ build_from_source() {
     fi
 
     print_info "Building images (this may take several minutes)..."
-    $COMPOSE_CMD build --parallel
+    print_info "Using BuildKit for faster builds with caching"
+    DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $COMPOSE_CMD build --parallel
 
     print_success "Images built successfully"
 
