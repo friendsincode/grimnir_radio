@@ -41,6 +41,15 @@ type Broadcaster struct {
 	rtpConn   *net.UDPConn
 	rtpCancel context.CancelFunc
 
+	// RTP sequence/timestamp rewriting for continuous stream across track changes
+	seqNum        uint16 // Our continuous sequence number
+	lastInSeq     uint16 // Last incoming sequence number
+	tsOffset      uint32 // Timestamp offset to add
+	lastInTS      uint32 // Last incoming timestamp
+	lastOutTS     uint32 // Last outgoing timestamp
+	ssrc          uint32 // Our fixed SSRC
+	seqInitialized bool  // Whether we've seen the first packet
+
 	// Stats
 	totalPeers    int64
 	bytesReceived int64
@@ -125,6 +134,7 @@ func NewBroadcaster(cfg Config, logger zerolog.Logger) (*Broadcaster, error) {
 		api:     api,
 		config:  cfg,
 		rtpPort: cfg.RTPPort,
+		ssrc:    0x12345678, // Fixed SSRC for continuous stream
 		logger:  logger.With().Str("component", "webrtc-broadcaster").Logger(),
 	}
 
@@ -175,6 +185,7 @@ func (b *Broadcaster) Stop() error {
 }
 
 // readRTP reads RTP packets from UDP and writes them to the broadcast track.
+// It rewrites sequence numbers and timestamps to ensure continuity across track changes.
 func (b *Broadcaster) readRTP(ctx context.Context) {
 	buf := make([]byte, 1500)
 	packet := &rtp.Packet{}
@@ -209,8 +220,50 @@ func (b *Broadcaster) readRTP(ctx context.Context) {
 
 		b.bytesReceived += int64(n)
 
+		// Rewrite RTP header for continuous stream across track changes
+		b.mu.Lock()
+		if !b.seqInitialized {
+			// First packet - initialize tracking
+			b.seqInitialized = true
+			b.lastInSeq = packet.SequenceNumber
+			b.lastInTS = packet.Timestamp
+			b.lastOutTS = packet.Timestamp
+			b.logger.Debug().Uint16("seq", packet.SequenceNumber).Msg("RTP stream initialized")
+		} else {
+			// Detect sequence discontinuity (new GStreamer pipeline)
+			seqDiff := int(packet.SequenceNumber) - int(b.lastInSeq)
+			if seqDiff < -30000 || seqDiff > 30000 || (seqDiff < 0 && seqDiff > -100) {
+				// Large jump or backward jump = new pipeline started
+				// Calculate timestamp offset to maintain continuity
+				// Add ~20ms (960 samples at 48kHz) gap for smooth transition
+				b.tsOffset = b.lastOutTS + 960 - packet.Timestamp
+				b.logger.Info().
+					Uint16("old_seq", b.lastInSeq).
+					Uint16("new_seq", packet.SequenceNumber).
+					Uint32("ts_offset", b.tsOffset).
+					Msg("RTP stream discontinuity detected, adjusting")
+			}
+			b.lastInSeq = packet.SequenceNumber
+			b.lastInTS = packet.Timestamp
+		}
+
+		// Rewrite packet with continuous values
+		b.seqNum++
+		packet.SequenceNumber = b.seqNum
+		packet.Timestamp = packet.Timestamp + b.tsOffset
+		packet.SSRC = b.ssrc
+		b.lastOutTS = packet.Timestamp
+		b.mu.Unlock()
+
+		// Re-marshal the modified packet
+		outBuf, err := packet.Marshal()
+		if err != nil {
+			b.logger.Debug().Err(err).Msg("RTP marshal error")
+			continue
+		}
+
 		// Write to all connected peers via the shared track
-		if _, err := b.track.Write(buf[:n]); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+		if _, err := b.track.Write(outBuf); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 			b.logger.Debug().Err(err).Msg("track write error")
 		}
 	}
