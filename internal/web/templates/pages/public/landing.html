@@ -129,6 +129,7 @@ function setQuality(q) {
 function updateQualityButtons() {
     const hqBtn = document.getElementById('qualityHQ');
     const lqBtn = document.getElementById('qualityLQ');
+    if (!hqBtn || !lqBtn) return;
     if (currentQuality === 'hq') {
         hqBtn.className = 'btn btn-secondary btn-sm';
         lqBtn.className = 'btn btn-outline-secondary btn-sm';
@@ -168,17 +169,20 @@ function togglePlay() {
 function syncPlayerUI() {
     if (!window.globalPlayer) return;
     const player = window.globalPlayer;
+    const playIcon = document.getElementById('playIcon');
+    const artistEl = document.getElementById('nowPlayingArtist');
+    if (!playIcon) return;
 
     // Check if we're playing our stream (either HQ or LQ)
     if (player.currentTrack && isOurStream(player.currentTrack.url)) {
         if (player.audio.paused) {
-            document.getElementById('playIcon').className = 'bi bi-play-fill';
+            playIcon.className = 'bi bi-play-fill';
         } else {
-            document.getElementById('playIcon').className = 'bi bi-pause-fill';
+            playIcon.className = 'bi bi-pause-fill';
         }
     } else {
-        document.getElementById('playIcon').className = 'bi bi-play-fill';
-        document.getElementById('nowPlayingArtist').textContent = 'Click play to listen';
+        playIcon.className = 'bi bi-play-fill';
+        if (artistEl) artistEl.textContent = 'Click play to listen';
     }
 }
 
