@@ -10,8 +10,7 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Ports defined in docker-compose.override.yml
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U grimnir"]
       interval: 10s
@@ -27,8 +26,7 @@ services:
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secret}
     volumes:
       - redis-data:/data
-    ports:
-      - "6379:6379"
+    # Ports defined in docker-compose.override.yml
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 10s
@@ -51,8 +49,7 @@ services:
       ICECAST_HOSTNAME: ${ICECAST_HOSTNAME:-localhost}
       ICECAST_MAX_CLIENTS: ${ICECAST_MAX_CLIENTS:-100}
       ICECAST_MAX_SOURCES: ${ICECAST_MAX_SOURCES:-10}
-    ports:
-      - "${ICECAST_PORT:-8000}:8000"
+    # Ports defined in docker-compose.override.yml
     volumes:
       - icecast-logs:/var/log/icecast2
     healthcheck:
@@ -75,8 +72,7 @@ services:
     environment:
       MEDIAENGINE_GRPC_PORT: 9091
       MEDIAENGINE_LOG_LEVEL: ${LOG_LEVEL:-info}
-    ports:
-      - "9091:9091"
+    # Ports defined in docker-compose.override.yml
     volumes:
       - media-cache:/var/lib/mediaengine/cache
     healthcheck:
@@ -151,9 +147,8 @@ services:
       # Environment
       GRIMNIR_ENVIRONMENT: ${ENVIRONMENT:-production}
       GRIMNIR_LOG_LEVEL: ${LOG_LEVEL:-info}
-    ports:
-      - "8080:8080"  # HTTP API
-      - "9000:9000"  # Prometheus metrics
+    # Ports defined in docker-compose.override.yml to avoid merge conflicts
+    # Default: 8080:8080 (HTTP API), 9000:9000 (Prometheus metrics)
     volumes:
       - media-data:/var/lib/grimnir/media
     healthcheck:

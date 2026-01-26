@@ -3,17 +3,38 @@
 # Copy this file to docker-compose.override.yml and customize for your deployment.
 # Docker Compose automatically merges override files with the base docker-compose.yml.
 #
-# Common use cases:
-# - Change port mappings
-# - Mount additional volumes
-# - Add environment variables
-# - Enable development mode
-# - Configure external databases
-# - Add custom networks
-
-version: '3.8'
+# IMPORTANT: Ports are NOT defined in the base docker-compose.yml to avoid merge
+# conflicts when overriding. You MUST define ports here for services to be
+# accessible from the host.
+#
+# The docker-quick-start.sh script generates this file automatically with
+# your chosen port configuration.
 
 services:
+  # =============================================================================
+  # REQUIRED: Define ports for all services you need to access
+  # =============================================================================
+  grimnir:
+    ports:
+      - "8080:8080"  # HTTP API - change first number to avoid conflicts
+      - "9000:9000"  # Prometheus metrics
+
+  postgres:
+    ports:
+      - "5432:5432"  # PostgreSQL - omit if using external DB
+
+  redis:
+    ports:
+      - "6379:6379"  # Redis - omit if using external Redis
+
+  mediaengine:
+    ports:
+      - "9091:9091"  # gRPC
+
+  icecast:
+    ports:
+      - "8000:8000"  # Icecast streaming
+
   # =============================================================================
   # EXAMPLE: Change HTTP API port from 8080 to 3000
   # =============================================================================
