@@ -146,7 +146,26 @@ If issues occur:
 3. Re-add manager.go and pipeline.go if deleted
 4. Remove mediaengine client initialization from server.go
 
-## Not in v2.0 (Future Work)
+## Also in v2.0
+
+### Open Source Dependency Audit
+
+Create exhaustive documentation of all open source packages used:
+- Go dependencies (from go.mod)
+- NPM packages (frontend)
+- System packages (Alpine APK in Dockerfiles)
+- GStreamer plugins
+- Runtime dependencies (PostgreSQL, Redis, Icecast, etc.)
+
+For each package, document:
+- Package name and version
+- License type (MIT, Apache-2.0, GPL, LGPL, etc.)
+- Link to license on GitHub/source repo
+- Usage in Grimnir Radio
+
+Output: `docs/THIRD_PARTY_LICENSES.md`
+
+## Future Work (Post v2.0)
 
 These are planned for later versions:
 - DSP graph UI (visual audio processing)
