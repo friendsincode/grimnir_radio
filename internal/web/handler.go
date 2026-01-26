@@ -253,32 +253,58 @@ func (h *Handler) RenderPartial(w http.ResponseWriter, r *http.Request, name str
 	}
 }
 
+// staticResponseWriter wraps http.ResponseWriter to force correct MIME types
+type staticResponseWriter struct {
+	http.ResponseWriter
+	contentType string
+	wroteHeader bool
+}
+
+func (w *staticResponseWriter) WriteHeader(code int) {
+	if !w.wroteHeader && w.contentType != "" {
+		w.Header().Set("Content-Type", w.contentType)
+	}
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *staticResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
 // StaticHandler returns an http.Handler for static files.
 func (h *Handler) StaticHandler() http.Handler {
 	fsys, _ := fs.Sub(StaticFS, "static")
 	fileServer := http.FileServer(http.FS(fsys))
 	return http.StripPrefix("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set correct MIME types for embedded files
+		// Determine correct MIME type for embedded files
 		path := r.URL.Path
+		var contentType string
 		switch {
 		case strings.HasSuffix(path, ".css"):
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			contentType = "text/css; charset=utf-8"
 		case strings.HasSuffix(path, ".js"):
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			contentType = "application/javascript; charset=utf-8"
 		case strings.HasSuffix(path, ".json"):
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			contentType = "application/json; charset=utf-8"
 		case strings.HasSuffix(path, ".svg"):
-			w.Header().Set("Content-Type", "image/svg+xml")
+			contentType = "image/svg+xml"
 		case strings.HasSuffix(path, ".png"):
-			w.Header().Set("Content-Type", "image/png")
+			contentType = "image/png"
 		case strings.HasSuffix(path, ".ico"):
-			w.Header().Set("Content-Type", "image/x-icon")
+			contentType = "image/x-icon"
 		case strings.HasSuffix(path, ".woff"):
-			w.Header().Set("Content-Type", "font/woff")
+			contentType = "font/woff"
 		case strings.HasSuffix(path, ".woff2"):
-			w.Header().Set("Content-Type", "font/woff2")
+			contentType = "font/woff2"
 		}
-		fileServer.ServeHTTP(w, r)
+
+		// Wrap response writer to force our Content-Type
+		sw := &staticResponseWriter{ResponseWriter: w, contentType: contentType}
+		fileServer.ServeHTTP(sw, r)
 	}))
 }
 
