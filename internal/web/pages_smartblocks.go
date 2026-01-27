@@ -123,10 +123,16 @@ func (h *Handler) SmartBlockCreate(w http.ResponseWriter, r *http.Request) {
 
 // SmartBlockDetail renders the smart block detail page
 func (h *Handler) SmartBlockDetail(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var block models.SmartBlock
-	if err := h.db.First(&block, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&block, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -140,15 +146,19 @@ func (h *Handler) SmartBlockDetail(w http.ResponseWriter, r *http.Request) {
 
 // SmartBlockEdit renders the smart block edit form
 func (h *Handler) SmartBlockEdit(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	var block models.SmartBlock
-	if err := h.db.First(&block, "id = ?", id).Error; err != nil {
-		http.NotFound(w, r)
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
 		return
 	}
 
-	station := h.GetStation(r)
+	id := chi.URLParam(r, "id")
+
+	var block models.SmartBlock
+	if err := h.db.First(&block, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	var genres []string
 	h.db.Model(&models.MediaItem{}).
@@ -190,10 +200,16 @@ func (h *Handler) SmartBlockEdit(w http.ResponseWriter, r *http.Request) {
 
 // SmartBlockUpdate handles smart block updates
 func (h *Handler) SmartBlockUpdate(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var block models.SmartBlock
-	if err := h.db.First(&block, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&block, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -232,9 +248,22 @@ func (h *Handler) SmartBlockUpdate(w http.ResponseWriter, r *http.Request) {
 
 // SmartBlockDelete handles smart block deletion
 func (h *Handler) SmartBlockDelete(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
-	if err := h.db.Delete(&models.SmartBlock{}, "id = ?", id).Error; err != nil {
+	// Verify smart block belongs to station
+	var block models.SmartBlock
+	if err := h.db.First(&block, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.db.Delete(&models.SmartBlock{}, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.Error(w, "Failed to delete smart block", http.StatusInternalServerError)
 		return
 	}
@@ -249,10 +278,16 @@ func (h *Handler) SmartBlockDelete(w http.ResponseWriter, r *http.Request) {
 
 // SmartBlockDuplicate creates a copy of an existing smart block
 func (h *Handler) SmartBlockDuplicate(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var original models.SmartBlock
-	if err := h.db.First(&original, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&original, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -295,17 +330,17 @@ type previewItem struct {
 
 // SmartBlockPreview generates a preview of the smart block with all rules applied
 func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	var block models.SmartBlock
-	if err := h.db.First(&block, "id = ?", id).Error; err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
 	station := h.GetStation(r)
 	if station == nil {
 		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+
+	var block models.SmartBlock
+	if err := h.db.First(&block, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
 		return
 	}
 

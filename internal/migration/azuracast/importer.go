@@ -589,7 +589,19 @@ func (i *Importer) importUsers(ctx context.Context, azuraDB *sql.DB) error {
 			u.Locale = locale.String
 		}
 
-		// Create Grimnir user
+		// Check if user already exists - NEVER overwrite existing users
+		var existingUser models.User
+		if err := i.db.WithContext(ctx).Where("email = ?", u.Email).First(&existingUser).Error; err == nil {
+			// User exists - skip import, preserve their data and roles
+			i.logger.Info().
+				Str("email", u.Email).
+				Str("existing_id", existingUser.ID).
+				Str("existing_role", string(existingUser.PlatformRole)).
+				Msg("user already exists, skipping import to preserve existing data")
+			continue
+		}
+
+		// Create Grimnir user only if they don't exist
 		// Note: Password cannot be migrated (different hashing algorithm)
 		// Generate a temporary password that must be reset
 		user := &models.User{

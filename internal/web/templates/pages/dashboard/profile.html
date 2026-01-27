@@ -61,6 +61,83 @@
             </div>
         </div>
 
+        <!-- Calendar Preferences -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-palette me-2"></i>Calendar Preferences</h5>
+            </div>
+            <div class="card-body">
+                <div id="calendarResult"></div>
+
+                <form method="POST" action="/dashboard/profile"
+                      hx-put="/dashboard/profile"
+                      hx-target="#calendarResult"
+                      hx-swap="innerHTML">
+
+                    <!-- Keep email field hidden to preserve it -->
+                    <input type="hidden" name="email" value="{{$user.Email}}">
+
+                    <div class="mb-3">
+                        <label class="form-label">Calendar Color Theme</label>
+                        <select class="form-select" name="calendar_color_theme" id="calendarColorTheme" style="max-width: 300px;">
+                            <option value="default" {{if eq $user.CalendarColorTheme "default"}}selected{{end}}>Default (Indigo/Green/Amber)</option>
+                            <option value="ocean" {{if eq $user.CalendarColorTheme "ocean"}}selected{{end}}>Ocean (Blue/Teal/Cyan)</option>
+                            <option value="forest" {{if eq $user.CalendarColorTheme "forest"}}selected{{end}}>Forest (Green/Emerald/Lime)</option>
+                            <option value="sunset" {{if eq $user.CalendarColorTheme "sunset"}}selected{{end}}>Sunset (Orange/Red/Pink)</option>
+                            <option value="berry" {{if eq $user.CalendarColorTheme "berry"}}selected{{end}}>Berry (Purple/Violet/Fuchsia)</option>
+                            <option value="earth" {{if eq $user.CalendarColorTheme "earth"}}selected{{end}}>Earth (Brown/Amber/Stone)</option>
+                            <option value="neon" {{if eq $user.CalendarColorTheme "neon"}}selected{{end}}>Neon (Bright/Electric)</option>
+                            <option value="pastel" {{if eq $user.CalendarColorTheme "pastel"}}selected{{end}}>Pastel (Soft/Light)</option>
+                        </select>
+                        <div class="form-text">Choose a color theme for your schedule calendar.</div>
+                    </div>
+
+                    <!-- Theme Preview -->
+                    <div class="mb-3">
+                        <label class="form-label">Preview</label>
+                        <div class="d-flex gap-2" id="colorPreview">
+                            <!-- Preview colors will be updated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-1"></i>Save Preferences
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <script>
+        (function() {
+            const colorThemes = {
+                'default': ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'],
+                'ocean': ['#0ea5e9', '#14b8a6', '#06b6d4', '#3b82f6', '#0891b2', '#22d3ee', '#0284c7', '#2dd4bf'],
+                'forest': ['#22c55e', '#10b981', '#84cc16', '#16a34a', '#059669', '#4ade80', '#15803d', '#a3e635'],
+                'sunset': ['#f97316', '#ef4444', '#ec4899', '#f43f5e', '#fb923c', '#e11d48', '#f472b6', '#dc2626'],
+                'berry': ['#a855f7', '#8b5cf6', '#d946ef', '#c026d3', '#9333ea', '#e879f9', '#7c3aed', '#f0abfc'],
+                'earth': ['#92400e', '#f59e0b', '#78716c', '#b45309', '#d97706', '#a16207', '#fbbf24', '#6b7280'],
+                'neon': ['#00ff88', '#ff0088', '#00ffff', '#ffff00', '#ff00ff', '#88ff00', '#0088ff', '#ff8800'],
+                'pastel': ['#93c5fd', '#a5b4fc', '#c4b5fd', '#f9a8d4', '#fca5a5', '#fed7aa', '#fde68a', '#bbf7d0']
+            };
+
+            function updatePreview(theme) {
+                const preview = document.getElementById('colorPreview');
+                const colors = colorThemes[theme] || colorThemes['default'];
+                preview.innerHTML = colors.map(c =>
+                    `<div style="width: 32px; height: 32px; background-color: ${c}; border-radius: 4px;" title="${c}"></div>`
+                ).join('');
+            }
+
+            const select = document.getElementById('calendarColorTheme');
+            if (select) {
+                updatePreview(select.value);
+                select.addEventListener('change', function() {
+                    updatePreview(this.value);
+                });
+            }
+        })();
+        </script>
+
         <!-- Change Password -->
         <div class="card mb-4">
             <div class="card-header">

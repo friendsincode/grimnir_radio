@@ -49,6 +49,7 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/archive/{id}/stream", h.ArchiveStream)
 			r.Get("/archive/{id}/artwork", h.ArchiveArtwork)
 			r.Get("/schedule", h.PublicSchedule)
+			r.Get("/schedule/events", h.PublicScheduleEvents)
 			r.Get("/station/{id}", h.StationInfo)
 
 			// Auth pages
@@ -120,6 +121,7 @@ func (h *Handler) Routes(r chi.Router) {
 				// Media library
 				r.Route("/media", func(r chi.Router) {
 					r.Get("/", h.MediaList)
+					r.Post("/bulk", h.MediaBulk)
 					r.Get("/upload", h.MediaUploadPage)
 					r.Post("/upload", h.MediaUpload)
 					r.Get("/{id}", h.MediaDetail)
@@ -138,6 +140,7 @@ func (h *Handler) Routes(r chi.Router) {
 				// Playlists
 				r.Route("/playlists", func(r chi.Router) {
 					r.Get("/", h.PlaylistList)
+					r.Post("/bulk", h.PlaylistBulk)
 					r.Get("/new", h.PlaylistNew)
 					r.Post("/", h.PlaylistCreate)
 					r.Get("/{id}", h.PlaylistDetail)
@@ -272,12 +275,14 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// All stations management
 				r.Get("/stations", h.AdminStationsList)
+				r.Post("/stations/bulk", h.AdminStationsBulk)
 				r.Post("/stations/{id}/toggle-active", h.AdminStationToggleActive)
 				r.Post("/stations/{id}/toggle-public", h.AdminStationTogglePublic)
 				r.Post("/stations/{id}/toggle-approved", h.AdminStationToggleApproved)
 
 				// All users management
 				r.Get("/users", h.AdminUsersList)
+				r.Post("/users/bulk", h.AdminUsersBulk)
 				r.Get("/users/{id}/edit", h.AdminUserEdit)
 				r.Post("/users/{id}", h.AdminUserUpdate)
 				r.Delete("/users/{id}", h.AdminUserDelete)

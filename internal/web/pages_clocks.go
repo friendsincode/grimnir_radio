@@ -112,10 +112,16 @@ func (h *Handler) ClockCreate(w http.ResponseWriter, r *http.Request) {
 
 // ClockDetail renders the clock detail page
 func (h *Handler) ClockDetail(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var clock models.ClockHour
-	if err := h.db.Preload("Slots").First(&clock, "id = ?", id).Error; err != nil {
+	if err := h.db.Preload("Slots").First(&clock, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -129,15 +135,19 @@ func (h *Handler) ClockDetail(w http.ResponseWriter, r *http.Request) {
 
 // ClockEdit renders the clock edit form
 func (h *Handler) ClockEdit(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	var clock models.ClockHour
-	if err := h.db.Preload("Slots").First(&clock, "id = ?", id).Error; err != nil {
-		http.NotFound(w, r)
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
 		return
 	}
 
-	station := h.GetStation(r)
+	id := chi.URLParam(r, "id")
+
+	var clock models.ClockHour
+	if err := h.db.Preload("Slots").First(&clock, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	var smartBlocks []models.SmartBlock
 	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&smartBlocks)
@@ -159,10 +169,16 @@ func (h *Handler) ClockEdit(w http.ResponseWriter, r *http.Request) {
 
 // ClockUpdate handles clock template updates
 func (h *Handler) ClockUpdate(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var clock models.ClockHour
-	if err := h.db.First(&clock, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&clock, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -211,12 +227,25 @@ func (h *Handler) ClockUpdate(w http.ResponseWriter, r *http.Request) {
 
 // ClockDelete handles clock template deletion
 func (h *Handler) ClockDelete(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
+
+	// Verify clock belongs to station
+	var clock models.ClockHour
+	if err := h.db.First(&clock, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	// Delete slots first
 	h.db.Delete(&models.ClockSlot{}, "clock_hour_id = ?", id)
 
-	if err := h.db.Delete(&models.ClockHour{}, "id = ?", id).Error; err != nil {
+	if err := h.db.Delete(&models.ClockHour{}, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.Error(w, "Failed to delete clock", http.StatusInternalServerError)
 		return
 	}
@@ -242,17 +271,17 @@ type SimulatedSlot struct {
 
 // ClockSimulate runs a simulation of the clock template with real tracks
 func (h *Handler) ClockSimulate(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	var clock models.ClockHour
-	if err := h.db.Preload("Slots").First(&clock, "id = ?", id).Error; err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
 	station := h.GetStation(r)
 	if station == nil {
 		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+
+	var clock models.ClockHour
+	if err := h.db.Preload("Slots").First(&clock, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
 		return
 	}
 

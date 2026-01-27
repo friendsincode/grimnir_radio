@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -19,9 +20,9 @@ import (
 
 // Landing renders the public landing page
 func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
-	// Get the first active station and its mount for the player
+	// Get the first public, approved, active station and its mount for the player
 	var station models.Station
-	h.db.Where("active = ?", true).First(&station)
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).First(&station)
 
 	var mount models.Mount
 	if station.ID != "" {
@@ -51,9 +52,9 @@ func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 
 // Listen renders the public listening page
 func (h *Handler) Listen(w http.ResponseWriter, r *http.Request) {
-	// Get active stations and their mounts
+	// Get public, approved, active stations and their mounts
 	var stations []models.Station
-	h.db.Where("active = ?", true).Find(&stations)
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).Find(&stations)
 
 	type mountWithURL struct {
 		models.Mount
@@ -98,10 +99,43 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	page := 1
 	perPage := 24
 
+	// Get public stations for filtering
+	var publicStations []models.Station
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).Find(&publicStations)
+
+	// Build list of public station IDs
+	var publicStationIDs []string
+	for _, s := range publicStations {
+		publicStationIDs = append(publicStationIDs, s.ID)
+	}
+
 	var media []models.MediaItem
 	var total int64
 
-	query := h.db.Model(&models.MediaItem{}).Where("1=1") // Publicly accessible media
+	// Only show media from public stations with archive visibility enabled
+	query := h.db.Model(&models.MediaItem{}).Where("show_in_archive = ?", true)
+	if len(publicStationIDs) > 0 {
+		query = query.Where("station_id IN ?", publicStationIDs)
+	} else {
+		// No public stations - show nothing
+		query = query.Where("1=0")
+	}
+
+	// Station filter
+	stationID := r.URL.Query().Get("station")
+	if stationID != "" {
+		// Verify the station is in our public list
+		isPublic := false
+		for _, id := range publicStationIDs {
+			if id == stationID {
+				isPublic = true
+				break
+			}
+		}
+		if isPublic {
+			query = query.Where("station_id = ?", stationID)
+		}
+	}
 
 	// Search filter
 	if q := r.URL.Query().Get("q"); q != "" {
@@ -118,11 +152,13 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	h.Render(w, r, "pages/public/archive", PageData{
 		Title: "Archive",
 		Data: map[string]any{
-			"Media":   media,
-			"Total":   total,
-			"Page":    page,
-			"PerPage": perPage,
-			"Query":   r.URL.Query().Get("q"),
+			"Media":     media,
+			"Total":     total,
+			"Page":      page,
+			"PerPage":   perPage,
+			"Query":     r.URL.Query().Get("q"),
+			"Stations":  publicStations,
+			"StationID": stationID,
 		},
 	})
 }
@@ -132,14 +168,25 @@ func (h *Handler) ArchiveDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&media, "id = ? AND show_in_archive = ?", id, true).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Verify the media belongs to a public station
+	var station models.Station
+	if err := h.db.First(&station, "id = ? AND active = ? AND public = ? AND approved = ?",
+		media.StationID, true, true, true).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
 	h.Render(w, r, "pages/public/archive-detail", PageData{
 		Title: media.Title,
-		Data:  media,
+		Data: map[string]any{
+			"Media":   media,
+			"Station": station,
+		},
 	})
 }
 
@@ -148,7 +195,22 @@ func (h *Handler) ArchiveStream(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.Select("id", "path", "title", "artist").First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.Select("id", "path", "title", "artist", "station_id", "show_in_archive", "allow_download").First(&media, "id = ? AND show_in_archive = ?", id, true).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Check if this is a download request (attachment header)
+	isDownload := r.URL.Query().Get("download") == "1"
+	if isDownload && !media.AllowDownload {
+		http.Error(w, "Downloads not allowed for this item", http.StatusForbidden)
+		return
+	}
+
+	// Verify the media belongs to a public station
+	var station models.Station
+	if err := h.db.First(&station, "id = ? AND active = ? AND public = ? AND approved = ?",
+		media.StationID, true, true, true).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -174,6 +236,16 @@ func (h *Handler) ArchiveStream(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
 
+	// Set download header if this is a download request
+	if isDownload {
+		filename := media.Title
+		if media.Artist != "" {
+			filename = media.Artist + " - " + filename
+		}
+		filename = filename + "." + ext
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	}
+
 	http.ServeFile(w, r, fullPath)
 }
 
@@ -182,7 +254,15 @@ func (h *Handler) ArchiveArtwork(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.Select("id", "artwork", "artwork_mime").First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.Select("id", "artwork", "artwork_mime", "station_id", "show_in_archive").First(&media, "id = ? AND show_in_archive = ?", id, true).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Verify the media belongs to a public station
+	var station models.Station
+	if err := h.db.First(&station, "id = ? AND active = ? AND public = ? AND approved = ?",
+		media.StationID, true, true, true).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -206,27 +286,305 @@ func (h *Handler) ArchiveArtwork(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PublicSchedule(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")
 
+	// Only show public, approved, active stations
 	var stations []models.Station
-	h.db.Where("active = ?", true).Find(&stations)
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).Find(&stations)
+
+	// Build list of public station IDs
+	var publicStationIDs []string
+	for _, s := range stations {
+		publicStationIDs = append(publicStationIDs, s.ID)
+	}
 
 	var entries []models.ScheduleEntry
 	query := h.db.Where("starts_at >= ? AND starts_at <= ?",
 		time.Now(), time.Now().Add(48*time.Hour))
 
+	// Only show schedule for public stations
+	if len(publicStationIDs) > 0 {
+		query = query.Where("station_id IN ?", publicStationIDs)
+	} else {
+		query = query.Where("1=0")
+	}
+
 	if stationID != "" {
-		query = query.Where("station_id = ?", stationID)
+		// Verify station is in public list
+		isPublic := false
+		for _, id := range publicStationIDs {
+			if id == stationID {
+				isPublic = true
+				break
+			}
+		}
+		if isPublic {
+			query = query.Where("station_id = ?", stationID)
+		}
 	}
 
 	query.Order("starts_at ASC").Limit(100).Find(&entries)
 
+	// Get user's color theme if logged in
+	colorTheme := "default"
+	if user := h.GetUser(r); user != nil && user.CalendarColorTheme != "" {
+		colorTheme = user.CalendarColorTheme
+	}
+
 	h.Render(w, r, "pages/public/schedule", PageData{
 		Title: "Schedule",
 		Data: map[string]any{
-			"Stations":  stations,
-			"Entries":   entries,
-			"StationID": stationID,
+			"Stations":   stations,
+			"Entries":    entries,
+			"StationID":  stationID,
+			"ColorTheme": colorTheme,
 		},
 	})
+}
+
+// PublicScheduleEvents returns schedule entries as JSON for FullCalendar (public, view-only)
+func (h *Handler) PublicScheduleEvents(w http.ResponseWriter, r *http.Request) {
+	stationID := r.URL.Query().Get("station_id")
+
+	// Parse date range from FullCalendar
+	start := r.URL.Query().Get("start")
+	end := r.URL.Query().Get("end")
+
+	startTime, _ := time.Parse(time.RFC3339, start)
+	endTime, _ := time.Parse(time.RFC3339, end)
+
+	if startTime.IsZero() {
+		startTime = time.Now().Add(-24 * time.Hour)
+	}
+	if endTime.IsZero() {
+		endTime = time.Now().Add(30 * 24 * time.Hour) // Default to 30 days
+	}
+
+	// Only show public, approved, active stations
+	var stations []models.Station
+	if stationID != "" {
+		h.db.Where("id = ? AND active = ? AND public = ? AND approved = ?", stationID, true, true, true).Find(&stations)
+	} else {
+		h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).Order("sort_order ASC, name ASC").Find(&stations)
+	}
+
+	// Get user's color theme if logged in
+	colorTheme := r.URL.Query().Get("theme")
+	if colorTheme == "" {
+		if user := h.GetUser(r); user != nil && user.CalendarColorTheme != "" {
+			colorTheme = user.CalendarColorTheme
+		}
+	}
+	if colorTheme == "" {
+		colorTheme = "default"
+	}
+
+	// Color themes
+	colorThemes := map[string][]string{
+		"default": {"#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"},
+		"ocean":   {"#0ea5e9", "#14b8a6", "#06b6d4", "#3b82f6", "#0891b2", "#22d3ee", "#0284c7", "#2dd4bf"},
+		"forest":  {"#22c55e", "#10b981", "#84cc16", "#16a34a", "#059669", "#4ade80", "#15803d", "#a3e635"},
+		"sunset":  {"#f97316", "#ef4444", "#ec4899", "#f43f5e", "#fb923c", "#e11d48", "#f472b6", "#dc2626"},
+		"berry":   {"#a855f7", "#8b5cf6", "#d946ef", "#c026d3", "#9333ea", "#e879f9", "#7c3aed", "#f0abfc"},
+		"earth":   {"#92400e", "#f59e0b", "#78716c", "#b45309", "#d97706", "#a16207", "#fbbf24", "#6b7280"},
+		"neon":    {"#00ff88", "#ff0088", "#00ffff", "#ffff00", "#ff00ff", "#88ff00", "#0088ff", "#ff8800"},
+		"pastel":  {"#93c5fd", "#a5b4fc", "#c4b5fd", "#f9a8d4", "#fca5a5", "#fed7aa", "#fde68a", "#bbf7d0"},
+	}
+	colors := colorThemes[colorTheme]
+	if colors == nil {
+		colors = colorThemes["default"]
+	}
+
+	// Build list of public station IDs
+	var publicStationIDs []string
+	stationNames := make(map[string]string)
+	stationColors := make(map[string]string)
+	for i, s := range stations {
+		publicStationIDs = append(publicStationIDs, s.ID)
+		stationNames[s.ID] = s.Name
+		stationColors[s.ID] = colors[i%len(colors)]
+	}
+
+	if len(publicStationIDs) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+		return
+	}
+
+	// Fetch non-recurring entries within range
+	var entries []models.ScheduleEntry
+	h.db.Where("station_id IN ? AND starts_at >= ? AND starts_at <= ? AND (recurrence_type = '' OR recurrence_type IS NULL OR is_instance = true)",
+		publicStationIDs, startTime, endTime).
+		Order("starts_at ASC").Find(&entries)
+
+	// Also fetch recurring entries
+	var recurringEntries []models.ScheduleEntry
+	h.db.Where("station_id IN ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false",
+		publicStationIDs).Find(&recurringEntries)
+
+	// Expand recurring entries
+	for _, re := range recurringEntries {
+		instances := h.expandRecurringEntry(re, startTime, endTime)
+		entries = append(entries, instances...)
+	}
+
+	// Fetch mount names
+	mountNames := make(map[string]string)
+	var mounts []models.Mount
+	h.db.Where("station_id IN ?", publicStationIDs).Find(&mounts)
+	for _, m := range mounts {
+		mountNames[m.ID] = m.Name
+	}
+
+	// Build lookup maps for source names
+	playlistNames := make(map[string]string)
+	smartBlockNames := make(map[string]string)
+	clockNames := make(map[string]string)
+	webstreamNames := make(map[string]string)
+	mediaNames := make(map[string]string)
+
+	// Collect IDs by type
+	var playlistIDs, smartBlockIDs, clockIDs, webstreamIDs, mediaIDs []string
+	for _, entry := range entries {
+		switch entry.SourceType {
+		case "playlist":
+			playlistIDs = append(playlistIDs, entry.SourceID)
+		case "smart_block":
+			smartBlockIDs = append(smartBlockIDs, entry.SourceID)
+		case "clock_template":
+			clockIDs = append(clockIDs, entry.SourceID)
+		case "webstream":
+			webstreamIDs = append(webstreamIDs, entry.SourceID)
+		case "media":
+			mediaIDs = append(mediaIDs, entry.SourceID)
+		}
+	}
+
+	// Fetch names in bulk
+	if len(playlistIDs) > 0 {
+		var playlists []models.Playlist
+		h.db.Select("id, name").Where("id IN ?", playlistIDs).Find(&playlists)
+		for _, p := range playlists {
+			playlistNames[p.ID] = p.Name
+		}
+	}
+	if len(smartBlockIDs) > 0 {
+		var blocks []models.SmartBlock
+		h.db.Select("id, name").Where("id IN ?", smartBlockIDs).Find(&blocks)
+		for _, b := range blocks {
+			smartBlockNames[b.ID] = b.Name
+		}
+	}
+	if len(clockIDs) > 0 {
+		var clocks []models.ClockHour
+		h.db.Select("id, name").Where("id IN ?", clockIDs).Find(&clocks)
+		for _, c := range clocks {
+			clockNames[c.ID] = c.Name
+		}
+	}
+	if len(webstreamIDs) > 0 {
+		var streams []models.Webstream
+		h.db.Select("id, name").Where("id IN ?", webstreamIDs).Find(&streams)
+		for _, ws := range streams {
+			webstreamNames[ws.ID] = ws.Name
+		}
+	}
+	if len(mediaIDs) > 0 {
+		var items []models.MediaItem
+		h.db.Select("id, title, artist").Where("id IN ?", mediaIDs).Find(&items)
+		for _, m := range items {
+			if m.Artist != "" {
+				mediaNames[m.ID] = m.Artist + " - " + m.Title
+			} else {
+				mediaNames[m.ID] = m.Title
+			}
+		}
+	}
+
+	// Convert to FullCalendar event format
+	type calendarEvent struct {
+		ID              string `json:"id"`
+		Title           string `json:"title"`
+		Start           string `json:"start"`
+		End             string `json:"end"`
+		BackgroundColor string `json:"backgroundColor,omitempty"`
+		BorderColor     string `json:"borderColor,omitempty"`
+		TextColor       string `json:"textColor,omitempty"`
+		ClassName       string `json:"className,omitempty"`
+		Extendedprops   any    `json:"extendedProps,omitempty"`
+	}
+
+	events := make([]calendarEvent, 0, len(entries))
+	for _, entry := range entries {
+		// Get title based on source type
+		var title string
+		var sourceLabel string
+
+		switch entry.SourceType {
+		case "playlist":
+			title = playlistNames[entry.SourceID]
+			sourceLabel = "Playlist"
+		case "smart_block":
+			title = smartBlockNames[entry.SourceID]
+			sourceLabel = "Smart Block"
+		case "clock_template":
+			title = clockNames[entry.SourceID]
+			sourceLabel = "Clock"
+		case "webstream":
+			title = webstreamNames[entry.SourceID]
+			sourceLabel = "Webstream"
+		case "media":
+			title = mediaNames[entry.SourceID]
+			sourceLabel = "Track"
+		case "live":
+			if entry.Metadata != nil {
+				if name, ok := entry.Metadata["session_name"].(string); ok {
+					title = name
+				}
+			}
+			if title == "" {
+				title = "Live Session"
+			}
+			sourceLabel = "Live"
+		default:
+			title = entry.SourceType
+			sourceLabel = entry.SourceType
+		}
+
+		// Fallback
+		if title == "" {
+			if entry.Metadata != nil {
+				if t, ok := entry.Metadata["title"].(string); ok {
+					title = t
+				}
+			}
+			if title == "" {
+				title = sourceLabel
+			}
+		}
+
+		event := calendarEvent{
+			ID:              entry.ID,
+			Title:           title,
+			Start:           entry.StartsAt.Format(time.RFC3339),
+			End:             entry.EndsAt.Format(time.RFC3339),
+			BackgroundColor: stationColors[entry.StationID],
+			BorderColor:     stationColors[entry.StationID],
+			ClassName:       "event-" + entry.SourceType,
+			Extendedprops: map[string]any{
+				"source_type":  entry.SourceType,
+				"source_label": sourceLabel,
+				"source_name":  title,
+				"station_id":   entry.StationID,
+				"station_name": stationNames[entry.StationID],
+				"mount_id":     entry.MountID,
+				"mount_name":   mountNames[entry.MountID],
+			},
+		}
+
+		events = append(events, event)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(events)
 }
 
 // StationInfo renders a station info page
@@ -234,7 +592,9 @@ func (h *Handler) StationInfo(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var station models.Station
-	if err := h.db.First(&station, "id = ?", id).Error; err != nil {
+	// Only show public, approved, active stations
+	if err := h.db.First(&station, "id = ? AND active = ? AND public = ? AND approved = ?",
+		id, true, true, true).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -242,11 +602,27 @@ func (h *Handler) StationInfo(w http.ResponseWriter, r *http.Request) {
 	var mounts []models.Mount
 	h.db.Where("station_id = ?", station.ID).Find(&mounts)
 
+	// Build stream URLs for each mount
+	type mountWithURL struct {
+		models.Mount
+		URL   string
+		LQURL string
+	}
+
+	var mountsWithURLs []mountWithURL
+	for _, m := range mounts {
+		mountsWithURLs = append(mountsWithURLs, mountWithURL{
+			Mount: m,
+			URL:   "/live/" + m.Name,
+			LQURL: "/live/" + m.Name + "-lq",
+		})
+	}
+
 	h.Render(w, r, "pages/public/station", PageData{
 		Title: station.Name,
 		Data: map[string]any{
 			"Station": station,
-			"Mounts":  mounts,
+			"Mounts":  mountsWithURLs,
 		},
 	})
 }

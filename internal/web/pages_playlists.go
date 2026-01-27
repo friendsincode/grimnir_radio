@@ -145,10 +145,16 @@ func (h *Handler) PlaylistCreate(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistDetail renders the playlist detail/editor
 func (h *Handler) PlaylistDetail(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var playlist models.Playlist
-	if err := h.db.First(&playlist, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -171,9 +177,6 @@ func (h *Handler) PlaylistDetail(w http.ResponseWriter, r *http.Request) {
 		itemsWithMedia = append(itemsWithMedia, itemWithMedia{item, media})
 		totalDuration += media.Duration
 	}
-
-	// Get available media for adding
-	station := h.GetStation(r)
 	var availableMedia []models.MediaItem
 	h.db.Where("station_id = ?", station.ID).Order("artist ASC, title ASC").Limit(100).Find(&availableMedia)
 
@@ -217,10 +220,16 @@ func (h *Handler) PlaylistDetail(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistEdit renders the playlist edit form
 func (h *Handler) PlaylistEdit(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var playlist models.Playlist
-	if err := h.db.First(&playlist, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -237,10 +246,16 @@ func (h *Handler) PlaylistEdit(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistUpdate handles playlist updates
 func (h *Handler) PlaylistUpdate(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var playlist models.Playlist
-	if err := h.db.First(&playlist, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -268,13 +283,26 @@ func (h *Handler) PlaylistUpdate(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistDelete handles playlist deletion
 func (h *Handler) PlaylistDelete(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
+
+	// Verify playlist belongs to station
+	var playlist models.Playlist
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	// Delete items first
 	h.db.Delete(&models.PlaylistItem{}, "playlist_id = ?", id)
 
 	// Delete playlist
-	if err := h.db.Delete(&models.Playlist{}, "id = ?", id).Error; err != nil {
+	if err := h.db.Delete(&models.Playlist{}, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.Error(w, "Failed to delete playlist", http.StatusInternalServerError)
 		return
 	}
@@ -287,9 +315,74 @@ func (h *Handler) PlaylistDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/playlists", http.StatusSeeOther)
 }
 
+// PlaylistBulk handles bulk actions on playlists
+func (h *Handler) PlaylistBulk(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Action string   `json:"action"`
+		IDs    []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		http.Error(w, "No items selected", http.StatusBadRequest)
+		return
+	}
+
+	var affected int64
+	var err error
+
+	switch req.Action {
+	case "delete":
+		// Delete items first
+		h.db.Where("playlist_id IN ?", req.IDs).Delete(&models.PlaylistItem{})
+		// Delete playlists
+		result := h.db.Where("id IN ? AND station_id = ?", req.IDs, station.ID).Delete(&models.Playlist{})
+		affected, err = result.RowsAffected, result.Error
+	default:
+		http.Error(w, "Unknown action", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		h.logger.Error().Err(err).Str("action", req.Action).Msg("bulk playlist action failed")
+		http.Error(w, "Operation failed", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("action", req.Action).
+		Int64("affected", affected).
+		Str("station_id", station.ID).
+		Msg("bulk playlist action completed")
+
+	w.WriteHeader(http.StatusOK)
+}
+
 // PlaylistAddItem adds a media item to a playlist
 func (h *Handler) PlaylistAddItem(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
+
+	// Verify playlist belongs to station
+	var playlist models.Playlist
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form", http.StatusBadRequest)
@@ -299,6 +392,13 @@ func (h *Handler) PlaylistAddItem(w http.ResponseWriter, r *http.Request) {
 	mediaID := r.FormValue("media_id")
 	if mediaID == "" {
 		http.Error(w, "Media ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify media belongs to station
+	var media models.MediaItem
+	if err := h.db.First(&media, "id = ? AND station_id = ?", mediaID, station.ID).Error; err != nil {
+		http.Error(w, "Media not found", http.StatusNotFound)
 		return
 	}
 
@@ -329,10 +429,23 @@ func (h *Handler) PlaylistAddItem(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistRemoveItem removes a media item from a playlist
 func (h *Handler) PlaylistRemoveItem(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	itemID := chi.URLParam(r, "itemID")
 
-	if err := h.db.Delete(&models.PlaylistItem{}, "id = ?", itemID).Error; err != nil {
+	// Verify playlist belongs to station
+	var playlist models.Playlist
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.db.Delete(&models.PlaylistItem{}, "id = ? AND playlist_id = ?", itemID, id).Error; err != nil {
 		http.Error(w, "Failed to remove item", http.StatusInternalServerError)
 		return
 	}
@@ -347,7 +460,20 @@ func (h *Handler) PlaylistRemoveItem(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistReorderItems handles drag-drop reordering
 func (h *Handler) PlaylistReorderItems(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
+
+	// Verify playlist belongs to station
+	var playlist models.Playlist
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	var order []struct {
 		ID       string `json:"id"`
@@ -377,10 +503,16 @@ func (h *Handler) PlaylistReorderItems(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistCover serves the playlist cover image
 func (h *Handler) PlaylistCover(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var playlist models.Playlist
-	if err := h.db.Select("id", "cover_image", "cover_image_mime").First(&playlist, "id = ?", id).Error; err != nil {
+	if err := h.db.Select("id", "cover_image", "cover_image_mime").First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -402,10 +534,16 @@ func (h *Handler) PlaylistCover(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistUploadCover handles cover image upload
 func (h *Handler) PlaylistUploadCover(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var playlist models.Playlist
-	if err := h.db.First(&playlist, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -457,9 +595,22 @@ func (h *Handler) PlaylistUploadCover(w http.ResponseWriter, r *http.Request) {
 
 // PlaylistDeleteCover removes the playlist cover image
 func (h *Handler) PlaylistDeleteCover(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
-	if err := h.db.Model(&models.Playlist{}).Where("id = ?", id).
+	// Verify playlist belongs to station
+	var playlist models.Playlist
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.db.Model(&models.Playlist{}).Where("id = ? AND station_id = ?", id, station.ID).
 		Updates(map[string]any{"cover_image": nil, "cover_image_mime": ""}).Error; err != nil {
 		http.Error(w, "Failed to delete cover", http.StatusInternalServerError)
 		return

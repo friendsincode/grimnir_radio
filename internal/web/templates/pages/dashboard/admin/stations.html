@@ -20,11 +20,60 @@
     </a>
 </div>
 
+<!-- Bulk Actions Toolbar -->
+<div class="card mb-3 d-none" id="bulkActionsBar">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center gap-3">
+            <span class="text-body-secondary">
+                <strong id="selectedCount">0</strong> selected
+            </span>
+            <div class="vr"></div>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-success" onclick="bulkAction('activate')" title="Activate selected">
+                    <i class="bi bi-play-fill me-1"></i>Activate
+                </button>
+                <button class="btn btn-outline-warning" onclick="bulkAction('deactivate')" title="Deactivate selected">
+                    <i class="bi bi-pause-fill me-1"></i>Deactivate
+                </button>
+            </div>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-info" onclick="bulkAction('make_public')" title="Make public">
+                    <i class="bi bi-globe me-1"></i>Public
+                </button>
+                <button class="btn btn-outline-secondary" onclick="bulkAction('make_private')" title="Make private">
+                    <i class="bi bi-lock me-1"></i>Private
+                </button>
+            </div>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-success" onclick="bulkAction('approve')" title="Approve selected">
+                    <i class="bi bi-shield-check me-1"></i>Approve
+                </button>
+                <button class="btn btn-outline-secondary" onclick="bulkAction('unapprove')" title="Revoke approval">
+                    <i class="bi bi-shield-x me-1"></i>Unapprove
+                </button>
+            </div>
+            <div class="vr"></div>
+            <button class="btn btn-sm btn-outline-danger" onclick="bulkAction('delete')" title="Delete selected">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+            <div class="ms-auto">
+                <button class="btn btn-sm btn-link text-body-secondary" onclick="clearSelection()" title="Clear selection">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead>
                 <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" class="form-check-input" id="selectAll"
+                               onchange="toggleSelectAll(this)" title="Select all">
+                    </th>
                     <th>Station</th>
                     <th>Owner</th>
                     <th>Status</th>
@@ -38,6 +87,10 @@
                 {{range .Data.AllStations}}
                 <tr>
                     <td>
+                        <input type="checkbox" class="form-check-input station-checkbox"
+                               value="{{.ID}}" onchange="updateSelection()">
+                    </td>
+                    <td>
                         <i class="bi bi-broadcast me-2"></i>
                         <strong>{{.Name}}</strong>
                         {{if .Description}}
@@ -46,30 +99,30 @@
                     </td>
                     <td>
                         {{if .Owner}}
-                        <span class="badge bg-secondary">{{.Owner.Email}}</span>
+                        <span class="badge bg-secondary" title="Station owner">{{.Owner.Email}}</span>
                         {{else}}
                         <span class="text-body-secondary">-</span>
                         {{end}}
                     </td>
                     <td>
                         {{if .Active}}
-                        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Active</span>
+                        <span class="badge bg-success" title="Station is active and can broadcast"><i class="bi bi-check-circle me-1"></i>Active</span>
                         {{else}}
-                        <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Inactive</span>
+                        <span class="badge bg-danger" title="Station is inactive"><i class="bi bi-x-circle me-1"></i>Inactive</span>
                         {{end}}
                     </td>
                     <td>
                         {{if .Public}}
-                        <span class="badge bg-info"><i class="bi bi-globe me-1"></i>Public</span>
+                        <span class="badge bg-info" title="Visible in public directory"><i class="bi bi-globe me-1"></i>Public</span>
                         {{else}}
-                        <span class="badge bg-secondary"><i class="bi bi-lock me-1"></i>Private</span>
+                        <span class="badge bg-secondary" title="Hidden from public directory"><i class="bi bi-lock me-1"></i>Private</span>
                         {{end}}
                     </td>
                     <td>
                         {{if .Approved}}
-                        <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Approved</span>
+                        <span class="badge bg-success" title="Approved to go live"><i class="bi bi-shield-check me-1"></i>Approved</span>
                         {{else}}
-                        <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>Pending</span>
+                        <span class="badge bg-warning text-dark" title="Awaiting approval"><i class="bi bi-hourglass-split me-1"></i>Pending</span>
                         {{end}}
                     </td>
                     <td><small class="text-body-secondary">{{formatTime .CreatedAt}}</small></td>
@@ -105,7 +158,7 @@
                 </tr>
                 {{else}}
                 <tr>
-                    <td colspan="7" class="text-center py-5 text-body-secondary">
+                    <td colspan="8" class="text-center py-5 text-body-secondary">
                         No stations found
                     </td>
                 </tr>
@@ -133,4 +186,74 @@
         </div>
     </div>
 </div>
+
+<script>
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.station-checkbox:checked')).map(cb => cb.value);
+}
+
+function updateSelection() {
+    const selected = getSelectedIds();
+    const bar = document.getElementById('bulkActionsBar');
+    const count = document.getElementById('selectedCount');
+    const selectAll = document.getElementById('selectAll');
+    const total = document.querySelectorAll('.station-checkbox').length;
+
+    if (selected.length > 0) {
+        bar.classList.remove('d-none');
+        count.textContent = selected.length;
+    } else {
+        bar.classList.add('d-none');
+    }
+
+    selectAll.checked = selected.length === total && total > 0;
+    selectAll.indeterminate = selected.length > 0 && selected.length < total;
+}
+
+function toggleSelectAll(checkbox) {
+    document.querySelectorAll('.station-checkbox').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateSelection();
+}
+
+function clearSelection() {
+    document.querySelectorAll('.station-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('selectAll').checked = false;
+    updateSelection();
+}
+
+function bulkAction(action) {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+
+    let message = '';
+    switch(action) {
+        case 'activate': message = `Activate ${ids.length} station(s)?`; break;
+        case 'deactivate': message = `Deactivate ${ids.length} station(s)?`; break;
+        case 'make_public': message = `Make ${ids.length} station(s) public?`; break;
+        case 'make_private': message = `Make ${ids.length} station(s) private?`; break;
+        case 'approve': message = `Approve ${ids.length} station(s)?`; break;
+        case 'unapprove': message = `Revoke approval for ${ids.length} station(s)?`; break;
+        case 'delete': message = `DELETE ${ids.length} station(s)? This cannot be undone!`; break;
+    }
+
+    if (!confirm(message)) return;
+
+    fetch('/dashboard/admin/stations/bulk', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'HX-Request': 'true'
+        },
+        body: JSON.stringify({ action: action, ids: ids })
+    }).then(response => {
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            response.text().then(text => alert('Error: ' + text));
+        }
+    }).catch(err => alert('Error: ' + err));
+}
+</script>
 {{end}}

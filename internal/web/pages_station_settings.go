@@ -65,6 +65,8 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 	station.Name = r.FormValue("name")
 	station.Description = r.FormValue("description")
 	station.Timezone = r.FormValue("timezone")
+	station.DefaultShowInArchive = r.FormValue("default_show_in_archive") == "on"
+	station.DefaultAllowDownload = r.FormValue("default_allow_download") == "on"
 
 	if station.Name == "" {
 		if r.Header.Get("HX-Request") == "true" {

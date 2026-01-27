@@ -63,16 +63,48 @@
     .fc-highlight {
         background: rgba(var(--bs-primary-rgb), 0.2) !important;
     }
-    /* Source type colors */
-    .fc-event.event-media { background: var(--bs-primary) !important; border-color: var(--bs-primary) !important; }
-    .fc-event.event-playlist { background: var(--bs-success) !important; border-color: var(--bs-success) !important; }
-    .fc-event.event-smart_block { background: var(--bs-info) !important; border-color: var(--bs-info) !important; }
-    .fc-event.event-live { background: var(--bs-danger) !important; border-color: var(--bs-danger) !important; }
-    .fc-event.event-webstream { background: var(--bs-warning) !important; border-color: var(--bs-warning) !important; color: var(--bs-dark) !important; }
-    .fc-event.event-clock_template { background: var(--bs-purple, #6f42c1) !important; border-color: var(--bs-purple, #6f42c1) !important; }
+    /* Source type colors - using CSS custom properties for theme support */
+    :root {
+        --calendar-color-media: #6366f1;
+        --calendar-color-playlist: #10b981;
+        --calendar-color-smartblock: #06b6d4;
+        --calendar-color-live: #ef4444;
+        --calendar-color-webstream: #f59e0b;
+        --calendar-color-clock: #8b5cf6;
+    }
+    .fc-event.event-media { background: var(--calendar-color-media) !important; border-color: var(--calendar-color-media) !important; }
+    .fc-event.event-playlist { background: var(--calendar-color-playlist) !important; border-color: var(--calendar-color-playlist) !important; }
+    .fc-event.event-smart_block { background: var(--calendar-color-smartblock) !important; border-color: var(--calendar-color-smartblock) !important; }
+    .fc-event.event-live { background: var(--calendar-color-live) !important; border-color: var(--calendar-color-live) !important; }
+    .fc-event.event-webstream { background: var(--calendar-color-webstream) !important; border-color: var(--calendar-color-webstream) !important; color: var(--bs-dark) !important; }
+    .fc-event.event-clock_template { background: var(--calendar-color-clock) !important; border-color: var(--calendar-color-clock) !important; }
     /* Badge for purple/clock type */
-    .badge.bg-purple { background-color: var(--bs-purple, #6f42c1) !important; }
+    .badge.bg-purple { background-color: var(--calendar-color-clock) !important; }
 </style>
+<script>
+// Apply calendar color theme
+(function() {
+    const colorTheme = '{{index .Data "ColorTheme"}}' || 'default';
+    const themes = {
+        'default': { media: '#6366f1', playlist: '#10b981', smartblock: '#06b6d4', live: '#ef4444', webstream: '#f59e0b', clock: '#8b5cf6' },
+        'ocean': { media: '#0ea5e9', playlist: '#14b8a6', smartblock: '#06b6d4', live: '#3b82f6', webstream: '#0891b2', clock: '#22d3ee' },
+        'forest': { media: '#22c55e', playlist: '#10b981', smartblock: '#84cc16', live: '#16a34a', webstream: '#059669', clock: '#4ade80' },
+        'sunset': { media: '#f97316', playlist: '#ef4444', smartblock: '#ec4899', live: '#f43f5e', webstream: '#fb923c', clock: '#e11d48' },
+        'berry': { media: '#a855f7', playlist: '#8b5cf6', smartblock: '#d946ef', live: '#c026d3', webstream: '#9333ea', clock: '#e879f9' },
+        'earth': { media: '#92400e', playlist: '#f59e0b', smartblock: '#78716c', live: '#b45309', webstream: '#d97706', clock: '#a16207' },
+        'neon': { media: '#00ff88', playlist: '#ff0088', smartblock: '#00ffff', live: '#ffff00', webstream: '#ff00ff', clock: '#88ff00' },
+        'pastel': { media: '#93c5fd', playlist: '#a5b4fc', smartblock: '#c4b5fd', live: '#f9a8d4', webstream: '#fca5a5', clock: '#fed7aa' }
+    };
+    const colors = themes[colorTheme] || themes['default'];
+    const root = document.documentElement;
+    root.style.setProperty('--calendar-color-media', colors.media);
+    root.style.setProperty('--calendar-color-playlist', colors.playlist);
+    root.style.setProperty('--calendar-color-smartblock', colors.smartblock);
+    root.style.setProperty('--calendar-color-live', colors.live);
+    root.style.setProperty('--calendar-color-webstream', colors.webstream);
+    root.style.setProperty('--calendar-color-clock', colors.clock);
+})();
+</script>
 {{end}}
 
 {{define "breadcrumb"}}

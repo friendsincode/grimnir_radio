@@ -56,6 +56,31 @@
                         <div class="form-text">Used for schedule display and playout timing.</div>
                     </div>
 
+                    <hr class="my-4">
+
+                    <h6 class="mb-3"><i class="bi bi-archive me-2"></i>Public Archive Defaults</h6>
+                    <div class="form-text mb-3">These settings apply as defaults when new media is uploaded.</div>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" name="default_show_in_archive" id="defaultShowInArchive"
+                                   {{if .Data.Station.DefaultShowInArchive}}checked{{end}}>
+                            <label class="form-check-label" for="defaultShowInArchive">
+                                Show new uploads in public archive by default
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" name="default_allow_download" id="defaultAllowDownload"
+                                   {{if .Data.Station.DefaultAllowDownload}}checked{{end}}>
+                            <label class="form-check-label" for="defaultAllowDownload">
+                                Allow downloads from archive by default
+                            </label>
+                        </div>
+                    </div>
+
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-check-lg me-2"></i>Save Changes
                     </button>

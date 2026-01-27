@@ -181,6 +181,7 @@ func (h *Handler) loadTemplates() error {
 		"isPlatformAdmin": isPlatformAdmin,
 		"isActive":       isActive,
 		"iterate":        iterate,
+		"stationColor":   stationColor,
 	}
 
 	h.templates = make(map[string]*template.Template)
@@ -513,6 +514,12 @@ func formatBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// stationColor returns a color for a station based on its index
+func stationColor(index int) string {
+	colors := []string{"#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"}
+	return colors[index%len(colors)]
 }
 
 func truncate(s string, n int) string {

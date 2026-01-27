@@ -8,6 +8,7 @@ package web
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -231,12 +232,14 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create media item record
+	// Create media item record with station's default archive settings
 	media := models.MediaItem{
-		ID:        mediaID,
-		StationID: station.ID,
-		Title:     strings.TrimSuffix(header.Filename, ext),
-		Path:      relPath,
+		ID:            mediaID,
+		StationID:     station.ID,
+		Title:         strings.TrimSuffix(header.Filename, ext),
+		Path:          relPath,
+		ShowInArchive: station.DefaultShowInArchive,
+		AllowDownload: station.DefaultAllowDownload,
 	}
 
 	if err := h.db.Create(&media).Error; err != nil {
@@ -275,17 +278,23 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 
 // MediaDetail renders media details page
 func (h *Handler) MediaDetail(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.Preload("Tags").First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.Preload("Tags").First(&media, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	// Get play history for this media
+	// Get play history for this media (only from current station)
 	var history []models.PlayHistory
-	h.db.Where("media_id = ?", id).Order("started_at DESC").Limit(20).Find(&history)
+	h.db.Where("media_id = ? AND station_id = ?", id, station.ID).Order("started_at DESC").Limit(20).Find(&history)
 
 	h.Render(w, r, "pages/dashboard/media/detail", PageData{
 		Title:    media.Title,
@@ -299,10 +308,16 @@ func (h *Handler) MediaDetail(w http.ResponseWriter, r *http.Request) {
 
 // MediaEdit renders the media edit form
 func (h *Handler) MediaEdit(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&media, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -316,10 +331,16 @@ func (h *Handler) MediaEdit(w http.ResponseWriter, r *http.Request) {
 
 // MediaUpdate handles media metadata updates
 func (h *Handler) MediaUpdate(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&media, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -338,6 +359,8 @@ func (h *Handler) MediaUpdate(w http.ResponseWriter, r *http.Request) {
 	media.Language = r.FormValue("language")
 	media.Mood = r.FormValue("mood")
 	media.Explicit = r.FormValue("explicit") == "on"
+	media.ShowInArchive = r.FormValue("show_in_archive") == "on"
+	media.AllowDownload = r.FormValue("allow_download") == "on"
 
 	if err := h.db.Save(&media).Error; err != nil {
 		http.Error(w, "Failed to update media", http.StatusInternalServerError)
@@ -354,17 +377,23 @@ func (h *Handler) MediaUpdate(w http.ResponseWriter, r *http.Request) {
 
 // MediaDelete handles media deletion
 func (h *Handler) MediaDelete(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
-	// Get media item to find file path
+	// Get media item to find file path (verify station ownership)
 	var media models.MediaItem
-	if err := h.db.First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&media, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	// Delete from database
-	if err := h.db.Delete(&models.MediaItem{}, "id = ?", id).Error; err != nil {
+	// Delete from database (station already verified above)
+	if err := h.db.Delete(&models.MediaItem{}, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.Error(w, "Failed to delete media", http.StatusInternalServerError)
 		return
 	}
@@ -385,12 +414,129 @@ func (h *Handler) MediaDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/media", http.StatusSeeOther)
 }
 
+// MediaBulk handles bulk actions on media items
+func (h *Handler) MediaBulk(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Action string   `json:"action"`
+		IDs    []string `json:"ids"`
+		Value  string   `json:"value,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		http.Error(w, "No items selected", http.StatusBadRequest)
+		return
+	}
+
+	var affected int64
+	var err error
+
+	switch req.Action {
+	case "set_genre":
+		result := h.db.Model(&models.MediaItem{}).
+			Where("id IN ? AND station_id = ?", req.IDs, station.ID).
+			Update("genre", req.Value)
+		affected, err = result.RowsAffected, result.Error
+
+	case "toggle_explicit":
+		// Toggle explicit flag using raw SQL
+		result := h.db.Exec(
+			"UPDATE media_items SET explicit = NOT explicit WHERE id IN ? AND station_id = ?",
+			req.IDs, station.ID)
+		affected, err = result.RowsAffected, result.Error
+
+	case "add_to_playlist":
+		if req.Value == "" {
+			http.Error(w, "No playlist selected", http.StatusBadRequest)
+			return
+		}
+		// Verify playlist belongs to station
+		var playlist models.Playlist
+		if err := h.db.First(&playlist, "id = ? AND station_id = ?", req.Value, station.ID).Error; err != nil {
+			http.Error(w, "Playlist not found", http.StatusNotFound)
+			return
+		}
+		// Get current max position
+		var maxPos int
+		h.db.Model(&models.PlaylistItem{}).
+			Where("playlist_id = ?", playlist.ID).
+			Select("COALESCE(MAX(position), 0)").
+			Scan(&maxPos)
+
+		// Add each media item to playlist
+		for i, mediaID := range req.IDs {
+			item := models.PlaylistItem{
+				PlaylistID: playlist.ID,
+				MediaID:    mediaID,
+				Position:   maxPos + i + 1,
+			}
+			if err := h.db.Create(&item).Error; err != nil {
+				h.logger.Warn().Err(err).Str("media_id", mediaID).Msg("failed to add to playlist")
+				continue
+			}
+			affected++
+		}
+
+	case "delete":
+		// Get media items to delete files
+		var mediaItems []models.MediaItem
+		h.db.Where("id IN ? AND station_id = ?", req.IDs, station.ID).Find(&mediaItems)
+
+		// Delete from database
+		result := h.db.Where("id IN ? AND station_id = ?", req.IDs, station.ID).Delete(&models.MediaItem{})
+		affected, err = result.RowsAffected, result.Error
+
+		// Delete files from disk
+		for _, media := range mediaItems {
+			if media.Path != "" {
+				fullPath := filepath.Join(h.mediaRoot, media.Path)
+				if rmErr := os.Remove(fullPath); rmErr != nil && !os.IsNotExist(rmErr) {
+					h.logger.Warn().Err(rmErr).Str("path", fullPath).Msg("failed to delete media file")
+				}
+			}
+		}
+
+	default:
+		http.Error(w, "Unknown action", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		h.logger.Error().Err(err).Str("action", req.Action).Msg("bulk media action failed")
+		http.Error(w, "Operation failed", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("action", req.Action).
+		Int64("affected", affected).
+		Str("station_id", station.ID).
+		Msg("bulk media action completed")
+
+	w.WriteHeader(http.StatusOK)
+}
+
 // MediaWaveform returns the waveform data for a media item
 func (h *Handler) MediaWaveform(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.Select("id", "waveform").First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.Select("id", "waveform").First(&media, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -407,10 +553,16 @@ func (h *Handler) MediaWaveform(w http.ResponseWriter, r *http.Request) {
 
 // MediaArtwork returns the album art for a media item
 func (h *Handler) MediaArtwork(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.Select("id", "artwork", "artwork_mime").First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.Select("id", "artwork", "artwork_mime").First(&media, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -432,10 +584,16 @@ func (h *Handler) MediaArtwork(w http.ResponseWriter, r *http.Request) {
 
 // MediaStream serves the actual audio file for playback
 func (h *Handler) MediaStream(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.Select("id", "path", "title", "artist").First(&media, "id = ?", id).Error; err != nil {
+	if err := h.db.Select("id", "path", "title", "artist").First(&media, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}

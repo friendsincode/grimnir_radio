@@ -166,9 +166,10 @@ func (a *API) Routes(r chi.Router) {
 		r.Get("/health", a.handleHealth)
 		r.Post("/auth/login", a.handleAuthLogin)
 
-		// Public analytics endpoints (no auth required)
+		// Public endpoints (no auth required)
 		r.Get("/analytics/now-playing", a.handleAnalyticsNowPlaying)
 		r.Get("/analytics/listeners", a.handleAnalyticsListeners)
+		r.Get("/public/stations", a.handlePublicStations)
 
 		r.Group(func(pr chi.Router) {
 			pr.Use(a.authMiddleware())
@@ -1044,6 +1045,59 @@ func (a *API) handleAnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 		"total":  total,
 		"mounts": stats,
 	})
+}
+
+// handlePublicStations returns the list of public, approved, active stations with their mounts.
+// Used for the global player station selector.
+func (a *API) handlePublicStations(w http.ResponseWriter, r *http.Request) {
+	var stations []models.Station
+	a.db.WithContext(r.Context()).
+		Where("active = ? AND public = ? AND approved = ?", true, true, true).
+		Order("sort_order ASC, name ASC").
+		Find(&stations)
+
+	type mountInfo struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Format  string `json:"format"`
+		Bitrate int    `json:"bitrate"`
+		URL     string `json:"url"`
+		LQURL   string `json:"lq_url"`
+	}
+
+	type stationInfo struct {
+		ID          string      `json:"id"`
+		Name        string      `json:"name"`
+		Description string      `json:"description,omitempty"`
+		Mounts      []mountInfo `json:"mounts"`
+	}
+
+	result := make([]stationInfo, 0, len(stations))
+	for _, s := range stations {
+		var mounts []models.Mount
+		a.db.WithContext(r.Context()).Where("station_id = ?", s.ID).Find(&mounts)
+
+		mountList := make([]mountInfo, 0, len(mounts))
+		for _, m := range mounts {
+			mountList = append(mountList, mountInfo{
+				ID:      m.ID,
+				Name:    m.Name,
+				Format:  m.Format,
+				Bitrate: m.Bitrate,
+				URL:     "/live/" + m.Name,
+				LQURL:   "/live/" + m.Name + "-lq",
+			})
+		}
+
+		result = append(result, stationInfo{
+			ID:          s.ID,
+			Name:        s.Name,
+			Description: s.Description,
+			Mounts:      mountList,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (a *API) handleAnalyticsSpins(w http.ResponseWriter, r *http.Request) {

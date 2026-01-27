@@ -198,6 +198,19 @@ func (h *Handler) ProfileUpdate(w http.ResponseWriter, r *http.Request) {
 
 	user.Email = email
 
+	// Update calendar color theme if provided
+	calendarColorTheme := r.FormValue("calendar_color_theme")
+	if calendarColorTheme != "" {
+		// Validate the theme is one of our presets
+		validThemes := map[string]bool{
+			"default": true, "ocean": true, "forest": true, "sunset": true,
+			"berry": true, "earth": true, "neon": true, "pastel": true,
+		}
+		if validThemes[calendarColorTheme] {
+			user.CalendarColorTheme = calendarColorTheme
+		}
+	}
+
 	if err := h.db.Save(user).Error; err != nil {
 		h.logger.Error().Err(err).Msg("failed to update user")
 		h.renderProfileError(w, r, "Failed to update profile")
