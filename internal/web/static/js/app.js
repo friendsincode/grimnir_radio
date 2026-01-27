@@ -887,7 +887,13 @@ class GlobalPlayer {
                 });
             }
 
-            const config = { iceServers };
+            const config = {
+                iceServers,
+                // Force relay to test TURN server (remove after testing)
+                // iceTransportPolicy: 'relay'
+            };
+
+            console.log('WebRTC ICE config:', JSON.stringify(config, null, 2));
 
             this.peerConnection = new RTCPeerConnection(config);
 
