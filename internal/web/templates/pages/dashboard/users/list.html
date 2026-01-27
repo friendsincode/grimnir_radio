@@ -38,9 +38,9 @@
                         <strong>{{.Email}}</strong>
                     </td>
                     <td>
-                        {{if eq (string .PlatformRole) "platform_admin"}}
+                        {{if eq .PlatformRole "platform_admin"}}
                         <span class="badge bg-danger">Platform Admin</span>
-                        {{else if eq (string .PlatformRole) "platform_mod"}}
+                        {{else if eq .PlatformRole "platform_mod"}}
                         <span class="badge bg-warning text-dark">Platform Mod</span>
                         {{else}}
                         <span class="badge bg-info">User</span>
