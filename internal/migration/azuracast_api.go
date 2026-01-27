@@ -240,13 +240,26 @@ func (c *AzuraCastAPIClient) GetMounts(ctx context.Context, stationID int) ([]Az
 }
 
 // GetSchedules returns all schedules for a station.
+// Note: AzuraCast doesn't have a standalone /schedules endpoint.
+// Schedules are embedded in playlists via schedule_items.
+// This method extracts schedules from all playlists.
 func (c *AzuraCastAPIClient) GetSchedules(ctx context.Context, stationID int) ([]AzuraCastAPISchedule, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/schedules", stationID))
+	// Get all playlists which contain schedule_items
+	playlists, err := c.GetPlaylists(ctx, stationID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get playlists for schedules: %w", err)
 	}
 
-	return decodeAPIResponse[[]AzuraCastAPISchedule](resp)
+	var schedules []AzuraCastAPISchedule
+	for _, pl := range playlists {
+		for _, sched := range pl.ScheduleItems {
+			// Tag schedule with playlist ID for reference
+			sched.PlaylistID = pl.ID
+			schedules = append(schedules, sched)
+		}
+	}
+
+	return schedules, nil
 }
 
 // GetStreamers returns all streamers/DJs for a station.
@@ -465,27 +478,28 @@ type AzuraCastAPIMediaFile struct {
 
 // AzuraCastAPIPlaylist represents a playlist from the AzuraCast API.
 type AzuraCastAPIPlaylist struct {
-	ID                   int    `json:"id"`
-	Name                 string `json:"name"`
-	Type                 string `json:"type"`
-	Source               string `json:"source"`
-	Order                string `json:"order"`
-	RemoteURL            string `json:"remote_url,omitempty"`
-	RemoteType           string `json:"remote_type,omitempty"`
-	RemoteBuffer         int    `json:"remote_buffer,omitempty"`
-	IsEnabled            bool   `json:"is_enabled"`
-	IsJingle             bool   `json:"is_jingle"`
-	PlayPerSongs         int    `json:"play_per_songs,omitempty"`
-	PlayPerMinutes       int    `json:"play_per_minutes,omitempty"`
-	PlayPerHourMinute    int    `json:"play_per_hour_minute,omitempty"`
-	Weight               int    `json:"weight"`
-	IncludeInRequests    bool   `json:"include_in_requests"`
-	IncludeInOnDemand    bool   `json:"include_in_on_demand"`
-	IncludeInAutomation  bool   `json:"include_in_automation"`
-	AvoidDuplicates      bool   `json:"avoid_duplicates"`
-	BackendOptions       string `json:"backend_options,omitempty"`
-	NumSongs             int    `json:"num_songs"`
-	TotalLength          int    `json:"total_length"`
+	ID                   int                     `json:"id"`
+	Name                 string                  `json:"name"`
+	Type                 string                  `json:"type"`
+	Source               string                  `json:"source"`
+	Order                string                  `json:"order"`
+	RemoteURL            string                  `json:"remote_url,omitempty"`
+	RemoteType           string                  `json:"remote_type,omitempty"`
+	RemoteBuffer         int                     `json:"remote_buffer,omitempty"`
+	IsEnabled            bool                    `json:"is_enabled"`
+	IsJingle             bool                    `json:"is_jingle"`
+	PlayPerSongs         int                     `json:"play_per_songs,omitempty"`
+	PlayPerMinutes       int                     `json:"play_per_minutes,omitempty"`
+	PlayPerHourMinute    int                     `json:"play_per_hour_minute,omitempty"`
+	Weight               int                     `json:"weight"`
+	IncludeInRequests    bool                    `json:"include_in_requests"`
+	IncludeInOnDemand    bool                    `json:"include_in_on_demand"`
+	IncludeInAutomation  bool                    `json:"include_in_automation"`
+	AvoidDuplicates      bool                    `json:"avoid_duplicates"`
+	BackendOptions       json.RawMessage         `json:"backend_options,omitempty"`
+	NumSongs             int                     `json:"num_songs"`
+	TotalLength          int                     `json:"total_length"`
+	ScheduleItems        []AzuraCastAPISchedule  `json:"schedule_items,omitempty"`
 }
 
 // AzuraCastAPIMount represents a mount point from the AzuraCast API.

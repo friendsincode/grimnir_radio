@@ -20,7 +20,9 @@ import (
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/media"
+	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/version"
 )
@@ -47,6 +49,8 @@ type Handler struct {
 	templates        map[string]*template.Template // Each page gets its own template set
 	partials         *template.Template            // Shared partials
 	updateChecker    *version.Checker              // Checks for new versions
+	migrationService *migration.Service            // Migration job management
+	eventBus         *events.Bus                   // Event bus for real-time updates
 
 	// WebRTC ICE server config (passed to client)
 	webrtcSTUNURL      string
@@ -92,7 +96,14 @@ type WebRTCConfig struct {
 }
 
 // NewHandler creates a new web handler.
-func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, eventBus *events.Bus, logger zerolog.Logger) (*Handler, error) {
+	// Create migration service
+	migrationService := migration.NewService(db, eventBus, logger)
+
+	// Register importers
+	migrationService.RegisterImporter(migration.SourceTypeAzuraCast, migration.NewAzuraCastImporter(db, mediaService, logger))
+	migrationService.RegisterImporter(migration.SourceTypeLibreTime, migration.NewLibreTimeImporter(db, mediaService, logger))
+
 	h := &Handler{
 		db:                 db,
 		logger:             logger,
@@ -102,6 +113,8 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 		icecastURL:         icecastURL,
 		icecastPublicURL:   icecastPublicURL,
 		updateChecker:      version.NewChecker(logger),
+		migrationService:   migrationService,
+		eventBus:           eventBus,
 		webrtcSTUNURL:      webrtcCfg.STUNURL,
 		webrtcTURNURL:      webrtcCfg.TURNURL,
 		webrtcTURNUsername: webrtcCfg.TURNUsername,

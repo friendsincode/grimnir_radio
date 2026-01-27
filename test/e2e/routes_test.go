@@ -24,9 +24,22 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/web"
 )
+
+// createTestHandler creates a web handler with minimal dependencies for testing
+func createTestHandler(t *testing.T, db *gorm.DB) *web.Handler {
+	logger := zerolog.Nop()
+	eventBus := events.NewBus()
+	webrtcCfg := web.WebRTCConfig{}
+	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, eventBus, logger)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+	return handler
+}
 
 // TestRoutes verifies all web routes are accessible and render correctly.
 func TestRoutes(t *testing.T) {
@@ -44,11 +57,7 @@ func TestRoutes(t *testing.T) {
 	setupTestFixtures(t, db)
 
 	// Create handler
-	logger := zerolog.Nop()
-	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", logger)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
+	handler := createTestHandler(t, db)
 
 	// Create test server with chi router
 	r := chi.NewRouter()
@@ -111,11 +120,7 @@ func TestAuthenticatedRoutes(t *testing.T) {
 	// Create admin user for testing
 	adminUser := createTestUser(t, db, "admin@test.com", "password123", models.RoleAdmin)
 
-	logger := zerolog.Nop()
-	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", logger)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
+	handler := createTestHandler(t, db)
 
 	r := chi.NewRouter()
 	handler.Routes(r)
@@ -187,11 +192,7 @@ func TestFormRoutes(t *testing.T) {
 	station := setupTestFixtures(t, db)
 	createTestUser(t, db, "admin@test.com", "password123", models.RoleAdmin)
 
-	logger := zerolog.Nop()
-	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", logger)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
+	handler := createTestHandler(t, db)
 
 	r := chi.NewRouter()
 	handler.Routes(r)
@@ -253,11 +254,7 @@ func TestTemplateRendering(t *testing.T) {
 	db := setupTestDB(t)
 	setupTestFixtures(t, db)
 
-	logger := zerolog.Nop()
-	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", logger)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
+	handler := createTestHandler(t, db)
 
 	// Use chi router since our routes use chi
 	r := chi.NewRouter()
@@ -301,11 +298,7 @@ func TestTemplateRendering(t *testing.T) {
 func TestRouteNotFound(t *testing.T) {
 	db := setupTestDB(t)
 
-	logger := zerolog.Nop()
-	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", logger)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
+	handler := createTestHandler(t, db)
 
 	r := chi.NewRouter()
 	handler.Routes(r)
@@ -337,11 +330,7 @@ func TestLoginFlow(t *testing.T) {
 	setupTestFixtures(t, db)
 	createTestUser(t, db, "test@example.com", "testpass123", models.RoleDJ)
 
-	logger := zerolog.Nop()
-	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", logger)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
+	handler := createTestHandler(t, db)
 
 	r := chi.NewRouter()
 	handler.Routes(r)
@@ -482,7 +471,9 @@ func BenchmarkPageLoad(b *testing.B) {
 	db.AutoMigrate(&models.User{}, &models.Station{})
 
 	logger := zerolog.Nop()
-	handler, _ := web.NewHandler(db, []byte("test"), "/tmp/grimnir-test-media", logger)
+	eventBus := events.NewBus()
+	webrtcCfg := web.WebRTCConfig{}
+	handler, _ := web.NewHandler(db, []byte("test"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, eventBus, logger)
 
 	r := chi.NewRouter()
 	handler.Routes(r)

@@ -108,7 +108,23 @@
         </div>
         {{end}}
     </div>
-    <div>
+    <div class="d-flex align-items-center gap-2">
+        {{if or (eq .Status "failed") (eq .Status "cancelled")}}
+        <button class="btn btn-sm btn-outline-primary"
+                hx-post="/dashboard/settings/migrations/jobs/{{.ID}}/restart"
+                hx-confirm="Restart this import job?"
+                title="Restart import">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+        {{end}}
+        {{if ne .Status "running"}}
+        <button class="btn btn-sm btn-outline-danger"
+                hx-delete="/dashboard/settings/migrations/jobs/{{.ID}}"
+                hx-confirm="Delete this import job?"
+                title="Delete job">
+            <i class="bi bi-trash"></i>
+        </button>
+        {{end}}
         {{if eq .Status "completed"}}
         <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completed</span>
         {{else if eq .Status "failed"}}

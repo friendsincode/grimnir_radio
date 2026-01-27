@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/friendsincode/grimnir_radio/internal/migration"
+	"github.com/go-chi/chi/v5"
 )
 
 // SettingsPage renders the system settings page
@@ -352,36 +353,27 @@ func (h *Handler) AzuraCastAPIImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Real import - run in background
-	go func() {
-		progressCallback := func(progress migration.Progress) {
-			h.logger.Debug().
-				Str("phase", progress.Phase).
-				Float64("percentage", progress.Percentage).
-				Str("step", progress.CurrentStep).
-				Msg("import progress")
-		}
+	// Create job through migration service for tracking
+	job, err := h.migrationService.CreateJob(ctx, migration.SourceTypeAzuraCast, options)
+	if err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to create import job: %v", err))
+		return
+	}
 
-		result, err := importer.Import(context.Background(), options, progressCallback)
-		if err != nil {
-			h.logger.Error().Err(err).Msg("AzuraCast API import failed")
-			return
-		}
+	// Start job in background
+	if err := h.migrationService.StartJob(context.Background(), job.ID); err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to start import job: %v", err))
+		return
+	}
 
-		h.logger.Info().
-			Int("stations", result.StationsCreated).
-			Int("media", result.MediaItemsImported).
-			Int("playlists", result.PlaylistsCreated).
-			Float64("duration_seconds", result.DurationSeconds).
-			Msg("AzuraCast API import completed")
-	}()
+	h.logger.Info().Str("job_id", job.ID).Msg("AzuraCast API import job started")
 
-	html := `<div class="alert alert-success">
+	html := fmt.Sprintf(`<div class="alert alert-success">
 		<i class="bi bi-check-circle me-2"></i>
 		<strong>Import started!</strong>
-		<p class="mb-0 mt-2">The import is running in the background. Media files are being downloaded and processed.
-		Check the logs for progress updates.</p>
-	</div>`
+		<p class="mb-0 mt-2">The import is running in the background. Media files are being downloaded and processed.</p>
+		<p class="mb-0 mt-2"><a href="/dashboard/settings/migrations/status" class="alert-link">View import status</a></p>
+	</div>`)
 
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
@@ -406,6 +398,73 @@ func (h *Handler) MigrationStatusPage(w http.ResponseWriter, r *http.Request) {
 			"Jobs": jobs,
 		},
 	})
+}
+
+// MigrationJobRestart restarts a failed migration job
+func (h *Handler) MigrationJobRestart(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+	if jobID == "" {
+		writeHTMXError(w, "Job ID is required")
+		return
+	}
+
+	ctx := r.Context()
+
+	// Get the failed job
+	job, err := h.migrationService.GetJob(ctx, jobID)
+	if err != nil {
+		writeHTMXError(w, fmt.Sprintf("Job not found: %v", err))
+		return
+	}
+
+	if job.Status != migration.JobStatusFailed && job.Status != migration.JobStatusCancelled {
+		writeHTMXError(w, "Only failed or cancelled jobs can be restarted")
+		return
+	}
+
+	// Create a new job with the same options
+	newJob, err := h.migrationService.CreateJob(ctx, job.SourceType, job.Options)
+	if err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to create new job: %v", err))
+		return
+	}
+
+	// Start the new job
+	if err := h.migrationService.StartJob(context.Background(), newJob.ID); err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to start job: %v", err))
+		return
+	}
+
+	h.logger.Info().
+		Str("old_job_id", jobID).
+		Str("new_job_id", newJob.ID).
+		Msg("migration job restarted")
+
+	// Redirect to status page
+	w.Header().Set("HX-Redirect", "/dashboard/settings/migrations/status")
+	w.WriteHeader(http.StatusOK)
+}
+
+// MigrationJobDelete deletes a migration job
+func (h *Handler) MigrationJobDelete(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+	if jobID == "" {
+		writeHTMXError(w, "Job ID is required")
+		return
+	}
+
+	ctx := r.Context()
+
+	if err := h.migrationService.DeleteJob(ctx, jobID); err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to delete job: %v", err))
+		return
+	}
+
+	h.logger.Info().Str("job_id", jobID).Msg("migration job deleted")
+
+	// Redirect to status page
+	w.Header().Set("HX-Redirect", "/dashboard/settings/migrations/status")
+	w.WriteHeader(http.StatusOK)
 }
 
 // LibreTimeAPITest tests the connection to a LibreTime instance
@@ -620,37 +679,27 @@ func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Real import - run in background
-	go func() {
-		progressCallback := func(progress migration.Progress) {
-			h.logger.Debug().
-				Str("phase", progress.Phase).
-				Float64("percentage", progress.Percentage).
-				Str("step", progress.CurrentStep).
-				Msg("import progress")
-		}
+	// Create job through migration service for tracking
+	job, err := h.migrationService.CreateJob(ctx, migration.SourceTypeLibreTime, options)
+	if err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to create import job: %v", err))
+		return
+	}
 
-		result, err := importer.Import(context.Background(), options, progressCallback)
-		if err != nil {
-			h.logger.Error().Err(err).Msg("LibreTime API import failed")
-			return
-		}
+	// Start job in background
+	if err := h.migrationService.StartJob(context.Background(), job.ID); err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to start import job: %v", err))
+		return
+	}
 
-		h.logger.Info().
-			Int("stations", result.StationsCreated).
-			Int("media", result.MediaItemsImported).
-			Int("playlists", result.PlaylistsCreated).
-			Int("schedules", result.SchedulesCreated).
-			Float64("duration_seconds", result.DurationSeconds).
-			Msg("LibreTime API import completed")
-	}()
+	h.logger.Info().Str("job_id", job.ID).Msg("LibreTime API import job started")
 
-	html := `<div class="alert alert-success">
+	html := fmt.Sprintf(`<div class="alert alert-success">
 		<i class="bi bi-check-circle me-2"></i>
 		<strong>Import started!</strong>
-		<p class="mb-0 mt-2">The import is running in the background. Media files are being downloaded and processed.
-		Check the <a href="/dashboard/settings/migrations/status">status page</a> for progress updates.</p>
-	</div>`
+		<p class="mb-0 mt-2">The import is running in the background. Media files are being downloaded and processed.</p>
+		<p class="mb-0 mt-2"><a href="/dashboard/settings/migrations/status" class="alert-link">View import status</a></p>
+	</div>`)
 
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))

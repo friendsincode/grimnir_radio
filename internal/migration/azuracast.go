@@ -518,11 +518,38 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 	stationMap := make(map[int]string) // AzuraCast ID -> Grimnir ID
 
 	for i, azStation := range stations {
+		// Check for duplicate station name and generate unique name if needed
+		stationName := azStation.Name
+		shortcode := azStation.ShortName
+
+		var existingStation models.Station
+		if err := a.db.WithContext(ctx).Where("name = ?", stationName).First(&existingStation).Error; err == nil {
+			// Station with this name exists - append suffix
+			suffix := 1
+			for {
+				candidateName := fmt.Sprintf("%s (Import %d)", azStation.Name, suffix)
+				if err := a.db.WithContext(ctx).Where("name = ?", candidateName).First(&existingStation).Error; err != nil {
+					stationName = candidateName
+					shortcode = fmt.Sprintf("%s-%d", azStation.ShortName, suffix)
+					break
+				}
+				suffix++
+				if suffix > 100 {
+					return nil, fmt.Errorf("too many duplicate stations with name: %s", azStation.Name)
+				}
+			}
+			a.logger.Warn().
+				Str("original_name", azStation.Name).
+				Str("new_name", stationName).
+				Msg("station name already exists, using unique name")
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Station '%s' already exists, imported as '%s'", azStation.Name, stationName))
+		}
+
 		station := &models.Station{
 			ID:          uuid.New().String(),
-			Name:        azStation.Name,
+			Name:        stationName,
 			Description: azStation.Description,
-			Shortcode:   azStation.ShortName,
+			Shortcode:   shortcode,
 			Timezone:    "UTC",
 			Active:      true,
 			Public:      azStation.IsPublic,
