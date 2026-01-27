@@ -706,6 +706,12 @@ class GlobalPlayer {
     }
 
     playLive(url, stationName, stationId) {
+        // Guard against empty URLs
+        if (!url) {
+            console.warn('playLive called with empty URL');
+            return;
+        }
+
         // Determine LQ URL for HTTP fallback (append -lq to mount name)
         // e.g., /live/main -> /live/main-lq
         // But don't double it if URL already ends with -lq
@@ -752,6 +758,12 @@ class GlobalPlayer {
     fallbackToHTTP(url) {
         this.useWebRTC = false;
         this.closeWebRTC();
+
+        // Guard against empty URLs
+        if (!url) {
+            console.warn('fallbackToHTTP called with empty URL');
+            return;
+        }
 
         // Fully reset audio element to avoid stale buffer issues
         this.audio.pause();
@@ -1349,6 +1361,11 @@ class GlobalPlayer {
 
             // Get LQ URL for HTTP reconnection (bandwidth friendly)
             const streamUrl = this.currentTrack.lqUrl || this.currentTrack.url;
+            if (!streamUrl) {
+                console.warn('No valid stream URL for reconnection');
+                this.isReconnecting = false;
+                return;
+            }
             let baseUrl = streamUrl.split('?')[0];
             // Add cache buster
             baseUrl += '?_t=' + Date.now();
@@ -1409,8 +1426,8 @@ class GlobalPlayer {
                     this.updateUI();
                     this.show();
 
-                    // Auto-resume if it was playing
-                    if (data.wasPlaying) {
+                    // Auto-resume if it was playing and we have a valid URL
+                    if (data.wasPlaying && this.currentTrack.url) {
                         if (this.isLive) {
                             // For live streams, use playLive to properly initialize WebRTC
                             this.playLive(
