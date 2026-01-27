@@ -387,7 +387,20 @@ func formatTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
-func timeago(t time.Time) string {
+func timeago(v any) string {
+	var t time.Time
+	switch val := v.(type) {
+	case time.Time:
+		t = val
+	case *time.Time:
+		if val == nil {
+			return "never"
+		}
+		t = *val
+	default:
+		return "never"
+	}
+
 	if t.IsZero() {
 		return "never"
 	}
