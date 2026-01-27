@@ -83,7 +83,7 @@
                         <i class="bi bi-skip-start-fill fs-5"></i>
                     </button>
                     <button class="btn btn-light rounded-circle d-flex align-items-center justify-content-center"
-                            id="playerPlayPause" style="width: 42px; height: 42px;">
+                            id="playerPlayPause" style="width: 42px; height: 42px;" title="Play/Pause">
                         <i class="bi bi-play-fill fs-4" id="playerPlayIcon"></i>
                     </button>
                     <button class="btn btn-sm btn-link text-body" id="playerNext" title="Next" style="visibility: hidden;">
@@ -115,7 +115,7 @@
                     {{if eq .Flash.Type "info"}}<i class="bi bi-info-circle me-1"></i>{{end}}
                     Notification
                 </strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" title="Dismiss"></button>
             </div>
             <div class="toast-body">{{.Flash.Message}}</div>
         </div>

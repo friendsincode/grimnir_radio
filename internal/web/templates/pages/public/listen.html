@@ -62,7 +62,7 @@
             <div id="playerCard" class="card bg-body-tertiary sticky-bottom d-none" style="bottom: 1rem;">
                 <div class="card-body py-3">
                     <div class="d-flex align-items-center gap-3">
-                        <button id="playPauseBtn" class="btn btn-primary btn-lg rounded-circle" onclick="togglePlay()">
+                        <button id="playPauseBtn" class="btn btn-primary btn-lg rounded-circle" onclick="togglePlay()" title="Play/Pause">
                             <i class="bi bi-pause-fill" id="playPauseIcon"></i>
                         </button>
                         <div class="flex-grow-1">
@@ -75,7 +75,7 @@
                                    id="volumeSlider" min="0" max="100" value="80"
                                    onchange="setVolume(this.value)">
                         </div>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="closePlayer()">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="closePlayer()" title="Close player">
                             <i class="bi bi-x-lg"></i>
                         </button>
                     </div>

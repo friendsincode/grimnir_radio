@@ -40,7 +40,8 @@
                     <button class="btn btn-sm btn-outline-info"
                             hx-post="/dashboard/clocks/{{.ID}}/simulate"
                             hx-target="#simulateModal .modal-body"
-                            data-bs-toggle="modal" data-bs-target="#simulateModal">
+                            data-bs-toggle="modal" data-bs-target="#simulateModal"
+                            title="Preview clock output">
                         <i class="bi bi-play me-1"></i>Simulate
                     </button>
                 </div>
@@ -65,7 +66,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Clock Simulation</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="text-center py-4">

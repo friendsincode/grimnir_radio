@@ -88,7 +88,8 @@
                     <button class="btn btn-link btn-sm p-0 text-info" onclick="event.stopPropagation()"
                             hx-post="/dashboard/smart-blocks/{{.ID}}/preview"
                             hx-target="#previewModal .modal-body"
-                            data-bs-toggle="modal" data-bs-target="#previewModal">
+                            data-bs-toggle="modal" data-bs-target="#previewModal"
+                            title="Preview generated tracks">
                         <i class="bi bi-eye me-1"></i>Preview
                     </button>
                 </div>
@@ -116,7 +117,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-eye me-2"></i>Smart Block Preview</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="text-center py-4">

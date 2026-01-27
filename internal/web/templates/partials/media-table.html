@@ -3,7 +3,8 @@
 <tr onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
     <td>
         <button class="btn btn-sm btn-outline-primary rounded-circle"
-                onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)">
+                onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)"
+                title="Preview">
             <i class="bi bi-play-fill"></i>
         </button>
     </td>
@@ -27,10 +28,10 @@
     <td><small class="text-body-secondary">{{formatTime .CreatedAt}}</small></td>
     <td class="actions text-end">
         <div class="btn-group btn-group-sm">
-            <a href="/dashboard/media/{{.ID}}/edit" class="btn btn-outline-secondary" onclick="event.stopPropagation()">
+            <a href="/dashboard/media/{{.ID}}/edit" class="btn btn-outline-secondary" onclick="event.stopPropagation()" title="Edit">
                 <i class="bi bi-pencil"></i>
             </a>
-            <button class="btn btn-outline-danger" onclick="event.stopPropagation()" hx-delete="/dashboard/media/{{.ID}}" hx-confirm="Delete?">
+            <button class="btn btn-outline-danger" onclick="event.stopPropagation()" hx-delete="/dashboard/media/{{.ID}}" hx-confirm="Delete?" title="Delete">
                 <i class="bi bi-trash"></i>
             </button>
         </div>
