@@ -20,6 +20,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/media"
@@ -520,10 +522,35 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 			ID:          uuid.New().String(),
 			Name:        azStation.Name,
 			Description: azStation.Description,
+			Shortcode:   azStation.ShortName,
 			Timezone:    "UTC",
 			Active:      true,
-			Public:      false,    // Default to private
-			Approved:    true,     // Auto-approve imported stations
+			Public:      azStation.IsPublic,
+			Approved:    true, // Auto-approve imported stations
+			ListenURL:   azStation.ListenURL,
+			Website:     azStation.URL,
+		}
+
+		// Fetch detailed station profile for additional metadata
+		profile, err := client.GetStationProfile(ctx, azStation.ID)
+		if err == nil && profile != nil {
+			if profile.Genre != "" {
+				station.Genre = profile.Genre
+			}
+			if profile.Timezone != "" {
+				station.Timezone = profile.Timezone
+			}
+			if profile.URL != "" && station.Website == "" {
+				station.Website = profile.URL
+			}
+		}
+
+		// Download station logo/artwork
+		logoData, logoMime, err := client.DownloadStationArt(ctx, azStation.ID)
+		if err == nil && len(logoData) > 0 {
+			station.Logo = logoData
+			station.LogoMime = logoMime
+			a.logger.Debug().Int("station_id", azStation.ID).Int("logo_size", len(logoData)).Msg("downloaded station logo")
 		}
 
 		// Set owner if importing user specified
@@ -558,9 +585,16 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 			Name:  station.Name,
 		}
 
+		a.logger.Info().
+			Str("station_id", station.ID).
+			Str("name", station.Name).
+			Bool("has_logo", len(station.Logo) > 0).
+			Str("genre", station.Genre).
+			Msg("station imported with branding")
+
 		progressCallback(Progress{
 			Phase:            "importing_stations",
-			CurrentStep:      fmt.Sprintf("Imported station: %s", station.Name),
+			CurrentStep:      fmt.Sprintf("Imported station: %s (with branding)", station.Name),
 			TotalSteps:       5,
 			CompletedSteps:   1,
 			Percentage:       20 + (float64(i+1)/float64(len(stations)))*10,
@@ -676,7 +710,19 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 	return result, nil
 }
 
-// importMediaFromAPI imports media files from AzuraCast API.
+// azMediaDownloadResult holds the result of a single media file download from AzuraCast.
+type azMediaDownloadResult struct {
+	azMedia     AzuraCastAPIMediaFile
+	data        []byte
+	contentHash string
+	artwork     []byte  // Album art
+	artworkMime string  // Artwork MIME type
+	err         error
+	errType     string // "download", "read"
+}
+
+// importMediaFromAPI imports media files from AzuraCast API with concurrent HTTP downloads.
+// Downloads up to 12 files concurrently for optimal performance.
 func (a *AzuraCastImporter) importMediaFromAPI(ctx context.Context, client *AzuraCastAPIClient, azStationID int, grimnirStationID string, result *Result, progressCallback ProgressCallback, startTime time.Time) error {
 	mediaList, err := client.GetMedia(ctx, azStationID)
 	if err != nil {
@@ -687,177 +733,287 @@ func (a *AzuraCastImporter) importMediaFromAPI(ctx context.Context, client *Azur
 		return nil
 	}
 
-	a.logger.Info().Int("count", len(mediaList)).Int("station_id", azStationID).Msg("importing media files")
+	a.logger.Info().Int("count", len(mediaList)).Int("station_id", azStationID).Msg("importing media files via API (concurrent HTTP downloads)")
 
-	deduplicatedCount := 0
+	// Concurrent download settings
+	const maxConcurrentDownloads = 12 // Download 12 files at a time
+	semaphore := make(chan struct{}, maxConcurrentDownloads)
+	resultsChan := make(chan azMediaDownloadResult, maxConcurrentDownloads)
 
-	for i, azMedia := range mediaList {
-		// Download media file to buffer so we can compute hash
-		reader, _, err := client.DownloadMedia(ctx, azStationID, azMedia.ID)
-		if err != nil {
-			a.logger.Error().Err(err).Str("title", azMedia.Title).Msg("failed to download media")
-			result.Skipped["media_download_failed"]++
+	var wg sync.WaitGroup
+	var processedCount int32
+	var deduplicatedCount int32
+	var mu sync.Mutex // Protects result.Mappings and result.Skipped
+
+	// Start download workers in goroutines
+	for _, azMedia := range mediaList {
+		wg.Add(1)
+		go func(media AzuraCastAPIMediaFile) {
+			defer wg.Done()
+
+			// Acquire semaphore slot (limits concurrent downloads to 12)
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			// Check if context is cancelled
+			if ctx.Err() != nil {
+				resultsChan <- azMediaDownloadResult{azMedia: media, err: ctx.Err(), errType: "download"}
+				return
+			}
+
+			// Download file via HTTP from AzuraCast API
+			a.logger.Debug().
+				Int("media_id", media.ID).
+				Str("title", media.Title).
+				Msg("downloading file and artwork via HTTP")
+
+			reader, _, err := client.DownloadMedia(ctx, azStationID, media.ID)
+			if err != nil {
+				resultsChan <- azMediaDownloadResult{azMedia: media, err: err, errType: "download"}
+				return
+			}
+			defer reader.Close()
+
+			// Read into buffer and compute hash simultaneously
+			var buf bytes.Buffer
+			hasher := sha256.New()
+			teeReader := io.TeeReader(reader, hasher)
+			if _, err := io.Copy(&buf, teeReader); err != nil {
+				resultsChan <- azMediaDownloadResult{azMedia: media, err: err, errType: "read"}
+				return
+			}
+
+			contentHash := hex.EncodeToString(hasher.Sum(nil))
+
+			// Also download album art if available
+			var artwork []byte
+			var artworkMime string
+			if media.ArtUpdatedAt > 0 {
+				artwork, artworkMime, _ = client.DownloadMediaArt(ctx, azStationID, media.ID)
+				if len(artwork) > 0 {
+					a.logger.Debug().
+						Int("media_id", media.ID).
+						Int("artwork_size", len(artwork)).
+						Msg("downloaded album artwork")
+				}
+			}
+
+			resultsChan <- azMediaDownloadResult{
+				azMedia:     media,
+				data:        buf.Bytes(),
+				contentHash: contentHash,
+				artwork:     artwork,
+				artworkMime: artworkMime,
+			}
+		}(azMedia)
+	}
+
+	// Close results channel when all downloads complete
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Process downloaded files as they complete
+	for downloadResult := range resultsChan {
+		current := atomic.AddInt32(&processedCount, 1)
+
+		// Handle download errors
+		if downloadResult.err != nil {
+			a.logger.Error().
+				Err(downloadResult.err).
+				Str("title", downloadResult.azMedia.Title).
+				Str("error_type", downloadResult.errType).
+				Msg("failed to download media via HTTP")
+
+			mu.Lock()
+			if downloadResult.errType == "download" {
+				result.Skipped["media_download_failed"]++
+			} else {
+				result.Skipped["media_read_failed"]++
+			}
+			mu.Unlock()
+
+			// Update progress
+			a.updateMediaProgress(progressCallback, int(current), len(mediaList), startTime)
 			continue
 		}
 
-		// Read into buffer and compute hash
-		var buf bytes.Buffer
-		hasher := sha256.New()
-		teeReader := io.TeeReader(reader, hasher)
-		if _, err := io.Copy(&buf, teeReader); err != nil {
-			reader.Close()
-			a.logger.Error().Err(err).Str("title", azMedia.Title).Msg("failed to read media")
-			result.Skipped["media_read_failed"]++
-			continue
-		}
-		reader.Close()
-
-		contentHash := hex.EncodeToString(hasher.Sum(nil))
+		azMedia := downloadResult.azMedia
+		contentHash := downloadResult.contentHash
+		data := downloadResult.data
+		artwork := downloadResult.artwork
+		artworkMime := downloadResult.artworkMime
 
 		// Check for existing media with same hash (deduplication across stations)
 		var existingMedia models.MediaItem
-		err = a.db.WithContext(ctx).Where("content_hash = ?", contentHash).First(&existingMedia).Error
+		err := a.db.WithContext(ctx).Where("content_hash = ?", contentHash).First(&existingMedia).Error
 		if err == nil {
 			// Media already exists - create a link instead of re-uploading
-			// We create a new MediaItem record that points to the same storage key
-			mediaItem := &models.MediaItem{
-				ID:          uuid.New().String(),
-				StationID:   grimnirStationID,
-				Title:       azMedia.Title,
-				Artist:      azMedia.Artist,
-				Album:       azMedia.Album,
-				Genre:       azMedia.Genre,
-				Duration:    time.Duration(azMedia.Length * float64(time.Second)),
-				ImportPath:  azMedia.Path,
-				ContentHash: contentHash,
-				StorageKey:  existingMedia.StorageKey, // Reuse existing storage
-				Path:        existingMedia.Path,
-			}
-
-			// Set cue points
-			if azMedia.CueIn != nil || azMedia.CueOut != nil || azMedia.FadeIn != nil || azMedia.FadeOut != nil {
-				cuePoints := models.CuePointSet{}
-				if azMedia.CueIn != nil {
-					cuePoints.IntroEnd = *azMedia.CueIn
-				}
-				if azMedia.CueOut != nil {
-					cuePoints.OutroIn = *azMedia.CueOut
-				}
-				if azMedia.FadeIn != nil {
-					cuePoints.FadeIn = *azMedia.FadeIn
-				}
-				if azMedia.FadeOut != nil {
-					cuePoints.FadeOut = *azMedia.FadeOut
-				}
-				mediaItem.CuePoints = cuePoints
-			}
+			// Still include artwork and new metadata even for deduplicated files
+			mediaItem := a.createMediaItemFromAzMedia(azMedia, grimnirStationID, contentHash, artwork, artworkMime)
+			mediaItem.StorageKey = existingMedia.StorageKey
+			mediaItem.Path = existingMedia.Path
 
 			if err := a.db.WithContext(ctx).Create(mediaItem).Error; err != nil {
 				a.logger.Error().Err(err).Str("title", azMedia.Title).Msg("failed to create linked media item")
+				mu.Lock()
 				result.Skipped["media_db_failed"]++
+				mu.Unlock()
+
+				a.updateMediaProgress(progressCallback, int(current), len(mediaList), startTime)
 				continue
 			}
 
-			deduplicatedCount++
-			result.MediaItemsImported++
+			atomic.AddInt32(&deduplicatedCount, 1)
 
+			mu.Lock()
+			result.MediaItemsImported++
 			result.Mappings[fmt.Sprintf("media_%d", azMedia.ID)] = Mapping{
 				OldID: fmt.Sprintf("%d", azMedia.ID),
 				NewID: mediaItem.ID,
 				Type:  "media",
 				Name:  fmt.Sprintf("%s (deduplicated)", mediaItem.Title),
 			}
+			mu.Unlock()
 
 			a.logger.Debug().
 				Str("title", azMedia.Title).
 				Str("hash", contentHash[:12]).
 				Str("existing_id", existingMedia.ID).
+				Bool("has_artwork", len(artwork) > 0).
 				Msg("deduplicated media file")
 
+			a.updateMediaProgress(progressCallback, int(current), len(mediaList), startTime)
 			continue
 		}
 
 		// New media - upload to storage
-		mediaItem := &models.MediaItem{
-			ID:          uuid.New().String(),
-			StationID:   grimnirStationID,
-			Title:       azMedia.Title,
-			Artist:      azMedia.Artist,
-			Album:       azMedia.Album,
-			Genre:       azMedia.Genre,
-			Duration:    time.Duration(azMedia.Length * float64(time.Second)),
-			ImportPath:  azMedia.Path,
-			ContentHash: contentHash,
-		}
+		mediaItem := a.createMediaItemFromAzMedia(azMedia, grimnirStationID, contentHash, artwork, artworkMime)
 
-		// Set cue points if available
-		if azMedia.CueIn != nil || azMedia.CueOut != nil || azMedia.FadeIn != nil || azMedia.FadeOut != nil {
-			cuePoints := models.CuePointSet{}
-			if azMedia.CueIn != nil {
-				cuePoints.IntroEnd = *azMedia.CueIn
-			}
-			if azMedia.CueOut != nil {
-				cuePoints.OutroIn = *azMedia.CueOut
-			}
-			if azMedia.FadeIn != nil {
-				cuePoints.FadeIn = *azMedia.FadeIn
-			}
-			if azMedia.FadeOut != nil {
-				cuePoints.FadeOut = *azMedia.FadeOut
-			}
-			mediaItem.CuePoints = cuePoints
-		}
-
-		// Upload to media service from buffer
-		storageKey, err := a.mediaService.Store(ctx, grimnirStationID, mediaItem.ID, bytes.NewReader(buf.Bytes()))
+		storageKey, err := a.mediaService.Store(ctx, grimnirStationID, mediaItem.ID, bytes.NewReader(data))
 		if err != nil {
-			a.logger.Error().Err(err).Str("title", azMedia.Title).Msg("failed to upload media")
+			a.logger.Error().Err(err).Str("title", azMedia.Title).Msg("failed to upload media to storage")
+			mu.Lock()
 			result.Skipped["media_upload_failed"]++
+			mu.Unlock()
+
+			a.updateMediaProgress(progressCallback, int(current), len(mediaList), startTime)
 			continue
 		}
 
 		mediaItem.StorageKey = storageKey
 		mediaItem.Path = a.mediaService.URL(storageKey)
 
-		// Save to database
 		if err := a.db.WithContext(ctx).Create(mediaItem).Error; err != nil {
-			a.logger.Error().Err(err).Str("title", azMedia.Title).Msg("failed to create media item")
+			a.logger.Error().Err(err).Str("title", azMedia.Title).Msg("failed to create media item in database")
+			mu.Lock()
 			result.Skipped["media_db_failed"]++
+			mu.Unlock()
+
+			a.updateMediaProgress(progressCallback, int(current), len(mediaList), startTime)
 			continue
 		}
 
+		mu.Lock()
 		result.MediaItemsImported++
-
 		result.Mappings[fmt.Sprintf("media_%d", azMedia.ID)] = Mapping{
 			OldID: fmt.Sprintf("%d", azMedia.ID),
 			NewID: mediaItem.ID,
 			Type:  "media",
 			Name:  mediaItem.Title,
 		}
+		mu.Unlock()
 
-		// Update progress periodically
-		if i%10 == 0 || i == len(mediaList)-1 {
-			eta := calculateETA(startTime, i+1, len(mediaList))
-			progressCallback(Progress{
-				Phase:              "importing_media",
-				CurrentStep:        fmt.Sprintf("Importing media: %d/%d", i+1, len(mediaList)),
-				TotalSteps:         5,
-				CompletedSteps:     2,
-				Percentage:         30 + (float64(i+1)/float64(len(mediaList)))*40,
-				MediaTotal:         len(mediaList),
-				MediaImported:      i + 1,
-				StartTime:          startTime,
-				EstimatedRemaining: eta,
-			})
-		}
+		a.logger.Debug().
+			Str("title", azMedia.Title).
+			Str("storage_key", storageKey).
+			Bool("has_artwork", len(artwork) > 0).
+			Bool("has_isrc", azMedia.ISRC != "").
+			Bool("has_lyrics", azMedia.Lyrics != "").
+			Msg("media file imported with full metadata")
+
+		a.updateMediaProgress(progressCallback, int(current), len(mediaList), startTime)
 	}
 
-	if deduplicatedCount > 0 {
-		a.logger.Info().Int("count", deduplicatedCount).Msg("deduplicated media files (linked to existing)")
-		result.Skipped["media_deduplicated"] = deduplicatedCount
+	finalDedup := int(atomic.LoadInt32(&deduplicatedCount))
+	if finalDedup > 0 {
+		a.logger.Info().Int("count", finalDedup).Msg("deduplicated media files (linked to existing)")
+		result.Skipped["media_deduplicated"] = finalDedup
 	}
+
+	a.logger.Info().
+		Int("total", len(mediaList)).
+		Int("imported", result.MediaItemsImported).
+		Int("deduplicated", finalDedup).
+		Msg("concurrent media import complete")
 
 	return nil
+}
+
+// createMediaItemFromAzMedia creates a MediaItem from an AzuraCast media file.
+func (a *AzuraCastImporter) createMediaItemFromAzMedia(azMedia AzuraCastAPIMediaFile, stationID, contentHash string, artwork []byte, artworkMime string) *models.MediaItem {
+	mediaItem := &models.MediaItem{
+		ID:          uuid.New().String(),
+		StationID:   stationID,
+		Title:       azMedia.Title,
+		Artist:      azMedia.Artist,
+		Album:       azMedia.Album,
+		Genre:       azMedia.Genre,
+		Duration:    time.Duration(azMedia.Length * float64(time.Second)),
+		ImportPath:  azMedia.Path,
+		ContentHash: contentHash,
+		ISRC:        azMedia.ISRC,
+		Lyrics:      azMedia.Lyrics,
+		Artwork:     artwork,
+		ArtworkMime: artworkMime,
+	}
+
+	// Copy custom fields if any
+	if len(azMedia.CustomFields) > 0 {
+		mediaItem.CustomFields = azMedia.CustomFields
+	}
+
+	// Set cue points if available
+	if azMedia.CueIn != nil || azMedia.CueOut != nil || azMedia.FadeIn != nil || azMedia.FadeOut != nil {
+		cuePoints := models.CuePointSet{}
+		if azMedia.CueIn != nil {
+			cuePoints.IntroEnd = *azMedia.CueIn
+		}
+		if azMedia.CueOut != nil {
+			cuePoints.OutroIn = *azMedia.CueOut
+		}
+		if azMedia.FadeIn != nil {
+			cuePoints.FadeIn = *azMedia.FadeIn
+		}
+		if azMedia.FadeOut != nil {
+			cuePoints.FadeOut = *azMedia.FadeOut
+		}
+		mediaItem.CuePoints = cuePoints
+	}
+
+	// Set replay gain if available
+	if azMedia.Amplify != nil {
+		mediaItem.ReplayGain = *azMedia.Amplify
+	}
+
+	return mediaItem
+}
+
+// updateMediaProgress updates the progress callback with current media import status.
+func (a *AzuraCastImporter) updateMediaProgress(progressCallback ProgressCallback, current, total int, startTime time.Time) {
+	eta := calculateETA(startTime, current, total)
+	progressCallback(Progress{
+		Phase:              "importing_media",
+		CurrentStep:        fmt.Sprintf("Downloading & importing media via HTTP: %d/%d", current, total),
+		TotalSteps:         5,
+		CompletedSteps:     2,
+		Percentage:         30 + (float64(current)/float64(total))*40,
+		MediaTotal:         total,
+		MediaImported:      current,
+		StartTime:          startTime,
+		EstimatedRemaining: eta,
+	})
 }
 
 // importPlaylistsFromAPI imports playlists from AzuraCast API.

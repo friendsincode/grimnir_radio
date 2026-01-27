@@ -316,6 +316,19 @@ type Station struct {
 	Public   bool `gorm:"default:false"` // Public listening allowed (no auth required)
 	Approved bool `gorm:"default:false"` // Approved for broadcast by platform admin
 
+	// Branding - imported from source systems (AzuraCast/LibreTime)
+	Logo         []byte `gorm:"type:bytea"` // Station logo (JPEG/PNG)
+	LogoMime     string `gorm:"type:varchar(32)"`
+	HeaderImage  []byte `gorm:"type:bytea"` // Station header/banner image
+	HeaderMime   string `gorm:"type:varchar(32)"`
+	Shortcode    string `gorm:"type:varchar(32);index"` // Short URL-friendly name
+	Genre        string `gorm:"type:varchar(64)"`
+	Language     string `gorm:"type:varchar(32)"`
+	Website      string `gorm:"type:varchar(255)"`       // Station website URL
+	SocialLinks  map[string]string `gorm:"type:jsonb;serializer:json"` // Social media links
+	ContactEmail string `gorm:"type:varchar(255)"`
+	ListenURL    string `gorm:"type:varchar(255)"`       // Primary public listen URL
+
 	// Relationships
 	Users  []StationUser  `gorm:"foreignKey:StationID"`
 	Groups []StationGroup `gorm:"foreignKey:StationID"`
@@ -379,6 +392,17 @@ type MediaItem struct {
 	TrackNumber   int
 	Bitrate       int
 	Samplerate    int
+	ISRC          string `gorm:"type:varchar(20);index"` // International Standard Recording Code
+	Lyrics        string `gorm:"type:text"`              // Song lyrics
+	Composer      string `gorm:"type:varchar(255)"`
+	Conductor     string `gorm:"type:varchar(255)"`
+	Copyright     string `gorm:"type:varchar(255)"`
+	Publisher     string `gorm:"type:varchar(255)"`
+	OriginalArtist string `gorm:"type:varchar(255)"`
+	AlbumArtist   string `gorm:"type:varchar(255)"`
+	DiscNumber    int
+	Comment       string `gorm:"type:text"`
+	CustomFields  map[string]string `gorm:"type:jsonb;serializer:json"` // For custom metadata fields
 	Tags          []MediaTagLink
 	CuePoints     CuePointSet `gorm:"type:jsonb"`
 	Waveform      []byte

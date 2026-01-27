@@ -1,0 +1,217 @@
+{{define "pages/dashboard/settings/migration-status"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/settings">Settings</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/settings/migrations">Migrations</a></li>
+        <li class="breadcrumb-item active">Status</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$jobs := index $data "Jobs"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-activity me-2"></i>Import Status</h4>
+    <a href="/dashboard/settings/migrations" class="btn btn-outline-secondary">
+        <i class="bi bi-plus me-1"></i>New Import
+    </a>
+</div>
+
+<!-- Active Jobs -->
+<div id="active-jobs">
+{{range $jobs}}
+{{if eq .Status "running"}}
+<div class="card mb-3 border-primary" data-job-id="{{.ID}}">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-arrow-repeat me-2 spin"></i><strong>{{.SourceType | title}} Import</strong></span>
+        <span class="badge bg-light text-primary">Running</span>
+    </div>
+    <div class="card-body">
+        <div class="progress mb-3" style="height: 24px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                 role="progressbar"
+                 style="width: {{printf "%.1f" .Progress.Percentage}}%"
+                 data-progress-bar>
+                {{printf "%.1f" .Progress.Percentage}}%
+            </div>
+        </div>
+        <div class="row text-body-secondary mb-2">
+            <div class="col-md-3">
+                <i class="bi bi-gear me-1"></i>
+                Phase: <strong data-phase>{{.Progress.Phase}}</strong>
+            </div>
+            <div class="col-md-3">
+                <i class="bi bi-music-note-list me-1"></i>
+                Media: <strong data-media>{{.Progress.MediaImported}}/{{.Progress.MediaTotal}}</strong>
+            </div>
+            <div class="col-md-3">
+                <i class="bi bi-collection me-1"></i>
+                Playlists: <strong data-playlists>{{.Progress.PlaylistsImported}}/{{.Progress.PlaylistsTotal}}</strong>
+            </div>
+            <div class="col-md-3">
+                <i class="bi bi-clock me-1"></i>
+                ETA: <strong data-eta>{{if .Progress.EstimatedRemaining}}{{.Progress.EstimatedRemaining}}{{else}}Calculating...{{end}}</strong>
+            </div>
+        </div>
+        <div class="mt-2 text-body-secondary">
+            <small><i class="bi bi-arrow-right-circle me-1"></i><span data-current-step>{{.Progress.CurrentStep}}</span></small>
+        </div>
+    </div>
+</div>
+{{end}}
+{{end}}
+
+{{/* Check if there are no active jobs */}}
+{{$hasActiveJobs := false}}
+{{range $jobs}}
+{{if eq .Status "running"}}{{$hasActiveJobs = true}}{{end}}
+{{end}}
+{{if not $hasActiveJobs}}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>
+    No imports are currently running. <a href="/dashboard/settings/migrations">Start a new import</a>.
+</div>
+{{end}}
+</div>
+
+<!-- Completed/Failed Jobs -->
+<h5 class="mt-4 mb-3"><i class="bi bi-clock-history me-2"></i>History</h5>
+<div class="list-group">
+{{range $jobs}}
+{{if ne .Status "running"}}
+<div class="list-group-item d-flex justify-content-between align-items-start">
+    <div class="ms-2 me-auto">
+        <div class="fw-bold">{{.SourceType | title}} Import</div>
+        <small class="text-body-secondary">
+            {{if .StartedAt}}Started {{.StartedAt | timeago}}{{else}}Created {{.CreatedAt | timeago}}{{end}}
+            {{if .CompletedAt}} &middot; Completed {{.CompletedAt | timeago}}{{end}}
+        </small>
+        {{if and .Result (eq .Status "completed")}}
+        <div class="mt-1">
+            <span class="badge bg-secondary me-1">{{.Result.MediaItemsImported}} media</span>
+            <span class="badge bg-secondary me-1">{{.Result.PlaylistsCreated}} playlists</span>
+            <span class="badge bg-secondary me-1">{{.Result.SchedulesCreated}} schedules</span>
+            {{if gt (len .Result.Warnings) 0}}
+            <span class="badge bg-warning text-dark">{{len .Result.Warnings}} warnings</span>
+            {{end}}
+        </div>
+        {{end}}
+        {{if and .Error (eq .Status "failed")}}
+        <div class="mt-1 text-danger small">
+            <i class="bi bi-exclamation-triangle me-1"></i>{{.Error}}
+        </div>
+        {{end}}
+    </div>
+    <div>
+        {{if eq .Status "completed"}}
+        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completed</span>
+        {{else if eq .Status "failed"}}
+        <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>
+        {{else if eq .Status "cancelled"}}
+        <span class="badge bg-secondary"><i class="bi bi-slash-circle me-1"></i>Cancelled</span>
+        {{else if eq .Status "pending"}}
+        <span class="badge bg-info"><i class="bi bi-hourglass me-1"></i>Pending</span>
+        {{else}}
+        <span class="badge bg-secondary">{{.Status}}</span>
+        {{end}}
+    </div>
+</div>
+{{end}}
+{{end}}
+
+{{/* Check if there are no completed jobs */}}
+{{$hasCompletedJobs := false}}
+{{range $jobs}}
+{{if ne .Status "running"}}{{$hasCompletedJobs = true}}{{end}}
+{{end}}
+{{if not $hasCompletedJobs}}
+<div class="list-group-item text-center text-body-secondary py-4">
+    <i class="bi bi-inbox me-2"></i>No import history yet.
+</div>
+{{end}}
+</div>
+
+<style>
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.spin {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+</style>
+
+<script>
+// Subscribe to migration events via WebSocket for real-time updates
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.grimnirWS) {
+        window.grimnirWS.on('migration', function(data) {
+            const card = document.querySelector('[data-job-id="' + data.job_id + '"]');
+            if (!card) {
+                // New job started, reload to show it
+                if (data.status === 'running') {
+                    location.reload();
+                }
+                return;
+            }
+
+            // Update progress bar
+            const bar = card.querySelector('[data-progress-bar]');
+            if (bar) {
+                bar.style.width = data.percentage + '%';
+                bar.textContent = data.percentage.toFixed(1) + '%';
+            }
+
+            // Update stats
+            const phaseEl = card.querySelector('[data-phase]');
+            if (phaseEl && data.progress) {
+                phaseEl.textContent = data.progress.phase || '';
+            }
+
+            const mediaEl = card.querySelector('[data-media]');
+            if (mediaEl && data.progress) {
+                mediaEl.textContent = (data.progress.media_imported || 0) + '/' + (data.progress.media_total || 0);
+            }
+
+            const playlistsEl = card.querySelector('[data-playlists]');
+            if (playlistsEl && data.progress) {
+                playlistsEl.textContent = (data.progress.playlists_imported || 0) + '/' + (data.progress.playlists_total || 0);
+            }
+
+            const etaEl = card.querySelector('[data-eta]');
+            if (etaEl && data.progress) {
+                etaEl.textContent = data.progress.estimated_remaining || 'Calculating...';
+            }
+
+            const stepEl = card.querySelector('[data-current-step]');
+            if (stepEl && data.progress) {
+                stepEl.textContent = data.progress.current_step || '';
+            }
+
+            // Handle completion
+            if (data.status === 'completed' || data.status === 'failed') {
+                // Delay reload slightly to ensure server has updated
+                setTimeout(function() {
+                    location.reload();
+                }, 1000);
+            }
+        });
+    }
+
+    // Auto-refresh every 30 seconds if there are active jobs
+    const hasActiveJobs = document.querySelector('[data-job-id]');
+    if (hasActiveJobs) {
+        setInterval(function() {
+            location.reload();
+        }, 30000);
+    }
+});
+</script>
+{{end}}
