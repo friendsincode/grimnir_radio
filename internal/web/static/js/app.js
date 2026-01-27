@@ -708,8 +708,9 @@ class GlobalPlayer {
     playLive(url, stationName, stationId) {
         // Determine LQ URL for HTTP fallback (append -lq to mount name)
         // e.g., /live/main -> /live/main-lq
+        // But don't double it if URL already ends with -lq
         let lqUrl = url;
-        if (url.includes('/live/')) {
+        if (url.includes('/live/') && !url.match(/\/live\/[^/?]+-lq(?:[/?]|$)/)) {
             lqUrl = url.replace(/\/live\/([^/?]+)/, '/live/$1-lq');
         }
 
