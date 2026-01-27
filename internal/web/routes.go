@@ -262,6 +262,8 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Post("/migrations/azuracast-api/test", h.AzuraCastAPITest)
 				r.Post("/migrations/libretime-api", h.LibreTimeAPIImport)
 				r.Post("/migrations/libretime-api/test", h.LibreTimeAPITest)
+				r.Post("/migrations/jobs/{id}/restart", h.MigrationJobRestart)
+				r.Delete("/migrations/jobs/{id}", h.MigrationJobDelete)
 			})
 
 			// Platform Admin routes (platform_admin only)
