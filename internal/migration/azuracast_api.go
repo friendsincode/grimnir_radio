@@ -272,6 +272,138 @@ func (c *AzuraCastAPIClient) DownloadMedia(ctx context.Context, stationID, media
 	return resp.Body, resp.ContentLength, nil
 }
 
+// DownloadMediaArt downloads album art for a media file.
+// Returns nil, nil if no artwork is available.
+func (c *AzuraCastAPIClient) DownloadMediaArt(ctx context.Context, stationID, mediaID int) ([]byte, string, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/file/%d/art", stationID, mediaID))
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	// No artwork available
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+		return nil, "", nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", nil // Silently skip artwork errors
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg" // Default to JPEG
+	}
+
+	return data, contentType, nil
+}
+
+// DownloadStationArt downloads the station logo/artwork.
+// Returns nil, nil if no artwork is available.
+func (c *AzuraCastAPIClient) DownloadStationArt(ctx context.Context, stationID int) ([]byte, string, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/art", stationID))
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	// No artwork available
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+		return nil, "", nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", nil // Silently skip artwork errors
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+
+	return data, contentType, nil
+}
+
+// DownloadStreamerArt downloads artwork for a streamer/DJ.
+// Returns nil, nil if no artwork is available.
+func (c *AzuraCastAPIClient) DownloadStreamerArt(ctx context.Context, stationID, streamerID int) ([]byte, string, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/streamer/%d/art", stationID, streamerID))
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+		return nil, "", nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", nil
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+
+	return data, contentType, nil
+}
+
+// GetStationProfile gets detailed station profile information.
+func (c *AzuraCastAPIClient) GetStationProfile(ctx context.Context, stationID int) (*AzuraCastAPIStationProfile, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/profile", stationID))
+	if err != nil {
+		return nil, err
+	}
+
+	return decodeAPIResponse[*AzuraCastAPIStationProfile](resp)
+}
+
+// GetWebhooks returns all webhooks/web hooks for a station.
+func (c *AzuraCastAPIClient) GetWebhooks(ctx context.Context, stationID int) ([]AzuraCastAPIWebhook, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/webhooks", stationID))
+	if err != nil {
+		return nil, err
+	}
+
+	return decodeAPIResponse[[]AzuraCastAPIWebhook](resp)
+}
+
+// GetPodcasts returns all podcasts for a station.
+func (c *AzuraCastAPIClient) GetPodcasts(ctx context.Context, stationID int) ([]AzuraCastAPIPodcast, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/podcasts", stationID))
+	if err != nil {
+		return nil, err
+	}
+
+	return decodeAPIResponse[[]AzuraCastAPIPodcast](resp)
+}
+
+// GetPodcastEpisodes returns all episodes for a podcast.
+func (c *AzuraCastAPIClient) GetPodcastEpisodes(ctx context.Context, stationID, podcastID int) ([]AzuraCastAPIPodcastEpisode, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/podcast/%d/episodes", stationID, podcastID))
+	if err != nil {
+		return nil, err
+	}
+
+	return decodeAPIResponse[[]AzuraCastAPIPodcastEpisode](resp)
+}
+
 // =============================================================================
 // AzuraCast API Response Types
 // =============================================================================
@@ -391,4 +523,72 @@ type AzuraCastAPIStreamer struct {
 	EnforceSchedule  bool   `json:"enforce_schedule"`
 	ReactivateAt     *int64 `json:"reactivate_at,omitempty"`
 	Art              string `json:"art,omitempty"`
+	ArtUpdatedAt     int64  `json:"art_updated_at,omitempty"`
+}
+
+// AzuraCastAPIStationProfile represents detailed station profile from the AzuraCast API.
+type AzuraCastAPIStationProfile struct {
+	Station           AzuraCastAPIStation `json:"station"`
+	Name              string              `json:"name"`
+	ShortName         string              `json:"short_name"`
+	Description       string              `json:"description"`
+	URL               string              `json:"url"`
+	Genre             string              `json:"genre"`
+	Timezone          string              `json:"timezone"`
+	DefaultMount      string              `json:"default_mount"`
+	PublicPlayerURL   string              `json:"public_player_url"`
+	PlaylistPLSURL    string              `json:"playlist_pls_url"`
+	PlaylistM3UURL    string              `json:"playlist_m3u_url"`
+	EnablePublicPage  bool                `json:"enable_public_page"`
+	EnableOnDemand    bool                `json:"enable_on_demand"`
+	EnableRequests    bool                `json:"enable_requests"`
+	RequestDelay      int                 `json:"request_delay"`
+	RequestThreshold  int                 `json:"request_threshold"`
+	EnableStreamers   bool                `json:"enable_streamers"`
+	IsEnabled         bool                `json:"is_enabled"`
+	Branding          AzuraCastBranding   `json:"branding,omitempty"`
+}
+
+// AzuraCastBranding represents station branding configuration.
+type AzuraCastBranding struct {
+	DefaultAlbumArtURL string `json:"default_album_art_url,omitempty"`
+	PublicCustomCSS    string `json:"public_custom_css,omitempty"`
+	PublicCustomJS     string `json:"public_custom_js,omitempty"`
+}
+
+// AzuraCastAPIWebhook represents a webhook from the AzuraCast API.
+type AzuraCastAPIWebhook struct {
+	ID         int               `json:"id"`
+	Name       string            `json:"name"`
+	Type       string            `json:"type"`
+	IsEnabled  bool              `json:"is_enabled"`
+	Triggers   []string          `json:"triggers"`
+	Config     map[string]string `json:"config,omitempty"`
+}
+
+// AzuraCastAPIPodcast represents a podcast from the AzuraCast API.
+type AzuraCastAPIPodcast struct {
+	ID          int    `json:"id"`
+	Title       string `json:"title"`
+	Link        string `json:"link"`
+	Description string `json:"description"`
+	Language    string `json:"language"`
+	Author      string `json:"author"`
+	Email       string `json:"email"`
+	HasArt      bool   `json:"has_custom_art"`
+	ArtURL      string `json:"art,omitempty"`
+	Categories  []string `json:"categories,omitempty"`
+}
+
+// AzuraCastAPIPodcastEpisode represents a podcast episode from the AzuraCast API.
+type AzuraCastAPIPodcastEpisode struct {
+	ID          int    `json:"id"`
+	Title       string `json:"title"`
+	Link        string `json:"link"`
+	Description string `json:"description"`
+	PublishAt   int64  `json:"publish_at"`
+	Explicit    bool   `json:"explicit"`
+	HasArt      bool   `json:"has_custom_art"`
+	ArtURL      string `json:"art,omitempty"`
+	MediaID     *int   `json:"playlist_media_id,omitempty"`
 }

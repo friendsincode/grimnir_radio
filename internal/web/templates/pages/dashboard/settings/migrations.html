@@ -17,9 +17,14 @@
 {{$sources := index $data "SupportedSources"}}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-box-arrow-in-down me-2"></i>Migrations & Import</h4>
-    <a href="/dashboard/settings" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i>Back to Settings
-    </a>
+    <div>
+        <a href="/dashboard/settings/migrations/status" class="btn btn-outline-info me-2">
+            <i class="bi bi-activity me-1"></i>View Status
+        </a>
+        <a href="/dashboard/settings" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Back to Settings
+        </a>
+    </div>
 </div>
 
 <div class="row g-4">
@@ -121,6 +126,88 @@
                     </div>
                 </form>
                 <div id="azuracast-import-result" class="mt-3"></div>
+            </div>
+        </div>
+
+        <!-- LibreTime Live API Import -->
+        <div class="card border-success mb-4">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="bi bi-cloud-download me-2"></i>LibreTime Live API Import</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-body-secondary mb-4">
+                    Connect directly to a running LibreTime (v3.0+) instance to import media, playlists, and shows.
+                    Media files are downloaded directly via the LibreTime API.
+                </p>
+                <form method="POST" action="/dashboard/settings/migrations/libretime-api"
+                      hx-post="/dashboard/settings/migrations/libretime-api"
+                      hx-target="#libretime-import-result"
+                      hx-indicator="#libretime-import-loading">
+
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label class="form-label">LibreTime URL <span class="text-danger">*</span></label>
+                            <input type="url" class="form-control" name="libretime_url"
+                                   placeholder="https://libretime.example.com" required>
+                            <div class="form-text">The base URL of your LibreTime installation.</div>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label class="form-label">API Key <span class="text-danger">*</span></label>
+                            <input type="password" class="form-control" name="api_key"
+                                   placeholder="Your LibreTime API key" required>
+                            <div class="form-text">
+                                Found in LibreTime's <code>/etc/libretime/config.yml</code> under <code>general.api_key</code>.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Target Station</label>
+                            <select class="form-select" name="target_station_id">
+                                <option value="">Create new station</option>
+                                {{range .Stations}}
+                                <option value="{{.ID}}">{{.Name}}</option>
+                                {{end}}
+                            </select>
+                            <div class="form-text">Import into an existing station or create a new one.</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="skip_media" id="ltSkipMedia">
+                            <label class="form-check-label" for="ltSkipMedia">
+                                Skip media download (metadata only)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="dry_run" id="ltDryRun">
+                            <label class="form-check-label" for="ltDryRun">
+                                Dry run (analyze only, don't import)
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary"
+                                hx-post="/dashboard/settings/migrations/libretime-api/test"
+                                hx-include="[name='libretime_url'], [name='api_key']"
+                                hx-target="#libretime-import-result">
+                            <i class="bi bi-plug me-1"></i>Test Connection
+                        </button>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-cloud-download me-1"></i>Start Import
+                        </button>
+                        <span id="libretime-import-loading" class="htmx-indicator spinner-border spinner-border-sm text-success ms-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </span>
+                    </div>
+                </form>
+                <div id="libretime-import-result" class="mt-3"></div>
             </div>
         </div>
 

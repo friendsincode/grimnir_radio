@@ -66,13 +66,17 @@ type Options struct {
 	AzuraCastUsername   string `json:"azuracast_username,omitempty"`
 	AzuraCastPassword   string `json:"azuracast_password,omitempty"`
 
-	// LibreTime options
+	// LibreTime database options (direct DB access)
 	LibreTimeDBHost     string `json:"libretime_db_host,omitempty"`
 	LibreTimeDBPort     int    `json:"libretime_db_port,omitempty"`
 	LibreTimeDBName     string `json:"libretime_db_name,omitempty"`
 	LibreTimeDBUser     string `json:"libretime_db_user,omitempty"`
 	LibreTimeDBPassword string `json:"libretime_db_password,omitempty"`
 	LibreTimeMediaPath  string `json:"libretime_media_path,omitempty"`
+
+	// LibreTime API options (live import via REST API)
+	LibreTimeAPIURL string `json:"libretime_api_url,omitempty"`
+	LibreTimeAPIKey string `json:"libretime_api_key,omitempty"`
 
 	// Target options
 	TargetStationID string            `json:"target_station_id,omitempty"`

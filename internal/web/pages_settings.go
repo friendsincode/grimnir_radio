@@ -392,3 +392,266 @@ func writeHTMXError(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(fmt.Sprintf(`<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>%s</div>`, message)))
 }
+
+// MigrationStatusPage shows the status of all migration jobs
+func (h *Handler) MigrationStatusPage(w http.ResponseWriter, r *http.Request) {
+	// Get all migration jobs
+	var jobs []migration.Job
+	h.db.Order("created_at DESC").Limit(20).Find(&jobs)
+
+	h.Render(w, r, "pages/dashboard/settings/migration-status", PageData{
+		Title:    "Import Status",
+		Stations: h.LoadStations(r),
+		Data: map[string]any{
+			"Jobs": jobs,
+		},
+	})
+}
+
+// LibreTimeAPITest tests the connection to a LibreTime instance
+func (h *Handler) LibreTimeAPITest(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeHTMXError(w, "Invalid form data")
+		return
+	}
+
+	apiURL := r.FormValue("libretime_url")
+	apiKey := r.FormValue("api_key")
+
+	if apiURL == "" {
+		writeHTMXError(w, "URL is required")
+		return
+	}
+
+	if apiKey == "" {
+		writeHTMXError(w, "API key is required")
+		return
+	}
+
+	client, err := migration.NewLibreTimeAPIClient(apiURL, apiKey)
+	if err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to create client: %v", err))
+		return
+	}
+
+	ctx := context.Background()
+
+	// Test connection
+	status, err := client.TestConnection(ctx)
+	if err != nil {
+		writeHTMXError(w, fmt.Sprintf("Connection failed: %v", err))
+		return
+	}
+
+	// Get files to show count
+	files, err := client.GetFiles(ctx)
+	if err != nil {
+		writeHTMXError(w, fmt.Sprintf("Could not fetch files: %v", err))
+		return
+	}
+
+	// Count accessible files
+	accessibleFiles := 0
+	for _, f := range files {
+		if !f.Hidden && f.FileExists {
+			accessibleFiles++
+		}
+	}
+
+	// Get playlists
+	playlists, _ := client.GetPlaylists(ctx)
+
+	// Get shows
+	shows, _ := client.GetShows(ctx)
+
+	// Build success response
+	html := fmt.Sprintf(`<div class="alert alert-success">
+		<i class="bi bi-check-circle me-2"></i>
+		<strong>Connection successful!</strong>
+		<p class="mb-1 mt-2">Server online: %v</p>
+		<p class="mb-1">Files accessible: %v</p>`, status.Online, status.FilesAccessible)
+
+	if status.Warning != "" {
+		html += fmt.Sprintf(`<p class="text-warning mb-1"><i class="bi bi-exclamation-triangle me-1"></i>%s</p>`, status.Warning)
+	}
+
+	html += fmt.Sprintf(`<hr class="my-2">
+		<p class="mb-0">Found:</p>
+		<ul class="mb-0">
+			<li><strong>%d</strong> media files</li>
+			<li><strong>%d</strong> playlists</li>
+			<li><strong>%d</strong> shows</li>
+		</ul>
+	</div>`, accessibleFiles, len(playlists), len(shows))
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(html))
+}
+
+// LibreTimeAPIImport starts an import from a LibreTime instance via API
+func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeHTMXError(w, "Invalid form data")
+		return
+	}
+
+	apiURL := r.FormValue("libretime_url")
+	apiKey := r.FormValue("api_key")
+	targetStationID := r.FormValue("target_station_id")
+	skipMedia := r.FormValue("skip_media") == "on"
+	dryRun := r.FormValue("dry_run") == "on"
+
+	if apiURL == "" {
+		writeHTMXError(w, "URL is required")
+		return
+	}
+
+	if apiKey == "" {
+		writeHTMXError(w, "API key is required")
+		return
+	}
+
+	h.logger.Info().
+		Str("url", apiURL).
+		Str("target_station", targetStationID).
+		Bool("skip_media", skipMedia).
+		Bool("dry_run", dryRun).
+		Msg("starting LibreTime API import")
+
+	// Get current user for ownership
+	user := h.GetUser(r)
+	var importingUserID string
+	if user != nil {
+		importingUserID = user.ID
+	}
+
+	// Create import options
+	options := migration.Options{
+		LibreTimeAPIURL: apiURL,
+		LibreTimeAPIKey: apiKey,
+		TargetStationID: targetStationID,
+		SkipMedia:       skipMedia,
+		ImportingUserID: importingUserID,
+	}
+
+	ctx := context.Background()
+	importer := migration.NewLibreTimeImporter(h.db, h.mediaService, h.logger)
+
+	// Validate first
+	if err := importer.Validate(ctx, options); err != nil {
+		writeHTMXError(w, fmt.Sprintf("Validation failed: %v", err))
+		return
+	}
+
+	// Dry run - just analyze with detailed report
+	if dryRun {
+		report, err := importer.AnalyzeDetailed(ctx, options)
+		if err != nil {
+			writeHTMXError(w, fmt.Sprintf("Analysis failed: %v", err))
+			return
+		}
+
+		html := `<div class="card border-info">
+			<div class="card-header bg-info text-white">
+				<i class="bi bi-info-circle me-2"></i><strong>Dry Run Analysis Complete</strong>
+			</div>
+			<div class="card-body">`
+
+		// Summary section
+		html += fmt.Sprintf(`
+			<h6 class="mb-3">Summary</h6>
+			<div class="row mb-3">
+				<div class="col-md-6">
+					<table class="table table-sm table-borderless mb-0">
+						<tr><td class="text-body-secondary">Media Files:</td><td><strong>%d</strong></td></tr>
+						<tr><td class="text-body-secondary">Playlists:</td><td><strong>%d</strong></td></tr>
+						<tr><td class="text-body-secondary">Shows:</td><td><strong>%d</strong></td></tr>
+					</table>
+				</div>
+				<div class="col-md-6">
+					<table class="table table-sm table-borderless mb-0">
+						<tr><td class="text-body-secondary">Est. Storage:</td><td><strong>%s</strong></td></tr>
+					</table>
+				</div>
+			</div>`,
+			report.TotalFiles, report.TotalPlaylists, report.TotalShows, report.EstimatedStorageHuman)
+
+		// Playlists
+		if len(report.Playlists) > 0 {
+			html += `<h6 class="mt-3 mb-2">Playlists</h6><ul class="small mb-0">`
+			for _, pl := range report.Playlists {
+				html += fmt.Sprintf(`<li>%s <span class="text-body-secondary">(%d items, %s)</span></li>`,
+					pl.Name, pl.ItemCount, pl.Length)
+			}
+			html += `</ul>`
+		}
+
+		// Shows
+		if len(report.Shows) > 0 {
+			html += `<h6 class="mt-3 mb-2">Shows (will become Clocks)</h6><ul class="small mb-0">`
+			for _, show := range report.Shows {
+				desc := show.Description
+				if len(desc) > 50 {
+					desc = desc[:50] + "..."
+				}
+				html += fmt.Sprintf(`<li>%s`, show.Name)
+				if desc != "" {
+					html += fmt.Sprintf(` <span class="text-body-secondary">- %s</span>`, desc)
+				}
+				html += `</li>`
+			}
+			html += `</ul>`
+		}
+
+		// Warnings
+		if len(report.Warnings) > 0 {
+			html += `<div class="alert alert-warning mt-3 mb-0"><strong>Warnings:</strong><ul class="mb-0">`
+			for _, warning := range report.Warnings {
+				html += fmt.Sprintf(`<li>%s</li>`, warning)
+			}
+			html += `</ul></div>`
+		}
+
+		html += `<p class="mt-3 mb-0 text-body-secondary small">Uncheck "Dry run" and click Import to perform the actual import.</p>
+			</div></div>`
+
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html))
+		return
+	}
+
+	// Real import - run in background
+	go func() {
+		progressCallback := func(progress migration.Progress) {
+			h.logger.Debug().
+				Str("phase", progress.Phase).
+				Float64("percentage", progress.Percentage).
+				Str("step", progress.CurrentStep).
+				Msg("import progress")
+		}
+
+		result, err := importer.Import(context.Background(), options, progressCallback)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("LibreTime API import failed")
+			return
+		}
+
+		h.logger.Info().
+			Int("stations", result.StationsCreated).
+			Int("media", result.MediaItemsImported).
+			Int("playlists", result.PlaylistsCreated).
+			Int("schedules", result.SchedulesCreated).
+			Float64("duration_seconds", result.DurationSeconds).
+			Msg("LibreTime API import completed")
+	}()
+
+	html := `<div class="alert alert-success">
+		<i class="bi bi-check-circle me-2"></i>
+		<strong>Import started!</strong>
+		<p class="mb-0 mt-2">The import is running in the background. Media files are being downloaded and processed.
+		Check the <a href="/dashboard/settings/migrations/status">status page</a> for progress updates.</p>
+	</div>`
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(html))
+}
