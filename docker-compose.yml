@@ -12,10 +12,11 @@ services:
       - postgres-data:/var/lib/postgresql/data
     # Ports defined in docker-compose.override.yml
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U grimnir"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U grimnir -d grimnir && psql -U grimnir -d grimnir -c 'SELECT 1' > /dev/null 2>&1"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
     networks:
       - grimnir-network
 
@@ -153,10 +154,10 @@ services:
       - media-data:/var/lib/grimnir/media
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - grimnir-network
     restart: unless-stopped
