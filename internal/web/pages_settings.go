@@ -207,6 +207,13 @@ func (h *Handler) AzuraCastAPIImport(w http.ResponseWriter, r *http.Request) {
 		Bool("dry_run", dryRun).
 		Msg("starting AzuraCast API import")
 
+	// Get current user for ownership
+	user := h.GetUser(r)
+	var importingUserID string
+	if user != nil {
+		importingUserID = user.ID
+	}
+
 	// Create import options
 	options := migration.Options{
 		AzuraCastAPIURL:   apiURL,
@@ -215,6 +222,7 @@ func (h *Handler) AzuraCastAPIImport(w http.ResponseWriter, r *http.Request) {
 		AzuraCastPassword: password,
 		SkipMedia:         skipMedia,
 		SkipUsers:         skipUsers,
+		ImportingUserID:   importingUserID,
 	}
 
 	ctx := context.Background()

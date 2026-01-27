@@ -1,0 +1,82 @@
+{{define "pages/dashboard/station/user-edit"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item">{{.Data.Station.Name}}</li>
+        <li class="breadcrumb-item"><a href="/dashboard/station/users">Station Users</a></li>
+        <li class="breadcrumb-item active">Edit Role</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-person-gear me-2"></i>Edit User Role</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-4 p-3 bg-body-tertiary rounded">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-person-circle fs-2 me-3"></i>
+                        <div>
+                            <strong>{{.Data.TargetUser.Email}}</strong>
+                            <br>
+                            <small class="text-body-secondary">
+                                Current role:
+                                {{if eq (string .Data.StationUser.Role) "owner"}}
+                                <span class="badge bg-danger">Owner</span>
+                                {{else if eq (string .Data.StationUser.Role) "admin"}}
+                                <span class="badge bg-primary">Admin</span>
+                                {{else if eq (string .Data.StationUser.Role) "manager"}}
+                                <span class="badge bg-warning text-dark">Manager</span>
+                                {{else if eq (string .Data.StationUser.Role) "dj"}}
+                                <span class="badge bg-info">DJ</span>
+                                {{else}}
+                                <span class="badge bg-secondary">Viewer</span>
+                                {{end}}
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <form hx-post="/dashboard/station/users/{{.Data.StationUser.ID}}" hx-swap="none">
+                    <div class="mb-3">
+                        <label for="role" class="form-label">New Station Role</label>
+                        <select class="form-select" id="role" name="role" required>
+                            {{$currentRole := .Data.StationUser.Role}}
+                            {{range .Data.Roles}}
+                            <option value="{{.}}" {{if eq (string .) (string $currentRole)}}selected{{end}}>
+                                {{if eq (string .) "owner"}}Owner - Full control (can transfer ownership)
+                                {{else if eq (string .) "admin"}}Admin - Manage users, settings, content
+                                {{else if eq (string .) "manager"}}Manager - Manage schedule, playlists, clocks
+                                {{else if eq (string .) "dj"}}DJ - Upload media, go live
+                                {{else}}Viewer - View only
+                                {{end}}
+                            </option>
+                            {{end}}
+                        </select>
+                        <div class="form-text">
+                            <strong>Warning:</strong> Setting someone as Owner will transfer ownership to them.
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="/dashboard/station/users" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-2"></i>Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-2"></i>Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

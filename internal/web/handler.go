@@ -164,6 +164,7 @@ func (h *Handler) loadTemplates() error {
 		"ternary":        ternary,
 		"jsonMarshal":    jsonMarshal,
 		"roleAtLeast":    roleAtLeast,
+		"isPlatformAdmin": isPlatformAdmin,
 		"isActive":       isActive,
 		"iterate":        iterate,
 	}
@@ -541,6 +542,10 @@ func roleAtLeast(user *models.User, minRole string) bool {
 	userLevel := roleOrder[string(user.PlatformRole)]
 	minLevel := roleOrder[minRole]
 	return userLevel >= minLevel
+}
+
+func isPlatformAdmin(user *models.User) bool {
+	return user != nil && user.IsPlatformAdmin()
 }
 
 func isActive(currentPath, linkPath string) bool {

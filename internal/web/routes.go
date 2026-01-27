@@ -74,6 +74,23 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/stations/select", h.StationSelect)
 			r.Post("/stations/select", h.StationSelectSubmit)
 
+			// Station user management (requires station)
+			r.Route("/station", func(r chi.Router) {
+				r.Use(h.RequireStation)
+
+				// Station users management
+				r.Get("/users", h.StationUserList)
+				r.Get("/users/invite", h.StationUserInvite)
+				r.Post("/users", h.StationUserAdd)
+				r.Get("/users/{id}/edit", h.StationUserEdit)
+				r.Post("/users/{id}", h.StationUserUpdate)
+				r.Delete("/users/{id}", h.StationUserRemove)
+
+				// Station settings
+				r.Get("/settings", h.StationSettings)
+				r.Put("/settings", h.StationSettingsUpdate)
+			})
+
 			// Station-scoped routes
 			r.Group(func(r chi.Router) {
 				r.Use(h.RequireStation)
@@ -233,7 +250,7 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Delete("/{id}", h.UserDelete)
 			})
 
-			// Settings (admin only)
+			// Settings (platform admin only)
 			r.Route("/settings", func(r chi.Router) {
 				r.Use(h.RequireRole("admin"))
 				r.Get("/", h.SettingsPage)
@@ -242,6 +259,23 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Post("/migrations/import", h.MigrationsImport)
 				r.Post("/migrations/azuracast-api", h.AzuraCastAPIImport)
 				r.Post("/migrations/azuracast-api/test", h.AzuraCastAPITest)
+			})
+
+			// Platform Admin routes (platform_admin only)
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(h.RequirePlatformAdmin)
+
+				// All stations management
+				r.Get("/stations", h.AdminStationsList)
+				r.Post("/stations/{id}/toggle-active", h.AdminStationToggleActive)
+				r.Post("/stations/{id}/toggle-public", h.AdminStationTogglePublic)
+				r.Post("/stations/{id}/toggle-approved", h.AdminStationToggleApproved)
+
+				// All users management
+				r.Get("/users", h.AdminUsersList)
+				r.Get("/users/{id}/edit", h.AdminUserEdit)
+				r.Post("/users/{id}", h.AdminUserUpdate)
+				r.Delete("/users/{id}", h.AdminUserDelete)
 			})
 		})
 	})

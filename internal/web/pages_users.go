@@ -71,7 +71,7 @@ func (h *Handler) UserCreate(w http.ResponseWriter, r *http.Request) {
 
 	email := r.FormValue("email")
 	password := r.FormValue("password")
-	role := models.PlatformRole(r.FormValue("role"))
+	role := models.PlatformRole(r.FormValue("platform_role"))
 
 	if email == "" || password == "" {
 		http.Error(w, "Email and password required", http.StatusBadRequest)
@@ -208,7 +208,7 @@ func (h *Handler) UserUpdate(w http.ResponseWriter, r *http.Request) {
 	user.Email = r.FormValue("email")
 
 	// Only platform admins can change roles
-	if newRole := models.PlatformRole(r.FormValue("role")); newRole != "" {
+	if newRole := models.PlatformRole(r.FormValue("platform_role")); newRole != "" {
 		if currentUser.IsPlatformAdmin() {
 			user.PlatformRole = newRole
 		}

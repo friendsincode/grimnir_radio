@@ -182,6 +182,34 @@ func (h *Handler) RequireStation(next http.Handler) http.Handler {
 	})
 }
 
+// RequirePlatformAdmin checks that user is a platform admin.
+func (h *Handler) RequirePlatformAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := h.GetUser(r)
+		if user == nil {
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("HX-Redirect", "/login")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		if !user.IsPlatformAdmin() {
+			if r.Header.Get("HX-Request") == "true" {
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte("Platform admin access required"))
+				return
+			}
+			http.Error(w, "Platform admin access required", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RequireStationPermission creates middleware that checks for a specific station permission.
 func (h *Handler) RequireStationPermission(permission string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

@@ -77,6 +77,9 @@ type Options struct {
 	// Target options
 	TargetStationID string            `json:"target_station_id,omitempty"`
 	FieldMappings   map[string]string `json:"field_mappings,omitempty"`
+
+	// Import context
+	ImportingUserID string `json:"importing_user_id,omitempty"` // User performing the import (becomes station owner)
 }
 
 // Progress tracks migration progress.

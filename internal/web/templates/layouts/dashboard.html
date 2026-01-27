@@ -140,33 +140,53 @@
                     </a>
                 </li>
 
-                {{if roleAtLeast .User "manager"}}
+                <!-- Station Settings (for station owners/admins) -->
+                {{if .Station}}
                 <li class="nav-item mt-3 mb-1 sidebar-section">
-                    <span class="nav-link text-body-secondary small text-uppercase sidebar-text">Admin</span>
+                    <span class="nav-link text-body-secondary small text-uppercase sidebar-text">Station</span>
                 </li>
 
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/stations"}}active bg-primary text-white{{end}}" href="/dashboard/stations" data-bs-toggle="tooltip" data-bs-placement="right" title="Stations">
-                        <i class="bi bi-broadcast-pin"></i>
-                        <span class="sidebar-text ms-2">Stations</span>
-                    </a>
-                </li>
-
-                <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/users"}}active bg-primary text-white{{end}}" href="/dashboard/users" data-bs-toggle="tooltip" data-bs-placement="right" title="Users">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/station/users"}}active bg-primary text-white{{end}}" href="/dashboard/station/users" data-bs-toggle="tooltip" data-bs-placement="right" title="Station Users">
                         <i class="bi bi-people"></i>
-                        <span class="sidebar-text ms-2">Users</span>
+                        <span class="sidebar-text ms-2">Station Users</span>
                     </a>
                 </li>
 
-                {{if roleAtLeast .User "admin"}}
                 <li class="nav-item">
-                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/settings"}}active bg-primary text-white{{end}}" href="/dashboard/settings" data-bs-toggle="tooltip" data-bs-placement="right" title="Settings">
-                        <i class="bi bi-gear"></i>
-                        <span class="sidebar-text ms-2">Settings</span>
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/station/settings"}}active bg-primary text-white{{end}}" href="/dashboard/station/settings" data-bs-toggle="tooltip" data-bs-placement="right" title="Station Settings">
+                        <i class="bi bi-sliders"></i>
+                        <span class="sidebar-text ms-2">Station Settings</span>
                     </a>
                 </li>
                 {{end}}
+
+                <!-- Platform Admin Section (only for platform admins) -->
+                {{if isPlatformAdmin .User}}
+                <li class="nav-item mt-3 mb-1 sidebar-section">
+                    <span class="nav-link text-body-secondary small text-uppercase sidebar-text">Platform Admin</span>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/stations"}}active bg-primary text-white{{end}}" href="/dashboard/admin/stations" data-bs-toggle="tooltip" data-bs-placement="right" title="All Stations">
+                        <i class="bi bi-broadcast-pin"></i>
+                        <span class="sidebar-text ms-2">All Stations</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/users"}}active bg-primary text-white{{end}}" href="/dashboard/admin/users" data-bs-toggle="tooltip" data-bs-placement="right" title="All Users">
+                        <i class="bi bi-people-fill"></i>
+                        <span class="sidebar-text ms-2">All Users</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/settings"}}active bg-primary text-white{{end}}" href="/dashboard/settings" data-bs-toggle="tooltip" data-bs-placement="right" title="Platform Settings">
+                        <i class="bi bi-gear"></i>
+                        <span class="sidebar-text ms-2">Platform Settings</span>
+                    </a>
+                </li>
                 {{end}}
             </ul>
         </nav>
@@ -177,7 +197,7 @@
                 <i class="bi bi-person-circle fs-4"></i>
                 <div class="sidebar-text flex-grow-1 text-truncate">
                     <div class="fw-semibold text-truncate small">{{.User.Email}}</div>
-                    <div class="text-body-secondary small">{{.User.Role}}</div>
+                    <div class="text-body-secondary small">{{.User.PlatformRole}}</div>
                 </div>
             </div>
             <div class="d-flex gap-2 user-actions">

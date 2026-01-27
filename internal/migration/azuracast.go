@@ -522,10 +522,30 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 			Description: azStation.Description,
 			Timezone:    "UTC",
 			Active:      true,
+			Public:      false,    // Default to private
+			Approved:    true,     // Auto-approve imported stations
+		}
+
+		// Set owner if importing user specified
+		if options.ImportingUserID != "" {
+			station.OwnerID = options.ImportingUserID
 		}
 
 		if err := a.db.WithContext(ctx).Create(station).Error; err != nil {
 			return nil, fmt.Errorf("create station: %w", err)
+		}
+
+		// Create station-user association for the owner
+		if options.ImportingUserID != "" {
+			stationUser := &models.StationUser{
+				ID:        uuid.New().String(),
+				UserID:    options.ImportingUserID,
+				StationID: station.ID,
+				Role:      models.StationRoleOwner,
+			}
+			if err := a.db.WithContext(ctx).Create(stationUser).Error; err != nil {
+				a.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to create owner association")
+			}
 		}
 
 		stationMap[azStation.ID] = station.ID
@@ -1032,7 +1052,7 @@ func (a *AzuraCastImporter) importBackup(ctx context.Context, options Options, p
 		StartTime:      startTime,
 	})
 
-	if err := a.importStations(ctx, backup, result, progressCallback, startTime); err != nil {
+	if err := a.importStationsWithOptions(ctx, backup, result, progressCallback, startTime, options); err != nil {
 		return nil, fmt.Errorf("import stations: %w", err)
 	}
 
@@ -1244,6 +1264,13 @@ func (a *AzuraCastImporter) parseBackup(dir string) (*AzuraCastBackup, error) {
 
 // importStations imports stations from the backup.
 func (a *AzuraCastImporter) importStations(ctx context.Context, backup *AzuraCastBackup, result *Result, progressCallback ProgressCallback, startTime time.Time) error {
+	return a.importStationsWithOptions(ctx, backup, result, progressCallback, startTime, Options{})
+}
+
+// importStationsWithOptions imports stations from the backup with full options.
+func (a *AzuraCastImporter) importStationsWithOptions(ctx context.Context, backup *AzuraCastBackup, result *Result, progressCallback ProgressCallback, startTime time.Time, options Options) error {
+	a.logger.Info().Int("count", len(backup.Stations)).Msg("importing stations from backup")
+
 	for i, azStation := range backup.Stations {
 		// Create Grimnir station
 		station := &models.Station{
@@ -1252,10 +1279,42 @@ func (a *AzuraCastImporter) importStations(ctx context.Context, backup *AzuraCas
 			Description: azStation.Description,
 			Timezone:    "UTC",
 			Active:      azStation.IsEnabled,
+			Public:      false,
+			Approved:    true,
+		}
+
+		// Set owner if importing user specified
+		if options.ImportingUserID != "" {
+			station.OwnerID = options.ImportingUserID
 		}
 
 		if err := a.db.WithContext(ctx).Create(station).Error; err != nil {
+			a.logger.Error().Err(err).Str("station_name", azStation.Name).Msg("failed to create station")
 			return fmt.Errorf("create station: %w", err)
+		}
+
+		a.logger.Info().
+			Str("station_id", station.ID).
+			Str("station_name", station.Name).
+			Int("azuracast_id", azStation.ID).
+			Msg("station created")
+
+		// Create station-user association for the owner
+		if options.ImportingUserID != "" {
+			stationUser := &models.StationUser{
+				ID:        uuid.New().String(),
+				UserID:    options.ImportingUserID,
+				StationID: station.ID,
+				Role:      models.StationRoleOwner,
+			}
+			if err := a.db.WithContext(ctx).Create(stationUser).Error; err != nil {
+				a.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to create owner association")
+			} else {
+				a.logger.Debug().
+					Str("station_id", station.ID).
+					Str("owner_id", options.ImportingUserID).
+					Msg("station owner association created")
+			}
 		}
 
 		// Track mapping
@@ -1281,6 +1340,7 @@ func (a *AzuraCastImporter) importStations(ctx context.Context, backup *AzuraCas
 		})
 	}
 
+	a.logger.Info().Int("stations_created", result.StationsCreated).Msg("stations import complete")
 	return nil
 }
 

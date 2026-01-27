@@ -1,0 +1,64 @@
+{{define "pages/dashboard/admin/user-edit"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/admin/users">All Users</a></li>
+        <li class="breadcrumb-item active">Edit User</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-person-gear me-2"></i>Edit User</h5>
+            </div>
+            <div class="card-body">
+                <form hx-post="/dashboard/admin/users/{{.Data.TargetUser.ID}}" hx-swap="none">
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" name="email"
+                               value="{{.Data.TargetUser.Email}}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="platform_role" class="form-label">Platform Role</label>
+                        <select class="form-select" id="platform_role" name="platform_role" required>
+                            <option value="user" {{if eq (string .Data.TargetUser.PlatformRole) "user"}}selected{{end}}>
+                                User - Regular user
+                            </option>
+                            <option value="platform_mod" {{if eq (string .Data.TargetUser.PlatformRole) "platform_mod"}}selected{{end}}>
+                                Platform Moderator - Can moderate content
+                            </option>
+                            <option value="platform_admin" {{if eq (string .Data.TargetUser.PlatformRole) "platform_admin"}}selected{{end}}>
+                                Platform Admin - Full platform access
+                            </option>
+                        </select>
+                        <div class="form-text">Platform role determines global permissions across the platform.</div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>Note:</strong> Station-specific permissions are managed separately in each station's settings.
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="/dashboard/admin/users" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-2"></i>Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-2"></i>Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

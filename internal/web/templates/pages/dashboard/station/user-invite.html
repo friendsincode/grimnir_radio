@@ -1,0 +1,74 @@
+{{define "pages/dashboard/station/user-invite"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item">{{.Data.Station.Name}}</li>
+        <li class="breadcrumb-item"><a href="/dashboard/station/users">Station Users</a></li>
+        <li class="breadcrumb-item active">Invite User</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-person-plus me-2"></i>Invite User to {{.Data.Station.Name}}</h5>
+            </div>
+            <div class="card-body">
+                {{if .Data.AvailableUsers}}
+                <form hx-post="/dashboard/station/users" hx-swap="none">
+                    <div class="mb-3">
+                        <label for="user_id" class="form-label">Select User</label>
+                        <select class="form-select" id="user_id" name="user_id" required>
+                            <option value="">Choose a user...</option>
+                            {{range .Data.AvailableUsers}}
+                            <option value="{{.ID}}">{{.Email}}</option>
+                            {{end}}
+                        </select>
+                        <div class="form-text">Only users who are not already members of this station are shown.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="role" class="form-label">Station Role</label>
+                        <select class="form-select" id="role" name="role" required>
+                            {{range .Data.Roles}}
+                            <option value="{{.}}" {{if eq (string .) "dj"}}selected{{end}}>
+                                {{if eq (string .) "admin"}}Admin - Manage users, settings, content
+                                {{else if eq (string .) "manager"}}Manager - Manage schedule, playlists, clocks
+                                {{else if eq (string .) "dj"}}DJ - Upload media, go live
+                                {{else}}Viewer - View only
+                                {{end}}
+                            </option>
+                            {{end}}
+                        </select>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="/dashboard/station/users" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-2"></i>Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-person-plus me-2"></i>Invite User
+                        </button>
+                    </div>
+                </form>
+                {{else}}
+                <div class="text-center py-4">
+                    <i class="bi bi-person-x fs-1 text-body-secondary"></i>
+                    <p class="mt-3 text-body-secondary">All users are already members of this station.</p>
+                    <a href="/dashboard/users/new" class="btn btn-outline-primary">
+                        <i class="bi bi-person-plus me-2"></i>Create New User
+                    </a>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
