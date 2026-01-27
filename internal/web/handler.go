@@ -45,6 +45,12 @@ type Handler struct {
 	templates        map[string]*template.Template // Each page gets its own template set
 	partials         *template.Template            // Shared partials
 	updateChecker    *version.Checker              // Checks for new versions
+
+	// WebRTC ICE server config (passed to client)
+	webrtcSTUNURL      string
+	webrtcTURNURL      string
+	webrtcTURNUsername string
+	webrtcTURNPassword string
 }
 
 // PageData holds common data passed to all templates.
@@ -61,6 +67,12 @@ type PageData struct {
 	Data        any
 	Version     string              // Current application version
 	UpdateInfo  *version.UpdateInfo // Available update info (nil if no update)
+
+	// WebRTC ICE server config for client
+	WebRTCSTUNURL      string
+	WebRTCTURNURL      string
+	WebRTCTURNUsername string
+	WebRTCTURNPassword string
 }
 
 // FlashMessage for toast notifications
@@ -69,16 +81,28 @@ type FlashMessage struct {
 	Message string
 }
 
+// WebRTCConfig holds WebRTC ICE server configuration for client-side.
+type WebRTCConfig struct {
+	STUNURL      string
+	TURNURL      string
+	TURNUsername string
+	TURNPassword string
+}
+
 // NewHandler creates a new web handler.
-func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, icecastURL string, icecastPublicURL string, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, logger zerolog.Logger) (*Handler, error) {
 	h := &Handler{
-		db:               db,
-		logger:           logger,
-		jwtSecret:        jwtSecret,
-		mediaRoot:        mediaRoot,
-		icecastURL:       icecastURL,
-		icecastPublicURL: icecastPublicURL,
-		updateChecker:    version.NewChecker(logger),
+		db:                 db,
+		logger:             logger,
+		jwtSecret:          jwtSecret,
+		mediaRoot:          mediaRoot,
+		icecastURL:         icecastURL,
+		icecastPublicURL:   icecastPublicURL,
+		updateChecker:      version.NewChecker(logger),
+		webrtcSTUNURL:      webrtcCfg.STUNURL,
+		webrtcTURNURL:      webrtcCfg.TURNURL,
+		webrtcTURNUsername: webrtcCfg.TURNUsername,
+		webrtcTURNPassword: webrtcCfg.TURNPassword,
 	}
 
 	if err := h.loadTemplates(); err != nil {
@@ -229,6 +253,12 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 	}
 	data.CurrentPath = r.URL.Path
 	data.Version = version.Version
+
+	// WebRTC ICE server config for client
+	data.WebRTCSTUNURL = h.webrtcSTUNURL
+	data.WebRTCTURNURL = h.webrtcTURNURL
+	data.WebRTCTURNUsername = h.webrtcTURNUsername
+	data.WebRTCTURNPassword = h.webrtcTURNPassword
 
 	// Get user from context if authenticated
 	if user, ok := r.Context().Value(ctxKeyUser).(*models.User); ok {

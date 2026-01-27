@@ -449,6 +449,15 @@ document.addEventListener('htmx:afterSwap', function(e) {
 
 <!-- WebSocket Auth Token (short-lived) -->
 {{if .WSToken}}<script>window.GRIMNIR_WS_TOKEN = "{{.WSToken}}";</script>{{end}}
+<!-- WebRTC ICE Server Config -->
+<script>
+window.GRIMNIR_WEBRTC = {
+    stunUrl: "{{.WebRTCSTUNURL}}",
+    turnUrl: "{{.WebRTCTURNURL}}",
+    turnUsername: "{{.WebRTCTURNUsername}}",
+    turnPassword: "{{.WebRTCTURNPassword}}"
+};
+</script>
 <script src="/static/js/app.js"></script>
 
 {{block "scripts" .}}{{end}}

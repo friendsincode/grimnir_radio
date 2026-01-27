@@ -852,27 +852,30 @@ class GlobalPlayer {
 
     async handleWebRTCOffer(offer) {
         try {
-            // Create peer connection with STUN and TURN servers
-            const config = {
-                iceServers: [
-                    // Multiple STUN servers for reliability
-                    { urls: [
-                        'stun:stun.l.google.com:19302',
-                        'stun:stun1.l.google.com:19302',
-                        'stun:stun2.l.google.com:19302'
-                    ]},
-                    // Free TURN server from Open Relay Project (for strict NATs)
-                    {
-                        urls: [
-                            'turn:openrelay.metered.ca:80',
-                            'turn:openrelay.metered.ca:443',
-                            'turn:openrelay.metered.ca:443?transport=tcp'
-                        ],
-                        username: 'openrelayproject',
-                        credential: 'openrelayproject'
-                    }
-                ]
-            };
+            // Build ICE servers from server-provided config
+            const iceServers = [];
+
+            // Use server-provided STUN/TURN config if available
+            const webrtcCfg = window.GRIMNIR_WEBRTC || {};
+
+            // Add STUN server
+            if (webrtcCfg.stunUrl) {
+                iceServers.push({ urls: webrtcCfg.stunUrl });
+            } else {
+                // Fallback to Google STUN
+                iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
+            }
+
+            // Add TURN server if configured
+            if (webrtcCfg.turnUrl) {
+                iceServers.push({
+                    urls: webrtcCfg.turnUrl,
+                    username: webrtcCfg.turnUsername || '',
+                    credential: webrtcCfg.turnPassword || ''
+                });
+            }
+
+            const config = { iceServers };
 
             this.peerConnection = new RTCPeerConnection(config);
 
