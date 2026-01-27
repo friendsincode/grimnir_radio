@@ -73,7 +73,8 @@
             <button class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1"
                     style="padding: 0.1rem 0.3rem;"
                     hx-delete="/dashboard/playlists/{{$playlist.ID}}/cover"
-                    hx-confirm="Remove cover image?">
+                    hx-confirm="Remove cover image?"
+                    title="Remove cover image">
                 <i class="bi bi-x"></i>
             </button>
             {{else}}
@@ -161,7 +162,7 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Add Media</h5>
-                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#advancedFilters">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#advancedFilters" title="Toggle advanced filters">
                     <i class="bi bi-sliders"></i>
                 </button>
             </div>
@@ -266,7 +267,8 @@
                         </div>
                         <span class="text-body-secondary small flex-shrink-0">{{formatDuration .Duration}}</span>
                         <button type="button" class="btn btn-sm btn-outline-primary flex-shrink-0 add-media-btn"
-                                data-media-id="{{.ID}}">
+                                data-media-id="{{.ID}}"
+                                title="Add to playlist">
                             <i class="bi bi-plus"></i>
                         </button>
                     </div>

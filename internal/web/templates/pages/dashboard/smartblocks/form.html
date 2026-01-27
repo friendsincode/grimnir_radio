@@ -46,7 +46,8 @@
                 <div class="d-flex gap-2">
                     {{if not $isNew}}
                     <button type="button" class="btn btn-outline-secondary btn-sm"
-                            hx-post="/dashboard/smart-blocks/{{$block.ID}}/duplicate" hx-swap="none">
+                            hx-post="/dashboard/smart-blocks/{{$block.ID}}/duplicate" hx-swap="none"
+                            title="Create a copy of this smart block">
                         <i class="bi bi-copy me-1"></i>Duplicate
                     </button>
                     {{end}}
@@ -304,7 +305,7 @@
                             <div id="boostersFields" style="display:none;">
                                 <p class="text-body-secondary small">Increase selection probability for matching tracks.</p>
                                 <div id="boosterList"></div>
-                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addBooster">
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addBooster" title="Add priority booster rule">
                                     <i class="bi bi-plus-lg me-1"></i>Add Booster
                                 </button>
                             </div>
@@ -329,7 +330,7 @@
                             <div id="quotasFields" style="display:none;">
                                 <p class="text-body-secondary small">Set min/max track counts per category.</p>
                                 <div id="quotaList"></div>
-                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addQuota">
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addQuota" title="Add category quota rule">
                                     <i class="bi bi-plus-lg me-1"></i>Add Quota
                                 </button>
                             </div>
@@ -444,7 +445,7 @@
                             <div id="fallbacksFields" style="display:none;">
                                 <p class="text-body-secondary small">If this block can't fill the duration, use these as backup.</p>
                                 <div id="fallbackList"></div>
-                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addFallback">
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addFallback" title="Add fallback smart block">
                                     <i class="bi bi-plus-lg me-1"></i>Add Fallback
                                 </button>
                             </div>

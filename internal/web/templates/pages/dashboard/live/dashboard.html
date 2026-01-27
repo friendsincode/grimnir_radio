@@ -64,12 +64,14 @@
                 <div class="d-flex gap-2 justify-content-center">
                     <button class="btn btn-warning btn-lg"
                             hx-post="/dashboard/live/handover"
-                            hx-confirm="Initiate handover to automation?">
+                            hx-confirm="Initiate handover to automation?"
+                            title="Transfer control back to automation">
                         <i class="bi bi-arrow-right-circle me-2"></i>Handover to Automation
                     </button>
                     <button class="btn btn-danger btn-lg"
                             hx-delete="/dashboard/live/sessions/{{.Data.UserSession.ID}}"
-                            hx-confirm="Disconnect your live session?">
+                            hx-confirm="Disconnect your live session?"
+                            title="End your live session">
                         <i class="bi bi-stop-circle me-2"></i>Disconnect
                     </button>
                 </div>
@@ -118,18 +120,21 @@
                 <div class="d-flex gap-3 justify-content-center">
                     <button class="btn btn-lg btn-outline-warning transport-btn"
                             hx-post="/dashboard/playout/skip"
-                            hx-confirm="Skip current track?">
+                            hx-confirm="Skip current track?"
+                            title="Skip to next track">
                         <i class="bi bi-skip-forward-fill"></i>
                     </button>
                     {{if roleAtLeast .User "manager"}}
                     <button class="btn btn-lg btn-outline-danger transport-btn"
                             hx-post="/dashboard/playout/stop"
-                            hx-confirm="Stop playout completely?">
+                            hx-confirm="Stop playout completely?"
+                            title="Stop all playout">
                         <i class="bi bi-stop-fill"></i>
                     </button>
                     <button class="btn btn-lg btn-outline-secondary transport-btn"
                             hx-post="/dashboard/playout/reload"
-                            hx-confirm="Reload playout pipeline?">
+                            hx-confirm="Reload playout pipeline?"
+                            title="Reload playout system">
                         <i class="bi bi-arrow-clockwise"></i>
                     </button>
                     {{end}}
@@ -166,7 +171,8 @@
                             {{if roleAtLeast $.User "manager"}}
                             <button class="btn btn-sm btn-outline-danger ms-2"
                                     hx-delete="/dashboard/live/sessions/{{.ID}}"
-                                    hx-confirm="Disconnect this session?">
+                                    hx-confirm="Disconnect this session?"
+                                    title="Disconnect this session">
                                 <i class="bi bi-x"></i>
                             </button>
                             {{end}}

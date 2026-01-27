@@ -3,7 +3,7 @@
     <h6><i class="bi bi-key me-2"></i>Your Live Token</h6>
     <div class="input-group mb-2">
         <input type="text" class="form-control font-monospace" value="{{.Token}}" readonly id="tokenValue">
-        <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('tokenValue').value); this.innerHTML='<i class=\'bi bi-check\'></i> Copied'">
+        <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('tokenValue').value); this.innerHTML='<i class=\'bi bi-check\'></i> Copied'" title="Copy to clipboard">
             <i class="bi bi-clipboard"></i>
         </button>
     </div>

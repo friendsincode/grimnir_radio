@@ -171,7 +171,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="eventModalTitle">Event Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
             </div>
             <div class="modal-body" id="eventModalBody">
                 <!-- Populated by JS -->
@@ -179,7 +179,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 {{if roleAtLeast .User "manager"}}
-                <button type="button" class="btn btn-danger" id="deleteEventBtn">
+                <button type="button" class="btn btn-danger" id="deleteEventBtn" title="Delete this event">
                     <i class="bi bi-trash me-1"></i>Delete
                 </button>
                 {{end}}
@@ -194,7 +194,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Add to Schedule</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
             </div>
             <div class="modal-body">
                 <form id="addScheduleForm">
@@ -237,8 +237,8 @@
                                     <option value="55">55</option>
                                 </select>
                                 <div class="btn-group btn-group-sm ms-2">
-                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="start" data-delta="-15">-15m</button>
-                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="start" data-delta="15">+15m</button>
+                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="start" data-delta="-15" title="Subtract 15 minutes">-15m</button>
+                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="start" data-delta="15" title="Add 15 minutes">+15m</button>
                                 </div>
                             </div>
                         </div>
@@ -264,8 +264,8 @@
                                     <option value="55">55</option>
                                 </select>
                                 <div class="btn-group btn-group-sm ms-2">
-                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="end" data-delta="-15">-15m</button>
-                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="end" data-delta="15">+15m</button>
+                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="end" data-delta="-15" title="Subtract 15 minutes">-15m</button>
+                                    <button type="button" class="btn btn-outline-secondary time-adjust" data-target="end" data-delta="15" title="Add 15 minutes">+15m</button>
                                 </div>
                             </div>
                         </div>
@@ -464,7 +464,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Schedule Entry</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="editEntryId">
@@ -491,7 +491,7 @@
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge" id="editEntryTypeBadge">-</span>
                         <span id="editEntryName" class="fw-medium">-</span>
-                        <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="editChangeSourceBtn">
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="editChangeSourceBtn" title="Change source">
                             <i class="bi bi-pencil me-1"></i>Change
                         </button>
                     </div>
@@ -661,7 +661,7 @@
                 </div>
             </div>
             <div class="modal-footer justify-content-between">
-                <button type="button" class="btn btn-danger" id="editDeleteBtn">
+                <button type="button" class="btn btn-danger" id="editDeleteBtn" title="Delete this entry">
                     <i class="bi bi-trash me-1"></i>Delete
                 </button>
                 <div>
