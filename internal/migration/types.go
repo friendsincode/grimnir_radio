@@ -9,6 +9,9 @@ package migration
 
 import (
 	"context"
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -184,4 +187,62 @@ type MigrationStats struct {
 	SchedulesImported int
 	UsersImported     int
 	ErrorsEncountered int
+}
+
+// Scanner/Valuer interfaces for GORM JSONB support
+
+// Value implements driver.Valuer for Options
+func (o Options) Value() (driver.Value, error) {
+	return json.Marshal(o)
+}
+
+// Scan implements sql.Scanner for Options
+func (o *Options) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal Options: expected []byte, got %T", value)
+	}
+	return json.Unmarshal(bytes, o)
+}
+
+// Value implements driver.Valuer for Progress
+func (p Progress) Value() (driver.Value, error) {
+	return json.Marshal(p)
+}
+
+// Scan implements sql.Scanner for Progress
+func (p *Progress) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal Progress: expected []byte, got %T", value)
+	}
+	return json.Unmarshal(bytes, p)
+}
+
+// Value implements driver.Valuer for Result
+func (r Result) Value() (driver.Value, error) {
+	return json.Marshal(r)
+}
+
+// Scan implements sql.Scanner for Result
+func (r *Result) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal Result: expected []byte, got %T", value)
+	}
+	return json.Unmarshal(bytes, r)
+}
+
+// String returns the string representation of SourceType for template compatibility
+func (s SourceType) String() string {
+	return string(s)
 }

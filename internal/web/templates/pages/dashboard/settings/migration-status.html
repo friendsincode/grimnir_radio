@@ -29,7 +29,7 @@
 {{if eq .Status "running"}}
 <div class="card mb-3 border-primary" data-job-id="{{.ID}}">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-arrow-repeat me-2 spin"></i><strong>{{.SourceType | title}} Import</strong></span>
+        <span><i class="bi bi-arrow-repeat me-2 spin"></i><strong>{{.SourceType.String | title}} Import</strong></span>
         <span class="badge bg-light text-primary">Running</span>
     </div>
     <div class="card-body">
@@ -87,7 +87,7 @@
 {{if ne .Status "running"}}
 <div class="list-group-item d-flex justify-content-between align-items-start">
     <div class="ms-2 me-auto">
-        <div class="fw-bold">{{.SourceType | title}} Import</div>
+        <div class="fw-bold">{{.SourceType.String | title}} Import</div>
         <small class="text-body-secondary">
             {{if .StartedAt}}Started {{.StartedAt | timeago}}{{else}}Created {{.CreatedAt | timeago}}{{end}}
             {{if .CompletedAt}} &middot; Completed {{.CompletedAt | timeago}}{{end}}
