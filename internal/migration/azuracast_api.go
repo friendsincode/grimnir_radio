@@ -152,10 +152,13 @@ func (c *AzuraCastAPIClient) doRequest(ctx context.Context, method, path string)
 	}
 
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
 
 	// Use API key if available, otherwise use session token
+	// AzuraCast accepts both X-API-Key header and Authorization Bearer
 	if c.apiKey != "" {
 		req.Header.Set("X-API-Key", c.apiKey)
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	} else if c.sessionToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.sessionToken)
 	}
