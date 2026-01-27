@@ -3,7 +3,8 @@
 {{end}}
 
 {{define "main"}}
-{{$media := .Data}}
+{{$media := index .Data "Media"}}
+{{$station := index .Data "Station"}}
 <div class="container py-5">
     <nav aria-label="breadcrumb" class="mb-4">
         <ol class="breadcrumb">
@@ -30,10 +31,17 @@
                         <div class="flex-grow-1">
                             <h1 class="h3 mb-2">{{$media.Title}}</h1>
                             {{if $media.Artist}}<p class="lead text-body-secondary mb-3">{{$media.Artist}}</p>{{end}}
-                            <button class="btn btn-primary btn-lg"
-                                    onclick="playArchiveTrack('{{$media.ID}}', '{{$media.Title}}', '{{$media.Artist}}')">
-                                <i class="bi bi-play-fill me-2"></i>Play
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-primary btn-lg"
+                                        onclick="playArchiveTrack('{{$media.ID}}', '{{$media.Title}}', '{{$media.Artist}}')">
+                                    <i class="bi bi-play-fill me-2"></i>Play
+                                </button>
+                                {{if $media.AllowDownload}}
+                                <a href="/archive/{{$media.ID}}/stream?download=1" class="btn btn-outline-secondary btn-lg" download>
+                                    <i class="bi bi-download me-2"></i>Download
+                                </a>
+                                {{end}}
+                            </div>
                         </div>
                     </div>
 

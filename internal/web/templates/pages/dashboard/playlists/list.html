@@ -30,6 +30,26 @@
     </div>
 </div>
 
+<!-- Bulk Actions Toolbar -->
+<div class="card mb-3 d-none" id="bulkActionsBar">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center gap-3">
+            <span class="text-body-secondary">
+                <strong id="selectedCount">0</strong> selected
+            </span>
+            <div class="vr"></div>
+            <button class="btn btn-sm btn-outline-danger" onclick="bulkAction('delete')" title="Delete selected">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+            <div class="ms-auto">
+                <button class="btn btn-sm btn-link text-body-secondary" onclick="clearSelection()" title="Clear selection">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Card View -->
 <div class="row g-4" id="cardView">
     {{range .Data}}
@@ -39,13 +59,18 @@
             {{if $hasCover}}<div class="card-overlay"></div>{{end}}
             <div class="card-body d-flex flex-column {{if $hasCover}}position-relative{{end}}">
                 <div class="d-flex justify-content-between align-items-start mb-2">
-                    <h5 class="card-title mb-0 {{if $hasCover}}text-white text-shadow{{end}}">{{.Name}}</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="form-check-input playlist-checkbox"
+                               value="{{.ID}}" onchange="updateSelection()" onclick="event.stopPropagation();">
+                        <h5 class="card-title mb-0 {{if $hasCover}}text-white text-shadow{{end}}">{{.Name}}</h5>
+                    </div>
                     <button class="btn btn-sm {{if $hasCover}}btn-danger{{else}}btn-outline-danger{{end}} delete-btn"
                             hx-delete="/dashboard/playlists/{{.ID}}"
                             hx-confirm="Delete this playlist?"
                             hx-target="closest .col-sm-6"
                             hx-swap="outerHTML"
-                            onclick="event.stopPropagation();">
+                            onclick="event.stopPropagation();"
+                            title="Delete playlist">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>
@@ -53,8 +78,8 @@
                 <p class="card-text {{if $hasCover}}text-white-50{{else}}text-body-secondary{{end}} small mb-2">{{truncate .Description 80}}</p>
                 {{end}}
                 <div class="mt-auto d-flex gap-2">
-                    <span class="badge {{if $hasCover}}bg-dark bg-opacity-75{{else}}bg-secondary{{end}}">{{.ItemCount}} items</span>
-                    {{if .TotalDuration}}<span class="badge {{if $hasCover}}bg-dark bg-opacity-75{{else}}bg-info{{end}}"><i class="bi bi-clock me-1"></i>{{formatDuration .TotalDuration}}</span>{{end}}
+                    <span class="badge {{if $hasCover}}bg-dark bg-opacity-75{{else}}bg-secondary{{end}}" title="Number of tracks">{{.ItemCount}} items</span>
+                    {{if .TotalDuration}}<span class="badge {{if $hasCover}}bg-dark bg-opacity-75{{else}}bg-info{{end}}" title="Total duration"><i class="bi bi-clock me-1"></i>{{formatDuration .TotalDuration}}</span>{{end}}
                 </div>
 
                 <!-- Hover Preview -->
@@ -92,6 +117,10 @@
         <table class="table table-hover mb-0">
             <thead>
                 <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" class="form-check-input" id="selectAllList"
+                               onchange="toggleSelectAll(this)" title="Select all">
+                    </th>
                     <th>Name</th>
                     <th>Description</th>
                     <th>Items</th>
@@ -103,9 +132,13 @@
             <tbody>
                 {{range .Data}}
                 <tr class="playlist-row" data-playlist-id="{{.ID}}" style="cursor: pointer;">
+                    <td onclick="event.stopPropagation()">
+                        <input type="checkbox" class="form-check-input playlist-checkbox"
+                               value="{{.ID}}" onchange="updateSelection()">
+                    </td>
                     <td class="fw-medium">{{.Name}}</td>
                     <td class="text-body-secondary">{{if .Description}}{{truncate .Description 50}}{{else}}-{{end}}</td>
-                    <td><span class="badge bg-secondary">{{.ItemCount}}</span></td>
+                    <td><span class="badge bg-secondary" title="Number of tracks">{{.ItemCount}}</span></td>
                     <td class="text-body-secondary">{{if .TotalDuration}}{{formatDuration .TotalDuration}}{{else}}-{{end}}</td>
                     <td class="text-body-secondary small">{{formatTime .CreatedAt}}</td>
                     <td>
@@ -114,14 +147,15 @@
                                 hx-confirm="Delete this playlist?"
                                 hx-target="closest tr"
                                 hx-swap="outerHTML"
-                                onclick="event.stopPropagation();">
+                                onclick="event.stopPropagation();"
+                                title="Delete playlist">
                             <i class="bi bi-trash"></i>
                         </button>
                     </td>
                 </tr>
                 {{else}}
                 <tr>
-                    <td colspan="6" class="text-center py-5 text-body-secondary">
+                    <td colspan="7" class="text-center py-5 text-body-secondary">
                         No playlists yet. <a href="/dashboard/playlists/new">Create your first one</a>
                     </td>
                 </tr>
@@ -168,8 +202,8 @@ viewListBtn.addEventListener('click', () => {
 // Click on card/row to go to detail
 document.querySelectorAll('.playlist-card, .playlist-row').forEach(el => {
     el.addEventListener('click', (e) => {
-        // Don't navigate if clicking delete button
-        if (e.target.closest('.delete-btn')) return;
+        // Don't navigate if clicking delete button or checkbox
+        if (e.target.closest('.delete-btn') || e.target.closest('.form-check-input')) return;
         const id = el.dataset.playlistId;
         if (id) {
             window.location.href = '/dashboard/playlists/' + id;
@@ -190,6 +224,68 @@ document.querySelectorAll('.playlist-card').forEach(card => {
         preview.style.display = 'none';
     });
 });
+
+// Bulk selection
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.playlist-checkbox:checked')).map(cb => cb.value);
+}
+
+function updateSelection() {
+    const selected = getSelectedIds();
+    const bar = document.getElementById('bulkActionsBar');
+    const count = document.getElementById('selectedCount');
+
+    if (selected.length > 0) {
+        bar.classList.remove('d-none');
+        count.textContent = selected.length;
+    } else {
+        bar.classList.add('d-none');
+    }
+}
+
+function toggleSelectAll(checkbox) {
+    // Only toggle checkboxes in visible view
+    const visibleView = cardView.classList.contains('d-none') ? listView : cardView;
+    visibleView.querySelectorAll('.playlist-checkbox').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateSelection();
+}
+
+function clearSelection() {
+    document.querySelectorAll('.playlist-checkbox').forEach(cb => cb.checked = false);
+    const selectAllList = document.getElementById('selectAllList');
+    if (selectAllList) selectAllList.checked = false;
+    updateSelection();
+}
+
+function bulkAction(action) {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+
+    let message = '';
+    switch(action) {
+        case 'delete': message = `DELETE ${ids.length} playlist(s)? This cannot be undone!`; break;
+        default: message = `Apply action to ${ids.length} playlist(s)?`;
+    }
+
+    if (!confirm(message)) return;
+
+    fetch('/dashboard/playlists/bulk', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'HX-Request': 'true'
+        },
+        body: JSON.stringify({ action: action, ids: ids })
+    }).then(response => {
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            response.text().then(text => alert('Error: ' + text));
+        }
+    }).catch(err => alert('Error: ' + err));
+}
 </script>
 
 <style>

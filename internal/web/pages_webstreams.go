@@ -120,10 +120,16 @@ func (h *Handler) WebstreamCreate(w http.ResponseWriter, r *http.Request) {
 
 // WebstreamDetail renders the webstream detail page
 func (h *Handler) WebstreamDetail(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var webstream models.Webstream
-	if err := h.db.First(&webstream, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&webstream, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -137,10 +143,16 @@ func (h *Handler) WebstreamDetail(w http.ResponseWriter, r *http.Request) {
 
 // WebstreamEdit renders the webstream edit form
 func (h *Handler) WebstreamEdit(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var webstream models.Webstream
-	if err := h.db.First(&webstream, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&webstream, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -157,10 +169,16 @@ func (h *Handler) WebstreamEdit(w http.ResponseWriter, r *http.Request) {
 
 // WebstreamUpdate handles webstream updates
 func (h *Handler) WebstreamUpdate(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var webstream models.Webstream
-	if err := h.db.First(&webstream, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&webstream, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -211,9 +229,22 @@ func (h *Handler) WebstreamUpdate(w http.ResponseWriter, r *http.Request) {
 
 // WebstreamDelete handles webstream deletion
 func (h *Handler) WebstreamDelete(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
-	if err := h.db.Delete(&models.Webstream{}, "id = ?", id).Error; err != nil {
+	// Verify webstream belongs to station
+	var webstream models.Webstream
+	if err := h.db.First(&webstream, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.db.Delete(&models.Webstream{}, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.Error(w, "Failed to delete webstream", http.StatusInternalServerError)
 		return
 	}
@@ -228,10 +259,16 @@ func (h *Handler) WebstreamDelete(w http.ResponseWriter, r *http.Request) {
 
 // WebstreamFailover triggers a manual failover
 func (h *Handler) WebstreamFailover(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var webstream models.Webstream
-	if err := h.db.First(&webstream, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&webstream, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -259,10 +296,16 @@ func (h *Handler) WebstreamFailover(w http.ResponseWriter, r *http.Request) {
 
 // WebstreamReset resets to primary URL
 func (h *Handler) WebstreamReset(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 
 	var webstream models.Webstream
-	if err := h.db.First(&webstream, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&webstream, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}

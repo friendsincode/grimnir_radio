@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -231,6 +232,15 @@ func (h *Handler) AdminUserUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid platform role", http.StatusBadRequest)
 			return
 		}
+
+		// If demoting an admin to a non-admin role, check if they're the last admin
+		if targetUser.PlatformRole == models.PlatformRoleAdmin && newRole != models.PlatformRoleAdmin {
+			if errMsg := h.ensureAtLeastOneAdmin([]string{targetUser.ID}); errMsg != "" {
+				http.Error(w, errMsg, http.StatusBadRequest)
+				return
+			}
+		}
+
 		targetUser.PlatformRole = newRole
 	}
 
@@ -281,6 +291,20 @@ func (h *Handler) AdminUserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if deleting this user would leave no admins
+	var targetUser models.User
+	if err := h.db.First(&targetUser, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if targetUser.PlatformRole == models.PlatformRoleAdmin {
+		if errMsg := h.ensureAtLeastOneAdmin([]string{id}); errMsg != "" {
+			http.Error(w, errMsg, http.StatusBadRequest)
+			return
+		}
+	}
+
 	if err := h.db.Delete(&models.User{}, "id = ?", id).Error; err != nil {
 		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
 		return
@@ -296,4 +320,193 @@ func (h *Handler) AdminUserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/dashboard/admin/users", http.StatusSeeOther)
+}
+
+// BulkRequest is the JSON structure for bulk action requests
+type BulkRequest struct {
+	Action string   `json:"action"`
+	IDs    []string `json:"ids"`
+	Value  string   `json:"value,omitempty"`
+}
+
+// ensureAtLeastOneAdmin checks if demoting or deleting users would leave the platform without admins.
+// Returns an error message if the operation would leave no admins, or empty string if safe to proceed.
+func (h *Handler) ensureAtLeastOneAdmin(excludeIDs []string) string {
+	// Count remaining admins not in the exclude list
+	var adminCount int64
+	h.db.Model(&models.User{}).
+		Where("platform_role = ?", models.PlatformRoleAdmin).
+		Where("id NOT IN ?", excludeIDs).
+		Count(&adminCount)
+
+	if adminCount == 0 {
+		return "Cannot perform this action - it would leave the platform without any administrators"
+	}
+	return ""
+}
+
+// promoteFirstUserToAdmin ensures there's at least one platform admin.
+// If no admin exists, promotes the first created user.
+func (h *Handler) promoteFirstUserToAdmin() {
+	var adminCount int64
+	h.db.Model(&models.User{}).Where("platform_role = ?", models.PlatformRoleAdmin).Count(&adminCount)
+
+	if adminCount == 0 {
+		// Find the first user by creation time
+		var firstUser models.User
+		if err := h.db.Order("created_at ASC").First(&firstUser).Error; err == nil {
+			firstUser.PlatformRole = models.PlatformRoleAdmin
+			h.db.Save(&firstUser)
+			h.logger.Warn().
+				Str("user_id", firstUser.ID).
+				Str("email", firstUser.Email).
+				Msg("promoted first user to platform admin - no other admins exist")
+		}
+	}
+}
+
+// AdminStationsBulk handles bulk actions on stations
+func (h *Handler) AdminStationsBulk(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	var req BulkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		http.Error(w, "No items selected", http.StatusBadRequest)
+		return
+	}
+
+	var affected int64
+	var err error
+
+	switch req.Action {
+	case "activate":
+		result := h.db.Model(&models.Station{}).Where("id IN ?", req.IDs).Update("active", true)
+		affected, err = result.RowsAffected, result.Error
+	case "deactivate":
+		result := h.db.Model(&models.Station{}).Where("id IN ?", req.IDs).Update("active", false)
+		affected, err = result.RowsAffected, result.Error
+	case "make_public":
+		result := h.db.Model(&models.Station{}).Where("id IN ?", req.IDs).Update("public", true)
+		affected, err = result.RowsAffected, result.Error
+	case "make_private":
+		result := h.db.Model(&models.Station{}).Where("id IN ?", req.IDs).Update("public", false)
+		affected, err = result.RowsAffected, result.Error
+	case "approve":
+		result := h.db.Model(&models.Station{}).Where("id IN ?", req.IDs).Update("approved", true)
+		affected, err = result.RowsAffected, result.Error
+	case "unapprove":
+		result := h.db.Model(&models.Station{}).Where("id IN ?", req.IDs).Update("approved", false)
+		affected, err = result.RowsAffected, result.Error
+	case "delete":
+		result := h.db.Where("id IN ?", req.IDs).Delete(&models.Station{})
+		affected, err = result.RowsAffected, result.Error
+	default:
+		http.Error(w, "Unknown action", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		h.logger.Error().Err(err).Str("action", req.Action).Msg("bulk station action failed")
+		http.Error(w, "Operation failed", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("action", req.Action).
+		Int64("affected", affected).
+		Str("admin_id", user.ID).
+		Msg("bulk station action completed")
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// AdminUsersBulk handles bulk actions on users
+func (h *Handler) AdminUsersBulk(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	var req BulkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		http.Error(w, "No items selected", http.StatusBadRequest)
+		return
+	}
+
+	// Filter out current user from bulk operations
+	filteredIDs := make([]string, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if id != user.ID {
+			filteredIDs = append(filteredIDs, id)
+		}
+	}
+	if len(filteredIDs) == 0 {
+		http.Error(w, "Cannot perform bulk action on yourself", http.StatusBadRequest)
+		return
+	}
+
+	var affected int64
+	var err error
+
+	switch req.Action {
+	case "set_role_user":
+		// Check if demoting admins would leave no admins
+		if errMsg := h.ensureAtLeastOneAdmin(filteredIDs); errMsg != "" {
+			http.Error(w, errMsg, http.StatusBadRequest)
+			return
+		}
+		result := h.db.Model(&models.User{}).Where("id IN ?", filteredIDs).Update("platform_role", models.PlatformRoleUser)
+		affected, err = result.RowsAffected, result.Error
+	case "set_role_mod":
+		// Check if demoting admins would leave no admins
+		if errMsg := h.ensureAtLeastOneAdmin(filteredIDs); errMsg != "" {
+			http.Error(w, errMsg, http.StatusBadRequest)
+			return
+		}
+		result := h.db.Model(&models.User{}).Where("id IN ?", filteredIDs).Update("platform_role", models.PlatformRoleMod)
+		affected, err = result.RowsAffected, result.Error
+	case "set_role_admin":
+		result := h.db.Model(&models.User{}).Where("id IN ?", filteredIDs).Update("platform_role", models.PlatformRoleAdmin)
+		affected, err = result.RowsAffected, result.Error
+	case "delete":
+		// Check if deleting admins would leave no admins
+		if errMsg := h.ensureAtLeastOneAdmin(filteredIDs); errMsg != "" {
+			http.Error(w, errMsg, http.StatusBadRequest)
+			return
+		}
+		result := h.db.Where("id IN ?", filteredIDs).Delete(&models.User{})
+		affected, err = result.RowsAffected, result.Error
+	default:
+		http.Error(w, "Unknown action", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		h.logger.Error().Err(err).Str("action", req.Action).Msg("bulk user action failed")
+		http.Error(w, "Operation failed", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("action", req.Action).
+		Int64("affected", affected).
+		Str("admin_id", user.ID).
+		Msg("bulk user action completed")
+
+	w.WriteHeader(http.StatusOK)
 }

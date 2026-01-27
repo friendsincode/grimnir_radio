@@ -20,11 +20,52 @@
     </a>
 </div>
 
+<!-- Bulk Actions Toolbar -->
+<div class="card mb-3 d-none" id="bulkActionsBar">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center gap-3">
+            <span class="text-body-secondary">
+                <strong id="selectedCount">0</strong> selected
+            </span>
+            <div class="vr"></div>
+            <div class="dropdown">
+                <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" title="Change role">
+                    <i class="bi bi-shield me-1"></i>Set Role
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#" onclick="bulkAction('set_role_user')">
+                        <i class="bi bi-person me-2"></i>User
+                    </a></li>
+                    <li><a class="dropdown-item" href="#" onclick="bulkAction('set_role_mod')">
+                        <i class="bi bi-shield-check me-2"></i>Platform Mod
+                    </a></li>
+                    <li><a class="dropdown-item" href="#" onclick="bulkAction('set_role_admin')">
+                        <i class="bi bi-shield-fill me-2"></i>Platform Admin
+                    </a></li>
+                </ul>
+            </div>
+            <div class="vr"></div>
+            <button class="btn btn-sm btn-outline-danger" onclick="bulkAction('delete')" title="Delete selected">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+            <div class="ms-auto">
+                <button class="btn btn-sm btn-link text-body-secondary" onclick="clearSelection()" title="Clear selection">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead>
                 <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" class="form-check-input" id="selectAll"
+                               onchange="toggleSelectAll(this)" title="Select all">
+                    </th>
                     <th>Email</th>
                     <th>Platform Role</th>
                     <th>Created</th>
@@ -35,20 +76,29 @@
                 {{range .Data.AllUsers}}
                 <tr>
                     <td>
+                        {{if ne .ID $.User.ID}}
+                        <input type="checkbox" class="form-check-input user-checkbox"
+                               value="{{.ID}}" onchange="updateSelection()">
+                        {{end}}
+                    </td>
+                    <td>
                         <i class="bi bi-person-circle me-2"></i>
                         <strong>{{.Email}}</strong>
+                        {{if eq .ID $.User.ID}}
+                        <span class="badge bg-info ms-1" title="This is you">You</span>
+                        {{end}}
                     </td>
                     <td>
                         {{if eq .PlatformRole "platform_admin"}}
-                        <span class="badge bg-danger">
+                        <span class="badge bg-danger" title="Full platform access">
                             <i class="bi bi-shield-fill me-1"></i>Platform Admin
                         </span>
                         {{else if eq .PlatformRole "platform_mod"}}
-                        <span class="badge bg-warning text-dark">
+                        <span class="badge bg-warning text-dark" title="Can moderate content">
                             <i class="bi bi-shield-fill-check me-1"></i>Platform Mod
                         </span>
                         {{else}}
-                        <span class="badge bg-info">
+                        <span class="badge bg-info" title="Regular user">
                             <i class="bi bi-person-fill me-1"></i>User
                         </span>
                         {{end}}
@@ -72,7 +122,7 @@
                 </tr>
                 {{else}}
                 <tr>
-                    <td colspan="4" class="text-center py-5 text-body-secondary">
+                    <td colspan="5" class="text-center py-5 text-body-secondary">
                         No users found
                     </td>
                 </tr>
@@ -100,4 +150,71 @@
         </div>
     </div>
 </div>
+
+<script>
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value);
+}
+
+function updateSelection() {
+    const selected = getSelectedIds();
+    const bar = document.getElementById('bulkActionsBar');
+    const count = document.getElementById('selectedCount');
+    const selectAll = document.getElementById('selectAll');
+    const total = document.querySelectorAll('.user-checkbox').length;
+
+    if (selected.length > 0) {
+        bar.classList.remove('d-none');
+        count.textContent = selected.length;
+    } else {
+        bar.classList.add('d-none');
+    }
+
+    selectAll.checked = selected.length === total && total > 0;
+    selectAll.indeterminate = selected.length > 0 && selected.length < total;
+}
+
+function toggleSelectAll(checkbox) {
+    document.querySelectorAll('.user-checkbox').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateSelection();
+}
+
+function clearSelection() {
+    document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('selectAll').checked = false;
+    updateSelection();
+}
+
+function bulkAction(action) {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+
+    let message = '';
+    switch(action) {
+        case 'set_role_user': message = `Set ${ids.length} user(s) to User role?`; break;
+        case 'set_role_mod': message = `Set ${ids.length} user(s) to Platform Mod role?`; break;
+        case 'set_role_admin': message = `Set ${ids.length} user(s) to Platform Admin role?`; break;
+        case 'delete': message = `DELETE ${ids.length} user(s)? This cannot be undone!`; break;
+    }
+
+    if (!confirm(message)) return;
+
+    fetch('/dashboard/admin/users/bulk', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'HX-Request': 'true'
+        },
+        body: JSON.stringify({ action: action, ids: ids })
+    }).then(response => {
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            response.text().then(text => alert('Error: ' + text));
+        }
+    }).catch(err => alert('Error: ' + err));
+}
+</script>
 {{end}}

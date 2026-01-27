@@ -29,11 +29,18 @@ func (h *Handler) ScheduleCalendar(w http.ResponseWriter, r *http.Request) {
 	var mounts []models.Mount
 	h.db.Where("station_id = ?", station.ID).Find(&mounts)
 
+	// Get user's color theme
+	colorTheme := "default"
+	if user := h.GetUser(r); user != nil && user.CalendarColorTheme != "" {
+		colorTheme = user.CalendarColorTheme
+	}
+
 	h.Render(w, r, "pages/dashboard/schedule/calendar", PageData{
 		Title:    "Schedule",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"Mounts": mounts,
+			"Mounts":     mounts,
+			"ColorTheme": colorTheme,
 		},
 	})
 }

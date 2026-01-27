@@ -5,72 +5,272 @@
 {{define "main"}}
 {{$data := .Data}}
 {{$stations := index $data "Stations"}}
-{{$entries := index $data "Entries"}}
 {{$stationID := index $data "StationID"}}
-<div class="container py-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="bi bi-calendar3 me-2"></i>Schedule</h1>
+<div class="container-fluid py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+        <h1 class="mb-0"><i class="bi bi-calendar3 me-2"></i>Schedule</h1>
 
-        {{if $stations}}
-        <div class="dropdown">
-            <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                <i class="bi bi-broadcast me-1"></i>
-                {{if $stationID}}
-                    {{range $stations}}{{if eq .ID $stationID}}{{.Name}}{{end}}{{end}}
-                {{else}}
-                    All Stations
-                {{end}}
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end">
-                <li><a class="dropdown-item {{if not $stationID}}active{{end}}" href="/schedule">All Stations</a></li>
-                <li><hr class="dropdown-divider"></li>
-                {{range $stations}}
-                <li><a class="dropdown-item {{if eq .ID $stationID}}active{{end}}" href="/schedule?station_id={{.ID}}">{{.Name}}</a></li>
-                {{end}}
-            </ul>
-        </div>
-        {{end}}
-    </div>
-
-    <p class="text-body-secondary mb-4">Upcoming shows and programs for the next 48 hours</p>
-
-    {{if $entries}}
-    <div class="list-group">
-        {{range $entries}}
-        <div class="list-group-item">
-            <div class="d-flex w-100 justify-content-between align-items-start">
-                <div>
-                    <h5 class="mb-1">
-                        {{if eq .Type "playlist"}}
-                        <i class="bi bi-music-note-list text-primary me-1"></i>
-                        {{else if eq .Type "smartblock"}}
-                        <i class="bi bi-lightning text-warning me-1"></i>
-                        {{else if eq .Type "live"}}
-                        <i class="bi bi-broadcast text-danger me-1"></i>
-                        {{else if eq .Type "webstream"}}
-                        <i class="bi bi-globe text-info me-1"></i>
-                        {{end}}
-                        {{.Title}}
-                    </h5>
-                    {{if .Description}}
-                    <p class="mb-1 text-body-secondary">{{.Description}}</p>
+        <div class="d-flex align-items-center gap-2">
+            {{if $stations}}
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="bi bi-broadcast me-1"></i>
+                    {{if $stationID}}
+                        {{range $stations}}{{if eq .ID $stationID}}{{.Name}}{{end}}{{end}}
+                    {{else}}
+                        All Stations
                     {{end}}
-                </div>
-                <div class="text-end">
-                    <span class="badge bg-primary">{{formatTime .StartsAt}}</span>
-                    {{if .Duration}}
-                    <br><small class="text-body-secondary">{{formatDuration .Duration}}</small>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item {{if not $stationID}}active{{end}}" href="/schedule">All Stations</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    {{range $stations}}
+                    <li><a class="dropdown-item {{if eq .ID $stationID}}active{{end}}" href="/schedule?station_id={{.ID}}">{{.Name}}</a></li>
                     {{end}}
-                </div>
+                </ul>
             </div>
+            {{end}}
         </div>
-        {{end}}
     </div>
-    {{else}}
-    <div class="alert alert-info">
-        <i class="bi bi-info-circle me-2"></i>
-        No scheduled content in the next 48 hours.
+
+    <!-- Station Legend (will be colored by JavaScript based on theme) -->
+    {{if and $stations (not $stationID)}}
+    <div class="mb-3">
+        <div class="d-flex flex-wrap gap-2" id="stationLegend">
+            {{range $i, $s := $stations}}
+            <span class="badge station-badge" data-index="{{$i}}">{{$s.Name}}</span>
+            {{end}}
+        </div>
     </div>
     {{end}}
+
+    <!-- Calendar Container -->
+    <div class="card">
+        <div class="card-body p-0">
+            <div id="public-calendar"></div>
+        </div>
+    </div>
 </div>
+
+<!-- Event Detail Popover Template (hidden) -->
+<div id="event-popover-template" style="display: none;">
+    <div class="p-2">
+        <div class="fw-bold mb-2" data-title></div>
+        <div class="small text-body-secondary mb-1">
+            <i class="bi bi-broadcast me-1"></i>
+            <span data-station></span>
+        </div>
+        <div class="small text-body-secondary mb-1">
+            <i class="bi bi-music-note me-1"></i>
+            <span data-mount></span>
+        </div>
+        <div class="small text-body-secondary mb-1">
+            <i class="bi bi-clock me-1"></i>
+            <span data-time></span>
+        </div>
+        <div class="small">
+            <span class="badge bg-secondary" data-type></span>
+        </div>
+    </div>
+</div>
+
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+
+<style>
+/* Calendar styling */
+#public-calendar {
+    padding: 1rem;
+}
+
+/* Event styling */
+.fc-event {
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-size: 0.85em;
+}
+
+.fc-daygrid-event {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Event type indicators */
+.event-playlist { border-left: 3px solid var(--bs-primary) !important; }
+.event-smart_block { border-left: 3px solid var(--bs-warning) !important; }
+.event-webstream { border-left: 3px solid var(--bs-info) !important; }
+.event-live { border-left: 3px solid var(--bs-danger) !important; }
+.event-media { border-left: 3px solid var(--bs-success) !important; }
+.event-clock_template { border-left: 3px solid var(--bs-purple) !important; }
+
+/* Popover styling */
+.fc-popover {
+    max-width: 300px;
+}
+
+/* Responsive toolbar */
+@media (max-width: 768px) {
+    .fc-toolbar {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .fc-toolbar-chunk {
+        display: flex;
+        justify-content: center;
+    }
+}
+
+/* List view styling */
+.fc-list-event-title {
+    font-weight: 500;
+}
+
+.fc-list-day-cushion {
+    background-color: var(--bs-light);
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const calendarEl = document.getElementById('public-calendar');
+    const stationID = '{{$stationID}}';
+    const colorTheme = '{{index .Data "ColorTheme"}}' || 'default';
+
+    // Color themes
+    const colorThemes = {
+        'default': ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'],
+        'ocean': ['#0ea5e9', '#14b8a6', '#06b6d4', '#3b82f6', '#0891b2', '#22d3ee', '#0284c7', '#2dd4bf'],
+        'forest': ['#22c55e', '#10b981', '#84cc16', '#16a34a', '#059669', '#4ade80', '#15803d', '#a3e635'],
+        'sunset': ['#f97316', '#ef4444', '#ec4899', '#f43f5e', '#fb923c', '#e11d48', '#f472b6', '#dc2626'],
+        'berry': ['#a855f7', '#8b5cf6', '#d946ef', '#c026d3', '#9333ea', '#e879f9', '#7c3aed', '#f0abfc'],
+        'earth': ['#92400e', '#f59e0b', '#78716c', '#b45309', '#d97706', '#a16207', '#fbbf24', '#6b7280'],
+        'neon': ['#00ff88', '#ff0088', '#00ffff', '#ffff00', '#ff00ff', '#88ff00', '#0088ff', '#ff8800'],
+        'pastel': ['#93c5fd', '#a5b4fc', '#c4b5fd', '#f9a8d4', '#fca5a5', '#fed7aa', '#fde68a', '#bbf7d0']
+    };
+
+    const themeColors = colorThemes[colorTheme] || colorThemes['default'];
+
+    // Station colors mapping using selected theme
+    const stationColors = {
+        {{range $i, $s := $stations}}
+        '{{$s.ID}}': themeColors[{{$i}} % themeColors.length],
+        {{end}}
+    };
+
+    // Color the station legend badges
+    document.querySelectorAll('.station-badge').forEach(badge => {
+        const index = parseInt(badge.dataset.index, 10);
+        badge.style.backgroundColor = themeColors[index % themeColors.length];
+    });
+
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+        },
+        buttonText: {
+            today: 'Today',
+            month: 'Month',
+            week: 'Week',
+            day: 'Day',
+            list: 'List'
+        },
+
+        // View-only settings (no editing)
+        editable: false,
+        selectable: false,
+        eventStartEditable: false,
+        eventDurationEditable: false,
+
+        // Event sources
+        events: function(info, successCallback, failureCallback) {
+            let url = '/schedule/events?start=' + info.startStr + '&end=' + info.endStr + '&theme=' + colorTheme;
+            if (stationID) {
+                url += '&station_id=' + stationID;
+            }
+
+            fetch(url)
+                .then(response => response.json())
+                .then(events => successCallback(events))
+                .catch(error => {
+                    console.error('Error loading events:', error);
+                    failureCallback(error);
+                });
+        },
+
+        // Event display
+        eventDisplay: 'block',
+        displayEventTime: true,
+        displayEventEnd: false,
+
+        // Hover tooltip
+        eventDidMount: function(info) {
+            const props = info.event.extendedProps;
+            const startTime = info.event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            const endTime = info.event.end ? info.event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+
+            // Create tooltip content
+            let tooltipContent = `
+                <strong>${info.event.title}</strong><br>
+                <small class="text-body-secondary">
+                    <i class="bi bi-broadcast me-1"></i>${props.station_name || 'Unknown Station'}<br>
+                    <i class="bi bi-music-note me-1"></i>${props.mount_name || 'Default Mount'}<br>
+                    <i class="bi bi-clock me-1"></i>${startTime}${endTime ? ' - ' + endTime : ''}<br>
+                    <span class="badge bg-secondary">${props.source_label || props.source_type}</span>
+                </small>
+            `;
+
+            // Use Bootstrap tooltip
+            new bootstrap.Tooltip(info.el, {
+                title: tooltipContent,
+                html: true,
+                placement: 'top',
+                trigger: 'hover',
+                container: 'body'
+            });
+        },
+
+        // Click event (show details)
+        eventClick: function(info) {
+            const props = info.event.extendedProps;
+            const startTime = info.event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            const endTime = info.event.end ? info.event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+            const dateStr = info.event.start.toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric'});
+
+            // Show alert with event details (simple approach)
+            const message = `
+${info.event.title}
+
+Station: ${props.station_name || 'Unknown'}
+Mount: ${props.mount_name || 'Default'}
+Type: ${props.source_label || props.source_type}
+Date: ${dateStr}
+Time: ${startTime}${endTime ? ' - ' + endTime : ''}
+            `.trim();
+
+            alert(message);
+        },
+
+        // Time settings
+        nowIndicator: true,
+        slotMinTime: '00:00:00',
+        slotMaxTime: '24:00:00',
+
+        // Week settings
+        firstDay: 1, // Monday
+        weekNumbers: false,
+
+        // List view settings
+        listDayFormat: { weekday: 'long', month: 'long', day: 'numeric' },
+        listDaySideFormat: false,
+        noEventsContent: 'No scheduled content for this period.'
+    });
+
+    calendar.render();
+});
+</script>
 {{end}}

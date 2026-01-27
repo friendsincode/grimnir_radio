@@ -153,6 +153,37 @@
                 </div>
             </div>
 
+            <!-- Archive Visibility -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-globe me-2"></i>Public Archive Settings</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" name="show_in_archive" id="showInArchive"
+                                       {{if $media.ShowInArchive}}checked{{end}}>
+                                <label class="form-check-label" for="showInArchive">
+                                    Show in public archive
+                                </label>
+                                <div class="form-text">When enabled, this track will be visible in the public archive browser.</div>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" name="allow_download" id="allowDownload"
+                                       {{if $media.AllowDownload}}checked{{end}}>
+                                <label class="form-check-label" for="allowDownload">
+                                    Allow downloads
+                                </label>
+                                <div class="form-text">When enabled, listeners can download this track from the public archive.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- File Info (read-only) -->
             <div class="card mb-4">
                 <div class="card-header">

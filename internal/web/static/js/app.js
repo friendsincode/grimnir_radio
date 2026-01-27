@@ -514,6 +514,11 @@ class GlobalPlayer {
         this.artworkEl = document.getElementById('playerArtwork');
         this.currentTimeEl = document.getElementById('playerCurrentTime');
         this.durationEl = document.getElementById('playerDuration');
+        this.stationSelector = document.getElementById('playerStationSelector');
+        this.stationMenu = document.getElementById('playerStationMenu');
+
+        // Cached stations for quick switching
+        this.publicStations = [];
 
         this.init();
     }
@@ -578,6 +583,53 @@ class GlobalPlayer {
                 this.saveState();
             }
         }, 5000);
+
+        // Load public stations for the station selector
+        this.loadPublicStations();
+    }
+
+    async loadPublicStations() {
+        try {
+            const response = await fetch('/api/v1/public/stations');
+            if (response.ok) {
+                this.publicStations = await response.json();
+                this.updateStationMenu();
+            }
+        } catch (e) {
+            console.debug('Failed to load public stations:', e);
+        }
+    }
+
+    updateStationMenu() {
+        if (!this.stationMenu || this.publicStations.length === 0) return;
+
+        let html = '';
+        for (const station of this.publicStations) {
+            if (station.mounts && station.mounts.length > 0) {
+                html += `<li><h6 class="dropdown-header">${this.escapeHtml(station.name)}</h6></li>`;
+                for (const mount of station.mounts) {
+                    const quality = mount.bitrate ? ` (${mount.bitrate}kbps)` : '';
+                    html += `<li><a class="dropdown-item small" href="#" onclick="globalPlayer.switchToStation('${station.id}', '${mount.url}', '${this.escapeHtml(station.name)}'); return false;">
+                        <i class="bi bi-play-fill me-1"></i>${this.escapeHtml(mount.name)}${quality}
+                    </a></li>`;
+                }
+            }
+        }
+
+        if (html) {
+            this.stationMenu.innerHTML = html;
+        } else {
+            this.stationMenu.innerHTML = '<li><span class="dropdown-item-text text-body-secondary small">No stations available</span></li>';
+        }
+    }
+
+    escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    switchToStation(stationId, mountUrl, stationName) {
+        this.playLive(mountUrl, stationName, stationId);
     }
 
     initDrag() {
@@ -1213,6 +1265,11 @@ class GlobalPlayer {
         // Update prev/next button visibility
         if (this.prevBtn) this.prevBtn.style.visibility = this.playlist.length > 0 ? 'visible' : 'hidden';
         if (this.nextBtn) this.nextBtn.style.visibility = this.playlist.length > 0 ? 'visible' : 'hidden';
+
+        // Show station selector for live streams (if we have stations loaded)
+        if (this.stationSelector) {
+            this.stationSelector.style.display = this.isLive && this.publicStations.length > 0 ? 'block' : 'none';
+        }
     }
 
     onPlay() {

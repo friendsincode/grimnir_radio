@@ -63,15 +63,59 @@
     </div>
 </div>
 
+<!-- Bulk Actions Toolbar -->
+<div class="card mb-3 d-none" id="bulkActionsBar">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <span class="text-body-secondary">
+                <strong id="selectedCount">0</strong> selected
+            </span>
+            <div class="vr"></div>
+            <div class="dropdown">
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" title="Set genre">
+                    <i class="bi bi-tag me-1"></i>Set Genre
+                </button>
+                <ul class="dropdown-menu">
+                    {{range .Data.Genres}}
+                    <li><a class="dropdown-item" href="#" onclick="bulkAction('set_genre', '{{.}}')">{{.}}</a></li>
+                    {{end}}
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" onclick="promptGenre()"><i class="bi bi-plus me-1"></i>Custom...</a></li>
+                </ul>
+            </div>
+            <button class="btn btn-sm btn-outline-warning" onclick="bulkAction('toggle_explicit')" title="Toggle explicit flag">
+                <i class="bi bi-exclamation-triangle me-1"></i>Toggle Explicit
+            </button>
+            <div class="dropdown">
+                <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" title="Add to playlist">
+                    <i class="bi bi-list-ul me-1"></i>Add to Playlist
+                </button>
+                <ul class="dropdown-menu" id="playlistDropdown">
+                    <li class="dropdown-item text-body-secondary">Loading...</li>
+                </ul>
+            </div>
+            <div class="vr"></div>
+            <button class="btn btn-sm btn-outline-danger" onclick="bulkAction('delete')" title="Delete selected">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+            <div class="ms-auto">
+                <button class="btn btn-sm btn-link text-body-secondary" onclick="clearSelection()" title="Clear selection">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Results -->
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>{{.Data.Total}} items</span>
         <div class="btn-group btn-group-sm">
-            <button class="btn btn-outline-secondary active" data-view="table">
+            <button class="btn btn-outline-secondary active" data-view="table" title="Table view">
                 <i class="bi bi-list-ul"></i>
             </button>
-            <button class="btn btn-outline-secondary" data-view="grid">
+            <button class="btn btn-outline-secondary" data-view="grid" title="Grid view">
                 <i class="bi bi-grid"></i>
             </button>
         </div>
@@ -80,6 +124,10 @@
         <table class="table table-hover align-middle mb-0">
             <thead>
                 <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" class="form-check-input" id="selectAll"
+                               onchange="toggleSelectAll(this)" title="Select all">
+                    </th>
                     <th style="width: 40px;"></th>
                     <th style="width: 50px;"></th>
                     <th>Title</th>
@@ -93,14 +141,19 @@
             </thead>
             <tbody>
                 {{range .Data.Media}}
-                <tr onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+                <tr>
+                    <td onclick="event.stopPropagation()">
+                        <input type="checkbox" class="form-check-input media-checkbox"
+                               value="{{.ID}}" onchange="updateSelection()">
+                    </td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary rounded-circle"
-                                onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)">
+                                onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)"
+                                title="Preview">
                             <i class="bi bi-play-fill"></i>
                         </button>
                     </td>
-                    <td class="text-center">
+                    <td class="text-center" onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
                         {{if len .Artwork}}
                         <img src="/dashboard/media/{{.ID}}/artwork" alt="" class="rounded" style="width: 40px; height: 40px; object-fit: cover;">
                         {{else}}
@@ -109,35 +162,36 @@
                         </div>
                         {{end}}
                     </td>
-                    <td>
+                    <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
                         <strong>{{.Title}}</strong>
                         {{if .Explicit}}
-                        <span class="badge bg-warning text-dark">E</span>
+                        <span class="badge bg-warning text-dark" title="Explicit content">E</span>
                         {{end}}
                     </td>
-                    <td>{{if .Artist}}{{.Artist}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
-                    <td>{{if .Album}}{{.Album}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
-                    <td>
+                    <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{if .Artist}}{{.Artist}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                    <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{if .Album}}{{.Album}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                    <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
                         {{if .Genre}}
                         <span class="badge bg-secondary">{{.Genre}}</span>
                         {{else}}
                         <span class="text-body-secondary">-</span>
                         {{end}}
                     </td>
-                    <td>{{formatDuration .Duration}}</td>
-                    <td>
+                    <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{formatDuration .Duration}}</td>
+                    <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
                         <small class="text-body-secondary">{{formatTime .CreatedAt}}</small>
                     </td>
                     <td class="actions text-end">
                         <div class="btn-group btn-group-sm">
                             <a href="/dashboard/media/{{.ID}}/edit" class="btn btn-outline-secondary"
-                               onclick="event.stopPropagation()">
+                               onclick="event.stopPropagation()" title="Edit">
                                 <i class="bi bi-pencil"></i>
                             </a>
                             <button class="btn btn-outline-danger"
                                     onclick="event.stopPropagation()"
                                     hx-delete="/dashboard/media/{{.ID}}"
-                                    hx-confirm="Delete this track?">
+                                    hx-confirm="Delete this track?"
+                                    title="Delete">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
@@ -145,7 +199,7 @@
                 </tr>
                 {{else}}
                 <tr>
-                    <td colspan="9" class="text-center py-5 text-body-secondary">
+                    <td colspan="10" class="text-center py-5 text-body-secondary">
                         {{if .Data.Query}}
                         No results found for "{{.Data.Query}}"
                         {{else}}
@@ -186,4 +240,102 @@
     </div>
     {{end}}
 </div>
+
+<script>
+let playlistsLoaded = false;
+
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.media-checkbox:checked')).map(cb => cb.value);
+}
+
+function updateSelection() {
+    const selected = getSelectedIds();
+    const bar = document.getElementById('bulkActionsBar');
+    const count = document.getElementById('selectedCount');
+    const selectAll = document.getElementById('selectAll');
+    const total = document.querySelectorAll('.media-checkbox').length;
+
+    if (selected.length > 0) {
+        bar.classList.remove('d-none');
+        count.textContent = selected.length;
+        if (!playlistsLoaded) loadPlaylists();
+    } else {
+        bar.classList.add('d-none');
+    }
+
+    selectAll.checked = selected.length === total && total > 0;
+    selectAll.indeterminate = selected.length > 0 && selected.length < total;
+}
+
+function toggleSelectAll(checkbox) {
+    document.querySelectorAll('.media-checkbox').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateSelection();
+}
+
+function clearSelection() {
+    document.querySelectorAll('.media-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('selectAll').checked = false;
+    updateSelection();
+}
+
+function loadPlaylists() {
+    playlistsLoaded = true;
+    fetch('/dashboard/schedule/playlists.json')
+        .then(r => r.json())
+        .then(playlists => {
+            const dropdown = document.getElementById('playlistDropdown');
+            if (playlists.length === 0) {
+                dropdown.innerHTML = '<li class="dropdown-item text-body-secondary">No playlists</li>';
+                return;
+            }
+            dropdown.innerHTML = playlists.map(p =>
+                `<li><a class="dropdown-item" href="#" onclick="bulkAction('add_to_playlist', '${p.id}')">${p.name}</a></li>`
+            ).join('');
+        })
+        .catch(() => {
+            document.getElementById('playlistDropdown').innerHTML =
+                '<li class="dropdown-item text-danger">Failed to load</li>';
+        });
+}
+
+function promptGenre() {
+    const genre = prompt('Enter genre name:');
+    if (genre && genre.trim()) {
+        bulkAction('set_genre', genre.trim());
+    }
+}
+
+function bulkAction(action, value) {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+
+    let message = '';
+    switch(action) {
+        case 'set_genre': message = `Set genre to "${value}" for ${ids.length} track(s)?`; break;
+        case 'toggle_explicit': message = `Toggle explicit flag for ${ids.length} track(s)?`; break;
+        case 'add_to_playlist': message = `Add ${ids.length} track(s) to playlist?`; break;
+        case 'delete': message = `DELETE ${ids.length} track(s)? This cannot be undone!`; break;
+        default: message = `Apply action to ${ids.length} track(s)?`;
+    }
+
+    if (!confirm(message)) return;
+
+    fetch('/dashboard/media/bulk', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'HX-Request': 'true'
+        },
+        body: JSON.stringify({ action: action, ids: ids, value: value || '' })
+    }).then(response => {
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            response.text().then(text => alert('Error: ' + text));
+        }
+    }).catch(err => alert('Error: ' + err));
+}
+</script>
 {{end}}

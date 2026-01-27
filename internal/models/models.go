@@ -96,10 +96,11 @@ type User struct {
 	ID              string       `gorm:"type:uuid;primaryKey"`
 	Email           string       `gorm:"uniqueIndex"`
 	Password        string
-	PlatformRole    PlatformRole `gorm:"type:varchar(20);default:'user'"` // Global platform role
-	Suspended       bool         `gorm:"default:false"`                    // Platform-level suspension
-	SuspendedReason string       `gorm:"type:text"`
-	Stations        []StationUser         `gorm:"foreignKey:UserID"`
+	PlatformRole       PlatformRole `gorm:"type:varchar(20);default:'user'"` // Global platform role
+	Suspended          bool         `gorm:"default:false"`                    // Platform-level suspension
+	SuspendedReason    string       `gorm:"type:text"`
+	CalendarColorTheme string       `gorm:"type:varchar(32);default:'default'"` // Calendar color theme preset
+	Stations           []StationUser         `gorm:"foreignKey:UserID"`
 	PlatformGroups  []PlatformGroupMember `gorm:"foreignKey:UserID"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -312,9 +313,15 @@ type Station struct {
 	OwnerID string `gorm:"type:uuid;index"` // User who created/owns the station
 
 	// Platform admin controls
-	Active   bool `gorm:"default:true"`  // Station is enabled (admin can disable)
-	Public   bool `gorm:"default:false"` // Public listening allowed (no auth required)
-	Approved bool `gorm:"default:false"` // Approved for broadcast by platform admin
+	Active    bool `gorm:"default:true"`  // Station is enabled (admin can disable)
+	Public    bool `gorm:"default:false"` // Public listening allowed (no auth required)
+	Approved  bool `gorm:"default:false"` // Approved for broadcast by platform admin
+	SortOrder int  `gorm:"default:0"`     // Display order on public pages (lower = first)
+	Featured  bool `gorm:"default:false"` // Featured on homepage player
+
+	// Archive defaults for new media
+	DefaultShowInArchive bool `gorm:"default:true"`  // Default: show new media in public archive
+	DefaultAllowDownload bool `gorm:"default:true"`  // Default: allow downloads for new media
 
 	// Branding - imported from source systems (AzuraCast/LibreTime)
 	Logo         []byte `gorm:"type:bytea"` // Station logo (JPEG/PNG)
@@ -385,6 +392,8 @@ type MediaItem struct {
 	Label         string
 	Language      string
 	Explicit      bool
+	ShowInArchive bool `gorm:"default:true"`  // Whether to show in public archive
+	AllowDownload bool `gorm:"default:true"`  // Whether to allow downloads from archive
 	LoudnessLUFS  float64
 	ReplayGain    float64
 	BPM           float64
