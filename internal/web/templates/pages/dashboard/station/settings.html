@@ -1,0 +1,192 @@
+{{define "pages/dashboard/station/settings"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item">{{.Data.Station.Name}}</li>
+        <li class="breadcrumb-item active">Station Settings</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-sliders me-2"></i>Station Settings</h4>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-broadcast me-2"></i>Station Information</h5>
+            </div>
+            <div class="card-body">
+                <div id="settingsAlert"></div>
+                <form hx-put="/dashboard/station/settings" hx-target="#settingsAlert" hx-swap="innerHTML">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Station Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="name" name="name"
+                               value="{{.Data.Station.Name}}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="3">{{.Data.Station.Description}}</textarea>
+                        <div class="form-text">A brief description of your station.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="timezone" class="form-label">Timezone</label>
+                        <select class="form-select" id="timezone" name="timezone">
+                            <option value="UTC" {{if eq .Data.Station.Timezone "UTC"}}selected{{end}}>UTC</option>
+                            <option value="America/New_York" {{if eq .Data.Station.Timezone "America/New_York"}}selected{{end}}>Eastern Time (US)</option>
+                            <option value="America/Chicago" {{if eq .Data.Station.Timezone "America/Chicago"}}selected{{end}}>Central Time (US)</option>
+                            <option value="America/Denver" {{if eq .Data.Station.Timezone "America/Denver"}}selected{{end}}>Mountain Time (US)</option>
+                            <option value="America/Los_Angeles" {{if eq .Data.Station.Timezone "America/Los_Angeles"}}selected{{end}}>Pacific Time (US)</option>
+                            <option value="Europe/London" {{if eq .Data.Station.Timezone "Europe/London"}}selected{{end}}>London</option>
+                            <option value="Europe/Paris" {{if eq .Data.Station.Timezone "Europe/Paris"}}selected{{end}}>Paris</option>
+                            <option value="Europe/Berlin" {{if eq .Data.Station.Timezone "Europe/Berlin"}}selected{{end}}>Berlin</option>
+                            <option value="Asia/Tokyo" {{if eq .Data.Station.Timezone "Asia/Tokyo"}}selected{{end}}>Tokyo</option>
+                            <option value="Asia/Shanghai" {{if eq .Data.Station.Timezone "Asia/Shanghai"}}selected{{end}}>Shanghai</option>
+                            <option value="Australia/Sydney" {{if eq .Data.Station.Timezone "Australia/Sydney"}}selected{{end}}>Sydney</option>
+                        </select>
+                        <div class="form-text">Used for schedule display and playout timing.</div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-2"></i>Save Changes
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Mounts Section -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0"><i class="bi bi-hdd-stack me-2"></i>Stream Mounts</h5>
+                <a href="/dashboard/stations/{{.Data.Station.ID}}/mounts/new" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-plus-lg me-1"></i>Add Mount
+                </a>
+            </div>
+            <div class="card-body p-0">
+                {{if .Data.Mounts}}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>URL</th>
+                                <th>Format</th>
+                                <th style="width: 100px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Data.Mounts}}
+                            <tr>
+                                <td><strong>{{.Name}}</strong></td>
+                                <td><code class="small">{{.URL}}</code></td>
+                                <td><span class="badge bg-secondary">{{.Format}}</span></td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="/dashboard/stations/{{$.Data.Station.ID}}/mounts/{{.ID}}" class="btn btn-outline-secondary">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <button class="btn btn-outline-danger"
+                                                hx-delete="/dashboard/stations/{{$.Data.Station.ID}}/mounts/{{.ID}}"
+                                                hx-confirm="Delete this mount?">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <div class="text-center py-4 text-body-secondary">
+                    <i class="bi bi-hdd-stack fs-1"></i>
+                    <p class="mt-2 mb-0">No mounts configured.</p>
+                    <a href="/dashboard/stations/{{.Data.Station.ID}}/mounts/new" class="btn btn-outline-primary mt-2">
+                        <i class="bi bi-plus-lg me-1"></i>Add First Mount
+                    </a>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <!-- Station Status Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-info-circle me-2"></i>Station Status</h5>
+            </div>
+            <div class="card-body">
+                <dl class="mb-0">
+                    <dt>Status</dt>
+                    <dd>
+                        {{if .Data.Station.Active}}
+                        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Active</span>
+                        {{else}}
+                        <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Inactive</span>
+                        {{end}}
+                    </dd>
+
+                    <dt>Visibility</dt>
+                    <dd>
+                        {{if .Data.Station.Public}}
+                        <span class="badge bg-info"><i class="bi bi-globe me-1"></i>Public</span>
+                        {{else}}
+                        <span class="badge bg-secondary"><i class="bi bi-lock me-1"></i>Private</span>
+                        {{end}}
+                    </dd>
+
+                    <dt>Approval</dt>
+                    <dd>
+                        {{if .Data.Station.Approved}}
+                        <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Approved</span>
+                        {{else}}
+                        <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>Pending Approval</span>
+                        {{end}}
+                    </dd>
+
+                    <dt>Created</dt>
+                    <dd class="text-body-secondary">{{formatTime .Data.Station.CreatedAt}}</dd>
+                </dl>
+
+                {{if not .Data.Station.Approved}}
+                <div class="alert alert-warning mt-3 mb-0">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Your station is pending approval. You can configure settings but broadcasting is disabled until approved.
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-link-45deg me-2"></i>Quick Links</h5>
+            </div>
+            <div class="list-group list-group-flush">
+                <a href="/dashboard/station/users" class="list-group-item list-group-item-action">
+                    <i class="bi bi-people me-2"></i>Manage Users
+                </a>
+                <a href="/dashboard/schedule" class="list-group-item list-group-item-action">
+                    <i class="bi bi-calendar3 me-2"></i>View Schedule
+                </a>
+                <a href="/dashboard/media" class="list-group-item list-group-item-action">
+                    <i class="bi bi-music-note-list me-2"></i>Media Library
+                </a>
+                <a href="/dashboard/analytics" class="list-group-item list-group-item-action">
+                    <i class="bi bi-graph-up me-2"></i>Analytics
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

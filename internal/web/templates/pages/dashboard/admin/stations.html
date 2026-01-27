@@ -1,0 +1,136 @@
+{{define "pages/dashboard/admin/stations"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item">Platform Admin</li>
+        <li class="breadcrumb-item active">All Stations</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-broadcast-pin me-2"></i>All Stations</h4>
+    <a href="/dashboard/stations/new" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-2"></i>New Station
+    </a>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Station</th>
+                    <th>Owner</th>
+                    <th>Status</th>
+                    <th>Visibility</th>
+                    <th>Approval</th>
+                    <th>Created</th>
+                    <th style="width: 180px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Data.AllStations}}
+                <tr>
+                    <td>
+                        <i class="bi bi-broadcast me-2"></i>
+                        <strong>{{.Name}}</strong>
+                        {{if .Description}}
+                        <br><small class="text-body-secondary">{{truncate .Description 50}}</small>
+                        {{end}}
+                    </td>
+                    <td>
+                        {{if .Owner}}
+                        <span class="badge bg-secondary">{{.Owner.Email}}</span>
+                        {{else}}
+                        <span class="text-body-secondary">-</span>
+                        {{end}}
+                    </td>
+                    <td>
+                        {{if .Active}}
+                        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Active</span>
+                        {{else}}
+                        <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Inactive</span>
+                        {{end}}
+                    </td>
+                    <td>
+                        {{if .Public}}
+                        <span class="badge bg-info"><i class="bi bi-globe me-1"></i>Public</span>
+                        {{else}}
+                        <span class="badge bg-secondary"><i class="bi bi-lock me-1"></i>Private</span>
+                        {{end}}
+                    </td>
+                    <td>
+                        {{if .Approved}}
+                        <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Approved</span>
+                        {{else}}
+                        <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>Pending</span>
+                        {{end}}
+                    </td>
+                    <td><small class="text-body-secondary">{{formatTime .CreatedAt}}</small></td>
+                    <td class="text-end">
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn {{if .Active}}btn-outline-warning{{else}}btn-outline-success{{end}}"
+                                    hx-post="/dashboard/admin/stations/{{.ID}}/toggle-active"
+                                    hx-confirm="{{if .Active}}Deactivate{{else}}Activate{{end}} this station?"
+                                    title="{{if .Active}}Deactivate{{else}}Activate{{end}}">
+                                {{if .Active}}<i class="bi bi-pause-fill"></i>{{else}}<i class="bi bi-play-fill"></i>{{end}}
+                            </button>
+                            <button class="btn {{if .Public}}btn-outline-secondary{{else}}btn-outline-info{{end}}"
+                                    hx-post="/dashboard/admin/stations/{{.ID}}/toggle-public"
+                                    title="{{if .Public}}Make Private{{else}}Make Public{{end}}">
+                                {{if .Public}}<i class="bi bi-lock"></i>{{else}}<i class="bi bi-globe"></i>{{end}}
+                            </button>
+                            <button class="btn {{if .Approved}}btn-outline-secondary{{else}}btn-outline-success{{end}}"
+                                    hx-post="/dashboard/admin/stations/{{.ID}}/toggle-approved"
+                                    title="{{if .Approved}}Revoke Approval{{else}}Approve{{end}}">
+                                {{if .Approved}}<i class="bi bi-shield-x"></i>{{else}}<i class="bi bi-shield-check"></i>{{end}}
+                            </button>
+                            <a href="/dashboard/stations/{{.ID}}/edit" class="btn btn-outline-secondary" title="Edit">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <button class="btn btn-outline-danger"
+                                    hx-delete="/dashboard/stations/{{.ID}}"
+                                    hx-confirm="Delete this station? This cannot be undone."
+                                    title="Delete">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="7" class="text-center py-5 text-body-secondary">
+                        No stations found
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="mt-4">
+    <div class="card bg-body-tertiary">
+        <div class="card-body">
+            <h6 class="card-title"><i class="bi bi-info-circle me-2"></i>Status Legend</h6>
+            <div class="row">
+                <div class="col-md-4">
+                    <p class="mb-1"><strong>Active/Inactive:</strong> Controls whether the station can broadcast</p>
+                </div>
+                <div class="col-md-4">
+                    <p class="mb-1"><strong>Public/Private:</strong> Public stations appear in the station directory</p>
+                </div>
+                <div class="col-md-4">
+                    <p class="mb-1"><strong>Approved/Pending:</strong> Stations need approval before they can go live</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
