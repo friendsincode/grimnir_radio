@@ -593,10 +593,10 @@ func (i *Importer) importUsers(ctx context.Context, azuraDB *sql.DB) error {
 		// Note: Password cannot be migrated (different hashing algorithm)
 		// Generate a temporary password that must be reset
 		user := &models.User{
-			ID:       uuid.New().String(),
-			Email:    u.Email,
-			Password: uuid.New().String(), // Random password, user must reset
-			Role:     models.RoleDJ, // Default to DJ role
+			ID:           uuid.New().String(),
+			Email:        u.Email,
+			Password:     uuid.New().String(), // Random password, user must reset
+			PlatformRole: models.PlatformRoleUser, // Default platform role
 		}
 
 		if !i.options.DryRun {

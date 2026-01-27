@@ -299,7 +299,7 @@ func (h *Handler) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	// Generate JWT token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": user.ID,
-		"roles":   []string{string(user.Role)},
+		"roles":   []string{string(user.PlatformRole)},
 		"exp":     time.Now().Add(24 * time.Hour).Unix(),
 		"iat":     time.Now().Unix(),
 		"sub":     user.ID,

@@ -16,8 +16,18 @@ import (
 // Migrate applies database schema migrations using GORM auto-migrate.
 func Migrate(database *gorm.DB) error {
 	return database.AutoMigrate(
+		// Platform-level models
 		&models.User{},
+		&models.PlatformGroup{},
+		&models.PlatformGroupMember{},
+
+		// Station-level models
 		&models.Station{},
+		&models.StationUser{},
+		&models.StationGroup{},
+		&models.StationGroupMember{},
+
+		// Station resources
 		&models.Mount{},
 		&models.EncoderPreset{},
 		&models.MediaItem{},
@@ -36,6 +46,8 @@ func Migrate(database *gorm.DB) error {
 		&models.Playlist{},
 		&models.PlaylistItem{},
 		&models.Clock{},
+
+		// Migration jobs
 		&migration.Job{},
 	)
 }

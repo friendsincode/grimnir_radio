@@ -320,7 +320,7 @@ func (a *API) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 	claims := auth.Claims{
 		UserID:    user.ID,
-		Roles:     []string{string(user.Role)},
+		Roles:     []string{string(user.PlatformRole)},
 		StationID: req.StationID,
 	}
 	token, err := auth.Issue(a.jwtSecret, claims, accessTokenTTL)

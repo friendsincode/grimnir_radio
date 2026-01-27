@@ -41,6 +41,12 @@ func (h *Handler) StationNew(w http.ResponseWriter, r *http.Request) {
 
 // StationCreate handles new station creation
 func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form", http.StatusBadRequest)
 		return
@@ -51,7 +57,15 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		Name:        r.FormValue("name"),
 		Description: r.FormValue("description"),
 		Timezone:    r.FormValue("timezone"),
-		Active:      r.FormValue("active") == "on",
+		OwnerID:     user.ID,
+		Active:      true,                  // Active by default
+		Public:      false,                 // Private by default
+		Approved:    user.IsPlatformAdmin(), // Auto-approve for admins, otherwise needs approval
+	}
+
+	// Platform admins can set active status
+	if user.IsPlatformAdmin() {
+		station.Active = r.FormValue("active") == "on"
 	}
 
 	if station.Name == "" {
@@ -63,11 +77,38 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		station.Timezone = "UTC"
 	}
 
-	if err := h.db.Create(&station).Error; err != nil {
+	// Create station in transaction with owner association
+	tx := h.db.Begin()
+
+	if err := tx.Create(&station).Error; err != nil {
+		tx.Rollback()
 		h.logger.Error().Err(err).Msg("failed to create station")
 		h.renderStationFormError(w, r, station, true, "Failed to create station")
 		return
 	}
+
+	// Create station-user association with owner role
+	stationUser := models.StationUser{
+		ID:        uuid.New().String(),
+		UserID:    user.ID,
+		StationID: station.ID,
+		Role:      models.StationRoleOwner,
+	}
+
+	if err := tx.Create(&stationUser).Error; err != nil {
+		tx.Rollback()
+		h.logger.Error().Err(err).Msg("failed to create station-user association")
+		h.renderStationFormError(w, r, station, true, "Failed to create station")
+		return
+	}
+
+	tx.Commit()
+
+	h.logger.Info().
+		Str("station_id", station.ID).
+		Str("owner_id", user.ID).
+		Str("name", station.Name).
+		Msg("station created")
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/stations")

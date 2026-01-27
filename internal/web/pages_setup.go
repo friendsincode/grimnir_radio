@@ -104,12 +104,12 @@ func (h *Handler) SetupSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create admin user
+	// Create platform admin user
 	admin := models.User{
-		ID:       uuid.New().String(),
-		Email:    email,
-		Password: string(hashedPassword),
-		Role:     models.RoleAdmin,
+		ID:           uuid.New().String(),
+		Email:        email,
+		Password:     string(hashedPassword),
+		PlatformRole: models.PlatformRoleAdmin,
 	}
 
 	if err := h.db.Create(&admin).Error; err != nil {
@@ -118,7 +118,7 @@ func (h *Handler) SetupSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create station
+	// Create station with admin as owner
 	if timezone == "" {
 		timezone = "UTC"
 	}
@@ -128,12 +128,26 @@ func (h *Handler) SetupSubmit(w http.ResponseWriter, r *http.Request) {
 		Name:        stationName,
 		Description: "Created during initial setup",
 		Timezone:    timezone,
+		OwnerID:     admin.ID,
 		Active:      true,
+		Public:      false, // Private by default
+		Approved:    true,  // Auto-approved for initial setup
 	}
 
 	if err := h.db.Create(&station).Error; err != nil {
 		h.logger.Error().Err(err).Msg("failed to create station")
 		// User was created, so we can continue
+	} else {
+		// Create station-user association with owner role
+		stationUser := models.StationUser{
+			ID:        uuid.New().String(),
+			UserID:    admin.ID,
+			StationID: station.ID,
+			Role:      models.StationRoleOwner,
+		}
+		if err := h.db.Create(&stationUser).Error; err != nil {
+			h.logger.Error().Err(err).Msg("failed to create station-user association")
+		}
 	}
 
 	h.logger.Info().
