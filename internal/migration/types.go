@@ -61,6 +61,10 @@ type Options struct {
 	// AzuraCast options
 	AzuraCastBackupPath string `json:"azuracast_backup_path,omitempty"`
 	AzuraCastDBType     string `json:"azuracast_db_type,omitempty"` // mysql, postgres
+	AzuraCastAPIURL     string `json:"azuracast_api_url,omitempty"`
+	AzuraCastAPIKey     string `json:"azuracast_api_key,omitempty"`
+	AzuraCastUsername   string `json:"azuracast_username,omitempty"`
+	AzuraCastPassword   string `json:"azuracast_password,omitempty"`
 
 	// LibreTime options
 	LibreTimeDBHost     string `json:"libretime_db_host,omitempty"`

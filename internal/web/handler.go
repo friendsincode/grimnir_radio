@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/version"
 )
@@ -40,6 +41,7 @@ type Handler struct {
 	logger           zerolog.Logger
 	jwtSecret        []byte
 	mediaRoot        string                         // Root directory for media files
+	mediaService     *media.Service                 // Media storage service
 	icecastURL       string                         // Internal Icecast URL for stream proxy
 	icecastPublicURL string                         // Public Icecast URL for browser playback
 	templates        map[string]*template.Template // Each page gets its own template set
@@ -90,12 +92,13 @@ type WebRTCConfig struct {
 }
 
 // NewHandler creates a new web handler.
-func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, logger zerolog.Logger) (*Handler, error) {
 	h := &Handler{
 		db:                 db,
 		logger:             logger,
 		jwtSecret:          jwtSecret,
 		mediaRoot:          mediaRoot,
+		mediaService:       mediaService,
 		icecastURL:         icecastURL,
 		icecastPublicURL:   icecastPublicURL,
 		updateChecker:      version.NewChecker(logger),

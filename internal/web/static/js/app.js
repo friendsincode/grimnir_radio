@@ -713,7 +713,8 @@ class GlobalPlayer {
         }
 
         // Check if this is already an LQ stream (user selected LQ quality)
-        const isLQStream = url.match(/\/live\/[^/?]+-lq(?:[/?]|$)/);
+        // Simple check: URL contains -lq in the path
+        const isLQStream = url.includes('/live/') && url.includes('-lq');
 
         // Determine LQ URL for HTTP fallback (append -lq to mount name)
         // e.g., /live/main -> /live/main-lq

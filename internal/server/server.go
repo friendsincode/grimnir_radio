@@ -231,7 +231,7 @@ func (s *Server) initDependencies() error {
 		TURNUsername: s.cfg.WebRTCTURNUsername,
 		TURNPassword: s.cfg.WebRTCTURNPassword,
 	}
-	webHandler, err := web.NewHandler(database, []byte(s.cfg.JWTSigningKey), s.cfg.MediaRoot, s.cfg.IcecastURL, s.cfg.IcecastPublicURL, webrtcCfg, s.logger)
+	webHandler, err := web.NewHandler(database, []byte(s.cfg.JWTSigningKey), s.cfg.MediaRoot, mediaService, s.cfg.IcecastURL, s.cfg.IcecastPublicURL, webrtcCfg, s.logger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize web handler: %w", err)
 	}

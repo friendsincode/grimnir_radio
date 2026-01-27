@@ -30,6 +30,17 @@ type User struct {
 	Email     string `gorm:"uniqueIndex"`
 	Password  string
 	Role      RoleName `gorm:"type:varchar(16)"`
+	Stations  []StationUser `gorm:"foreignKey:UserID"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// StationUser associates users (DJs) with specific stations.
+type StationUser struct {
+	ID        string   `gorm:"type:uuid;primaryKey"`
+	UserID    string   `gorm:"type:uuid;index;not null"`
+	StationID string   `gorm:"type:uuid;index;not null"`
+	Role      RoleName `gorm:"type:varchar(16)"` // Station-specific role (dj, manager)
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -81,6 +92,7 @@ type MediaItem struct {
 	Duration      time.Duration
 	Path          string
 	StorageKey    string
+	ContentHash   string `gorm:"type:varchar(64);index"` // SHA-256 hash for deduplication across stations
 	ImportPath    string        // Original path from import (LibreTime/AzuraCast)
 	Genre         string
 	Mood          string
@@ -104,10 +116,12 @@ type MediaItem struct {
 	UpdatedAt     time.Time
 }
 
-// CuePointSet captures intro/outro markers.
+// CuePointSet captures intro/outro markers and fades.
 type CuePointSet struct {
 	IntroEnd float64 `json:"intro_end"`
 	OutroIn  float64 `json:"outro_in"`
+	FadeIn   float64 `json:"fade_in,omitempty"`   // Fade in duration in seconds
+	FadeOut  float64 `json:"fade_out,omitempty"`  // Fade out duration in seconds
 }
 
 // Value implements driver.Valuer for database serialization.

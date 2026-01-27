@@ -240,6 +240,8 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Put("/", h.SettingsUpdate)
 				r.Get("/migrations", h.MigrationsPage)
 				r.Post("/migrations/import", h.MigrationsImport)
+				r.Post("/migrations/azuracast-api", h.AzuraCastAPIImport)
+				r.Post("/migrations/azuracast-api/test", h.AzuraCastAPITest)
 			})
 		})
 	})
