@@ -41,19 +41,19 @@ func (h *Handler) UserList(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UserNew(w http.ResponseWriter, r *http.Request) {
 	currentUser := h.GetUser(r)
 
-	// Determine available roles based on current user
-	var availableRoles []models.RoleName
+	// Determine available roles based on current user (as strings for template comparison)
+	var availableRoles []string
 	if currentUser.Role == models.RoleAdmin {
-		availableRoles = []models.RoleName{models.RoleAdmin, models.RoleManager, models.RoleDJ}
+		availableRoles = []string{"admin", "manager", "dj"}
 	} else {
-		availableRoles = []models.RoleName{models.RoleDJ}
+		availableRoles = []string{"dj"}
 	}
 
 	h.Render(w, r, "pages/dashboard/users/form", PageData{
 		Title:    "New User",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"User":           models.User{},
+			"User":           models.User{Role: models.RoleDJ}, // Default to DJ role
 			"IsNew":          true,
 			"AvailableRoles": availableRoles,
 		},
@@ -159,11 +159,12 @@ func (h *Handler) UserEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var availableRoles []models.RoleName
+	// Available roles as strings for template comparison
+	var availableRoles []string
 	if currentUser.Role == models.RoleAdmin {
-		availableRoles = []models.RoleName{models.RoleAdmin, models.RoleManager, models.RoleDJ}
+		availableRoles = []string{"admin", "manager", "dj"}
 	} else {
-		availableRoles = []models.RoleName{models.RoleDJ}
+		availableRoles = []string{"dj"}
 	}
 
 	h.Render(w, r, "pages/dashboard/users/form", PageData{

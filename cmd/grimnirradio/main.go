@@ -25,6 +25,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/logging"
 	"github.com/friendsincode/grimnir_radio/internal/server"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
+	"github.com/friendsincode/grimnir_radio/internal/version"
 )
 
 var (
@@ -78,7 +79,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Initialize OpenTelemetry tracing
 	tracerProvider, err := telemetry.InitTracer(context.Background(), telemetry.TracerConfig{
 		ServiceName:    "grimnir-radio",
-		ServiceVersion: "1.0.0",
+		ServiceVersion: version.Version,
 		OTLPEndpoint:   cfg.OTLPEndpoint,
 		Enabled:        cfg.TracingEnabled,
 		SampleRate:     cfg.TracingSampleRate,

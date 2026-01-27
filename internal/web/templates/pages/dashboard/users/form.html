@@ -68,10 +68,8 @@
                         <label class="form-label">Role <span class="text-danger">*</span></label>
                         <select class="form-select" name="role" required>
                             {{range $roles}}
-                            <option value="{{.}}" {{if eq . $user.Role}}selected{{end}}>
-                                {{if eq . "admin"}}Admin{{end}}
-                                {{if eq . "manager"}}Manager{{end}}
-                                {{if eq . "dj"}}DJ{{end}}
+                            <option value="{{.}}" {{if eq . (printf "%s" $user.Role)}}selected{{end}}>
+                                {{if eq . "admin"}}Admin{{else if eq . "manager"}}Manager{{else if eq . "dj"}}DJ{{else}}{{.}}{{end}}
                             </option>
                             {{end}}
                         </select>

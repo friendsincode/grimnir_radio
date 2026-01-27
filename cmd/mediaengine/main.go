@@ -25,11 +25,8 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
+	"github.com/friendsincode/grimnir_radio/internal/version"
 	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
-)
-
-const (
-	version = "1.0.0"
 )
 
 // loadConfig creates and loads configuration for the media engine
@@ -101,7 +98,7 @@ func main() {
 		os.Exit(runHealthCheck())
 	}
 
-	logger.Info().Str("version", version).Msg("Grimnir Radio Media Engine starting")
+	logger.Info().Str("version", version.Version).Msg("Grimnir Radio Media Engine starting")
 
 	// Load configuration
 	cfg, err := loadConfig()
@@ -114,7 +111,7 @@ func main() {
 	otlpEndpoint := getEnv("MEDIAENGINE_OTLP_ENDPOINT", "localhost:4317")
 	tracerProvider, err := telemetry.InitTracer(context.Background(), telemetry.TracerConfig{
 		ServiceName:    "grimnir-media-engine",
-		ServiceVersion: version,
+		ServiceVersion: version.Version,
 		OTLPEndpoint:   otlpEndpoint,
 		Enabled:        tracingEnabled,
 		SampleRate:     1.0,
