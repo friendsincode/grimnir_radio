@@ -128,6 +128,7 @@ func (h *Handler) StopUpdateChecker() {
 func (h *Handler) loadTemplates() error {
 	funcMap := template.FuncMap{
 		"formatTime":     formatTime,
+		"timeago":        timeago,
 		"formatDuration": formatDuration,
 		"formatMs":       formatMs,
 		"formatBytes":    formatBytes,
@@ -371,6 +372,81 @@ func (h *Handler) StaticHandler() http.Handler {
 
 func formatTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
+}
+
+func timeago(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+
+	now := time.Now()
+	diff := now.Sub(t)
+
+	if diff < 0 {
+		// Future time
+		diff = -diff
+		if diff < time.Minute {
+			return "in a few seconds"
+		} else if diff < time.Hour {
+			mins := int(diff.Minutes())
+			if mins == 1 {
+				return "in 1 minute"
+			}
+			return fmt.Sprintf("in %d minutes", mins)
+		} else if diff < 24*time.Hour {
+			hours := int(diff.Hours())
+			if hours == 1 {
+				return "in 1 hour"
+			}
+			return fmt.Sprintf("in %d hours", hours)
+		}
+		days := int(diff.Hours() / 24)
+		if days == 1 {
+			return "in 1 day"
+		}
+		return fmt.Sprintf("in %d days", days)
+	}
+
+	// Past time
+	if diff < time.Minute {
+		return "just now"
+	} else if diff < time.Hour {
+		mins := int(diff.Minutes())
+		if mins == 1 {
+			return "1 minute ago"
+		}
+		return fmt.Sprintf("%d minutes ago", mins)
+	} else if diff < 24*time.Hour {
+		hours := int(diff.Hours())
+		if hours == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", hours)
+	} else if diff < 7*24*time.Hour {
+		days := int(diff.Hours() / 24)
+		if days == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	} else if diff < 30*24*time.Hour {
+		weeks := int(diff.Hours() / 24 / 7)
+		if weeks == 1 {
+			return "1 week ago"
+		}
+		return fmt.Sprintf("%d weeks ago", weeks)
+	} else if diff < 365*24*time.Hour {
+		months := int(diff.Hours() / 24 / 30)
+		if months == 1 {
+			return "1 month ago"
+		}
+		return fmt.Sprintf("%d months ago", months)
+	}
+
+	years := int(diff.Hours() / 24 / 365)
+	if years == 1 {
+		return "1 year ago"
+	}
+	return fmt.Sprintf("%d years ago", years)
 }
 
 func formatDuration(d time.Duration) string {
