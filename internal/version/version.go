@@ -20,7 +20,7 @@ import (
 )
 
 // Current version of Grimnir Radio
-const Version = "1.0.14"
+const Version = "1.0.15"
 
 // GitHubRepo is the repository to check for updates
 const GitHubRepo = "friendsincode/grimnir_radio"
