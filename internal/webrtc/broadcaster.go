@@ -72,7 +72,7 @@ type SignalMessage struct {
 // Config holds broadcaster configuration.
 type Config struct {
 	RTPPort      int    // UDP port to receive RTP audio (default: 5004)
-	STUNServer   string // STUN server URL (default: stun:stun.l.google.com:19302)
+	STUNServer   string // STUN server URL (set via GRIMNIR_WEBRTC_STUN_URL)
 	TURNServer   string // TURN server URL (optional)
 	TURNUsername string // TURN username
 	TURNPassword string // TURN password
@@ -83,9 +83,7 @@ func NewBroadcaster(cfg Config, logger zerolog.Logger) (*Broadcaster, error) {
 	if cfg.RTPPort == 0 {
 		cfg.RTPPort = 5004
 	}
-	if cfg.STUNServer == "" {
-		cfg.STUNServer = "stun:stun.l.google.com:19302"
-	}
+	// STUNServer default is set in config.go, no fallback here
 
 	// Create MediaEngine with Opus codec
 	m := &webrtc.MediaEngine{}
@@ -404,13 +402,15 @@ func (b *Broadcaster) HandleSignaling(w http.ResponseWriter, r *http.Request) {
 
 // createPeerConnection creates a new peer connection with the audio track.
 func (b *Broadcaster) createPeerConnection(peerID string) (*webrtc.PeerConnection, error) {
-	// Build ICE servers list with multiple STUN servers for reliability
-	iceServers := []webrtc.ICEServer{
-		{URLs: []string{
-			"stun:stun.l.google.com:19302",
-			"stun:stun1.l.google.com:19302",
-			"stun:stun2.l.google.com:19302",
-		}},
+	// Build ICE servers list from config only
+	var iceServers []webrtc.ICEServer
+
+	// Add STUN server from config
+	if b.config.STUNServer != "" {
+		iceServers = append(iceServers, webrtc.ICEServer{
+			URLs: []string{b.config.STUNServer},
+		})
+		b.logger.Debug().Str("stun", b.config.STUNServer).Msg("STUN server configured")
 	}
 
 	// Add TURN server if configured (for users behind strict NATs)
