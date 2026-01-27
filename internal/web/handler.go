@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -20,6 +21,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/version"
 )
 
 // Theme represents a UI theme
@@ -42,6 +44,7 @@ type Handler struct {
 	icecastPublicURL string                         // Public Icecast URL for browser playback
 	templates        map[string]*template.Template // Each page gets its own template set
 	partials         *template.Template            // Shared partials
+	updateChecker    *version.Checker              // Checks for new versions
 }
 
 // PageData holds common data passed to all templates.
@@ -54,8 +57,10 @@ type PageData struct {
 	Flash       *FlashMessage
 	CurrentPath string
 	CSRFToken   string
-	WSToken     string // Auth token for WebSocket connections (non-HttpOnly)
+	WSToken     string              // Auth token for WebSocket connections (non-HttpOnly)
 	Data        any
+	Version     string              // Current application version
+	UpdateInfo  *version.UpdateInfo // Available update info (nil if no update)
 }
 
 // FlashMessage for toast notifications
@@ -73,6 +78,7 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, icecastURL stri
 		mediaRoot:        mediaRoot,
 		icecastURL:       icecastURL,
 		icecastPublicURL: icecastPublicURL,
+		updateChecker:    version.NewChecker(logger),
 	}
 
 	if err := h.loadTemplates(); err != nil {
@@ -80,6 +86,16 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, icecastURL stri
 	}
 
 	return h, nil
+}
+
+// StartUpdateChecker starts the background version checker.
+func (h *Handler) StartUpdateChecker(ctx context.Context) {
+	h.updateChecker.Start(ctx)
+}
+
+// StopUpdateChecker stops the background version checker.
+func (h *Handler) StopUpdateChecker() {
+	h.updateChecker.Stop()
 }
 
 func (h *Handler) loadTemplates() error {
@@ -212,6 +228,7 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 		data.Theme = ThemeDAWDark
 	}
 	data.CurrentPath = r.URL.Path
+	data.Version = version.Version
 
 	// Get user from context if authenticated
 	if user, ok := r.Context().Value(ctxKeyUser).(*models.User); ok {
@@ -220,6 +237,14 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 		data.WSToken = h.GenerateWSToken(user)
 		if data.WSToken == "" {
 			h.logger.Warn().Str("user_id", user.ID).Msg("failed to generate WS token")
+		}
+
+		// Only show update info to admins
+		if user.Role == models.RoleAdmin && h.updateChecker != nil {
+			info := h.updateChecker.Info()
+			if info != nil && info.UpdateAvailable {
+				data.UpdateInfo = info
+			}
 		}
 	}
 

@@ -333,6 +333,11 @@ func (s *Server) startBackgroundWorkers() {
 			}
 		}()
 	}
+
+	// Start version update checker
+	if s.webHandler != nil {
+		s.webHandler.StartUpdateChecker(ctx)
+	}
 }
 
 func (s *Server) stopBackgroundWorkers() {
