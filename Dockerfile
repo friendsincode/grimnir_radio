@@ -14,11 +14,16 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Version can be passed as build arg (from CI) or derived from git
+ARG VERSION=""
+
 # Build binary with optimizations (BuildKit cache for faster rebuilds)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    VERSION_VAL="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')}" && \
+    VERSION_VAL="${VERSION_VAL#v}" && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-w -s -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev') -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -ldflags="-w -s -X github.com/friendsincode/grimnir_radio/internal/version.Version=${VERSION_VAL}" \
     -o grimnirradio \
     ./cmd/grimnirradio
 

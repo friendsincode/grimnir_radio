@@ -142,3 +142,174 @@ type UserRole struct {
 	UserID int `json:"user_id"`
 	RoleID int `json:"role_id"`
 }
+
+// =============================================================================
+// AzuraCast API Response Types (for live API import)
+// =============================================================================
+
+// APIStatus represents the AzuraCast /api/status response.
+type APIStatus struct {
+	Online      bool   `json:"online"`
+	Timestamp   int64  `json:"timestamp"`
+	Station     string `json:"station,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// APIStation represents a station from the AzuraCast API.
+type APIStation struct {
+	ID               int      `json:"id"`
+	Name             string   `json:"name"`
+	ShortName        string   `json:"shortcode"`
+	Description      string   `json:"description"`
+	Frontend         string   `json:"frontend"`
+	Backend          string   `json:"backend"`
+	ListenURL        string   `json:"listen_url"`
+	URL              string   `json:"url"`
+	PublicPlayerURL  string   `json:"public_player_url"`
+	PlaylistPLSURL   string   `json:"playlist_pls_url"`
+	PlaylistM3UURL   string   `json:"playlist_m3u_url"`
+	IsPublic         bool     `json:"is_public"`
+	Mounts           []APIMount `json:"mounts,omitempty"`
+	HLS              *APIHLS   `json:"hls_url,omitempty"`
+}
+
+// APIHLS represents HLS streaming info.
+type APIHLS struct {
+	URL       string `json:"url"`
+	IsDefault bool   `json:"is_default"`
+}
+
+// APIMediaFile represents a media file from the AzuraCast API.
+type APIMediaFile struct {
+	ID           int                `json:"id"`
+	UniqueID     string             `json:"unique_id"`
+	SongID       string             `json:"song_id"`
+	Title        string             `json:"title"`
+	Artist       string             `json:"artist"`
+	Album        string             `json:"album"`
+	Genre        string             `json:"genre"`
+	Lyrics       string             `json:"lyrics"`
+	ISRC         string             `json:"isrc"`
+	Length       float64            `json:"length"`
+	LengthText   string             `json:"length_text"`
+	Path         string             `json:"path"`
+	MTime        int64              `json:"mtime"`
+	FadeOverlap  *float64           `json:"fade_overlap"`
+	FadeIn       *float64           `json:"fade_in"`
+	FadeOut      *float64           `json:"fade_out"`
+	CueIn        *float64           `json:"cue_in"`
+	CueOut       *float64           `json:"cue_out"`
+	Amplify      *float64           `json:"amplify"`
+	ArtUpdatedAt int64              `json:"art_updated_at"`
+	Links        APIMediaFileLinks  `json:"links"`
+	CustomFields map[string]string  `json:"custom_fields,omitempty"`
+	Playlists    []APIPlaylistShort `json:"playlists,omitempty"`
+}
+
+// APIMediaFileLinks contains links for a media file.
+type APIMediaFileLinks struct {
+	Self     string `json:"self"`
+	Play     string `json:"play"`
+	Art      string `json:"art"`
+	Download string `json:"download,omitempty"`
+}
+
+// APIPlaylistShort is a shortened playlist reference.
+type APIPlaylistShort struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// APIPlaylist represents a playlist from the AzuraCast API.
+type APIPlaylist struct {
+	ID                   int    `json:"id"`
+	Name                 string `json:"name"`
+	Type                 string `json:"type"`
+	Source               string `json:"source"`
+	Order                string `json:"order"`
+	RemoteURL            string `json:"remote_url,omitempty"`
+	RemoteType           string `json:"remote_type,omitempty"`
+	RemoteBuffer         int    `json:"remote_buffer,omitempty"`
+	IsEnabled            bool   `json:"is_enabled"`
+	IsJingle             bool   `json:"is_jingle"`
+	PlayPerSongs         int    `json:"play_per_songs,omitempty"`
+	PlayPerMinutes       int    `json:"play_per_minutes,omitempty"`
+	PlayPerHourMinute    int    `json:"play_per_hour_minute,omitempty"`
+	Weight               int    `json:"weight"`
+	IncludeInRequests    bool   `json:"include_in_requests"`
+	IncludeInOnDemand    bool   `json:"include_in_on_demand"`
+	IncludeInAutomation  bool   `json:"include_in_automation"`
+	AvoidDuplicates      bool   `json:"avoid_duplicates"`
+	BackendOptions       string `json:"backend_options,omitempty"`
+	NumSongs             int    `json:"num_songs"`
+	TotalLength          int    `json:"total_length"`
+	Links                APIPlaylistLinks `json:"links"`
+	ScheduleItems        []APISchedule `json:"schedule_items,omitempty"`
+}
+
+// APIPlaylistLinks contains links for a playlist.
+type APIPlaylistLinks struct {
+	Self      string `json:"self"`
+	Toggle    string `json:"toggle"`
+	Order     string `json:"order"`
+	Reshuffle string `json:"reshuffle"`
+	Import    string `json:"import"`
+	Export    struct {
+		PLS string `json:"pls"`
+		M3U string `json:"m3u"`
+	} `json:"export"`
+}
+
+// APIMount represents a mount point from the AzuraCast API.
+type APIMount struct {
+	ID               int    `json:"id"`
+	Name             string `json:"name"`
+	DisplayName      string `json:"display_name"`
+	IsVisibleOnPublic bool   `json:"is_visible_on_public_pages"`
+	IsDefault        bool   `json:"is_default"`
+	IsPublic         bool   `json:"is_public"`
+	FallbackMount    string `json:"fallback_mount,omitempty"`
+	RelayURL         string `json:"relay_url,omitempty"`
+	AutodjBitrate    int    `json:"autodj_bitrate,omitempty"`
+	AutodjFormat     string `json:"autodj_format,omitempty"`
+	CustomListenURL  string `json:"custom_listen_url,omitempty"`
+	URL              string `json:"url"`
+	Listeners        struct {
+		Total   int `json:"total"`
+		Unique  int `json:"unique"`
+		Current int `json:"current"`
+	} `json:"listeners"`
+	Links APILinks `json:"links"`
+}
+
+// APISchedule represents a schedule from the AzuraCast API.
+type APISchedule struct {
+	ID          int     `json:"id"`
+	StartTime   int     `json:"start_time"`
+	EndTime     int     `json:"end_time"`
+	StartDate   *string `json:"start_date,omitempty"`
+	EndDate     *string `json:"end_date,omitempty"`
+	Days        []int   `json:"days"`
+	LoopOnce    bool    `json:"loop_once"`
+	PlaylistID  int     `json:"playlist_id,omitempty"`
+	StreamerID  int     `json:"streamer_id,omitempty"`
+}
+
+// APIStreamer represents a streamer/DJ from the AzuraCast API.
+type APIStreamer struct {
+	ID              int    `json:"id"`
+	StreamerUsername string `json:"streamer_username"`
+	DisplayName     string `json:"display_name"`
+	Comments        string `json:"comments"`
+	IsActive        bool   `json:"is_active"`
+	EnforceSchedule bool   `json:"enforce_schedule"`
+	ReactivateAt    *int64 `json:"reactivate_at,omitempty"`
+	Art             string `json:"art,omitempty"`
+	Links           APILinks `json:"links"`
+	ScheduleItems   []APISchedule `json:"schedule_items,omitempty"`
+}
+
+// APILinks is a generic links struct.
+type APILinks struct {
+	Self string `json:"self"`
+}
