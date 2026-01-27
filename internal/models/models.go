@@ -265,7 +265,7 @@ type StationUser struct {
 	StationID   string             `gorm:"type:uuid;index;not null"`
 	Role        StationRole        `gorm:"type:varchar(16);not null"` // owner, admin, manager, dj, viewer
 	Permissions StationPermissions `gorm:"type:jsonb"`                // Custom permissions (overrides role defaults)
-	InvitedBy   string             `gorm:"type:uuid"`                 // Who invited this user
+	InvitedBy   *string            `gorm:"type:uuid"`                 // Who invited this user (nil if not invited)
 	InvitedAt   *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
