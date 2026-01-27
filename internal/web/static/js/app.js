@@ -712,11 +712,14 @@ class GlobalPlayer {
             return;
         }
 
+        // Check if this is already an LQ stream (user selected LQ quality)
+        const isLQStream = url.match(/\/live\/[^/?]+-lq(?:[/?]|$)/);
+
         // Determine LQ URL for HTTP fallback (append -lq to mount name)
         // e.g., /live/main -> /live/main-lq
         // But don't double it if URL already ends with -lq
         let lqUrl = url;
-        if (url.includes('/live/') && !url.match(/\/live\/[^/?]+-lq(?:[/?]|$)/)) {
+        if (url.includes('/live/') && !isLQStream) {
             lqUrl = url.replace(/\/live\/([^/?]+)/, '/live/$1-lq');
         }
 
@@ -734,11 +737,19 @@ class GlobalPlayer {
         this.updateUI();
         this.show();
 
-        // Try WebRTC first for HQ low-latency streaming
+        // If LQ stream selected, skip WebRTC and use HTTP directly
+        if (isLQStream) {
+            console.log('LQ stream selected, using HTTP directly');
+            this.fallbackToHTTP(url);
+            this.startMetadataPolling();
+            return;
+        }
+
+        // Try WebRTC for HQ low-latency streaming (no retries - fail fast to HTTP)
         if (this.webrtcEnabled && 'RTCPeerConnection' in window) {
             this.connectWebRTC().then(connected => {
                 if (!connected) {
-                    // Fall back to HTTP LQ streaming (bandwidth friendly)
+                    // Fall back to HTTP LQ streaming immediately
                     console.log('WebRTC failed, falling back to HTTP LQ streaming');
                     this.fallbackToHTTP(lqUrl);
                 }
@@ -933,27 +944,10 @@ class GlobalPlayer {
                         this.artistEl.textContent = artistText + ' (WebRTC)';
                     }
                 } else if (state === 'failed' || state === 'disconnected') {
-                    // Try to reconnect via WebRTC first (track changes cause brief disconnects)
+                    // WebRTC failed - fall back to HTTP immediately (no retries)
                     if (this.currentTrack && this.isLive) {
-                        this._webrtcReconnectAttempts = (this._webrtcReconnectAttempts || 0) + 1;
-                        if (this._webrtcReconnectAttempts <= 3) {
-                            console.log(`WebRTC reconnecting (attempt ${this._webrtcReconnectAttempts})...`);
-                            if (this.artistEl) this.artistEl.textContent = 'Reconnecting...';
-                            // Short delay then reconnect
-                            setTimeout(() => {
-                                if (this.currentTrack && this.isLive) {
-                                    this.connectWebRTC().then(connected => {
-                                        if (!connected && this._webrtcReconnectAttempts >= 3) {
-                                            console.log('WebRTC reconnect failed, falling back to HTTP LQ');
-                                            this.fallbackToHTTP(this.currentTrack.lqUrl || this.currentTrack.url);
-                                        }
-                                    });
-                                }
-                            }, 500);
-                        } else {
-                            console.log('WebRTC reconnect failed, falling back to HTTP LQ');
-                            this.fallbackToHTTP(this.currentTrack.lqUrl || this.currentTrack.url);
-                        }
+                        console.log('WebRTC connection failed, falling back to HTTP LQ immediately');
+                        this.fallbackToHTTP(this.currentTrack.lqUrl || this.currentTrack.url);
                     }
                 }
             };

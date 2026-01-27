@@ -32,6 +32,16 @@
     <!-- Alpine.js for small interactions -->
     <script defer src="/static/js/alpine.min.js"></script>
 
+    <!-- WebRTC ICE Server Config -->
+    <script>
+    window.GRIMNIR_WEBRTC = {
+        stunUrl: "{{.WebRTCSTUNURL}}",
+        turnUrl: "{{.WebRTCTURNURL}}",
+        turnUsername: "{{.WebRTCTURNUsername}}",
+        turnPassword: "{{.WebRTCTURNPassword}}"
+    };
+    </script>
+
     <!-- App JS -->
     <script src="/static/js/app.js"></script>
 
