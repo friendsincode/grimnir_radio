@@ -29,13 +29,13 @@
                             <br>
                             <small class="text-body-secondary">
                                 Current role:
-                                {{if eq (string .Data.StationUser.Role) "owner"}}
+                                {{if eq .Data.StationUser.Role "owner"}}
                                 <span class="badge bg-danger">Owner</span>
-                                {{else if eq (string .Data.StationUser.Role) "admin"}}
+                                {{else if eq .Data.StationUser.Role "admin"}}
                                 <span class="badge bg-primary">Admin</span>
-                                {{else if eq (string .Data.StationUser.Role) "manager"}}
+                                {{else if eq .Data.StationUser.Role "manager"}}
                                 <span class="badge bg-warning text-dark">Manager</span>
-                                {{else if eq (string .Data.StationUser.Role) "dj"}}
+                                {{else if eq .Data.StationUser.Role "dj"}}
                                 <span class="badge bg-info">DJ</span>
                                 {{else}}
                                 <span class="badge bg-secondary">Viewer</span>
@@ -51,11 +51,11 @@
                         <select class="form-select" id="role" name="role" required>
                             {{$currentRole := .Data.StationUser.Role}}
                             {{range .Data.Roles}}
-                            <option value="{{.}}" {{if eq (string .) (string $currentRole)}}selected{{end}}>
-                                {{if eq (string .) "owner"}}Owner - Full control (can transfer ownership)
-                                {{else if eq (string .) "admin"}}Admin - Manage users, settings, content
-                                {{else if eq (string .) "manager"}}Manager - Manage schedule, playlists, clocks
-                                {{else if eq (string .) "dj"}}DJ - Upload media, go live
+                            <option value="{{.}}" {{if eq . $currentRole}}selected{{end}}>
+                                {{if eq . "owner"}}Owner - Full control (can transfer ownership)
+                                {{else if eq . "admin"}}Admin - Manage users, settings, content
+                                {{else if eq . "manager"}}Manager - Manage schedule, playlists, clocks
+                                {{else if eq . "dj"}}DJ - Upload media, go live
                                 {{else}}Viewer - View only
                                 {{end}}
                             </option>

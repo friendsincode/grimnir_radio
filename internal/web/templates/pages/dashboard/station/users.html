@@ -37,24 +37,24 @@
                     <td>
                         <i class="bi bi-person-circle me-2"></i>
                         <strong>{{.User.Email}}</strong>
-                        {{if eq (string .User.PlatformRole) "platform_admin"}}
+                        {{if eq .User.PlatformRole "platform_admin"}}
                         <span class="badge bg-danger ms-1" title="Platform Admin"><i class="bi bi-shield-fill"></i></span>
                         {{end}}
                     </td>
                     <td>
-                        {{if eq (string .Role) "owner"}}
+                        {{if eq .Role "owner"}}
                         <span class="badge bg-danger">
                             <i class="bi bi-star-fill me-1"></i>Owner
                         </span>
-                        {{else if eq (string .Role) "admin"}}
+                        {{else if eq .Role "admin"}}
                         <span class="badge bg-primary">
                             <i class="bi bi-shield-fill me-1"></i>Admin
                         </span>
-                        {{else if eq (string .Role) "manager"}}
+                        {{else if eq .Role "manager"}}
                         <span class="badge bg-warning text-dark">
                             <i class="bi bi-gear-fill me-1"></i>Manager
                         </span>
-                        {{else if eq (string .Role) "dj"}}
+                        {{else if eq .Role "dj"}}
                         <span class="badge bg-info">
                             <i class="bi bi-disc-fill me-1"></i>DJ
                         </span>
@@ -70,7 +70,7 @@
                             <a href="/dashboard/station/users/{{.ID}}/edit" class="btn btn-outline-secondary" title="Edit Role">
                                 <i class="bi bi-pencil"></i>
                             </a>
-                            {{if ne (string .Role) "owner"}}
+                            {{if ne .Role "owner"}}
                             {{if ne .UserID $.User.ID}}
                             <button class="btn btn-outline-danger"
                                     hx-delete="/dashboard/station/users/{{.ID}}"

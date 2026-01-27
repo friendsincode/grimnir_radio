@@ -68,8 +68,8 @@
                         <label class="form-label">Platform Role <span class="text-danger">*</span></label>
                         <select class="form-select" name="platform_role" required>
                             {{range $roles}}
-                            <option value="{{.}}" {{if eq (string .) (string $user.PlatformRole)}}selected{{end}}>
-                                {{if eq (string .) "platform_admin"}}Platform Admin{{else if eq (string .) "platform_mod"}}Platform Moderator{{else}}User{{end}}
+                            <option value="{{.}}" {{if eq . $user.PlatformRole}}selected{{end}}>
+                                {{if eq . "platform_admin"}}Platform Admin{{else if eq . "platform_mod"}}Platform Moderator{{else}}User{{end}}
                             </option>
                             {{end}}
                         </select>

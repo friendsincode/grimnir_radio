@@ -38,10 +38,10 @@
                         <label for="role" class="form-label">Station Role</label>
                         <select class="form-select" id="role" name="role" required>
                             {{range .Data.Roles}}
-                            <option value="{{.}}" {{if eq (string .) "dj"}}selected{{end}}>
-                                {{if eq (string .) "admin"}}Admin - Manage users, settings, content
-                                {{else if eq (string .) "manager"}}Manager - Manage schedule, playlists, clocks
-                                {{else if eq (string .) "dj"}}DJ - Upload media, go live
+                            <option value="{{.}}" {{if eq . "dj"}}selected{{end}}>
+                                {{if eq . "admin"}}Admin - Manage users, settings, content
+                                {{else if eq . "manager"}}Manager - Manage schedule, playlists, clocks
+                                {{else if eq . "dj"}}DJ - Upload media, go live
                                 {{else}}Viewer - View only
                                 {{end}}
                             </option>
