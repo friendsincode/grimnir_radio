@@ -272,8 +272,8 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 			h.logger.Warn().Str("user_id", user.ID).Msg("failed to generate WS token")
 		}
 
-		// Only show update info to admins
-		if user.Role == models.RoleAdmin && h.updateChecker != nil {
+		// Only show update info to platform admins
+		if user.IsPlatformAdmin() && h.updateChecker != nil {
 			info := h.updateChecker.Info()
 			if info != nil && info.UpdateAvailable {
 				data.UpdateInfo = info
@@ -528,12 +528,17 @@ func roleAtLeast(user *models.User, minRole string) bool {
 	if user == nil {
 		return false
 	}
+	// Map platform roles to legacy role levels for backward compatibility
 	roleOrder := map[string]int{
+		"platform_admin": 3,
+		"platform_mod":   2,
+		"user":           1,
+		// Legacy role names for backward compatibility
 		"admin":   3,
 		"manager": 2,
 		"dj":      1,
 	}
-	userLevel := roleOrder[string(user.Role)]
+	userLevel := roleOrder[string(user.PlatformRole)]
 	minLevel := roleOrder[minRole]
 	return userLevel >= minLevel
 }

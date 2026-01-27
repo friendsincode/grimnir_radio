@@ -497,15 +497,15 @@ func (i *Importer) importUsers(ctx context.Context, ltDB *sql.DB) error {
 			continue
 		}
 
-		// Map LibreTime user type to Grimnir role
-		role := models.RoleDJ
+		// Map LibreTime user type to Grimnir platform role
+		platformRole := models.PlatformRoleUser
 		switch u.Type {
 		case "A": // Admin
-			role = models.RoleAdmin
+			platformRole = models.PlatformRoleAdmin
 		case "P": // Program Manager
-			role = models.RoleManager
+			platformRole = models.PlatformRoleMod
 		case "H", "G": // Host, Guest
-			role = models.RoleDJ
+			platformRole = models.PlatformRoleUser
 		}
 
 		email := u.Email
@@ -514,10 +514,10 @@ func (i *Importer) importUsers(ctx context.Context, ltDB *sql.DB) error {
 		}
 
 		user := &models.User{
-			ID:       uuid.New().String(),
-			Email:    email,
-			Password: uuid.New().String(), // Random password, must be reset
-			Role:     role,
+			ID:           uuid.New().String(),
+			Email:        email,
+			Password:     uuid.New().String(), // Random password, must be reset
+			PlatformRole: platformRole,
 		}
 
 		if !i.options.DryRun {
@@ -532,7 +532,7 @@ func (i *Importer) importUsers(ctx context.Context, ltDB *sql.DB) error {
 
 		i.logger.Info().
 			Str("login", u.Login).
-			Str("role", string(role)).
+			Str("role", string(platformRole)).
 			Msg("imported user (password must be reset)")
 	}
 

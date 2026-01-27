@@ -144,7 +144,7 @@ func (h *Handler) RequireRole(minRole string) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireStation ensures a station is selected.
+// RequireStation ensures a station is selected and the user has access to it.
 func (h *Handler) RequireStation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		station := h.GetStation(r)
@@ -158,8 +158,41 @@ func (h *Handler) RequireStation(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
 			return
 		}
+
+		// Verify user has access to this station
+		user := h.GetUser(r)
+		if user != nil && !h.HasStationAccess(user, station.ID) {
+			h.logger.Warn().
+				Str("user_id", user.ID).
+				Str("station_id", station.ID).
+				Msg("user attempted to access unauthorized station")
+
+			// Clear the invalid station cookie and redirect
+			h.SetStation(w, "")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("HX-Redirect", "/dashboard/stations/select")
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RequireStationPermission creates middleware that checks for a specific station permission.
+func (h *Handler) RequireStationPermission(permission string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !h.HasStationPermission(r, permission) {
+				http.Error(w, "Permission denied", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // GetUser returns the authenticated user from context.
@@ -178,7 +211,7 @@ func (h *Handler) GetStation(r *http.Request) *models.Station {
 	return nil
 }
 
-// LoadStations loads all stations for the current user.
+// LoadStations loads stations the current user has access to.
 func (h *Handler) LoadStations(r *http.Request) []models.Station {
 	user := h.GetUser(r)
 	if user == nil {
@@ -186,13 +219,107 @@ func (h *Handler) LoadStations(r *http.Request) []models.Station {
 	}
 
 	var stations []models.Station
-	query := h.db.Where("active = ?", true)
 
-	// Non-admins might have station restrictions in the future
-	// For now, all authenticated users can see all active stations
-	query.Find(&stations)
+	// Platform admins can see all active stations
+	if user.IsPlatformAdmin() {
+		h.db.Where("active = ?", true).Find(&stations)
+		return stations
+	}
+
+	// Regular users can only see stations they're associated with
+	// This includes stations they own or are members of
+	h.db.Joins("JOIN station_users ON station_users.station_id = stations.id").
+		Where("station_users.user_id = ? AND stations.active = ?", user.ID, true).
+		Find(&stations)
 
 	return stations
+}
+
+// HasStationAccess checks if the user has access to the specified station.
+func (h *Handler) HasStationAccess(user *models.User, stationID string) bool {
+	if user == nil {
+		return false
+	}
+
+	// Platform admins have access to all stations
+	if user.IsPlatformAdmin() {
+		return true
+	}
+
+	// Check if user has a station association
+	var count int64
+	h.db.Model(&models.StationUser{}).
+		Where("user_id = ? AND station_id = ?", user.ID, stationID).
+		Count(&count)
+
+	return count > 0
+}
+
+// GetStationRole returns the user's role in the specified station.
+func (h *Handler) GetStationRole(user *models.User, stationID string) *models.StationUser {
+	if user == nil {
+		return nil
+	}
+
+	var stationUser models.StationUser
+	if err := h.db.Where("user_id = ? AND station_id = ?", user.ID, stationID).First(&stationUser).Error; err != nil {
+		return nil
+	}
+
+	return &stationUser
+}
+
+// HasStationPermission checks if the user has a specific permission in the current station.
+func (h *Handler) HasStationPermission(r *http.Request, permission string) bool {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if user == nil || station == nil {
+		return false
+	}
+
+	// Platform admins have all permissions
+	if user.IsPlatformAdmin() {
+		return true
+	}
+
+	stationUser := h.GetStationRole(user, station.ID)
+	if stationUser == nil {
+		return false
+	}
+
+	perms := stationUser.GetEffectivePermissions()
+
+	switch permission {
+	case "upload_media":
+		return perms.CanUploadMedia
+	case "delete_media":
+		return perms.CanDeleteMedia
+	case "edit_metadata":
+		return perms.CanEditMetadata
+	case "manage_playlists":
+		return perms.CanManagePlaylists
+	case "manage_smart_blocks":
+		return perms.CanManageSmartBlocks
+	case "manage_schedule":
+		return perms.CanManageSchedule
+	case "manage_clocks":
+		return perms.CanManageClocks
+	case "go_live":
+		return perms.CanGoLive
+	case "kick_dj":
+		return perms.CanKickDJ
+	case "manage_users":
+		return perms.CanManageUsers
+	case "manage_settings":
+		return perms.CanManageSettings
+	case "view_analytics":
+		return perms.CanViewAnalytics
+	case "manage_mounts":
+		return perms.CanManageMounts
+	default:
+		return false
+	}
 }
 
 // SetStation sets the station cookie.
@@ -250,7 +377,7 @@ func (h *Handler) GenerateWSToken(user *models.User) string {
 	// Use the same claim structure as auth.Claims for API compatibility
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"uid":   user.ID,
-		"roles": []string{string(user.Role)},
+		"roles": []string{string(user.PlatformRole)},
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
 		"iat":   time.Now().Unix(),
 		"sub":   user.ID,

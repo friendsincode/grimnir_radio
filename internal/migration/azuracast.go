@@ -926,12 +926,12 @@ func (a *AzuraCastImporter) importStreamersFromAPI(ctx context.Context, client *
 			userID = existingUser.ID
 			a.logger.Info().Str("email", email).Str("station_id", grimnirStationID).Msg("user already exists, adding station association")
 		} else {
-			// Create new user with DJ role
+			// Create new user with default platform role
 			user := &models.User{
-				ID:       uuid.New().String(),
-				Email:    email,
-				Password: uuid.New().String(), // Random password, must be reset
-				Role:     models.RoleDJ,
+				ID:           uuid.New().String(),
+				Email:        email,
+				Password:     uuid.New().String(), // Random password, must be reset
+				PlatformRole: models.PlatformRoleUser,
 			}
 
 			if err := a.db.WithContext(ctx).Create(user).Error; err != nil {
@@ -942,12 +942,12 @@ func (a *AzuraCastImporter) importStreamersFromAPI(ctx context.Context, client *
 			result.UsersCreated++
 		}
 
-		// Create station-user association
+		// Create station-user association with DJ role
 		stationUser := &models.StationUser{
 			ID:        uuid.New().String(),
 			UserID:    userID,
 			StationID: grimnirStationID,
-			Role:      models.RoleDJ,
+			Role:      models.StationRoleDJ,
 		}
 
 		// Check if association already exists

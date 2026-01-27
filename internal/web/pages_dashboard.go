@@ -97,8 +97,8 @@ type NowPlayingInfo struct {
 
 // StationSelect renders the station selection page
 func (h *Handler) StationSelect(w http.ResponseWriter, r *http.Request) {
-	var stations []models.Station
-	h.db.Where("active = ?", true).Find(&stations)
+	// Use LoadStations which filters by user access
+	stations := h.LoadStations(r)
 
 	h.Render(w, r, "pages/dashboard/station-select", PageData{
 		Title:    "Select Station",
@@ -123,6 +123,18 @@ func (h *Handler) StationSelectSubmit(w http.ResponseWriter, r *http.Request) {
 	var station models.Station
 	if err := h.db.First(&station, "id = ?", stationID).Error; err != nil {
 		http.Error(w, "Station not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify user has access to this station
+	user := h.GetUser(r)
+	if user == nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	if !h.HasStationAccess(user, stationID) {
+		http.Error(w, "You don't have access to this station", http.StatusForbidden)
 		return
 	}
 

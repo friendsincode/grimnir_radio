@@ -15,7 +15,98 @@ import (
 	"time"
 )
 
-// RoleName enumerates the RBAC roles.
+// =============================================================================
+// PLATFORM-LEVEL ROLES AND PERMISSIONS
+// =============================================================================
+
+// PlatformRole enumerates global platform roles.
+type PlatformRole string
+
+const (
+	PlatformRoleAdmin PlatformRole = "platform_admin" // Full platform control
+	PlatformRoleMod   PlatformRole = "platform_mod"   // Moderate content, approve stations
+	PlatformRoleUser  PlatformRole = "user"           // Regular user, can own stations
+)
+
+// PlatformPermissions defines what a platform group can do.
+type PlatformPermissions struct {
+	// Station management
+	CanApproveStations  bool `json:"can_approve_stations"`
+	CanSuspendStations  bool `json:"can_suspend_stations"`
+	CanDeleteStations   bool `json:"can_delete_stations"`
+	CanViewAllStations  bool `json:"can_view_all_stations"`
+
+	// User management
+	CanManageUsers      bool `json:"can_manage_users"`
+	CanSuspendUsers     bool `json:"can_suspend_users"`
+	CanDeleteUsers      bool `json:"can_delete_users"`
+
+	// Platform settings
+	CanManageSettings   bool `json:"can_manage_settings"`
+	CanViewAnalytics    bool `json:"can_view_analytics"`
+
+	// Limits (0 = unlimited for admins, default for users)
+	MaxStations         int  `json:"max_stations"`
+	MaxStorageBytes     int64 `json:"max_storage_bytes"`
+}
+
+// Value implements driver.Valuer for database serialization.
+func (p PlatformPermissions) Value() (driver.Value, error) {
+	return json.Marshal(p)
+}
+
+// Scan implements sql.Scanner for database deserialization.
+func (p *PlatformPermissions) Scan(value interface{}) error {
+	if value == nil {
+		*p = PlatformPermissions{}
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal PlatformPermissions: %v", value)
+	}
+	if len(bytes) == 0 {
+		*p = PlatformPermissions{}
+		return nil
+	}
+	return json.Unmarshal(bytes, p)
+}
+
+// PlatformGroup allows grouping users with shared platform permissions.
+type PlatformGroup struct {
+	ID          string              `gorm:"type:uuid;primaryKey"`
+	Name        string              `gorm:"uniqueIndex"`
+	Description string              `gorm:"type:text"`
+	Permissions PlatformPermissions `gorm:"type:jsonb"`
+	Members     []PlatformGroupMember `gorm:"foreignKey:GroupID"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// PlatformGroupMember links users to platform groups.
+type PlatformGroupMember struct {
+	ID        string `gorm:"type:uuid;primaryKey"`
+	UserID    string `gorm:"type:uuid;index;not null"`
+	GroupID   string `gorm:"type:uuid;index;not null"`
+	CreatedAt time.Time
+}
+
+// User represents an authenticated account.
+type User struct {
+	ID              string       `gorm:"type:uuid;primaryKey"`
+	Email           string       `gorm:"uniqueIndex"`
+	Password        string
+	PlatformRole    PlatformRole `gorm:"type:varchar(20);default:'user'"` // Global platform role
+	Suspended       bool         `gorm:"default:false"`                    // Platform-level suspension
+	SuspendedReason string       `gorm:"type:text"`
+	Stations        []StationUser         `gorm:"foreignKey:UserID"`
+	PlatformGroups  []PlatformGroupMember `gorm:"foreignKey:UserID"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// RoleName is kept for backward compatibility during migration.
+// Deprecated: Use PlatformRole for platform level, StationRole for station level.
 type RoleName string
 
 const (
@@ -24,25 +115,190 @@ const (
 	RoleDJ      RoleName = "dj"
 )
 
-// User represents an authenticated account.
-type User struct {
-	ID        string `gorm:"type:uuid;primaryKey"`
-	Email     string `gorm:"uniqueIndex"`
-	Password  string
-	Role      RoleName `gorm:"type:varchar(16)"`
-	Stations  []StationUser `gorm:"foreignKey:UserID"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+// Role returns the legacy RoleName for backward compatibility.
+func (u *User) Role() RoleName {
+	switch u.PlatformRole {
+	case PlatformRoleAdmin:
+		return RoleAdmin
+	case PlatformRoleMod:
+		return RoleManager
+	default:
+		return RoleDJ
+	}
 }
 
-// StationUser associates users (DJs) with specific stations.
+// IsPlatformAdmin checks if user has platform admin privileges.
+func (u *User) IsPlatformAdmin() bool {
+	return u.PlatformRole == PlatformRoleAdmin
+}
+
+// IsPlatformMod checks if user has platform moderator privileges.
+func (u *User) IsPlatformMod() bool {
+	return u.PlatformRole == PlatformRoleAdmin || u.PlatformRole == PlatformRoleMod
+}
+
+// =============================================================================
+// STATION-LEVEL ROLES AND PERMISSIONS
+// =============================================================================
+
+// StationRole enumerates per-station roles.
+type StationRole string
+
+const (
+	StationRoleOwner   StationRole = "owner"   // Full station control, can delete
+	StationRoleAdmin   StationRole = "admin"   // Manage settings and users
+	StationRoleManager StationRole = "manager" // Manage content
+	StationRoleDJ      StationRole = "dj"      // Go live, upload media
+	StationRoleViewer  StationRole = "viewer"  // View only (for private stations)
+)
+
+// StationPermissions defines granular station-level permissions.
+type StationPermissions struct {
+	// Media
+	CanUploadMedia   bool `json:"can_upload_media"`
+	CanDeleteMedia   bool `json:"can_delete_media"`
+	CanEditMetadata  bool `json:"can_edit_metadata"`
+
+	// Playlists
+	CanManagePlaylists   bool `json:"can_manage_playlists"`
+	CanManageSmartBlocks bool `json:"can_manage_smart_blocks"`
+
+	// Schedule
+	CanManageSchedule bool `json:"can_manage_schedule"`
+	CanManageClocks   bool `json:"can_manage_clocks"`
+
+	// Live
+	CanGoLive  bool `json:"can_go_live"`
+	CanKickDJ  bool `json:"can_kick_dj"`
+
+	// Admin
+	CanManageUsers    bool `json:"can_manage_users"`
+	CanManageSettings bool `json:"can_manage_settings"`
+	CanViewAnalytics  bool `json:"can_view_analytics"`
+	CanManageMounts   bool `json:"can_manage_mounts"`
+}
+
+// Value implements driver.Valuer for database serialization.
+func (p StationPermissions) Value() (driver.Value, error) {
+	return json.Marshal(p)
+}
+
+// Scan implements sql.Scanner for database deserialization.
+func (p *StationPermissions) Scan(value interface{}) error {
+	if value == nil {
+		*p = StationPermissions{}
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal StationPermissions: %v", value)
+	}
+	if len(bytes) == 0 {
+		*p = StationPermissions{}
+		return nil
+	}
+	return json.Unmarshal(bytes, p)
+}
+
+// DefaultPermissionsForRole returns the default permissions for a station role.
+func DefaultPermissionsForRole(role StationRole) StationPermissions {
+	switch role {
+	case StationRoleOwner, StationRoleAdmin:
+		return StationPermissions{
+			CanUploadMedia:       true,
+			CanDeleteMedia:       true,
+			CanEditMetadata:      true,
+			CanManagePlaylists:   true,
+			CanManageSmartBlocks: true,
+			CanManageSchedule:    true,
+			CanManageClocks:      true,
+			CanGoLive:            true,
+			CanKickDJ:            true,
+			CanManageUsers:       role == StationRoleOwner || role == StationRoleAdmin,
+			CanManageSettings:    role == StationRoleOwner || role == StationRoleAdmin,
+			CanViewAnalytics:     true,
+			CanManageMounts:      role == StationRoleOwner || role == StationRoleAdmin,
+		}
+	case StationRoleManager:
+		return StationPermissions{
+			CanUploadMedia:       true,
+			CanDeleteMedia:       true,
+			CanEditMetadata:      true,
+			CanManagePlaylists:   true,
+			CanManageSmartBlocks: true,
+			CanManageSchedule:    true,
+			CanManageClocks:      true,
+			CanGoLive:            true,
+			CanKickDJ:            false,
+			CanManageUsers:       false,
+			CanManageSettings:    false,
+			CanViewAnalytics:     true,
+			CanManageMounts:      false,
+		}
+	case StationRoleDJ:
+		return StationPermissions{
+			CanUploadMedia:       true,
+			CanDeleteMedia:       false,
+			CanEditMetadata:      true,
+			CanManagePlaylists:   false,
+			CanManageSmartBlocks: false,
+			CanManageSchedule:    false,
+			CanManageClocks:      false,
+			CanGoLive:            true,
+			CanKickDJ:            false,
+			CanManageUsers:       false,
+			CanManageSettings:    false,
+			CanViewAnalytics:     false,
+			CanManageMounts:      false,
+		}
+	case StationRoleViewer:
+		return StationPermissions{} // All false
+	default:
+		return StationPermissions{}
+	}
+}
+
+// StationUser associates users with specific stations and their role.
 type StationUser struct {
-	ID        string   `gorm:"type:uuid;primaryKey"`
-	UserID    string   `gorm:"type:uuid;index;not null"`
-	StationID string   `gorm:"type:uuid;index;not null"`
-	Role      RoleName `gorm:"type:varchar(16)"` // Station-specific role (dj, manager)
+	ID          string             `gorm:"type:uuid;primaryKey"`
+	UserID      string             `gorm:"type:uuid;index;not null"`
+	StationID   string             `gorm:"type:uuid;index;not null"`
+	Role        StationRole        `gorm:"type:varchar(16);not null"` // owner, admin, manager, dj, viewer
+	Permissions StationPermissions `gorm:"type:jsonb"`                // Custom permissions (overrides role defaults)
+	InvitedBy   string             `gorm:"type:uuid"`                 // Who invited this user
+	InvitedAt   *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// GetEffectivePermissions returns the user's effective permissions for this station.
+// Custom permissions override role defaults.
+func (su *StationUser) GetEffectivePermissions() StationPermissions {
+	defaults := DefaultPermissionsForRole(su.Role)
+
+	// If custom permissions are set, use them; otherwise use role defaults
+	// For now, we just return role defaults - custom permissions can override later
+	return defaults
+}
+
+// StationGroup allows grouping users within a station (e.g., "Morning Show Team").
+type StationGroup struct {
+	ID          string             `gorm:"type:uuid;primaryKey"`
+	StationID   string             `gorm:"type:uuid;index;not null"`
+	Name        string             `gorm:"index"`
+	Description string             `gorm:"type:text"`
+	Permissions StationPermissions `gorm:"type:jsonb"`
+	Members     []StationGroupMember `gorm:"foreignKey:GroupID"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// StationGroupMember links users to station groups.
+type StationGroupMember struct {
+	ID        string `gorm:"type:uuid;primaryKey"`
+	UserID    string `gorm:"type:uuid;index;not null"`
+	GroupID   string `gorm:"type:uuid;index;not null"`
 	CreatedAt time.Time
-	UpdatedAt time.Time
 }
 
 // Station aggregates mounts and scheduling data.
@@ -51,9 +307,26 @@ type Station struct {
 	Name        string `gorm:"uniqueIndex"`
 	Description string `gorm:"type:text"`
 	Timezone    string `gorm:"type:varchar(32)"`
-	Active      bool   `gorm:"default:true"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+
+	// Ownership
+	OwnerID string `gorm:"type:uuid;index"` // User who created/owns the station
+
+	// Platform admin controls
+	Active   bool `gorm:"default:true"`  // Station is enabled (admin can disable)
+	Public   bool `gorm:"default:false"` // Public listening allowed (no auth required)
+	Approved bool `gorm:"default:false"` // Approved for broadcast by platform admin
+
+	// Relationships
+	Users  []StationUser  `gorm:"foreignKey:StationID"`
+	Groups []StationGroup `gorm:"foreignKey:StationID"`
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// IsOwnedBy checks if the station is owned by the given user.
+func (s *Station) IsOwnedBy(userID string) bool {
+	return s.OwnerID == userID
 }
 
 // Mount describes an output encoder pipeline.

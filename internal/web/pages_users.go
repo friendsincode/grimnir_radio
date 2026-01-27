@@ -16,16 +16,16 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
-// UserList renders the users management page
+// UserList renders the platform users management page (platform admins only)
 func (h *Handler) UserList(w http.ResponseWriter, r *http.Request) {
 	currentUser := h.GetUser(r)
 
 	var users []models.User
 	query := h.db.Order("email ASC")
 
-	// Managers can only see DJs, admins can see everyone
-	if currentUser.Role == models.RoleManager {
-		query = query.Where("role = ?", models.RoleDJ)
+	// Platform mods can only see regular users, platform admins can see everyone
+	if currentUser.PlatformRole == models.PlatformRoleMod {
+		query = query.Where("platform_role = ?", models.PlatformRoleUser)
 	}
 
 	query.Find(&users)
@@ -41,19 +41,19 @@ func (h *Handler) UserList(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UserNew(w http.ResponseWriter, r *http.Request) {
 	currentUser := h.GetUser(r)
 
-	// Determine available roles based on current user (as strings for template comparison)
+	// Determine available platform roles based on current user
 	var availableRoles []string
-	if currentUser.Role == models.RoleAdmin {
-		availableRoles = []string{"admin", "manager", "dj"}
+	if currentUser.IsPlatformAdmin() {
+		availableRoles = []string{"platform_admin", "platform_mod", "user"}
 	} else {
-		availableRoles = []string{"dj"}
+		availableRoles = []string{"user"}
 	}
 
 	h.Render(w, r, "pages/dashboard/users/form", PageData{
 		Title:    "New User",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"User":           models.User{Role: models.RoleDJ}, // Default to DJ role
+			"User":           models.User{PlatformRole: models.PlatformRoleUser},
 			"IsNew":          true,
 			"AvailableRoles": availableRoles,
 		},
@@ -71,16 +71,16 @@ func (h *Handler) UserCreate(w http.ResponseWriter, r *http.Request) {
 
 	email := r.FormValue("email")
 	password := r.FormValue("password")
-	role := models.RoleName(r.FormValue("role"))
+	role := models.PlatformRole(r.FormValue("role"))
 
 	if email == "" || password == "" {
 		http.Error(w, "Email and password required", http.StatusBadRequest)
 		return
 	}
 
-	// Validate role permissions
-	if currentUser.Role == models.RoleManager && role != models.RoleDJ {
-		http.Error(w, "Managers can only create DJ accounts", http.StatusForbidden)
+	// Validate role permissions - only platform admins can create elevated roles
+	if !currentUser.IsPlatformAdmin() && role != models.PlatformRoleUser {
+		http.Error(w, "Only platform admins can create elevated accounts", http.StatusForbidden)
 		return
 	}
 
@@ -99,10 +99,10 @@ func (h *Handler) UserCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := models.User{
-		ID:       uuid.New().String(),
-		Email:    email,
-		Password: string(hashedPassword),
-		Role:     role,
+		ID:           uuid.New().String(),
+		Email:        email,
+		Password:     string(hashedPassword),
+		PlatformRole: role,
 	}
 
 	if err := h.db.Create(&user).Error; err != nil {
@@ -132,12 +132,17 @@ func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 	var sessions []models.LiveSession
 	h.db.Where("user_id = ?", id).Order("created_at DESC").Limit(10).Find(&sessions)
 
+	// Get user's station associations
+	var stationUsers []models.StationUser
+	h.db.Where("user_id = ?", id).Preload("Station").Find(&stationUsers)
+
 	h.Render(w, r, "pages/dashboard/users/detail", PageData{
 		Title:    user.Email,
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"User":     user,
-			"Sessions": sessions,
+			"User":         user,
+			"Sessions":     sessions,
+			"StationUsers": stationUsers,
 		},
 	})
 }
@@ -153,18 +158,18 @@ func (h *Handler) UserEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check permissions
-	if currentUser.Role == models.RoleManager && user.Role != models.RoleDJ {
+	// Check permissions - platform mods can only edit regular users
+	if currentUser.PlatformRole == models.PlatformRoleMod && user.PlatformRole != models.PlatformRoleUser {
 		http.Error(w, "Not authorized to edit this user", http.StatusForbidden)
 		return
 	}
 
-	// Available roles as strings for template comparison
+	// Available roles based on current user's permissions
 	var availableRoles []string
-	if currentUser.Role == models.RoleAdmin {
-		availableRoles = []string{"admin", "manager", "dj"}
+	if currentUser.IsPlatformAdmin() {
+		availableRoles = []string{"platform_admin", "platform_mod", "user"}
 	} else {
-		availableRoles = []string{"dj"}
+		availableRoles = []string{"user"}
 	}
 
 	h.Render(w, r, "pages/dashboard/users/form", PageData{
@@ -190,7 +195,7 @@ func (h *Handler) UserUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check permissions
-	if currentUser.Role == models.RoleManager && user.Role != models.RoleDJ {
+	if currentUser.PlatformRole == models.PlatformRoleMod && user.PlatformRole != models.PlatformRoleUser {
 		http.Error(w, "Not authorized", http.StatusForbidden)
 		return
 	}
@@ -202,12 +207,10 @@ func (h *Handler) UserUpdate(w http.ResponseWriter, r *http.Request) {
 
 	user.Email = r.FormValue("email")
 
-	// Only admins can change roles (except for DJs)
-	if newRole := models.RoleName(r.FormValue("role")); newRole != "" {
-		if currentUser.Role == models.RoleAdmin {
-			user.Role = newRole
-		} else if newRole == models.RoleDJ {
-			user.Role = newRole
+	// Only platform admins can change roles
+	if newRole := models.PlatformRole(r.FormValue("role")); newRole != "" {
+		if currentUser.IsPlatformAdmin() {
+			user.PlatformRole = newRole
 		}
 	}
 
@@ -251,16 +254,21 @@ func (h *Handler) UserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check permissions
-	if currentUser.Role == models.RoleManager && user.Role != models.RoleDJ {
+	// Check permissions - mods can only delete regular users
+	if currentUser.PlatformRole == models.PlatformRoleMod && user.PlatformRole != models.PlatformRoleUser {
 		http.Error(w, "Not authorized", http.StatusForbidden)
 		return
 	}
 
-	// Only admins can delete other admins
-	if user.Role == models.RoleAdmin && currentUser.Role != models.RoleAdmin {
+	// Only platform admins can delete other platform admins
+	if user.PlatformRole == models.PlatformRoleAdmin && !currentUser.IsPlatformAdmin() {
 		http.Error(w, "Not authorized", http.StatusForbidden)
 		return
+	}
+
+	// Delete user's station associations first
+	if err := h.db.Where("user_id = ?", user.ID).Delete(&models.StationUser{}).Error; err != nil {
+		h.logger.Error().Err(err).Str("user_id", user.ID).Msg("failed to delete station associations")
 	}
 
 	if err := h.db.Delete(&user).Error; err != nil {
