@@ -518,103 +518,105 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 	stationMap := make(map[int]string) // AzuraCast ID -> Grimnir ID
 
 	for i, azStation := range stations {
-		// Check for duplicate station name and generate unique name if needed
-		stationName := azStation.Name
-		shortcode := azStation.ShortName
+		var station *models.Station
+		var isExisting bool
 
+		// Check if station with same name already exists - use it instead of creating duplicate
 		var existingStation models.Station
-		if err := a.db.WithContext(ctx).Where("name = ?", stationName).First(&existingStation).Error; err == nil {
-			// Station with this name exists - append suffix
-			suffix := 1
-			for {
-				candidateName := fmt.Sprintf("%s (Import %d)", azStation.Name, suffix)
-				if err := a.db.WithContext(ctx).Where("name = ?", candidateName).First(&existingStation).Error; err != nil {
-					stationName = candidateName
-					shortcode = fmt.Sprintf("%s-%d", azStation.ShortName, suffix)
-					break
+		if err := a.db.WithContext(ctx).Where("name = ?", azStation.Name).First(&existingStation).Error; err == nil {
+			// Station exists - use it
+			station = &existingStation
+			isExisting = true
+			a.logger.Info().
+				Str("station_id", station.ID).
+				Str("name", station.Name).
+				Msg("using existing station")
+			result.Skipped["stations_existing"]++
+		} else {
+			// Create new station
+			station = &models.Station{
+				ID:          uuid.New().String(),
+				Name:        azStation.Name,
+				Description: azStation.Description,
+				Shortcode:   azStation.ShortName,
+				Timezone:    "UTC",
+				Active:      true,
+				Public:      azStation.IsPublic,
+				Approved:    true,
+				ListenURL:   azStation.ListenURL,
+				Website:     azStation.URL,
+			}
+
+			// Fetch detailed station profile for additional metadata
+			profile, err := client.GetStationProfile(ctx, azStation.ID)
+			if err == nil && profile != nil {
+				if profile.Genre != "" {
+					station.Genre = profile.Genre
 				}
-				suffix++
-				if suffix > 100 {
-					return nil, fmt.Errorf("too many duplicate stations with name: %s", azStation.Name)
+				if profile.Timezone != "" {
+					station.Timezone = profile.Timezone
+				}
+				if profile.URL != "" && station.Website == "" {
+					station.Website = profile.URL
 				}
 			}
-			a.logger.Warn().
-				Str("original_name", azStation.Name).
-				Str("new_name", stationName).
-				Msg("station name already exists, using unique name")
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Station '%s' already exists, imported as '%s'", azStation.Name, stationName))
-		}
 
-		station := &models.Station{
-			ID:          uuid.New().String(),
-			Name:        stationName,
-			Description: azStation.Description,
-			Shortcode:   shortcode,
-			Timezone:    "UTC",
-			Active:      true,
-			Public:      azStation.IsPublic,
-			Approved:    true, // Auto-approve imported stations
-			ListenURL:   azStation.ListenURL,
-			Website:     azStation.URL,
-		}
-
-		// Fetch detailed station profile for additional metadata
-		profile, err := client.GetStationProfile(ctx, azStation.ID)
-		if err == nil && profile != nil {
-			if profile.Genre != "" {
-				station.Genre = profile.Genre
+			// Download station logo/artwork
+			logoData, logoMime, err := client.DownloadStationArt(ctx, azStation.ID)
+			if err == nil && len(logoData) > 0 {
+				station.Logo = logoData
+				station.LogoMime = logoMime
+				a.logger.Debug().Int("station_id", azStation.ID).Int("logo_size", len(logoData)).Msg("downloaded station logo")
 			}
-			if profile.Timezone != "" {
-				station.Timezone = profile.Timezone
-			}
-			if profile.URL != "" && station.Website == "" {
-				station.Website = profile.URL
-			}
-		}
 
-		// Download station logo/artwork
-		logoData, logoMime, err := client.DownloadStationArt(ctx, azStation.ID)
-		if err == nil && len(logoData) > 0 {
-			station.Logo = logoData
-			station.LogoMime = logoMime
-			a.logger.Debug().Int("station_id", azStation.ID).Int("logo_size", len(logoData)).Msg("downloaded station logo")
-		}
-
-		// Set owner if importing user specified
-		if options.ImportingUserID != "" {
-			station.OwnerID = options.ImportingUserID
-		}
-
-		if err := a.db.WithContext(ctx).Create(station).Error; err != nil {
-			return nil, fmt.Errorf("create station: %w", err)
-		}
-
-		// Create station-user association for the owner
-		if options.ImportingUserID != "" {
-			stationUser := &models.StationUser{
-				ID:        uuid.New().String(),
-				UserID:    options.ImportingUserID,
-				StationID: station.ID,
-				Role:      models.StationRoleOwner,
+			// Set owner if importing user specified
+			if options.ImportingUserID != "" {
+				station.OwnerID = options.ImportingUserID
 			}
-			if err := a.db.WithContext(ctx).Create(stationUser).Error; err != nil {
-				a.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to create owner association")
+
+			if err := a.db.WithContext(ctx).Create(station).Error; err != nil {
+				return nil, fmt.Errorf("create station: %w", err)
 			}
+
+			// Create station-user association for the owner (only for new stations)
+			if options.ImportingUserID != "" {
+				// Check if association already exists
+				var existingAssoc models.StationUser
+				if err := a.db.WithContext(ctx).Where("user_id = ? AND station_id = ?", options.ImportingUserID, station.ID).First(&existingAssoc).Error; err != nil {
+					stationUser := &models.StationUser{
+						ID:        uuid.New().String(),
+						UserID:    options.ImportingUserID,
+						StationID: station.ID,
+						Role:      models.StationRoleOwner,
+					}
+					if err := a.db.WithContext(ctx).Create(stationUser).Error; err != nil {
+						a.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to create owner association")
+					}
+				}
+			}
+
+			result.StationsCreated++
+			a.logger.Info().
+				Str("station_id", station.ID).
+				Str("name", station.Name).
+				Msg("created new station")
 		}
 
 		stationMap[azStation.ID] = station.ID
-		result.StationsCreated++
 
 		result.Mappings[fmt.Sprintf("station_%d", azStation.ID)] = Mapping{
-			OldID: fmt.Sprintf("%d", azStation.ID),
-			NewID: station.ID,
-			Type:  "station",
-			Name:  station.Name,
+			OldID:   fmt.Sprintf("%d", azStation.ID),
+			NewID:   station.ID,
+			Type:    "station",
+			Name:    station.Name,
+			Skipped: isExisting,
+			Reason:  func() string { if isExisting { return "already exists" }; return "" }(),
 		}
 
 		a.logger.Info().
 			Str("station_id", station.ID).
 			Str("name", station.Name).
+			Bool("existing", isExisting).
 			Bool("has_logo", len(station.Logo) > 0).
 			Str("genre", station.Genre).
 			Msg("station imported with branding")
