@@ -207,7 +207,8 @@ func (c *AzuraCastAPIClient) GetStations(ctx context.Context) ([]AzuraCastAPISta
 
 // GetMedia returns all media files for a station.
 func (c *AzuraCastAPIClient) GetMedia(ctx context.Context, stationID int) ([]AzuraCastAPIMediaFile, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/files/list", stationID))
+	// Try the standard /files endpoint first (requires "View Station Media" permission)
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/files", stationID))
 	if err != nil {
 		return nil, err
 	}
