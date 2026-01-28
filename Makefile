@@ -52,7 +52,8 @@ test:
 	@$(GO) test $(GOFLAGS) $(if $(filter 1,$(RACE)),-race,) $(PKG)
 
 build:
-	@$(GO) build $(GOFLAGS) -o ./$(BIN) ./cmd/$(BIN)
+	@$(GO) build $(GOFLAGS) -o ./grimnirradio ./cmd/grimnirradio
+	@$(GO) build $(GOFLAGS) -o ./mediaengine ./cmd/mediaengine
 
 verify: tidy fmt vet lint test
 

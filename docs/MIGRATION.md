@@ -1,7 +1,7 @@
 # Grimnir Radio - Migration Guide
 
-**Version:** 1.0
-**Last Updated:** 2026-01-22
+**Version:** 1.1.16
+**Last Updated:** 2026-01-28
 
 This guide covers migrating from AzuraCast and LibreTime to Grimnir Radio.
 
@@ -119,12 +119,13 @@ grimnirradio import azuracast \
 | Item | Status | Notes |
 |------|--------|-------|
 | Stations | ✅ Complete | All station configurations |
-| Mounts | ⚠️ Partial | Mount points created, GStreamer configs may need adjustment |
-| Media metadata | ✅ Complete | Title, artist, album, genre, duration |
-| Media files | ⚠️ Detected | File paths stored in `import_path`, actual file copy not implemented yet |
-| Playlists | ⚠️ Detected | Detected but import logic not fully implemented |
-| Schedules | ❌ Not implemented | |
-| Users | ❌ Not implemented | |
+| Mounts | ✅ Complete | Mount points created with proper URL paths |
+| Media metadata | ✅ Complete | Title, artist, album, genre, duration, cue points |
+| Media files | ✅ Complete | Files downloaded via API and stored in media library |
+| Artwork | ✅ Complete | Album art downloaded and associated with tracks |
+| Playlists | ✅ Complete | Playlist structure and items imported |
+| Schedules | ✅ Complete | Schedule entries imported |
+| Users | ❌ Not imported | Security: passwords cannot be migrated |
 
 ---
 
@@ -207,11 +208,11 @@ grimnirradio import libretime \
 |------|--------|-------|
 | Station configuration | ✅ Complete | From `cc_pref` table (station name, description) |
 | Media metadata | ✅ Complete | From `cc_files` (title, artist, album, genre, duration, bitrate, etc.) |
-| Media files | ⚠️ Detected | File paths stored in `import_path`, actual file copy not implemented yet |
+| Media files | ✅ Complete | Files copied from LibreTime media directory (parallel processing) |
 | Playlists | ✅ Complete | From `cc_playlist` and `cc_playlistcontents` with fade settings |
 | Shows | ✅ Complete | Imported as Clock templates from `cc_show` |
-| Show instances | ⚠️ Partial | Detected but schedule materialization not implemented |
-| Users | ❌ Not implemented | |
+| Show instances | ✅ Complete | Schedules materialized from show instances |
+| Users | ❌ Not imported | Security: passwords cannot be migrated |
 
 ### LibreTime Show Import
 
@@ -343,14 +344,13 @@ ws.onmessage = (event) => {
 #### ✅ Fully Implemented
 - **Station metadata**: Name, description, timezone
 - **Media metadata**: Title, artist, album, genre, year, track number, duration
+- **Media files**: Full file transfer with parallel processing (4 concurrent workers)
+- **Artwork**: Album art downloaded and associated with tracks
 - **Playlist structures**: Playlist names, descriptions, items, ordering
-- **Playlist item settings**: Fade in/out durations, positions
+- **Playlist item settings**: Fade in/out durations, positions, cue points
+- **Schedule templates**: Shows/clocks imported with schedule entries
 
-#### ⚠️ Partially Implemented
-- **Media files**: File paths are imported to `import_path` field, but actual file copying/moving is not yet implemented
-- **Schedule templates**: Shows/clocks are imported as templates, but schedule materialization is manual
-
-#### ❌ Not Yet Implemented
+#### ❌ Not Imported
 - **User accounts**: Passwords cannot be migrated for security reasons
 - **Live DJ sessions**: Historical data only
 - **Listener statistics**: Historical data only
@@ -384,7 +384,7 @@ ws.onmessage = (event) => {
 - **Always run a dry-run first** to preview what will be imported
 - **Backup your Grimnir database** before running a migration
 - **Verify imported data** after migration completes
-- **Media files are not automatically copied** - file paths are stored in `import_path` field
+- **Media files are automatically transferred** during import (parallel processing)
 
 ### ID Mapping
 
@@ -416,13 +416,13 @@ These mappings are stored in the migration job result and can be used for post-i
 After migration, you'll need to:
 
 1. **Verify stations** - Check station configurations match your requirements
-2. **Media files** - Copy media files to Grimnir's media directory (manual step)
-3. **Update file paths** - Update `path` field in `media_items` table to match new locations
-4. **Recreate schedules** - Build new schedules using imported Clock templates
-5. **Configure mounts** - Adjust GStreamer encoder settings if needed
-6. **Test playback** - Verify audio output works correctly
-7. **Create users** - Manually create user accounts (passwords can't be migrated)
-8. **Configure live inputs** - Set up harbor/icecast live source endpoints
+2. **Verify media** - Spot-check that media files were transferred correctly
+3. **Configure mounts** - Adjust GStreamer encoder settings if needed
+4. **Test playback** - Verify audio output works correctly
+5. **Create users** - Manually create user accounts (passwords can't be migrated)
+6. **Configure live inputs** - Set up harbor/icecast live source endpoints
+
+**Note**: Media files, playlists, and schedules are now automatically imported. If you need to re-import, use the "Reset Data" button on the migration status page to clear all imported data first.
 
 ### Performance Considerations
 
@@ -488,27 +488,21 @@ After migration, you'll need to:
 - Check job ID is correct (UUID format)
 - Job may have been deleted after completion
 
-### "Media import not fully implemented"
+### Media files not transferring
 
-**Warning**: This is expected behavior
+**Symptoms**: Media metadata imported but files missing
 
-**Explanation**:
-- Media metadata is imported (title, artist, etc.)
-- File paths are stored in `import_path` field
-- Actual file copying must be done manually
+**Solutions**:
+1. **For AzuraCast API import**: Ensure API key has file download permissions
+2. **For LibreTime import**: Ensure `--media-path` points to the correct directory
+3. Check disk space on Grimnir media storage
+4. Check logs for download errors: `grep "failed to download" /var/log/grimnir/grimnir-radio.log`
 
-**Manual file migration**:
-```bash
-# Example: Copy LibreTime media to Grimnir
-rsync -av /srv/airtime/stor/ /var/lib/grimnir/media/
-
-# Update database paths (example)
-psql -d grimnir -c "
-  UPDATE media_items
-  SET path = '/var/lib/grimnir/media/' || SUBSTRING(import_path FROM '[^/]*$')
-  WHERE import_path IS NOT NULL;
-"
-```
+**Re-importing**:
+If media transfer failed, you can re-run the import:
+1. Go to **Settings** → **Migrations** → **Status**
+2. Click **Reset Data** to clear all imported data
+3. Run the import again
 
 ### "Validation failed"
 
