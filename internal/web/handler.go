@@ -104,6 +104,11 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 	migrationService.RegisterImporter(migration.SourceTypeAzuraCast, migration.NewAzuraCastImporter(db, mediaService, logger))
 	migrationService.RegisterImporter(migration.SourceTypeLibreTime, migration.NewLibreTimeImporter(db, mediaService, logger))
 
+	// Recover any jobs that were interrupted by server restart
+	if err := migrationService.RecoverStaleJobs(context.Background()); err != nil {
+		logger.Error().Err(err).Msg("failed to recover stale migration jobs")
+	}
+
 	h := &Handler{
 		db:                 db,
 		logger:             logger,
