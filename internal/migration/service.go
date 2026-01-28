@@ -451,6 +451,18 @@ func (s *Service) ResetImportedData(ctx context.Context) error {
 		}
 		s.logger.Info().Msg("cleared live_sessions")
 
+		// Clear priority sources (playout priority queue)
+		if err := tx.Exec("DELETE FROM priority_sources").Error; err != nil {
+			return fmt.Errorf("clear priority_sources: %w", err)
+		}
+		s.logger.Info().Msg("cleared priority_sources")
+
+		// Clear executor states (playout state)
+		if err := tx.Exec("DELETE FROM executor_states").Error; err != nil {
+			return fmt.Errorf("clear executor_states: %w", err)
+		}
+		s.logger.Info().Msg("cleared executor_states")
+
 		// Clear mounts
 		if err := tx.Exec("DELETE FROM mounts").Error; err != nil {
 			return fmt.Errorf("clear mounts: %w", err)
