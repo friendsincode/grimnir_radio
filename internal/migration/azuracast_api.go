@@ -292,8 +292,9 @@ func (c *AzuraCastAPIClient) DownloadMedia(ctx context.Context, stationID, media
 
 // DownloadMediaArt downloads album art for a media file.
 // Returns nil, nil if no artwork is available.
+// Note: AzuraCast uses /art/{id} endpoint, not /file/{id}/art
 func (c *AzuraCastAPIClient) DownloadMediaArt(ctx context.Context, stationID, mediaID int) ([]byte, string, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/file/%d/art", stationID, mediaID))
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/art/%d", stationID, mediaID))
 	if err != nil {
 		return nil, "", err
 	}
@@ -453,28 +454,33 @@ type AzuraCastAPIStation struct {
 
 // AzuraCastAPIMediaFile represents a media file from the AzuraCast API.
 type AzuraCastAPIMediaFile struct {
-	ID           int                      `json:"id"`
-	UniqueID     string                   `json:"unique_id"`
-	SongID       string                   `json:"song_id"`
-	Title        string                   `json:"title"`
-	Artist       string                   `json:"artist"`
-	Album        string                   `json:"album"`
-	Genre        string                   `json:"genre"`
-	Lyrics       string                   `json:"lyrics"`
-	ISRC         string                   `json:"isrc"`
-	Length       float64                  `json:"length"`
-	LengthText   string                   `json:"length_text"`
-	Path         string                   `json:"path"`
-	Size         int64                    `json:"size"` // File size in bytes (may be 0 if not provided)
-	MTime        int64                    `json:"mtime"`
-	FadeOverlap  *float64                 `json:"fade_overlap"`
-	FadeIn       *float64                 `json:"fade_in"`
-	FadeOut      *float64                 `json:"fade_out"`
-	CueIn        *float64                 `json:"cue_in"`
-	CueOut       *float64                 `json:"cue_out"`
-	Amplify      *float64                 `json:"amplify"`
-	ArtUpdatedAt int64                    `json:"art_updated_at"`
-	CustomFields map[string]string        `json:"custom_fields,omitempty"`
+	ID            int                         `json:"id"`
+	UniqueID      string                      `json:"unique_id"`
+	SongID        string                      `json:"song_id"`
+	Title         string                      `json:"title"`
+	Artist        string                      `json:"artist"`
+	Album         string                      `json:"album"`
+	Genre         string                      `json:"genre"`
+	Lyrics        string                      `json:"lyrics"`
+	ISRC          string                      `json:"isrc"`
+	Length        float64                     `json:"length"`
+	LengthText    string                      `json:"length_text"`
+	Path          string                      `json:"path"`
+	Size          int64                       `json:"size"` // File size in bytes (may be 0 if not provided)
+	MTime         int64                       `json:"mtime"`
+	ArtUpdatedAt  int64                       `json:"art_updated_at"`
+	CustomFields  map[string]string           `json:"custom_fields,omitempty"`
+	ExtraMetadata AzuraCastAPIExtraMetadata   `json:"extra_metadata"`
+}
+
+// AzuraCastAPIExtraMetadata contains extra metadata fields from AzuraCast API.
+type AzuraCastAPIExtraMetadata struct {
+	Amplify        *float64 `json:"amplify"`
+	CrossStartNext *float64 `json:"cross_start_next"`
+	CueIn          *float64 `json:"cue_in"`
+	CueOut         *float64 `json:"cue_out"`
+	FadeIn         *float64 `json:"fade_in"`
+	FadeOut        *float64 `json:"fade_out"`
 }
 
 // AzuraCastAPIPlaylist represents a playlist from the AzuraCast API.
@@ -508,6 +514,7 @@ type AzuraCastAPIMount struct {
 	ID                int    `json:"id"`
 	Name              string `json:"name"`
 	DisplayName       string `json:"display_name"`
+	Path              string `json:"path"` // Mount path like "/radio.mp3"
 	IsVisibleOnPublic bool   `json:"is_visible_on_public_pages"`
 	IsDefault         bool   `json:"is_default"`
 	IsPublic          bool   `json:"is_public"`

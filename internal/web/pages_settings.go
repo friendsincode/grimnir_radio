@@ -471,6 +471,28 @@ func (h *Handler) MigrationJobDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// MigrationResetData clears all imported data from the database
+func (h *Handler) MigrationResetData(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if err := h.migrationService.ResetImportedData(ctx); err != nil {
+		h.logger.Error().Err(err).Msg("failed to reset imported data")
+		writeHTMXError(w, fmt.Sprintf("Failed to reset data: %v", err))
+		return
+	}
+
+	h.logger.Warn().Msg("all imported data has been reset")
+
+	html := `<div class="alert alert-success">
+		<i class="bi bi-check-circle me-2"></i>
+		<strong>Reset complete!</strong>
+		<p class="mb-0 mt-2">All imported data has been cleared. You can now run a fresh import.</p>
+	</div>`
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(html))
+}
+
 // LibreTimeAPITest tests the connection to a LibreTime instance
 func (h *Handler) LibreTimeAPITest(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
