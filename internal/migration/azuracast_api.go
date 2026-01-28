@@ -274,8 +274,9 @@ func (c *AzuraCastAPIClient) GetStreamers(ctx context.Context, stationID int) ([
 
 // DownloadMedia downloads a media file and returns the reader.
 // The caller is responsible for closing the reader.
+// Note: AzuraCast uses /play endpoint for file downloads, not /download.
 func (c *AzuraCastAPIClient) DownloadMedia(ctx context.Context, stationID, mediaID int) (io.ReadCloser, int64, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/file/%d/download", stationID, mediaID))
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/station/%d/file/%d/play", stationID, mediaID))
 	if err != nil {
 		return nil, 0, err
 	}

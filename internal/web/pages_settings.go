@@ -389,7 +389,11 @@ func writeHTMXError(w http.ResponseWriter, message string) {
 func (h *Handler) MigrationStatusPage(w http.ResponseWriter, r *http.Request) {
 	// Get all migration jobs
 	var jobs []migration.Job
-	h.db.Order("created_at DESC").Limit(20).Find(&jobs)
+	if err := h.db.Order("created_at DESC").Limit(20).Find(&jobs).Error; err != nil {
+		h.logger.Error().Err(err).Msg("failed to load migration jobs")
+		http.Error(w, "Failed to load migration jobs", http.StatusInternalServerError)
+		return
+	}
 
 	h.Render(w, r, "pages/dashboard/settings/migration-status", PageData{
 		Title:    "Import Status",
