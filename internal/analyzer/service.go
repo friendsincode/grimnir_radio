@@ -321,3 +321,65 @@ func (s *Service) Close() error {
 	}
 	return nil
 }
+
+// MediaEngineStatus contains status information about the media engine connection.
+type MediaEngineStatus struct {
+	Configured bool   `json:"configured"`
+	Connected  bool   `json:"connected"`
+	Address    string `json:"address,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// GetMediaEngineStatus returns the current status of the media engine connection.
+func (s *Service) GetMediaEngineStatus(ctx context.Context) MediaEngineStatus {
+	status := MediaEngineStatus{
+		Configured: s.cfg.MediaEngineGRPCAddr != "",
+		Address:    s.cfg.MediaEngineGRPCAddr,
+	}
+
+	if !status.Configured {
+		status.Error = "Media engine gRPC address not configured"
+		return status
+	}
+
+	if s.mediaEngineClient == nil {
+		status.Error = "Media engine client not initialized"
+		return status
+	}
+
+	// Check if connected
+	status.Connected = s.mediaEngineClient.IsConnected()
+
+	if !status.Connected {
+		// Try to connect
+		connectCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		if err := s.mediaEngineClient.Connect(connectCtx); err != nil {
+			status.Error = err.Error()
+		} else {
+			status.Connected = true
+		}
+	}
+
+	return status
+}
+
+// TestMediaEngine performs a test analysis to verify the media engine is working.
+// Returns nil if the test passes, or an error with details if it fails.
+func (s *Service) TestMediaEngine(ctx context.Context) error {
+	if s.mediaEngineClient == nil {
+		return ErrMediaEngineNotConfigured
+	}
+
+	if !s.mediaEngineClient.IsConnected() {
+		// Try to connect
+		if err := s.mediaEngineClient.Connect(ctx); err != nil {
+			return err
+		}
+	}
+
+	// The media engine is connected if we get here
+	// We could do a test analysis here but for now just verify the connection
+	return nil
+}

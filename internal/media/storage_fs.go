@@ -81,3 +81,18 @@ func (fs *FilesystemStorage) Delete(ctx context.Context, path string) error {
 func (fs *FilesystemStorage) URL(path string) string {
 	return path
 }
+
+// CheckAccess verifies the storage directory exists and is accessible.
+func (fs *FilesystemStorage) CheckAccess(ctx context.Context) error {
+	info, err := os.Stat(fs.rootDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("media root directory does not exist: %s", fs.rootDir)
+		}
+		return fmt.Errorf("cannot access media root: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("media root is not a directory: %s", fs.rootDir)
+	}
+	return nil
+}

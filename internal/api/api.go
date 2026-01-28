@@ -271,6 +271,12 @@ func (a *API) Routes(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin)).Post("/track-start", a.handleWebhookTrackStart)
 			})
 
+			// System status routes (admin only)
+			pr.Route("/system", func(r chi.Router) {
+				r.With(a.requireRoles(models.RoleAdmin)).Get("/status", a.handleSystemStatus)
+				r.With(a.requireRoles(models.RoleAdmin)).Post("/test-media-engine", a.handleTestMediaEngine)
+			})
+
 			// Priority management routes
 			a.AddPriorityRoutes(pr)
 
@@ -1251,6 +1257,115 @@ func (a *API) requireRoles(allowed ...models.RoleName) func(http.Handler) http.H
 
 func (a *API) notImplemented(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented")
+}
+
+// SystemStatus represents the overall system health status.
+type SystemStatus struct {
+	Database    ComponentStatus `json:"database"`
+	MediaEngine ComponentStatus `json:"media_engine"`
+	Storage     ComponentStatus `json:"storage"`
+	Timestamp   time.Time       `json:"timestamp"`
+}
+
+// ComponentStatus represents the status of a single system component.
+type ComponentStatus struct {
+	Status  string `json:"status"` // "ok", "error", "unavailable"
+	Message string `json:"message,omitempty"`
+	Address string `json:"address,omitempty"`
+}
+
+func (a *API) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	status := SystemStatus{
+		Timestamp: time.Now(),
+	}
+
+	// Check database connection
+	sqlDB, err := a.db.DB()
+	if err != nil {
+		status.Database = ComponentStatus{Status: "error", Message: err.Error()}
+	} else if err := sqlDB.PingContext(ctx); err != nil {
+		status.Database = ComponentStatus{Status: "error", Message: err.Error()}
+	} else {
+		status.Database = ComponentStatus{Status: "ok", Message: "Connected"}
+	}
+
+	// Check media engine connection
+	if a.analyzer != nil {
+		meStatus := a.analyzer.GetMediaEngineStatus(ctx)
+		if !meStatus.Configured {
+			status.MediaEngine = ComponentStatus{
+				Status:  "unavailable",
+				Message: "Not configured",
+			}
+		} else if meStatus.Connected {
+			status.MediaEngine = ComponentStatus{
+				Status:  "ok",
+				Message: "Connected",
+				Address: meStatus.Address,
+			}
+		} else {
+			status.MediaEngine = ComponentStatus{
+				Status:  "error",
+				Message: meStatus.Error,
+				Address: meStatus.Address,
+			}
+		}
+	} else {
+		status.MediaEngine = ComponentStatus{
+			Status:  "unavailable",
+			Message: "Analyzer service not available",
+		}
+	}
+
+	// Check storage access
+	if a.media != nil {
+		if err := a.media.CheckStorageAccess(); err != nil {
+			status.Storage = ComponentStatus{
+				Status:  "error",
+				Message: err.Error(),
+			}
+		} else {
+			status.Storage = ComponentStatus{
+				Status:  "ok",
+				Message: "Accessible",
+			}
+		}
+	} else {
+		status.Storage = ComponentStatus{
+			Status:  "unavailable",
+			Message: "Media service not available",
+		}
+	}
+
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (a *API) handleTestMediaEngine(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if a.analyzer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"success": false,
+			"error":   "Analyzer service not available",
+		})
+		return
+	}
+
+	err := a.analyzer.TestMediaEngine(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"message": "Media engine connection successful",
+	})
 }
 
 func parseEventTypes(raw string) []events.EventType {
