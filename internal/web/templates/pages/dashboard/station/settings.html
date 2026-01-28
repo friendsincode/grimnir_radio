@@ -145,6 +145,25 @@
     </div>
 
     <div class="col-lg-4">
+        <!-- Emergency Stop Card -->
+        <div class="card mb-4 border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5 class="card-title mb-0"><i class="bi bi-stop-circle me-2"></i>Emergency Controls</h5>
+            </div>
+            <div class="card-body">
+                <p class="card-text small text-body-secondary mb-3">
+                    Stop all playout on this station immediately. Use this if playback is stuck or looping.
+                </p>
+                <div id="stopPlayoutResult"></div>
+                <button class="btn btn-danger w-100"
+                        hx-post="/dashboard/station/settings/stop-playout"
+                        hx-target="#stopPlayoutResult"
+                        hx-confirm="Stop all playout for this station? This will immediately halt any playing audio.">
+                    <i class="bi bi-stop-fill me-2"></i>Stop All Playout
+                </button>
+            </div>
+        </div>
+
         <!-- Station Status Card -->
         <div class="card mb-4">
             <div class="card-header">
