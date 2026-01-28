@@ -72,6 +72,9 @@ type Config struct {
 	WebRTCTURNURL      string // TURN server for relaying (optional)
 	WebRTCTURNUsername string // TURN username
 	WebRTCTURNPassword string // TURN password
+
+	// Media Engine configuration
+	MediaEngineGRPCAddr string // gRPC address of the media engine (e.g., "mediaengine:9091")
 }
 
 // Load reads environment variables, applies defaults, and validates the result.
@@ -124,6 +127,9 @@ func Load() (*Config, error) {
         WebRTCTURNURL:      getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_URL", "WEBRTC_TURN_URL"}, "turn:openrelay.metered.ca:443"),
         WebRTCTURNUsername: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_USERNAME", "WEBRTC_TURN_USERNAME"}, "openrelayproject"),
         WebRTCTURNPassword: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_PASSWORD", "WEBRTC_TURN_PASSWORD"}, "openrelayproject"),
+
+        // Media Engine configuration
+        MediaEngineGRPCAddr: getEnvAny([]string{"GRIMNIR_MEDIA_ENGINE_GRPC_ADDR", "MEDIA_ENGINE_GRPC_ADDR"}, "mediaengine:9091"),
     }
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {

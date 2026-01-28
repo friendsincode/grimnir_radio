@@ -176,7 +176,11 @@ func (s *Server) initDependencies() error {
 			Msg("leader election enabled for scheduler")
 	}
 
-	s.analyzer = analyzer.New(database, s.cfg.MediaRoot, s.logger)
+	analyzerCfg := analyzer.Config{
+		MediaEngineGRPCAddr: s.cfg.MediaEngineGRPCAddr,
+	}
+	s.analyzer = analyzer.NewWithConfig(database, s.cfg.MediaRoot, s.logger, analyzerCfg)
+	s.DeferClose(func() error { return s.analyzer.Close() })
 	mediaService, err := media.NewService(s.cfg, s.logger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize media service: %w", err)

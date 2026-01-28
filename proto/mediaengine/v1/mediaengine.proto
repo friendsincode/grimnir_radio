@@ -31,6 +31,15 @@ service MediaEngine {
 
   // GetStatus returns current engine status
   rpc GetStatus(StatusRequest) returns (StatusResponse);
+
+  // AnalyzeMedia performs media analysis (metadata, loudness, cue points)
+  rpc AnalyzeMedia(AnalyzeMediaRequest) returns (AnalyzeMediaResponse);
+
+  // ExtractArtwork extracts embedded album art from media
+  rpc ExtractArtwork(ExtractArtworkRequest) returns (ExtractArtworkResponse);
+
+  // GenerateWaveform generates peak/RMS waveform data for visualization
+  rpc GenerateWaveform(GenerateWaveformRequest) returns (GenerateWaveformResponse);
 }
 
 // LoadGraphRequest contains DSP graph configuration
@@ -207,6 +216,99 @@ message LiveInputConfig {
 message DSPGraph {
   repeated DSPNode nodes = 1;
   repeated DSPConnection connections = 2;
+}
+
+// AnalyzeMediaRequest requests media analysis
+message AnalyzeMediaRequest {
+  string file_path = 1;  // Path to the media file to analyze
+}
+
+// AnalyzeMediaResponse contains analysis results
+message AnalyzeMediaResponse {
+  bool success = 1;
+  string error = 2;
+
+  // Duration in milliseconds
+  int64 duration_ms = 3;
+
+  // Audio properties
+  int32 bitrate = 4;      // Bitrate in kbps
+  int32 sample_rate = 5;  // Sample rate in Hz
+  int32 channels = 6;     // Number of audio channels
+  string codec = 7;       // Audio codec name
+
+  // Loudness analysis
+  float loudness_lufs = 8;       // Integrated loudness (LUFS)
+  float loudness_range = 9;      // Loudness range (LU)
+  float true_peak = 10;          // True peak (dBTP)
+  float replay_gain = 11;        // Replay gain adjustment (dB)
+
+  // Cue points (in seconds)
+  float intro_end = 12;   // End of intro
+  float outro_in = 13;    // Start of outro
+
+  // Metadata from file tags
+  MediaMetadata metadata = 14;
+}
+
+// MediaMetadata contains ID3/Vorbis/etc tags
+message MediaMetadata {
+  string title = 1;
+  string artist = 2;
+  string album = 3;
+  string genre = 4;
+  string year = 5;
+  int32 track_number = 6;
+  string album_artist = 7;
+  string composer = 8;
+  string isrc = 9;
+  map<string, string> extra_tags = 10;  // Any additional tags
+}
+
+// ExtractArtworkRequest requests artwork extraction
+message ExtractArtworkRequest {
+  string file_path = 1;      // Path to the media file
+  int32 max_width = 2;       // Maximum width for resizing (0 = no resize)
+  int32 max_height = 3;      // Maximum height for resizing (0 = no resize)
+  string format = 4;         // Output format: "jpeg", "png", "webp" (default: jpeg)
+  int32 quality = 5;         // JPEG/WebP quality 1-100 (default: 85)
+}
+
+// ExtractArtworkResponse contains extracted artwork
+message ExtractArtworkResponse {
+  bool success = 1;
+  string error = 2;
+  bytes artwork_data = 3;    // Raw image data
+  string mime_type = 4;      // MIME type of the image (image/jpeg, image/png, etc)
+  int32 width = 5;           // Image width in pixels
+  int32 height = 6;          // Image height in pixels
+}
+
+// GenerateWaveformRequest requests waveform generation
+message GenerateWaveformRequest {
+  string file_path = 1;          // Path to the media file
+  int32 samples_per_second = 2;  // Number of samples per second (default: 10)
+  WaveformType type = 3;         // Type of waveform data
+}
+
+// WaveformType specifies the type of waveform data to generate
+enum WaveformType {
+  WAVEFORM_TYPE_UNSPECIFIED = 0;
+  WAVEFORM_TYPE_PEAK = 1;        // Peak amplitude values
+  WAVEFORM_TYPE_RMS = 2;         // RMS values
+  WAVEFORM_TYPE_BOTH = 3;        // Both peak and RMS
+}
+
+// GenerateWaveformResponse contains waveform data
+message GenerateWaveformResponse {
+  bool success = 1;
+  string error = 2;
+  int32 sample_rate = 3;         // Samples per second in the response
+  int64 duration_ms = 4;         // Total duration in milliseconds
+  repeated float peak_left = 5;  // Left channel peak values (0.0-1.0)
+  repeated float peak_right = 6; // Right channel peak values (0.0-1.0)
+  repeated float rms_left = 7;   // Left channel RMS values (0.0-1.0)
+  repeated float rms_right = 8;  // Right channel RMS values (0.0-1.0)
 }
 
 // Enums
