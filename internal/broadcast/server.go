@@ -408,13 +408,15 @@ func (m *Mount) Close() {
 
 // rcFlusher wraps http.ResponseController to implement http.Flusher
 type rcFlusher struct {
-	rc     *http.ResponseController
-	logger zerolog.Logger
+	rc        *http.ResponseController
+	logger    zerolog.Logger
+	errLogged bool // only log flush errors once per connection
 }
 
 func (f *rcFlusher) Flush() {
-	if err := f.rc.Flush(); err != nil {
+	if err := f.rc.Flush(); err != nil && !f.errLogged {
 		f.logger.Debug().Err(err).Msg("ResponseController flush failed")
+		f.errLogged = true
 	}
 }
 
