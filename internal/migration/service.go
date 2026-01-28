@@ -43,6 +43,41 @@ func NewService(db *gorm.DB, bus *events.Bus, logger zerolog.Logger) *Service {
 	}
 }
 
+// RecoverStaleJobs marks any jobs stuck in "running" status as failed.
+// This should be called on server startup to handle jobs that were interrupted
+// by a server restart or crash.
+func (s *Service) RecoverStaleJobs(ctx context.Context) error {
+	var staleJobs []*Job
+	if err := s.db.WithContext(ctx).Where("status = ?", JobStatusRunning).Find(&staleJobs).Error; err != nil {
+		return fmt.Errorf("find stale jobs: %w", err)
+	}
+
+	if len(staleJobs) == 0 {
+		return nil
+	}
+
+	s.logger.Warn().Int("count", len(staleJobs)).Msg("found stale migration jobs from previous run")
+
+	now := time.Now()
+	for _, job := range staleJobs {
+		job.Status = JobStatusFailed
+		job.Error = "import interrupted by server restart - use restart button to try again"
+		job.CompletedAt = &now
+
+		if err := s.db.WithContext(ctx).Save(job).Error; err != nil {
+			s.logger.Error().Err(err).Str("job_id", job.ID).Msg("failed to mark stale job as failed")
+			continue
+		}
+
+		s.logger.Info().
+			Str("job_id", job.ID).
+			Str("source_type", string(job.SourceType)).
+			Msg("marked stale job as failed")
+	}
+
+	return nil
+}
+
 // RegisterImporter registers an importer for a source type.
 func (s *Service) RegisterImporter(sourceType SourceType, importer Importer) {
 	s.importers[sourceType] = importer

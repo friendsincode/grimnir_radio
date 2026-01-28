@@ -532,10 +532,10 @@ const (
 // ScheduleEntry materializes a planned item.
 type ScheduleEntry struct {
 	ID         string `gorm:"type:uuid;primaryKey"`
-	StationID  string `gorm:"type:uuid;index"`
+	StationID  string `gorm:"type:uuid;index:idx_schedule_station_time"`
 	MountID    string `gorm:"type:uuid;index"`
-	StartsAt   time.Time
-	EndsAt     time.Time
+	StartsAt   time.Time `gorm:"index:idx_schedule_station_time;index:idx_schedule_time_range"`
+	EndsAt     time.Time `gorm:"index:idx_schedule_time_range"`
 	SourceType string         `gorm:"type:varchar(32)"`
 	SourceID   string         `gorm:"type:uuid"`
 	Metadata   map[string]any `gorm:"type:jsonb;serializer:json"`
@@ -554,14 +554,14 @@ type ScheduleEntry struct {
 // PlayHistory stores executed playout events.
 type PlayHistory struct {
 	ID         string         `gorm:"type:uuid;primaryKey" json:"id"`
-	StationID  string         `gorm:"type:uuid;index" json:"station_id"`
+	StationID  string         `gorm:"type:uuid;index:idx_history_station_time" json:"station_id"`
 	MountID    string         `gorm:"type:uuid;index" json:"mount_id"`
-	MediaID    string         `gorm:"type:uuid" json:"media_id"`
+	MediaID    string         `gorm:"type:uuid;index" json:"media_id"`
 	Artist     string         `gorm:"index" json:"artist"`
 	Title      string         `gorm:"index" json:"title"`
 	Album      string         `gorm:"index" json:"album"`
 	Label      string         `json:"label"`
-	StartedAt  time.Time      `json:"started_at"`
+	StartedAt  time.Time      `gorm:"index:idx_history_station_time" json:"started_at"`
 	EndedAt    time.Time      `json:"ended_at"`
 	Transition string         `gorm:"type:varchar(32)" json:"transition"`
 	Metadata   map[string]any `gorm:"type:jsonb;serializer:json" json:"metadata"`
