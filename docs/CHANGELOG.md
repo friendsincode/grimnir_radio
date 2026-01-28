@@ -134,6 +134,50 @@ All planned implementation phases are complete. Grimnir Radio is a modern, produ
 
 ---
 
+## 1.1.16 — 2026-01-28
+
+### AzuraCast API Import Fixes (Batch 3)
+- Fixed mount name storage to avoid double slashes in stream URLs
+  - Mount path now stored without leading slash (e.g., `radio.mp3` not `/radio.mp3`)
+  - Fixes 404 errors for streams like `/live//radio.mp3`
+
+---
+
+## 1.1.15 — 2026-01-27
+
+### AzuraCast API Import Fixes (Batch 2)
+- **Artwork endpoint fix**: Changed from `/api/station/{id}/file/{id}/art` to `/api/station/{id}/art/{id}`
+- **Artwork download**: Removed `art_updated_at > 0` check that prevented artwork from being downloaded
+- **Extra metadata parsing**: Added `AzuraCastAPIExtraMetadata` struct to properly parse nested cue points (cue_in, cue_out, fade_in, fade_out)
+- **Migration status template fix**: Fixed Go template boolean check for `*migration.Result` pointer type
+- **Database reset functionality**: Added `ResetImportedData()` function and `/dashboard/settings/migrations/reset` endpoint
+- **JSONB serialization fix**: Updated `Scan` methods in migration types to handle both `[]byte` and `string` from database
+
+### New Features
+- Reset Data button on migration status page to clear imported data and retry
+
+---
+
+## 1.1.14 — 2026-01-27
+
+### AzuraCast API Import Fixes (Batch 1)
+- **Media download endpoint fix**: Changed from `/api/station/{id}/file/{id}/download` to `/api/station/{id}/file/{id}/play`
+  - The `/download` endpoint returns 405 Method Not Allowed
+  - The `/play` endpoint correctly streams the file content
+
+---
+
+## 1.1.13 — 2026-01-26
+
+### Multi-Tenant Security & UI Enhancements
+- Multi-tenant security improvements
+- Public schedule calendar
+- Archive controls
+- Color themes
+- Button tooltips across all templates
+
+---
+
 ## 1.1.0 Progress: Event Bus Implementations — 2026-01-23
 
 ### Redis Event Bus (COMPLETE)

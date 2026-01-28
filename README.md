@@ -1,6 +1,6 @@
 # Grimnir Radio
 
-**Version:** 1.0.0 (Production Release) 🎉
+**Version:** 1.1.16
 
 Grimnir Radio is a modern, production-ready broadcast automation system built in Go. It features a multi-process architecture with separated control plane and media engine, live DJ input, HTTP stream relay with automatic failover, horizontal scaling, and comprehensive observability.
 
@@ -174,9 +174,9 @@ Key files:
 - Horizontal scaling with consistent hashing and leader election
 - Full observability (Prometheus metrics, OpenTelemetry tracing, alerts)
 - Turn-key Docker Compose deployment with Icecast2
+- Migration tools (AzuraCast, LibreTime import) with media file transfer
 
 ### Planned 📋
-- Migration tools (AzuraCast, LibreTime import)
 - Emergency Alert System (EAS) integration
 - WebDJ interface
 - Advanced scheduling features (conflict detection, templates)
