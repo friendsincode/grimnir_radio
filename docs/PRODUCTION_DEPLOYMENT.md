@@ -288,6 +288,31 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+
+        # Streaming support - disable buffering for audio streams
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    # Audio streams - special handling for /live/ and /stream/ endpoints
+    location ~ ^/(live|stream)/ {
+        proxy_pass http://grimnir_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Critical for streaming: disable all buffering
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_request_buffering off;
+
+        # No timeout for long-running stream connections
+        proxy_read_timeout 24h;
+        proxy_send_timeout 24h;
+
+        # Chunked transfer encoding for streaming
+        chunked_transfer_encoding on;
     }
 
     # Rate limiting
@@ -958,6 +983,53 @@ proxy_send_timeout 3600s;
 # Check for idle timeout
 # Implement client-side heartbeat
 ```
+
+#### 6. ResponseController Flush Errors
+
+**Symptoms:** Debug logs showing `ResponseController flush failed error="feature not supported"`
+
+**Cause:** The reverse proxy doesn't support HTTP/2 ResponseController flushing. This happens when nginx or another proxy buffers responses instead of streaming them directly.
+
+**Solutions:**
+
+1. **Disable proxy buffering for streams** (recommended):
+```nginx
+location ~ ^/(live|stream)/ {
+    proxy_pass http://grimnir_backend;
+
+    # Critical: disable all buffering for streaming
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_request_buffering off;
+
+    # Long timeout for stream connections
+    proxy_read_timeout 24h;
+    proxy_send_timeout 24h;
+
+    # Enable chunked transfer
+    chunked_transfer_encoding on;
+}
+```
+
+2. **For Traefik**, add middleware:
+```yaml
+http:
+  middlewares:
+    streaming:
+      buffering:
+        maxRequestBodyBytes: 0
+        maxResponseBodyBytes: 0
+        retryExpression: "false"
+```
+
+3. **For Caddy**:
+```
+reverse_proxy localhost:8080 {
+    flush_interval -1
+}
+```
+
+The error is logged once per connection and doesn't affect functionality - it's a debug message indicating the fallback flush mechanism is being used.
 
 ---
 
