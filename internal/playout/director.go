@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine"
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
 	"github.com/friendsincode/grimnir_radio/internal/webstream"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -33,6 +35,12 @@ type playoutState struct {
 	StationID string
 	Started   time.Time
 	Ends      time.Time
+	// Enhanced state tracking for playlists and smart blocks
+	SourceType string   // "media", "playlist", "smart_block", "clock"
+	SourceID   string   // playlist_id, smart_block_id, or clock_id
+	Position   int      // current position in sequence
+	TotalItems int      // total items in sequence
+	Items      []string // pre-loaded media IDs in order
 }
 
 // Director drives schedule execution and emits now playing events.
@@ -43,6 +51,7 @@ type Director struct {
 	bus            *events.Bus
 	webstreamSvc   *webstream.Service
 	broadcast      *broadcast.Server
+	smartblockEng  *smartblock.Engine
 	mediaRoot      string
 	logger         zerolog.Logger
 
@@ -64,6 +73,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		bus:           bus,
 		webstreamSvc:  webstreamSvc,
 		broadcast:     broadcastSrv,
+		smartblockEng: smartblock.New(db, logger),
 		mediaRoot:     cfg.MediaRoot,
 		logger:        logger,
 		webrtcEnabled: cfg.WebRTCEnabled,
@@ -377,9 +387,11 @@ func (d *Director) buildWebstreamIcecastPipeline(sourceURL string, mount models.
 }
 
 func (d *Director) startPlaylistEntry(ctx context.Context, entry models.ScheduleEntry) error {
-	// Load playlist
+	// Load playlist with items ordered by position
 	var playlist models.Playlist
-	if err := d.db.WithContext(ctx).Preload("Items").First(&playlist, "id = ?", entry.SourceID).Error; err != nil {
+	if err := d.db.WithContext(ctx).Preload("Items", func(db *gorm.DB) *gorm.DB {
+		return db.Order("position ASC")
+	}).First(&playlist, "id = ?", entry.SourceID).Error; err != nil {
 		return fmt.Errorf("failed to load playlist: %w", err)
 	}
 
@@ -389,18 +401,28 @@ func (d *Director) startPlaylistEntry(ctx context.Context, entry models.Schedule
 		return nil
 	}
 
-	// Get first media item (TODO: implement proper playlist sequencing with position tracking)
-	firstItem := playlist.Items[0]
+	// Get position from metadata (survives restarts)
+	position := 0
+	if p, ok := entry.Metadata["current_position"].(float64); ok {
+		position = int(p) % len(playlist.Items)
+	}
+
+	// Build items list (media IDs in order)
+	items := make([]string, len(playlist.Items))
+	for i, item := range playlist.Items {
+		items[i] = item.MediaID
+	}
+
+	// Load media at current position
 	var media models.MediaItem
-	if err := d.db.WithContext(ctx).First(&media, "id = ?", firstItem.MediaID).Error; err != nil {
+	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[position]).Error; err != nil {
 		return fmt.Errorf("failed to load media item: %w", err)
 	}
 
-	// Play the media
-	return d.playMedia(ctx, entry, media, map[string]any{
+	// Play with enhanced state tracking
+	return d.playMediaWithState(ctx, entry, media, "playlist", playlist.ID, position, items, map[string]any{
 		"playlist_id":   playlist.ID,
 		"playlist_name": playlist.Name,
-		"position":      0,
 		"total_items":   len(playlist.Items),
 	})
 }
@@ -412,22 +434,60 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 		return fmt.Errorf("failed to load smart block: %w", err)
 	}
 
-	// For now, pick a random media item that matches the station
-	// TODO: implement full smart block rule evaluation
-	var media models.MediaItem
-	err := d.db.WithContext(ctx).
-		Where("station_id = ?", entry.StationID).
-		Order("RANDOM()").
-		First(&media).Error
+	// Use SmartBlock Engine to generate a sequence based on rules
+	duration := entry.EndsAt.Sub(entry.StartsAt)
+	req := smartblock.GenerateRequest{
+		SmartBlockID: block.ID,
+		Seed:         time.Now().UnixNano(),
+		Duration:     duration.Milliseconds(),
+		StationID:    entry.StationID,
+		MountID:      entry.MountID,
+	}
+
+	result, err := d.smartblockEng.Generate(ctx, req)
 	if err != nil {
-		d.logger.Warn().Str("block", block.ID).Msg("no media found for smart block")
+		d.logger.Warn().Err(err).Str("block", block.ID).Msg("smart block generation failed, falling back to random")
+		// Fallback to random selection if engine fails
+		var media models.MediaItem
+		err := d.db.WithContext(ctx).
+			Where("station_id = ?", entry.StationID).
+			Where("analysis_state = ?", models.AnalysisComplete).
+			Order("RANDOM()").
+			First(&media).Error
+		if err != nil {
+			d.logger.Warn().Str("block", block.ID).Msg("no media found for smart block")
+			d.publishNowPlaying(entry, map[string]any{"smart_block_id": block.ID, "smart_block_name": block.Name, "error": "no matching media"})
+			return nil
+		}
+		return d.playMedia(ctx, entry, media, map[string]any{
+			"smart_block_id":   block.ID,
+			"smart_block_name": block.Name,
+		})
+	}
+
+	if len(result.Items) == 0 {
+		d.logger.Warn().Str("block", block.ID).Msg("smart block produced no items")
 		d.publishNowPlaying(entry, map[string]any{"smart_block_id": block.ID, "smart_block_name": block.Name, "error": "no matching media"})
 		return nil
 	}
 
-	return d.playMedia(ctx, entry, media, map[string]any{
+	// Extract media IDs from sequence
+	items := make([]string, len(result.Items))
+	for i, item := range result.Items {
+		items[i] = item.MediaID
+	}
+
+	// Load first media item
+	var media models.MediaItem
+	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
+		return fmt.Errorf("failed to load media item: %w", err)
+	}
+
+	// Play with enhanced state tracking
+	return d.playMediaWithState(ctx, entry, media, "smart_block", block.ID, 0, items, map[string]any{
 		"smart_block_id":   block.ID,
 		"smart_block_name": block.Name,
+		"total_items":      len(items),
 	})
 }
 
@@ -444,24 +504,170 @@ func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEnt
 		return nil
 	}
 
-	// For now, pick a random media item from the station
-	// TODO: implement proper clock slot execution based on slot types (smart_block, hard_item, etc.)
-	var media models.MediaItem
-	err := d.db.WithContext(ctx).
-		Where("station_id = ?", entry.StationID).
-		Order("RANDOM()").
-		First(&media).Error
-	if err != nil {
-		d.logger.Warn().Str("clock", clock.ID).Msg("no media found for clock")
-		d.publishNowPlaying(entry, map[string]any{"clock_id": clock.ID, "clock_name": clock.Name, "error": "no matching media"})
+	// Sort slots by position
+	slots := clock.Slots
+	sort.Slice(slots, func(i, j int) bool {
+		return slots[i].Position < slots[j].Position
+	})
+
+	// Find current slot based on time offset within the entry
+	slot := d.findCurrentSlot(slots, entry.StartsAt)
+	if slot == nil {
+		slot = &slots[0] // Default to first slot
+	}
+
+	d.logger.Debug().
+		Str("clock", clock.ID).
+		Str("slot_type", string(slot.Type)).
+		Int("position", slot.Position).
+		Msg("executing clock slot")
+
+	// Handle slot based on type
+	switch slot.Type {
+	case models.SlotTypeSmartBlock:
+		blockID, ok := slot.Payload["smart_block_id"].(string)
+		if !ok {
+			return fmt.Errorf("smart_block_id not found in slot payload")
+		}
+		return d.startSmartBlockByID(ctx, entry, blockID, clock.ID, clock.Name)
+
+	case models.SlotTypeHardItem:
+		mediaID, ok := slot.Payload["media_id"].(string)
+		if !ok {
+			return fmt.Errorf("media_id not found in slot payload")
+		}
+		return d.playMediaByID(ctx, entry, mediaID, clock.ID, clock.Name)
+
+	case models.SlotTypeWebstream:
+		wsID, ok := slot.Payload["webstream_id"].(string)
+		if !ok {
+			return fmt.Errorf("webstream_id not found in slot payload")
+		}
+		return d.startWebstreamByID(ctx, entry, wsID, clock.ID, clock.Name)
+
+	case models.SlotTypeStopset:
+		// Stopsets (ad breaks) not implemented yet - skip to next content
+		d.logger.Debug().Str("clock", clock.ID).Msg("skipping stopset slot (not implemented)")
+		d.publishNowPlaying(entry, map[string]any{
+			"clock_id":   clock.ID,
+			"clock_name": clock.Name,
+			"slot_type":  "stopset",
+			"status":     "skipped",
+		})
+		return nil
+
+	default:
+		// Unknown slot type - fall back to random
+		d.logger.Warn().Str("slot_type", string(slot.Type)).Msg("unknown slot type, falling back to random")
+		var media models.MediaItem
+		err := d.db.WithContext(ctx).
+			Where("station_id = ?", entry.StationID).
+			Where("analysis_state = ?", models.AnalysisComplete).
+			Order("RANDOM()").
+			First(&media).Error
+		if err != nil {
+			d.logger.Warn().Str("clock", clock.ID).Msg("no media found for clock")
+			d.publishNowPlaying(entry, map[string]any{"clock_id": clock.ID, "clock_name": clock.Name, "error": "no matching media"})
+			return nil
+		}
+		return d.playMedia(ctx, entry, media, map[string]any{
+			"clock_id":   clock.ID,
+			"clock_name": clock.Name,
+			"slot_count": len(clock.Slots),
+		})
+	}
+}
+
+// findCurrentSlot finds the appropriate slot based on time offset within the hour
+func (d *Director) findCurrentSlot(slots []models.ClockSlot, startsAt time.Time) *models.ClockSlot {
+	// Calculate offset into the hour
+	_, minute, second := startsAt.Clock()
+	offsetNow := time.Duration(minute)*time.Minute + time.Duration(second)*time.Second
+
+	// Find the slot that covers the current offset
+	var currentSlot *models.ClockSlot
+	for i := range slots {
+		if slots[i].Offset <= offsetNow {
+			currentSlot = &slots[i]
+		} else {
+			break
+		}
+	}
+	return currentSlot
+}
+
+// startSmartBlockByID starts a smart block by ID (used by clock slots)
+func (d *Director) startSmartBlockByID(ctx context.Context, entry models.ScheduleEntry, blockID, clockID, clockName string) error {
+	var block models.SmartBlock
+	if err := d.db.WithContext(ctx).First(&block, "id = ?", blockID).Error; err != nil {
+		return fmt.Errorf("failed to load smart block: %w", err)
+	}
+
+	// Use SmartBlock Engine
+	duration := entry.EndsAt.Sub(entry.StartsAt)
+	req := smartblock.GenerateRequest{
+		SmartBlockID: block.ID,
+		Seed:         time.Now().UnixNano(),
+		Duration:     duration.Milliseconds(),
+		StationID:    entry.StationID,
+		MountID:      entry.MountID,
+	}
+
+	result, err := d.smartblockEng.Generate(ctx, req)
+	if err != nil || len(result.Items) == 0 {
+		d.logger.Warn().Err(err).Str("block", block.ID).Msg("smart block generation failed")
 		return nil
 	}
 
-	return d.playMedia(ctx, entry, media, map[string]any{
-		"clock_id":   clock.ID,
-		"clock_name": clock.Name,
-		"slot_count": len(clock.Slots),
+	items := make([]string, len(result.Items))
+	for i, item := range result.Items {
+		items[i] = item.MediaID
+	}
+
+	var media models.MediaItem
+	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
+		return fmt.Errorf("failed to load media item: %w", err)
+	}
+
+	return d.playMediaWithState(ctx, entry, media, "clock", clockID, 0, items, map[string]any{
+		"clock_id":         clockID,
+		"clock_name":       clockName,
+		"smart_block_id":   block.ID,
+		"smart_block_name": block.Name,
+		"total_items":      len(items),
 	})
+}
+
+// playMediaByID plays a specific media item by ID (used by clock hard_item slots)
+func (d *Director) playMediaByID(ctx context.Context, entry models.ScheduleEntry, mediaID, clockID, clockName string) error {
+	var media models.MediaItem
+	if err := d.db.WithContext(ctx).First(&media, "id = ?", mediaID).Error; err != nil {
+		return fmt.Errorf("failed to load media item: %w", err)
+	}
+
+	return d.playMediaWithState(ctx, entry, media, "clock", clockID, 0, []string{mediaID}, map[string]any{
+		"clock_id":   clockID,
+		"clock_name": clockName,
+	})
+}
+
+// startWebstreamByID starts a webstream by ID (used by clock slots)
+func (d *Director) startWebstreamByID(ctx context.Context, entry models.ScheduleEntry, wsID, clockID, clockName string) error {
+	// Reuse existing webstream entry logic with modified metadata
+	originalSourceID := entry.SourceID
+	entry.SourceID = wsID
+
+	if entry.Metadata == nil {
+		entry.Metadata = make(map[string]any)
+	}
+	entry.Metadata["clock_id"] = clockID
+	entry.Metadata["clock_name"] = clockName
+
+	err := d.startWebstreamEntry(ctx, entry)
+
+	// Restore original source ID
+	entry.SourceID = originalSourceID
+	return err
 }
 
 // playMedia is a helper to start playing a media item
@@ -563,6 +769,125 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 		"title":    media.Title,
 		"artist":   media.Artist,
 		"album":    media.Album,
+	}
+	for k, v := range extraPayload {
+		payload[k] = v
+	}
+
+	d.publishNowPlaying(entry, payload)
+	d.scheduleStop(entry.MountID, entry.EndsAt)
+
+	return nil
+}
+
+// playMediaWithState plays media with enhanced state tracking for playlists and smart blocks.
+// This enables sequential playback and position persistence.
+func (d *Director) playMediaWithState(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, sourceType, sourceID string, position int, items []string, extraPayload map[string]any) error {
+	// Build full path using media root
+	fullPath := filepath.Join(d.mediaRoot, media.Path)
+
+	// Get mount configuration from database
+	var mount models.Mount
+	if err := d.db.WithContext(ctx).First(&mount, "id = ?", entry.MountID).Error; err != nil {
+		d.logger.Warn().Err(err).Str("mount_id", entry.MountID).Msg("failed to load mount config, using defaults")
+		mount.Format = "mp3"
+		mount.Bitrate = 128
+		mount.SampleRate = 44100
+		mount.Channels = 2
+		mount.Name = "main"
+	}
+
+	// Set mount defaults
+	mountBitrate := mount.Bitrate
+	if mountBitrate == 0 {
+		mountBitrate = 128
+	}
+	lqBitrate := 64
+
+	// Build single GStreamer pipeline for both HQ and LQ
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate)
+	if err != nil {
+		return fmt.Errorf("build pipeline: %w", err)
+	}
+
+	// Store enhanced state
+	d.mu.Lock()
+	d.active[entry.MountID] = playoutState{
+		MediaID:    media.ID,
+		EntryID:    entry.ID,
+		StationID:  entry.StationID,
+		Started:    time.Now(),
+		Ends:       entry.EndsAt,
+		SourceType: sourceType,
+		SourceID:   sourceID,
+		Position:   position,
+		TotalItems: len(items),
+		Items:      items,
+	}
+	d.mu.Unlock()
+
+	// Stop any existing pipeline
+	if err := d.manager.StopPipeline(entry.MountID); err != nil {
+		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
+	}
+
+	// Ensure broadcast mounts exist
+	contentType := "audio/mpeg"
+	if mount.Format == "aac" {
+		contentType = "audio/aac"
+	} else if mount.Format == "ogg" || mount.Format == "vorbis" {
+		contentType = "audio/ogg"
+	}
+
+	broadcastMount := d.broadcast.GetMount(mount.Name)
+	if broadcastMount == nil {
+		broadcastMount = d.broadcast.CreateMount(mount.Name, contentType, mountBitrate)
+		d.logger.Info().Str("mount", mount.Name).Int("bitrate", mountBitrate).Msg("created broadcast mount (HQ)")
+	}
+
+	lqMountName := mount.Name + "-lq"
+	lqMount := d.broadcast.GetMount(lqMountName)
+	if lqMount == nil {
+		lqMount = d.broadcast.CreateMount(lqMountName, contentType, lqBitrate)
+		d.logger.Info().Str("mount", lqMountName).Int("bitrate", lqBitrate).Msg("created broadcast mount (LQ)")
+	}
+
+	d.logger.Info().
+		Str("mount", entry.MountID).
+		Str("media", media.Title).
+		Str("artist", media.Artist).
+		Str("source_type", sourceType).
+		Int("position", position).
+		Int("total", len(items)).
+		Msg("starting media playout with state tracking")
+
+	broadcastMount.ClearBuffer()
+	lqMount.ClearBuffer()
+
+	// HQ output handler - triggers context-aware next track
+	hqHandler := func(r io.Reader) {
+		if err := broadcastMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
+		}
+		d.handleTrackEnded(entry, mount.Name)
+	}
+
+	lqHandler := func(r io.Reader) {
+		if err := lqMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
+		}
+	}
+
+	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
+		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
+	}
+
+	payload := map[string]any{
+		"media_id": media.ID,
+		"title":    media.Title,
+		"artist":   media.Artist,
+		"album":    media.Album,
+		"position": position,
 	}
 	for k, v := range extraPayload {
 		payload[k] = v
@@ -727,14 +1052,68 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		return
 	}
 
-	// Pick a random track for the station
+	// Context-aware track selection based on source type
+	switch state.SourceType {
+	case "playlist":
+		// Playlists wrap around
+		nextPos := (state.Position + 1) % state.TotalItems
+		if len(state.Items) > nextPos {
+			d.updateEntryPosition(entry.ID, nextPos)
+			d.playNextFromState(entry, state, nextPos, mountName)
+			return
+		}
+
+	case "smart_block":
+		// Smart blocks stop at end
+		nextPos := state.Position + 1
+		if nextPos >= state.TotalItems {
+			d.logger.Debug().
+				Str("entry", entry.ID).
+				Str("source", state.SourceID).
+				Msg("smart block sequence complete")
+			return
+		}
+		if len(state.Items) > nextPos {
+			d.playNextFromState(entry, state, nextPos, mountName)
+			return
+		}
+
+	case "clock":
+		// Clocks continue from smart block items if available
+		nextPos := state.Position + 1
+		if nextPos < state.TotalItems && len(state.Items) > nextPos {
+			d.playNextFromState(entry, state, nextPos, mountName)
+			return
+		}
+		// Otherwise fall through to random selection
+	}
+
+	// Default: random track selection (for plain media entries or exhausted sequences)
+	d.playRandomNextTrack(entry, mountName)
+}
+
+// updateEntryPosition persists the current playlist position to entry metadata
+func (d *Director) updateEntryPosition(entryID string, position int) {
+	if err := d.db.Model(&models.ScheduleEntry{}).
+		Where("id = ?", entryID).
+		Update("metadata", gorm.Expr("jsonb_set(COALESCE(metadata, '{}')::jsonb, '{current_position}', ?::jsonb)", position)).
+		Error; err != nil {
+		d.logger.Warn().Err(err).Str("entry", entryID).Int("position", position).Msg("failed to update entry position")
+	}
+}
+
+// playNextFromState plays the next track from the pre-loaded state items
+func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutState, nextPos int, mountName string) {
+	if nextPos >= len(state.Items) {
+		d.logger.Warn().Int("position", nextPos).Int("total", len(state.Items)).Msg("position out of bounds")
+		return
+	}
+
+	nextMediaID := state.Items[nextPos]
+
 	var media models.MediaItem
-	err := d.db.
-		Where("station_id = ?", entry.StationID).
-		Order("RANDOM()").
-		First(&media).Error
-	if err != nil {
-		d.logger.Warn().Err(err).Str("station", entry.StationID).Msg("no media found for next track")
+	if err := d.db.First(&media, "id = ?", nextMediaID).Error; err != nil {
+		d.logger.Warn().Err(err).Str("media_id", nextMediaID).Msg("failed to load next media item")
 		return
 	}
 
@@ -745,14 +1124,12 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		return
 	}
 
-	// Set bitrates
 	hqBitrate := mount.Bitrate
 	if hqBitrate == 0 {
 		hqBitrate = 128
 	}
 	lqBitrate := 64
 
-	// Build single dual-output pipeline for new track
 	fullPath := filepath.Join(d.mediaRoot, media.Path)
 	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate)
 	if err != nil {
@@ -760,18 +1137,116 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		return
 	}
 
-	// Update active state
+	// Update active state with new position
+	d.mu.Lock()
+	d.active[entry.MountID] = playoutState{
+		MediaID:    media.ID,
+		EntryID:    entry.ID,
+		StationID:  entry.StationID,
+		Started:    time.Now(),
+		Ends:       entry.EndsAt,
+		SourceType: state.SourceType,
+		SourceID:   state.SourceID,
+		Position:   nextPos,
+		TotalItems: state.TotalItems,
+		Items:      state.Items,
+	}
+	d.mu.Unlock()
+
+	broadcastMount := d.broadcast.GetMount(mount.Name)
+	if broadcastMount == nil {
+		d.logger.Warn().Str("mount", mount.Name).Msg("broadcast mount not found")
+		return
+	}
+
+	lqMountName := mount.Name + "-lq"
+	lqMount := d.broadcast.GetMount(lqMountName)
+	if lqMount == nil {
+		d.logger.Warn().Str("mount", lqMountName).Msg("LQ broadcast mount not found")
+		return
+	}
+
+	d.logger.Info().
+		Str("mount", entry.MountID).
+		Str("media", media.Title).
+		Str("artist", media.Artist).
+		Str("source_type", state.SourceType).
+		Int("position", nextPos).
+		Int("total", state.TotalItems).
+		Msg("starting next track from sequence")
+
+	broadcastMount.ClearBuffer()
+	lqMount.ClearBuffer()
+
+	ctx := context.Background()
+	hqHandler := func(r io.Reader) {
+		if err := broadcastMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
+		}
+		d.handleTrackEnded(entry, mount.Name)
+	}
+
+	lqHandler := func(r io.Reader) {
+		if err := lqMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
+		}
+	}
+
+	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
+		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track pipeline")
+	}
+
+	d.publishNowPlaying(entry, map[string]any{
+		"media_id": media.ID,
+		"title":    media.Title,
+		"artist":   media.Artist,
+		"album":    media.Album,
+		"position": nextPos,
+	})
+}
+
+// playRandomNextTrack plays a random track from the station (fallback behavior)
+func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName string) {
+	var media models.MediaItem
+	err := d.db.
+		Where("station_id = ?", entry.StationID).
+		Where("analysis_state = ?", models.AnalysisComplete).
+		Order("RANDOM()").
+		First(&media).Error
+	if err != nil {
+		d.logger.Warn().Err(err).Str("station", entry.StationID).Msg("no media found for next track")
+		return
+	}
+
+	var mount models.Mount
+	if err := d.db.First(&mount, "id = ?", entry.MountID).Error; err != nil {
+		d.logger.Warn().Err(err).Str("mount_id", entry.MountID).Msg("failed to load mount config")
+		return
+	}
+
+	hqBitrate := mount.Bitrate
+	if hqBitrate == 0 {
+		hqBitrate = 128
+	}
+	lqBitrate := 64
+
+	fullPath := filepath.Join(d.mediaRoot, media.Path)
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate)
+	if err != nil {
+		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
+		return
+	}
+
 	d.mu.Lock()
 	d.active[entry.MountID] = playoutState{
 		MediaID:   media.ID,
 		EntryID:   entry.ID,
 		StationID: entry.StationID,
-		Started:   now,
+		Started:   time.Now(),
 		Ends:      entry.EndsAt,
 	}
 	d.mu.Unlock()
 
-	// Get broadcast mounts (should already exist)
 	broadcastMount := d.broadcast.GetMount(mount.Name)
 	if broadcastMount == nil {
 		d.logger.Warn().Str("mount", mount.Name).Msg("broadcast mount not found for next track")
@@ -789,36 +1264,29 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		Str("mount", entry.MountID).
 		Str("media", media.Title).
 		Str("artist", media.Artist).
-		Msg("starting next track")
+		Msg("starting random next track")
 
-	// Clear both buffers synchronously BEFORE starting feeds
-	// This ensures HQ and LQ mounts transition to the new track together
 	broadcastMount.ClearBuffer()
 	lqMount.ClearBuffer()
 
-	// HQ output handler (fd=3) - triggers next track when done
 	ctx := context.Background()
 	hqHandler := func(r io.Reader) {
 		if err := broadcastMount.FeedFrom(r); err != nil {
 			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
 		}
-		// Recursively handle next track
 		d.handleTrackEnded(entry, mount.Name)
 	}
 
-	// LQ output handler (fd=4)
 	lqHandler := func(r io.Reader) {
 		if err := lqMount.FeedFrom(r); err != nil {
 			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
 		}
 	}
 
-	// Start single pipeline with dual output
 	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
 		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track dual pipeline")
 	}
 
-	// Publish now playing for the new track
 	d.publishNowPlaying(entry, map[string]any{
 		"media_id": media.ID,
 		"title":    media.Title,
