@@ -991,19 +991,20 @@ func (a *AzuraCastImporter) importMediaFromAPI(ctx context.Context, client *Azur
 // createMediaItemFromAzMedia creates a MediaItem from an AzuraCast media file.
 func (a *AzuraCastImporter) createMediaItemFromAzMedia(azMedia AzuraCastAPIMediaFile, stationID, contentHash string, artwork []byte, artworkMime string) *models.MediaItem {
 	mediaItem := &models.MediaItem{
-		ID:          uuid.New().String(),
-		StationID:   stationID,
-		Title:       azMedia.Title,
-		Artist:      azMedia.Artist,
-		Album:       azMedia.Album,
-		Genre:       azMedia.Genre,
-		Duration:    time.Duration(azMedia.Length * float64(time.Second)),
-		ImportPath:  azMedia.Path,
-		ContentHash: contentHash,
-		ISRC:        azMedia.ISRC,
-		Lyrics:      azMedia.Lyrics,
-		Artwork:     artwork,
-		ArtworkMime: artworkMime,
+		ID:            uuid.New().String(),
+		StationID:     stationID,
+		Title:         azMedia.Title,
+		Artist:        azMedia.Artist,
+		Album:         azMedia.Album,
+		Genre:         azMedia.Genre,
+		Duration:      time.Duration(azMedia.Length * float64(time.Second)),
+		ImportPath:    azMedia.Path,
+		ContentHash:   contentHash,
+		ISRC:          azMedia.ISRC,
+		Lyrics:        azMedia.Lyrics,
+		Artwork:       artwork,
+		ArtworkMime:   artworkMime,
+		ShowInArchive: true, // Explicitly set for imported media
 	}
 
 	// Copy custom fields if any
@@ -1623,13 +1624,14 @@ func (a *AzuraCastImporter) importMedia(ctx context.Context, tempDir string, bac
 		title := strings.TrimSuffix(filename, filepath.Ext(filename))
 
 		mediaItem := &models.MediaItem{
-			ID:         mediaID,
-			StationID:  stationID,
-			Title:      title,
-			Path:       "",        // Will be set after upload
-			StorageKey: "",        // Will be set after upload
-			ImportPath: mediaFile.relPath,
-			Duration:   0,         // Will be analyzed later
+			ID:            mediaID,
+			StationID:     stationID,
+			Title:         title,
+			Path:          "",   // Will be set after upload
+			StorageKey:    "",   // Will be set after upload
+			ImportPath:    mediaFile.relPath,
+			Duration:      0,    // Will be analyzed later
+			ShowInArchive: true, // Explicitly set for imported media
 		}
 
 		// Save to database
