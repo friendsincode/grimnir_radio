@@ -673,7 +673,11 @@ func (d *Director) startWebstreamByID(ctx context.Context, entry models.Schedule
 // playMedia is a helper to start playing a media item
 func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, extraPayload map[string]any) error {
 	// Build full path using media root
-	fullPath := filepath.Join(d.mediaRoot, media.Path)
+	// Use path directly if absolute, otherwise join with mediaRoot
+	fullPath := media.Path
+	if !filepath.IsAbs(media.Path) {
+		fullPath = filepath.Join(d.mediaRoot, media.Path)
+	}
 
 	// Get mount configuration from database
 	var mount models.Mount
@@ -784,7 +788,11 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 // This enables sequential playback and position persistence.
 func (d *Director) playMediaWithState(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, sourceType, sourceID string, position int, items []string, extraPayload map[string]any) error {
 	// Build full path using media root
-	fullPath := filepath.Join(d.mediaRoot, media.Path)
+	// Use path directly if absolute, otherwise join with mediaRoot
+	fullPath := media.Path
+	if !filepath.IsAbs(media.Path) {
+		fullPath = filepath.Join(d.mediaRoot, media.Path)
+	}
 
 	// Get mount configuration from database
 	var mount models.Mount
@@ -1130,7 +1138,11 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 	}
 	lqBitrate := 64
 
-	fullPath := filepath.Join(d.mediaRoot, media.Path)
+	// Use path directly if absolute, otherwise join with mediaRoot
+	fullPath := media.Path
+	if !filepath.IsAbs(media.Path) {
+		fullPath = filepath.Join(d.mediaRoot, media.Path)
+	}
 	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate)
 	if err != nil {
 		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
@@ -1230,7 +1242,11 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 	}
 	lqBitrate := 64
 
-	fullPath := filepath.Join(d.mediaRoot, media.Path)
+	// Use path directly if absolute, otherwise join with mediaRoot
+	fullPath := media.Path
+	if !filepath.IsAbs(media.Path) {
+		fullPath = filepath.Join(d.mediaRoot, media.Path)
+	}
 	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate)
 	if err != nil {
 		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
@@ -1452,4 +1468,49 @@ func (d *Director) prunePlayed(now time.Time) {
 			delete(d.played, id)
 		}
 	}
+}
+
+// StopStation stops all playout for a specific station.
+// This is an emergency stop that clears all active pipelines for the station's mounts.
+func (d *Director) StopStation(ctx context.Context, stationID string) (int, error) {
+	// Get all mounts for this station
+	var mounts []models.Mount
+	if err := d.db.WithContext(ctx).Where("station_id = ?", stationID).Find(&mounts).Error; err != nil {
+		return 0, fmt.Errorf("failed to load station mounts: %w", err)
+	}
+
+	stopped := 0
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	for _, mount := range mounts {
+		// Stop pipeline for this mount
+		if err := d.manager.StopPipeline(mount.ID); err != nil {
+			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline")
+			continue
+		}
+
+		// Clear active state for this mount
+		if state, ok := d.active[mount.ID]; ok {
+			delete(d.active, mount.ID)
+			stopped++
+
+			// Publish stop event
+			d.bus.Publish(events.EventHealth, events.Payload{
+				"station_id": stationID,
+				"mount_id":   mount.ID,
+				"entry_id":   state.EntryID,
+				"media_id":   state.MediaID,
+				"event":      "emergency_stop",
+				"status":     "stopped",
+			})
+		}
+	}
+
+	d.logger.Info().
+		Str("station_id", stationID).
+		Int("mounts_stopped", stopped).
+		Msg("emergency stop executed for station")
+
+	return stopped, nil
 }

@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
@@ -116,4 +117,57 @@ func (h *Handler) canManageStationSettings(user *models.User, station *models.St
 
 	// Owner and admin can manage settings
 	return stationUser.Role == models.StationRoleOwner || stationUser.Role == models.StationRoleAdmin
+}
+
+// StationStopPlayout handles emergency stop of all playout for the station
+func (h *Handler) StationStopPlayout(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	if !h.canManageStationSettings(user, station) {
+		http.Error(w, "Permission denied", http.StatusForbidden)
+		return
+	}
+
+	if h.director == nil {
+		h.logger.Error().Msg("playout director not available")
+		if r.Header.Get("HX-Request") == "true" {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`<div class="alert alert-danger">Playout system not available</div>`))
+			return
+		}
+		http.Error(w, "Playout system not available", http.StatusInternalServerError)
+		return
+	}
+
+	stopped, err := h.director.StopStation(r.Context(), station.ID)
+	if err != nil {
+		h.logger.Error().Err(err).Str("station_id", station.ID).Msg("failed to stop station playout")
+		if r.Header.Get("HX-Request") == "true" {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`<div class="alert alert-danger">Failed to stop playout: %v</div>`, err)))
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to stop playout: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("station_id", station.ID).
+		Str("user_id", user.ID).
+		Int("mounts_stopped", stopped).
+		Msg("station playout stopped by user")
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Trigger", "playoutStopped")
+		w.Write([]byte(fmt.Sprintf(`<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>Playout stopped on %d mount(s)</div>`, stopped)))
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/station/settings", http.StatusSeeOther)
 }

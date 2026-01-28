@@ -24,6 +24,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/version"
 )
 
@@ -51,6 +52,7 @@ type Handler struct {
 	updateChecker    *version.Checker              // Checks for new versions
 	migrationService *migration.Service            // Migration job management
 	eventBus         *events.Bus                   // Event bus for real-time updates
+	director         *playout.Director             // Playout director for emergency stop
 
 	// WebRTC ICE server config (passed to client)
 	webrtcSTUNURL      string
@@ -96,7 +98,7 @@ type WebRTCConfig struct {
 }
 
 // NewHandler creates a new web handler.
-func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, eventBus *events.Bus, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, eventBus *events.Bus, director *playout.Director, logger zerolog.Logger) (*Handler, error) {
 	// Create migration service
 	migrationService := migration.NewService(db, eventBus, logger)
 
@@ -120,6 +122,7 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 		updateChecker:      version.NewChecker(logger),
 		migrationService:   migrationService,
 		eventBus:           eventBus,
+		director:           director,
 		webrtcSTUNURL:      webrtcCfg.STUNURL,
 		webrtcTURNURL:      webrtcCfg.TURNURL,
 		webrtcTURNUsername: webrtcCfg.TURNUsername,
