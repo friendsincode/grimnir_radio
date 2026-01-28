@@ -395,11 +395,40 @@ func (h *Handler) MigrationStatusPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Calculate totals across all jobs
+	var totalMedia, importedMedia, totalPlaylists, importedPlaylists int
+	var hasRunning bool
+
+	for _, job := range jobs {
+		switch job.Status {
+		case migration.JobStatusRunning:
+			hasRunning = true
+			totalMedia = job.Progress.MediaTotal
+			importedMedia = job.Progress.MediaImported
+			totalPlaylists = job.Progress.PlaylistsTotal
+			importedPlaylists = job.Progress.PlaylistsImported
+		case migration.JobStatusCompleted:
+			if job.Result != nil {
+				importedMedia += job.Result.MediaItemsImported
+				importedPlaylists += job.Result.PlaylistsCreated
+			}
+		case migration.JobStatusFailed:
+			// Include progress from failed jobs so user can see what was imported
+			importedMedia += job.Progress.MediaImported
+			importedPlaylists += job.Progress.PlaylistsImported
+		}
+	}
+
 	h.Render(w, r, "pages/dashboard/settings/migration-status", PageData{
 		Title:    "Import Status",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"Jobs": jobs,
+			"Jobs":              jobs,
+			"TotalMedia":        totalMedia,
+			"ImportedMedia":     importedMedia,
+			"TotalPlaylists":    totalPlaylists,
+			"ImportedPlaylists": importedPlaylists,
+			"HasRunning":        hasRunning,
 		},
 	})
 }
