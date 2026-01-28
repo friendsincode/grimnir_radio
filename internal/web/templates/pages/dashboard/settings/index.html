@@ -20,6 +20,148 @@
     </a>
 </div>
 
+<!-- System Status Card -->
+<div class="card mb-4" id="system-status-card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-activity me-2"></i>System Status</h5>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshSystemStatus()">
+            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="row g-3" id="status-content">
+            <div class="col-md-4">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-secondary me-2" id="db-status-badge"><i class="bi bi-hourglass-split"></i></span>
+                    <div>
+                        <strong>Database</strong>
+                        <div class="text-body-secondary small" id="db-status-msg">Checking...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-secondary me-2" id="me-status-badge"><i class="bi bi-hourglass-split"></i></span>
+                    <div>
+                        <strong>Media Engine</strong>
+                        <div class="text-body-secondary small" id="me-status-msg">Checking...</div>
+                        <div id="me-address" class="text-body-secondary small font-monospace" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-secondary me-2" id="storage-status-badge"><i class="bi bi-hourglass-split"></i></span>
+                    <div>
+                        <strong>Storage</strong>
+                        <div class="text-body-secondary small" id="storage-status-msg">Checking...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="mt-3" id="me-test-section" style="display: none;">
+            <button type="button" class="btn btn-sm btn-outline-primary" id="test-me-btn" onclick="testMediaEngine()">
+                <i class="bi bi-plug me-1"></i>Test Media Engine Connection
+            </button>
+            <span id="test-me-result" class="ms-2 small"></span>
+        </div>
+    </div>
+</div>
+<script>
+function updateStatusBadge(elementId, status) {
+    const badge = document.getElementById(elementId);
+    badge.className = 'badge me-2';
+    if (status === 'ok') {
+        badge.classList.add('bg-success');
+        badge.innerHTML = '<i class="bi bi-check-circle"></i>';
+    } else if (status === 'error') {
+        badge.classList.add('bg-danger');
+        badge.innerHTML = '<i class="bi bi-x-circle"></i>';
+    } else if (status === 'unavailable') {
+        badge.classList.add('bg-warning');
+        badge.innerHTML = '<i class="bi bi-dash-circle"></i>';
+    } else {
+        badge.classList.add('bg-secondary');
+        badge.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+    }
+}
+
+function refreshSystemStatus() {
+    fetch('/api/v1/system/status', {
+        credentials: 'same-origin'
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Database
+        updateStatusBadge('db-status-badge', data.database.status);
+        document.getElementById('db-status-msg').textContent = data.database.message || data.database.status;
+
+        // Media Engine
+        updateStatusBadge('me-status-badge', data.media_engine.status);
+        document.getElementById('me-status-msg').textContent = data.media_engine.message || data.media_engine.status;
+        const meAddr = document.getElementById('me-address');
+        if (data.media_engine.address) {
+            meAddr.textContent = data.media_engine.address;
+            meAddr.style.display = 'block';
+        } else {
+            meAddr.style.display = 'none';
+        }
+
+        // Show test button if media engine is configured
+        const testSection = document.getElementById('me-test-section');
+        if (data.media_engine.status !== 'unavailable') {
+            testSection.style.display = 'block';
+        }
+
+        // Storage
+        updateStatusBadge('storage-status-badge', data.storage.status);
+        document.getElementById('storage-status-msg').textContent = data.storage.message || data.storage.status;
+    })
+    .catch(err => {
+        console.error('Failed to fetch system status:', err);
+        updateStatusBadge('db-status-badge', 'error');
+        document.getElementById('db-status-msg').textContent = 'Failed to check';
+        updateStatusBadge('me-status-badge', 'error');
+        document.getElementById('me-status-msg').textContent = 'Failed to check';
+        updateStatusBadge('storage-status-badge', 'error');
+        document.getElementById('storage-status-msg').textContent = 'Failed to check';
+    });
+}
+
+function testMediaEngine() {
+    const btn = document.getElementById('test-me-btn');
+    const result = document.getElementById('test-me-result');
+    btn.disabled = true;
+    result.textContent = 'Testing...';
+    result.className = 'ms-2 small text-body-secondary';
+
+    fetch('/api/v1/system/test-media-engine', {
+        method: 'POST',
+        credentials: 'same-origin'
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        if (data.success) {
+            result.textContent = data.message;
+            result.className = 'ms-2 small text-success';
+            refreshSystemStatus();
+        } else {
+            result.textContent = data.error;
+            result.className = 'ms-2 small text-danger';
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        result.textContent = 'Request failed';
+        result.className = 'ms-2 small text-danger';
+    });
+}
+
+// Auto-refresh on page load
+document.addEventListener('DOMContentLoaded', refreshSystemStatus);
+</script>
+
 <form method="POST" action="/dashboard/settings"
       hx-put="/dashboard/settings"
       hx-swap="none">

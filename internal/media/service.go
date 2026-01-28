@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -23,6 +24,7 @@ type Storage interface {
 	Store(ctx context.Context, stationID, mediaID string, file io.Reader) (string, error)
 	Delete(ctx context.Context, path string) error
 	URL(path string) string
+	CheckAccess(ctx context.Context) error
 }
 
 // Service manages media file storage.
@@ -103,6 +105,13 @@ func (s *Service) Delete(ctx context.Context, path string) error {
 // URL returns the accessible URL for a stored media file.
 func (s *Service) URL(path string) string {
 	return s.storage.URL(path)
+}
+
+// CheckStorageAccess verifies that the storage backend is accessible.
+func (s *Service) CheckStorageAccess() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.storage.CheckAccess(ctx)
 }
 
 // buildMediaPath constructs a hierarchical storage path for a media file.

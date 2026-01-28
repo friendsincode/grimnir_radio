@@ -233,6 +233,17 @@ func (s3s *S3Storage) URL(path string) string {
 	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3s.bucket, s3s.region, path)
 }
 
+// CheckAccess verifies the S3 bucket exists and is accessible.
+func (s3s *S3Storage) CheckAccess(ctx context.Context) error {
+	_, err := s3s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(s3s.bucket),
+	})
+	if err != nil {
+		return fmt.Errorf("cannot access S3 bucket %q: %w", s3s.bucket, err)
+	}
+	return nil
+}
+
 // PresignedURL generates a presigned URL for private/authenticated access.
 // Useful for private buckets where direct URL access is restricted.
 func (s3s *S3Storage) PresignedURL(ctx context.Context, path string, expiry time.Duration) (string, error) {
