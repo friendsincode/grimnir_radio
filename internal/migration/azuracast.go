@@ -638,16 +638,21 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 			a.logger.Warn().Err(err).Int("station_id", azStation.ID).Msg("failed to get mounts")
 		} else {
 			for _, azMount := range mounts {
-				// Use path for URL construction, stripping leading slash to avoid double slashes
+				// Strip leading slash to avoid double slashes in URL construction
+				// e.g., "/radio.mp3" becomes "radio.mp3"
 				mountPath := strings.TrimPrefix(azMount.Path, "/")
 				if mountPath == "" {
 					mountPath = strings.TrimPrefix(azMount.Name, "/")
+					// Also strip any description suffix like " (128kbps MP3)"
+					if idx := strings.Index(mountPath, " "); idx > 0 {
+						mountPath = mountPath[:idx]
+					}
 				}
 
 				mount := &models.Mount{
 					ID:         uuid.New().String(),
 					StationID:  station.ID,
-					Name:       azMount.Path, // Use path as the name (e.g., "/radio.mp3")
+					Name:       mountPath, // Without leading slash (e.g., "radio.mp3")
 					URL:        "/listen/" + mountPath,
 					Format:     azMount.AutodjFormat,
 					Bitrate:    azMount.AutodjBitrate,
@@ -656,7 +661,7 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 				}
 
 				if err := a.db.WithContext(ctx).Create(mount).Error; err != nil {
-					a.logger.Error().Err(err).Str("mount", azMount.Path).Msg("failed to create mount")
+					a.logger.Error().Err(err).Str("mount", mountPath).Msg("failed to create mount")
 				}
 			}
 		}
