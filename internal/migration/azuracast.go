@@ -638,11 +638,17 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 			a.logger.Warn().Err(err).Int("station_id", azStation.ID).Msg("failed to get mounts")
 		} else {
 			for _, azMount := range mounts {
+				// Use path for URL construction, stripping leading slash to avoid double slashes
+				mountPath := strings.TrimPrefix(azMount.Path, "/")
+				if mountPath == "" {
+					mountPath = strings.TrimPrefix(azMount.Name, "/")
+				}
+
 				mount := &models.Mount{
 					ID:         uuid.New().String(),
 					StationID:  station.ID,
-					Name:       azMount.Name,
-					URL:        "/listen/" + azMount.Name,
+					Name:       azMount.Path, // Use path as the name (e.g., "/radio.mp3")
+					URL:        "/listen/" + mountPath,
 					Format:     azMount.AutodjFormat,
 					Bitrate:    azMount.AutodjBitrate,
 					Channels:   2,
@@ -650,7 +656,7 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 				}
 
 				if err := a.db.WithContext(ctx).Create(mount).Error; err != nil {
-					a.logger.Error().Err(err).Str("mount", azMount.Name).Msg("failed to create mount")
+					a.logger.Error().Err(err).Str("mount", azMount.Path).Msg("failed to create mount")
 				}
 			}
 		}
@@ -815,16 +821,13 @@ func (a *AzuraCastImporter) importMediaFromAPI(ctx context.Context, client *Azur
 			contentHash := hex.EncodeToString(hasher.Sum(nil))
 
 			// Also download album art if available
-			var artwork []byte
-			var artworkMime string
-			if media.ArtUpdatedAt > 0 {
-				artwork, artworkMime, _ = client.DownloadMediaArt(ctx, azStationID, media.ID)
-				if len(artwork) > 0 {
-					a.logger.Debug().
-						Int("media_id", media.ID).
-						Int("artwork_size", len(artwork)).
-						Msg("downloaded album artwork")
-				}
+			// Always try to download - DownloadMediaArt handles missing art gracefully
+			artwork, artworkMime, _ := client.DownloadMediaArt(ctx, azStationID, media.ID)
+			if len(artwork) > 0 {
+				a.logger.Debug().
+					Int("media_id", media.ID).
+					Int("artwork_size", len(artwork)).
+					Msg("downloaded album artwork")
 			}
 
 			resultsChan <- azMediaDownloadResult{
@@ -1003,27 +1006,28 @@ func (a *AzuraCastImporter) createMediaItemFromAzMedia(azMedia AzuraCastAPIMedia
 		mediaItem.CustomFields = azMedia.CustomFields
 	}
 
-	// Set cue points if available
-	if azMedia.CueIn != nil || azMedia.CueOut != nil || azMedia.FadeIn != nil || azMedia.FadeOut != nil {
+	// Set cue points if available (from extra_metadata)
+	em := azMedia.ExtraMetadata
+	if em.CueIn != nil || em.CueOut != nil || em.FadeIn != nil || em.FadeOut != nil {
 		cuePoints := models.CuePointSet{}
-		if azMedia.CueIn != nil {
-			cuePoints.IntroEnd = *azMedia.CueIn
+		if em.CueIn != nil {
+			cuePoints.IntroEnd = *em.CueIn
 		}
-		if azMedia.CueOut != nil {
-			cuePoints.OutroIn = *azMedia.CueOut
+		if em.CueOut != nil {
+			cuePoints.OutroIn = *em.CueOut
 		}
-		if azMedia.FadeIn != nil {
-			cuePoints.FadeIn = *azMedia.FadeIn
+		if em.FadeIn != nil {
+			cuePoints.FadeIn = *em.FadeIn
 		}
-		if azMedia.FadeOut != nil {
-			cuePoints.FadeOut = *azMedia.FadeOut
+		if em.FadeOut != nil {
+			cuePoints.FadeOut = *em.FadeOut
 		}
 		mediaItem.CuePoints = cuePoints
 	}
 
-	// Set replay gain if available
-	if azMedia.Amplify != nil {
-		mediaItem.ReplayGain = *azMedia.Amplify
+	// Set replay gain if available (from extra_metadata)
+	if em.Amplify != nil {
+		mediaItem.ReplayGain = *em.Amplify
 	}
 
 	return mediaItem

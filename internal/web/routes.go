@@ -267,6 +267,7 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Post("/migrations/libretime-api/test", h.LibreTimeAPITest)
 				r.Post("/migrations/jobs/{id}/restart", h.MigrationJobRestart)
 				r.Delete("/migrations/jobs/{id}", h.MigrationJobDelete)
+				r.Post("/migrations/reset", h.MigrationResetData)
 			})
 
 			// Platform Admin routes (platform_admin only)

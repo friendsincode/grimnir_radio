@@ -18,10 +18,20 @@
 {{$jobs := index $data "Jobs"}}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-activity me-2"></i>Import Status</h4>
-    <a href="/dashboard/settings/migrations" class="btn btn-outline-secondary">
-        <i class="bi bi-plus me-1"></i>New Import
-    </a>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-danger"
+                hx-post="/dashboard/settings/migrations/reset"
+                hx-target="#reset-result"
+                hx-confirm="WARNING: This will delete ALL stations, media, playlists, schedules, and other imported data. Users will be preserved. This cannot be undone. Are you sure?"
+                title="Reset all imported data">
+            <i class="bi bi-trash me-1"></i>Reset Data
+        </button>
+        <a href="/dashboard/settings/migrations" class="btn btn-outline-secondary">
+            <i class="bi bi-plus me-1"></i>New Import
+        </a>
+    </div>
 </div>
+<div id="reset-result" class="mb-3"></div>
 
 <!-- Active Jobs -->
 <div id="active-jobs">
@@ -92,16 +102,16 @@
             {{if .StartedAt}}Started {{.StartedAt | timeago}}{{else}}Created {{.CreatedAt | timeago}}{{end}}
             {{if .CompletedAt}} &middot; Completed {{.CompletedAt | timeago}}{{end}}
         </small>
-        {{if and .Result (eq .Status "completed")}}
+        {{if eq .Status "completed"}}{{if .Result}}
         <div class="mt-1">
             <span class="badge bg-secondary me-1">{{.Result.MediaItemsImported}} media</span>
             <span class="badge bg-secondary me-1">{{.Result.PlaylistsCreated}} playlists</span>
             <span class="badge bg-secondary me-1">{{.Result.SchedulesCreated}} schedules</span>
-            {{if gt (len .Result.Warnings) 0}}
+            {{if .Result.Warnings}}{{if gt (len .Result.Warnings) 0}}
             <span class="badge bg-warning text-dark">{{len .Result.Warnings}} warnings</span>
-            {{end}}
+            {{end}}{{end}}
         </div>
-        {{end}}
+        {{end}}{{end}}
         {{if and .Error (eq .Status "failed")}}
         <div class="mt-1 text-danger small">
             <i class="bi bi-exclamation-triangle me-1"></i>{{.Error}}
