@@ -4,40 +4,81 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package analyzer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/mediaengine/client"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
 
-// ErrAnalyzerUnavailable indicates pipeline failure.
-var ErrAnalyzerUnavailable = errors.New("analyzer unavailable")
+// ErrAnalyzerUnavailable indicates the media engine is not available.
+var ErrAnalyzerUnavailable = errors.New("media engine unavailable for analysis")
 
-// Service performs loudness and cue point analysis on media imports.
-type Service struct {
-	db      *gorm.DB
-	logger  zerolog.Logger
-	workDir string
+// ErrMediaEngineNotConfigured indicates no media engine address was provided.
+var ErrMediaEngineNotConfigured = errors.New("media engine gRPC address not configured")
+
+// Config holds analyzer service configuration.
+type Config struct {
+	MediaEngineGRPCAddr string // gRPC address of the media engine (required)
 }
 
-// New constructs an analyzer service.
+// Service performs loudness and cue point analysis on media imports.
+// Analysis is performed by the media engine via gRPC.
+type Service struct {
+	db                *gorm.DB
+	logger            zerolog.Logger
+	workDir           string
+	cfg               Config
+	mediaEngineClient *client.Client
+}
+
+// New constructs an analyzer service without media engine support.
+// Deprecated: Use NewWithConfig instead to enable media analysis.
 func New(db *gorm.DB, workDir string, logger zerolog.Logger) *Service {
+	logger.Warn().Msg("analyzer created without media engine - analysis will fail")
 	return &Service{db: db, workDir: workDir, logger: logger}
+}
+
+// NewWithConfig constructs an analyzer service with media engine support.
+func NewWithConfig(db *gorm.DB, workDir string, logger zerolog.Logger, cfg Config) *Service {
+	s := &Service{
+		db:      db,
+		workDir: workDir,
+		logger:  logger,
+		cfg:     cfg,
+	}
+
+	if cfg.MediaEngineGRPCAddr == "" {
+		logger.Warn().Msg("media engine address not configured - analysis will fail")
+		return s
+	}
+
+	// Initialize media engine client
+	clientCfg := client.DefaultConfig(cfg.MediaEngineGRPCAddr)
+	s.mediaEngineClient = client.New(clientCfg, logger)
+
+	// Try to connect (non-blocking, will retry on use)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.mediaEngineClient.Connect(ctx); err != nil {
+			logger.Warn().Err(err).Msg("initial media engine connection failed, will retry on use")
+		} else {
+			logger.Info().Str("addr", cfg.MediaEngineGRPCAddr).Msg("connected to media engine for analysis")
+		}
+	}()
+
+	return s
 }
 
 // Enqueue registers a media item for analysis.
@@ -206,132 +247,77 @@ func (s *Service) performAnalysis(ctx context.Context, media *models.MediaItem) 
 		return analysisResult{}, err
 	}
 
-	result := analysisResult{
-		Loudness:   -14.0, // Default LUFS
-		ReplayGain: -9.0,  // Default replay gain
+	// Media engine is required for analysis
+	if s.mediaEngineClient == nil {
+		return analysisResult{}, ErrMediaEngineNotConfigured
 	}
 
-	// Use ffprobe to extract metadata
-	cmd := exec.CommandContext(ctx, "ffprobe",
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_format",
-		"-show_streams",
-		fullPath,
-	)
-	output, err := cmd.Output()
+	return s.analyzeViaMediaEngine(ctx, fullPath, media.ID)
+}
+
+// analyzeViaMediaEngine uses the media engine gRPC service for analysis
+func (s *Service) analyzeViaMediaEngine(ctx context.Context, fullPath, mediaID string) (analysisResult, error) {
+	// Ensure connection
+	if !s.mediaEngineClient.IsConnected() {
+		connectCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := s.mediaEngineClient.Connect(connectCtx); err != nil {
+			return analysisResult{}, ErrAnalyzerUnavailable
+		}
+	}
+
+	// Call media engine analysis
+	resp, err := s.mediaEngineClient.AnalyzeMedia(ctx, fullPath)
 	if err != nil {
-		s.logger.Warn().Err(err).Str("media", media.ID).Msg("ffprobe failed, using defaults")
-	} else {
-		s.parseFFProbeOutput(output, &result)
+		s.logger.Error().Err(err).Str("media", mediaID).Msg("media engine analysis failed")
+		return analysisResult{}, err
 	}
 
-	// Calculate cue points based on duration
-	duration := result.Duration
-	if duration <= 0 {
-		duration = 3 * time.Minute
+	if !resp.Success {
+		return analysisResult{}, errors.New(resp.Error)
 	}
-	result.IntroEnd = math.Min(15, duration.Seconds()*0.1)
-	result.OutroIn = math.Max(duration.Seconds()-10, result.IntroEnd+5)
 
-	// Extract embedded album art
-	artwork, mime := s.extractArtwork(ctx, fullPath)
-	if artwork != nil {
-		result.Artwork = artwork
-		result.ArtworkMime = mime
+	// Convert response to analysisResult
+	result := analysisResult{
+		Duration:   time.Duration(resp.DurationMs) * time.Millisecond,
+		Loudness:   float64(resp.LoudnessLufs),
+		ReplayGain: float64(resp.ReplayGain),
+		IntroEnd:   float64(resp.IntroEnd),
+		OutroIn:    float64(resp.OutroIn),
+		Bitrate:    int(resp.Bitrate),
+		Samplerate: int(resp.SampleRate),
 	}
+
+	// Extract metadata
+	if resp.Metadata != nil {
+		result.Title = resp.Metadata.Title
+		result.Artist = resp.Metadata.Artist
+		result.Album = resp.Metadata.Album
+		result.Genre = resp.Metadata.Genre
+		result.Year = resp.Metadata.Year
+	}
+
+	// Extract artwork via media engine
+	artResp, err := s.mediaEngineClient.ExtractArtwork(ctx, fullPath, 0, 0, "jpeg", 85)
+	if err == nil && artResp.Success && len(artResp.ArtworkData) > 0 {
+		result.Artwork = artResp.ArtworkData
+		result.ArtworkMime = artResp.MimeType
+	}
+
+	s.logger.Debug().
+		Str("media", mediaID).
+		Dur("duration", result.Duration).
+		Float64("loudness", result.Loudness).
+		Int("bitrate", result.Bitrate).
+		Msg("media engine analysis complete")
 
 	return result, nil
 }
 
-// extractArtwork extracts embedded album art from an audio file using ffmpeg.
-func (s *Service) extractArtwork(ctx context.Context, filePath string) ([]byte, string) {
-	// Create temp file for artwork output
-	tmpFile, err := os.CreateTemp("", "artwork-*.jpg")
-	if err != nil {
-		return nil, ""
+// Close cleans up analyzer resources
+func (s *Service) Close() error {
+	if s.mediaEngineClient != nil {
+		return s.mediaEngineClient.Close()
 	}
-	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
-
-	// Extract artwork using ffmpeg
-	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-i", filePath,
-		"-an",           // No audio
-		"-vcodec", "mjpeg", // Output as JPEG
-		"-vframes", "1", // Only one frame
-		"-f", "image2",
-		"-y", // Overwrite
-		tmpPath,
-	)
-	if err := cmd.Run(); err != nil {
-		// No artwork or extraction failed - not an error
-		return nil, ""
-	}
-
-	// Read the extracted artwork
-	data, err := os.ReadFile(tmpPath)
-	if err != nil || len(data) == 0 {
-		return nil, ""
-	}
-
-	return data, "image/jpeg"
-}
-
-func (s *Service) parseFFProbeOutput(output []byte, result *analysisResult) {
-	var data struct {
-		Format struct {
-			Duration string            `json:"duration"`
-			BitRate  string            `json:"bit_rate"`
-			Tags     map[string]string `json:"tags"`
-		} `json:"format"`
-		Streams []struct {
-			SampleRate string `json:"sample_rate"`
-		} `json:"streams"`
-	}
-
-	if err := json.Unmarshal(output, &data); err != nil {
-		return
-	}
-
-	// Parse duration
-	if data.Format.Duration != "" {
-		if secs, err := strconv.ParseFloat(data.Format.Duration, 64); err == nil {
-			result.Duration = time.Duration(secs * float64(time.Second))
-		}
-	}
-
-	// Parse bitrate
-	if data.Format.BitRate != "" {
-		if br, err := strconv.Atoi(data.Format.BitRate); err == nil {
-			result.Bitrate = br / 1000 // Convert to kbps
-		}
-	}
-
-	// Parse sample rate from first audio stream
-	for _, stream := range data.Streams {
-		if stream.SampleRate != "" {
-			if sr, err := strconv.Atoi(stream.SampleRate); err == nil {
-				result.Samplerate = sr
-				break
-			}
-		}
-	}
-
-	// Parse ID3 tags (case-insensitive)
-	for key, value := range data.Format.Tags {
-		switch strings.ToLower(key) {
-		case "title":
-			result.Title = value
-		case "artist":
-			result.Artist = value
-		case "album":
-			result.Album = value
-		case "genre":
-			result.Genre = value
-		case "date", "year":
-			result.Year = value
-		}
-	}
+	return nil
 }

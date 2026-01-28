@@ -34,6 +34,7 @@ type Service struct {
 	supervisor      *Supervisor
 	liveInputMgr    *LiveInputManager
 	webstreamMgr    *WebstreamManager
+	analyzer        *Analyzer
 
 	mu       sync.RWMutex
 	stations map[string]*StationEngine // station_id -> engine
@@ -86,6 +87,7 @@ func New(cfg *Config, logger zerolog.Logger) *Service {
 		supervisor:      supervisor,
 		liveInputMgr:    liveInputMgr,
 		webstreamMgr:    webstreamMgr,
+		analyzer:        NewAnalyzer(logger),
 		stations:        make(map[string]*StationEngine),
 		graphs:          make(map[string]*dsp.Graph),
 		uptime:          time.Now(),
@@ -494,6 +496,125 @@ func (s *Service) GetStatus(ctx context.Context, req *pb.StatusRequest) (*pb.Sta
 		GraphHandle:     engine.GraphHandle,
 		Metadata:        metadata,
 	}, nil
+}
+
+// AnalyzeMedia performs media analysis (metadata, loudness, cue points).
+func (s *Service) AnalyzeMedia(ctx context.Context, req *pb.AnalyzeMediaRequest) (*pb.AnalyzeMediaResponse, error) {
+	startTime := time.Now()
+
+	s.logger.Info().
+		Str("file_path", req.FilePath).
+		Msg("analyzing media file")
+
+	resp, err := s.analyzer.AnalyzeMedia(ctx, req.FilePath)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("media analysis failed")
+		telemetry.MediaEngineOperations.WithLabelValues("", "", "analyze_media", "failure").Inc()
+		return &pb.AnalyzeMediaResponse{
+			Success: false,
+			Error:   fmt.Sprintf("analysis failed: %v", err),
+		}, nil
+	}
+
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues("", "", "analyze_media").Observe(duration)
+
+	status := "success"
+	if !resp.Success {
+		status = "failure"
+	}
+	telemetry.MediaEngineOperations.WithLabelValues("", "", "analyze_media", status).Inc()
+
+	s.logger.Info().
+		Int64("duration_ms", resp.DurationMs).
+		Float32("loudness_lufs", resp.LoudnessLufs).
+		Str("codec", resp.Codec).
+		Msg("media analysis complete")
+
+	return resp, nil
+}
+
+// ExtractArtwork extracts embedded album art from media.
+func (s *Service) ExtractArtwork(ctx context.Context, req *pb.ExtractArtworkRequest) (*pb.ExtractArtworkResponse, error) {
+	startTime := time.Now()
+
+	s.logger.Debug().
+		Str("file_path", req.FilePath).
+		Int32("max_width", req.MaxWidth).
+		Int32("max_height", req.MaxHeight).
+		Str("format", req.Format).
+		Msg("extracting artwork")
+
+	resp, err := s.analyzer.ExtractArtwork(ctx, req)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("artwork extraction failed")
+		telemetry.MediaEngineOperations.WithLabelValues("", "", "extract_artwork", "failure").Inc()
+		return &pb.ExtractArtworkResponse{
+			Success: false,
+			Error:   fmt.Sprintf("extraction failed: %v", err),
+		}, nil
+	}
+
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues("", "", "extract_artwork").Observe(duration)
+
+	status := "success"
+	if !resp.Success {
+		status = "failure"
+	}
+	telemetry.MediaEngineOperations.WithLabelValues("", "", "extract_artwork", status).Inc()
+
+	if resp.Success {
+		s.logger.Debug().
+			Int("artwork_size", len(resp.ArtworkData)).
+			Str("mime_type", resp.MimeType).
+			Msg("artwork extracted")
+	}
+
+	return resp, nil
+}
+
+// GenerateWaveform generates peak/RMS waveform data for visualization.
+func (s *Service) GenerateWaveform(ctx context.Context, req *pb.GenerateWaveformRequest) (*pb.GenerateWaveformResponse, error) {
+	startTime := time.Now()
+
+	s.logger.Debug().
+		Str("file_path", req.FilePath).
+		Int32("samples_per_second", req.SamplesPerSecond).
+		Str("type", req.Type.String()).
+		Msg("generating waveform")
+
+	resp, err := s.analyzer.GenerateWaveform(ctx, req)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("waveform generation failed")
+		telemetry.MediaEngineOperations.WithLabelValues("", "", "generate_waveform", "failure").Inc()
+		return &pb.GenerateWaveformResponse{
+			Success: false,
+			Error:   fmt.Sprintf("generation failed: %v", err),
+		}, nil
+	}
+
+	// Track metrics
+	duration := time.Since(startTime).Seconds()
+	telemetry.MediaEngineOperationDuration.WithLabelValues("", "", "generate_waveform").Observe(duration)
+
+	status := "success"
+	if !resp.Success {
+		status = "failure"
+	}
+	telemetry.MediaEngineOperations.WithLabelValues("", "", "generate_waveform", status).Inc()
+
+	if resp.Success {
+		s.logger.Debug().
+			Int("peak_samples", len(resp.PeakLeft)).
+			Int("rms_samples", len(resp.RmsLeft)).
+			Int64("duration_ms", resp.DurationMs).
+			Msg("waveform generated")
+	}
+
+	return resp, nil
 }
 
 // Shutdown gracefully shuts down the media engine.

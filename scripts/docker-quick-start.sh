@@ -8,6 +8,23 @@
 # - External databases
 # - Multi-instance deployment
 # - Configuration persistence
+# - Configuration validation and auto-fix
+#
+# Usage:
+#   ./docker-quick-start.sh          # Interactive deployment
+#   ./docker-quick-start.sh --check  # Check config for missing/weak values
+#   ./docker-quick-start.sh --fix    # Check and fix config automatically
+#   ./docker-quick-start.sh --stop   # Stop services
+#   ./docker-quick-start.sh --clean  # Remove all data (destructive)
+#   ./docker-quick-start.sh --help   # Show help
+#
+# Docker Network:
+#   This script assumes all services communicate over the 'grimnir-network'
+#   Docker bridge network using service hostnames:
+#   - postgres:5432     (PostgreSQL database)
+#   - redis:6379        (Redis for events/leader election)
+#   - mediaengine:9091  (Media Engine gRPC)
+#   - icecast:8000      (Icecast streaming server)
 
 set -e
 
@@ -37,6 +54,55 @@ DEFAULT_GRPC_PORT=9091
 DEFAULT_ICECAST_PORT=8000
 DEFAULT_POSTGRES_PORT=5432
 DEFAULT_REDIS_PORT=6379
+
+# Required configuration keys with their Docker network defaults
+# Format: KEY|DEFAULT_VALUE|DESCRIPTION|PROMPT_TYPE (text|password|bool)
+declare -a REQUIRED_CONFIG=(
+    # Core passwords (no defaults - must be generated or provided)
+    "POSTGRES_PASSWORD||PostgreSQL password|password"
+    "REDIS_PASSWORD||Redis password|password"
+    "JWT_SIGNING_KEY||JWT signing key for authentication|password"
+    "ICECAST_ADMIN_PASSWORD||Icecast admin password|password"
+    "ICECAST_SOURCE_PASSWORD||Icecast source password|password"
+
+    # Database - assumes grimnir-network
+    "GRIMNIR_DB_BACKEND|postgres|Database backend (postgres/mysql/sqlite)|text"
+    "GRIMNIR_DB_DSN|host=postgres port=5432 user=grimnir password=\${POSTGRES_PASSWORD} dbname=grimnir sslmode=disable|Database connection string|text"
+
+    # Redis - assumes grimnir-network
+    "GRIMNIR_REDIS_ADDR|redis:6379|Redis address|text"
+    "GRIMNIR_REDIS_DB|0|Redis database number|text"
+
+    # Media Engine - assumes grimnir-network
+    "GRIMNIR_MEDIA_ENGINE_GRPC_ADDR|mediaengine:9091|Media Engine gRPC address|text"
+
+    # Icecast - assumes grimnir-network
+    "GRIMNIR_ICECAST_URL|http://icecast:8000|Internal Icecast URL|text"
+
+    # Media storage
+    "GRIMNIR_MEDIA_ROOT|/var/lib/grimnir/media|Media files root path|text"
+    "GRIMNIR_MEDIA_BACKEND|filesystem|Media storage backend (filesystem/s3)|text"
+
+    # Server settings
+    "GRIMNIR_HTTP_PORT|8080|HTTP API port|text"
+    "GRIMNIR_HTTP_BIND|0.0.0.0|HTTP bind address|text"
+
+    # Environment
+    "ENVIRONMENT|production|Environment (development/staging/production)|text"
+    "LOG_LEVEL|info|Log level (debug/info/warn/error)|text"
+
+    # Icecast settings
+    "ICECAST_ADMIN_USERNAME|admin|Icecast admin username|text"
+    "ICECAST_HOSTNAME|localhost|Icecast hostname|text"
+    "ICECAST_LOCATION|Earth|Icecast location|text"
+    "ICECAST_MAX_CLIENTS|100|Maximum Icecast clients|text"
+    "ICECAST_MAX_SOURCES|10|Maximum Icecast sources|text"
+
+    # Optional but recommended
+    "LEADER_ELECTION_ENABLED|false|Enable multi-instance leader election|bool"
+    "GRIMNIR_INSTANCE_ID|grimnir-1|Instance identifier|text"
+    "TRACING_ENABLED|false|Enable OpenTelemetry tracing|bool"
+)
 
 # Functions
 print_header() {
@@ -216,6 +282,377 @@ suggest_port() {
         echo "$default_port"
     fi
 }
+
+# =============================================================================
+# Configuration Check Functions
+# =============================================================================
+
+# Get value from .env file
+get_env_value() {
+    local key="$1"
+    local env_file="$2"
+
+    if [ -f "$env_file" ]; then
+        # Extract value, handling quoted values and comments
+        local value=$(grep -E "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d'=' -f2- | sed 's/^["'"'"']//;s/["'"'"']$//' | sed 's/#.*//' | xargs)
+        echo "$value"
+    fi
+}
+
+# Check if a value is set and non-empty
+is_value_set() {
+    local value="$1"
+    [ -n "$value" ] && [ "$value" != '""' ] && [ "$value" != "''" ]
+}
+
+# Parse config entry
+parse_config_entry() {
+    local entry="$1"
+    local field="$2"  # 1=key, 2=default, 3=description, 4=type
+
+    echo "$entry" | cut -d'|' -f"$field"
+}
+
+# Check existing .env file for missing configuration
+check_env_config() {
+    local env_file="$1"
+    local missing_keys=()
+    local weak_keys=()
+
+    if [ ! -f "$env_file" ]; then
+        print_error "No .env file found at: $env_file"
+        return 1
+    fi
+
+    print_section "Checking Configuration"
+    print_info "Analyzing: $env_file"
+    echo ""
+
+    local total_keys=0
+    local configured_keys=0
+    local missing_count=0
+    local weak_count=0
+
+    for entry in "${REQUIRED_CONFIG[@]}"; do
+        local key=$(parse_config_entry "$entry" 1)
+        local default_val=$(parse_config_entry "$entry" 2)
+        local description=$(parse_config_entry "$entry" 3)
+        local prompt_type=$(parse_config_entry "$entry" 4)
+
+        ((total_keys++))
+
+        local current_value=$(get_env_value "$key" "$env_file")
+
+        if ! is_value_set "$current_value"; then
+            # Key is missing or empty
+            missing_keys+=("$entry")
+            ((missing_count++))
+            print_error "Missing: $key"
+            print_info "  → $description"
+        else
+            ((configured_keys++))
+
+            # Check for weak/default passwords
+            if [ "$prompt_type" = "password" ]; then
+                if [[ "$current_value" == *"change"* ]] || \
+                   [[ "$current_value" == *"hackme"* ]] || \
+                   [[ "$current_value" == *"secret"* ]] || \
+                   [ ${#current_value} -lt 16 ]; then
+                    weak_keys+=("$entry")
+                    ((weak_count++))
+                    print_warning "Weak:    $key (insecure value detected)"
+                else
+                    print_success "OK:      $key"
+                fi
+            else
+                print_success "OK:      $key"
+            fi
+        fi
+    done
+
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  Configuration Summary"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  Total keys checked:  $total_keys"
+    echo -e "  ${GREEN}Configured:${NC}          $configured_keys"
+    [ $missing_count -gt 0 ] && echo -e "  ${RED}Missing:${NC}             $missing_count"
+    [ $weak_count -gt 0 ] && echo -e "  ${YELLOW}Weak passwords:${NC}      $weak_count"
+    echo ""
+
+    # Store for later use
+    MISSING_CONFIG_KEYS=("${missing_keys[@]}")
+    WEAK_CONFIG_KEYS=("${weak_keys[@]}")
+
+    if [ $missing_count -eq 0 ] && [ $weak_count -eq 0 ]; then
+        print_success "Configuration is complete and secure!"
+        return 0
+    fi
+
+    return 1
+}
+
+# Prompt for missing configuration values
+prompt_missing_config() {
+    local env_file="$1"
+
+    if [ ${#MISSING_CONFIG_KEYS[@]} -eq 0 ] && [ ${#WEAK_CONFIG_KEYS[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    print_section "Update Configuration"
+
+    local updates=()
+
+    # Handle missing keys
+    if [ ${#MISSING_CONFIG_KEYS[@]} -gt 0 ]; then
+        print_info "The following required settings are missing:"
+        echo ""
+
+        for entry in "${MISSING_CONFIG_KEYS[@]}"; do
+            local key=$(parse_config_entry "$entry" 1)
+            local default_val=$(parse_config_entry "$entry" 2)
+            local description=$(parse_config_entry "$entry" 3)
+            local prompt_type=$(parse_config_entry "$entry" 4)
+
+            # Expand variables in default value
+            local expanded_default=$(eval echo "$default_val")
+
+            local new_value=""
+
+            case "$prompt_type" in
+                password)
+                    if [ -z "$expanded_default" ]; then
+                        # Generate a password if no default
+                        local generated=$(generate_password)
+                        if prompt_yn "Generate secure password for $key?" "y"; then
+                            new_value="$generated"
+                            print_success "Generated: $key"
+                        else
+                            prompt "$description" "" "new_value" "true"
+                        fi
+                    else
+                        prompt "$description" "$expanded_default" "new_value" "true"
+                    fi
+                    ;;
+                bool)
+                    if prompt_yn "$description" "${expanded_default:-n}"; then
+                        new_value="true"
+                    else
+                        new_value="false"
+                    fi
+                    ;;
+                *)
+                    prompt "$description" "$expanded_default" "new_value"
+                    ;;
+            esac
+
+            if [ -n "$new_value" ]; then
+                updates+=("$key=$new_value")
+            fi
+        done
+    fi
+
+    # Handle weak passwords
+    if [ ${#WEAK_CONFIG_KEYS[@]} -gt 0 ]; then
+        echo ""
+        print_warning "The following passwords appear insecure:"
+        echo ""
+
+        for entry in "${WEAK_CONFIG_KEYS[@]}"; do
+            local key=$(parse_config_entry "$entry" 1)
+            local description=$(parse_config_entry "$entry" 3)
+
+            if prompt_yn "Generate new secure password for $key?" "y"; then
+                local new_value=$(generate_password)
+                updates+=("$key=$new_value")
+                print_success "Generated new password for $key"
+            fi
+        done
+    fi
+
+    # Apply updates
+    if [ ${#updates[@]} -gt 0 ]; then
+        echo ""
+        print_section "Applying Updates"
+
+        # Backup existing file
+        cp "$env_file" "${env_file}.backup.$(date +%Y%m%d_%H%M%S)"
+        print_info "Backed up existing .env file"
+
+        for update in "${updates[@]}"; do
+            local key="${update%%=*}"
+            local value="${update#*=}"
+
+            # Check if key exists in file
+            if grep -q "^${key}=" "$env_file" 2>/dev/null; then
+                # Update existing key
+                # Use different delimiters for sed to handle special chars
+                sed -i "s|^${key}=.*|${key}=${value}|" "$env_file"
+            else
+                # Add new key
+                echo "${key}=${value}" >> "$env_file"
+            fi
+            print_success "Updated: $key"
+        done
+
+        echo ""
+        print_success "Configuration updated!"
+        print_info "Backup saved with .backup.* extension"
+    fi
+}
+
+# Interactive configuration check mode
+run_config_check() {
+    print_header
+    configure_deploy_dir
+
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "No .env file found at: $ENV_FILE"
+        echo ""
+        if prompt_yn "Would you like to create a new configuration?" "y"; then
+            configure_deployment
+            save_config
+            create_env_file
+            create_override_file
+            print_success "Configuration created!"
+        fi
+        return
+    fi
+
+    if check_env_config "$ENV_FILE"; then
+        echo ""
+        print_success "Your configuration is complete!"
+        echo ""
+        if prompt_yn "Would you like to view the current settings?" "n"; then
+            echo ""
+            print_section "Current Configuration"
+            grep -v '^#' "$ENV_FILE" | grep -v '^$' | sort
+        fi
+    else
+        echo ""
+        if prompt_yn "Would you like to fix the missing/weak configuration?" "y"; then
+            prompt_missing_config "$ENV_FILE"
+
+            # Re-check after updates
+            echo ""
+            check_env_config "$ENV_FILE"
+        fi
+    fi
+}
+
+# Verify Docker network assumptions
+verify_docker_network_config() {
+    local env_file="$1"
+
+    print_section "Verifying Docker Network Configuration"
+
+    local issues=()
+
+    # Check that internal services use Docker network hostnames
+    local media_engine_addr=$(get_env_value "GRIMNIR_MEDIA_ENGINE_GRPC_ADDR" "$env_file")
+    local redis_addr=$(get_env_value "GRIMNIR_REDIS_ADDR" "$env_file")
+    local db_dsn=$(get_env_value "GRIMNIR_DB_DSN" "$env_file")
+    local icecast_url=$(get_env_value "GRIMNIR_ICECAST_URL" "$env_file")
+
+    # Check Media Engine address
+    if is_value_set "$media_engine_addr"; then
+        if [[ "$media_engine_addr" == "localhost"* ]] || [[ "$media_engine_addr" == "127.0.0.1"* ]]; then
+            issues+=("GRIMNIR_MEDIA_ENGINE_GRPC_ADDR uses localhost - should be 'mediaengine:9091' for Docker network")
+        elif [[ "$media_engine_addr" == "mediaengine:"* ]]; then
+            print_success "Media Engine: Using Docker network hostname"
+        fi
+    fi
+
+    # Check Redis address
+    if is_value_set "$redis_addr"; then
+        if [[ "$redis_addr" == "localhost"* ]] || [[ "$redis_addr" == "127.0.0.1"* ]]; then
+            issues+=("GRIMNIR_REDIS_ADDR uses localhost - should be 'redis:6379' for Docker network")
+        elif [[ "$redis_addr" == "redis:"* ]]; then
+            print_success "Redis: Using Docker network hostname"
+        fi
+    fi
+
+    # Check Database DSN
+    if is_value_set "$db_dsn"; then
+        if [[ "$db_dsn" == *"host=localhost"* ]] || [[ "$db_dsn" == *"host=127.0.0.1"* ]]; then
+            issues+=("GRIMNIR_DB_DSN uses localhost - should use 'host=postgres' for Docker network")
+        elif [[ "$db_dsn" == *"host=postgres"* ]]; then
+            print_success "Database: Using Docker network hostname"
+        fi
+    fi
+
+    # Check Icecast URL
+    if is_value_set "$icecast_url"; then
+        if [[ "$icecast_url" == *"localhost"* ]] || [[ "$icecast_url" == *"127.0.0.1"* ]]; then
+            issues+=("GRIMNIR_ICECAST_URL uses localhost - should be 'http://icecast:8000' for Docker network")
+        elif [[ "$icecast_url" == *"icecast:"* ]]; then
+            print_success "Icecast: Using Docker network hostname"
+        fi
+    fi
+
+    if [ ${#issues[@]} -gt 0 ]; then
+        echo ""
+        print_warning "Found Docker network configuration issues:"
+        echo ""
+        for issue in "${issues[@]}"; do
+            print_warning "  • $issue"
+        done
+        echo ""
+
+        if prompt_yn "Would you like to fix these to use Docker network hostnames?" "y"; then
+            fix_docker_network_config "$env_file"
+        fi
+    else
+        echo ""
+        print_success "Docker network configuration looks correct!"
+    fi
+}
+
+# Fix Docker network configuration
+fix_docker_network_config() {
+    local env_file="$1"
+
+    # Backup
+    cp "$env_file" "${env_file}.backup.$(date +%Y%m%d_%H%M%S)"
+
+    local postgres_password=$(get_env_value "POSTGRES_PASSWORD" "$env_file")
+
+    # Fix Media Engine address
+    if grep -q "^GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=" "$env_file"; then
+        sed -i 's|^GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=.*localhost.*|GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=mediaengine:9091|' "$env_file"
+        sed -i 's|^GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=.*127\.0\.0\.1.*|GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=mediaengine:9091|' "$env_file"
+    fi
+
+    # Fix Redis address
+    if grep -q "^GRIMNIR_REDIS_ADDR=" "$env_file"; then
+        sed -i 's|^GRIMNIR_REDIS_ADDR=.*localhost.*|GRIMNIR_REDIS_ADDR=redis:6379|' "$env_file"
+        sed -i 's|^GRIMNIR_REDIS_ADDR=.*127\.0\.0\.1.*|GRIMNIR_REDIS_ADDR=redis:6379|' "$env_file"
+    fi
+
+    # Fix Database DSN (more complex - need to preserve password)
+    if grep -q "^GRIMNIR_DB_DSN=" "$env_file"; then
+        local current_dsn=$(get_env_value "GRIMNIR_DB_DSN" "$env_file")
+        if [[ "$current_dsn" == *"localhost"* ]] || [[ "$current_dsn" == *"127.0.0.1"* ]]; then
+            local new_dsn="host=postgres port=5432 user=grimnir password=${postgres_password} dbname=grimnir sslmode=disable"
+            sed -i "s|^GRIMNIR_DB_DSN=.*|GRIMNIR_DB_DSN=${new_dsn}|" "$env_file"
+        fi
+    fi
+
+    # Fix Icecast URL
+    if grep -q "^GRIMNIR_ICECAST_URL=" "$env_file"; then
+        sed -i 's|^GRIMNIR_ICECAST_URL=.*localhost.*|GRIMNIR_ICECAST_URL=http://icecast:8000|' "$env_file"
+        sed -i 's|^GRIMNIR_ICECAST_URL=.*127\.0\.0\.1.*|GRIMNIR_ICECAST_URL=http://icecast:8000|' "$env_file"
+    fi
+
+    print_success "Fixed Docker network configuration"
+    print_info "Backup saved with .backup.* extension"
+}
+
+# =============================================================================
+# Directory Configuration
+# =============================================================================
 
 # Configure deployment directory
 configure_deploy_dir() {
@@ -1520,14 +1957,103 @@ clean_all() {
     print_success "Cleanup complete"
 }
 
+# Show usage help
+show_help() {
+    echo "Grimnir Radio - Docker Deployment Script"
+    echo ""
+    echo "Usage: $0 [OPTION]"
+    echo ""
+    echo "Options:"
+    echo "  (none)      Interactive deployment (default)"
+    echo "  --check     Check existing configuration for missing/weak values"
+    echo "  --fix       Check and automatically fix configuration issues"
+    echo "  --stop      Stop running services"
+    echo "  --clean     Stop services and remove all data (DESTRUCTIVE)"
+    echo "  --help      Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                    # Start interactive deployment"
+    echo "  $0 --check            # Check configuration for issues"
+    echo "  $0 --fix              # Check and fix configuration"
+    echo "  $0 --stop             # Stop all services"
+    echo ""
+    echo "The script assumes services communicate over the 'grimnir-network'"
+    echo "Docker network using service hostnames (postgres, redis, mediaengine, icecast)."
+    echo ""
+}
+
 # Main
 main() {
     case "${1:-}" in
+        --help|-h)
+            show_help
+            exit 0
+            ;;
         --stop)
             stop_services
             ;;
         --clean)
             clean_all
+            ;;
+        --check)
+            run_config_check
+            ;;
+        --fix)
+            print_header
+            configure_deploy_dir
+
+            if [ ! -f "$ENV_FILE" ]; then
+                print_error "No .env file found at: $ENV_FILE"
+                echo ""
+                if prompt_yn "Would you like to create a new configuration?" "y"; then
+                    configure_deployment
+                    save_config
+                    create_env_file
+                    create_override_file
+                    print_success "Configuration created!"
+                fi
+                exit 0
+            fi
+
+            # Check and fix configuration
+            if ! check_env_config "$ENV_FILE"; then
+                prompt_missing_config "$ENV_FILE"
+            fi
+
+            # Verify Docker network configuration
+            verify_docker_network_config "$ENV_FILE"
+
+            # Check if override file exists
+            if [ ! -f "$OVERRIDE_FILE" ]; then
+                echo ""
+                print_warning "No docker-compose.override.yml found"
+                if prompt_yn "Create docker-compose.override.yml with default settings?" "y"; then
+                    # Load config values from env file for override creation
+                    HTTP_PORT=$(get_env_value "GRIMNIR_HTTP_PORT" "$ENV_FILE")
+                    HTTP_PORT=${HTTP_PORT:-8080}
+                    METRICS_PORT=${METRICS_PORT:-9000}
+                    GRPC_PORT=${GRPC_PORT:-9091}
+                    ICECAST_PORT=$(get_env_value "ICECAST_PORT" "$ENV_FILE")
+                    ICECAST_PORT=${ICECAST_PORT:-8000}
+                    POSTGRES_PORT=${POSTGRES_PORT:-5432}
+                    REDIS_PORT=${REDIS_PORT:-6379}
+
+                    # Use DATA_DIR for paths
+                    MEDIA_STORAGE_PATH="${DATA_DIR:-$DEPLOY_DIR}/media-data"
+                    POSTGRES_DATA_PATH="${DATA_DIR:-$DEPLOY_DIR}/postgres-data"
+                    REDIS_DATA_PATH="${DATA_DIR:-$DEPLOY_DIR}/redis-data"
+                    ICECAST_LOGS_PATH="${DATA_DIR:-$DEPLOY_DIR}/icecast-logs"
+
+                    USE_EXTERNAL_POSTGRES=false
+                    USE_EXTERNAL_REDIS=false
+                    ENABLE_MULTI_INSTANCE=false
+
+                    create_override_file
+                fi
+            fi
+
+            echo ""
+            print_success "Configuration check complete!"
             ;;
         *)
             print_header
@@ -1535,14 +2061,59 @@ main() {
             setup_source_dir
             configure_deploy_dir
 
-            # Try to load saved config
-            if ! load_config; then
-                configure_deployment
-                save_config
-            fi
+            # Check for existing .env and offer to verify/update it
+            if [ -f "$ENV_FILE" ]; then
+                print_info "Found existing configuration at: $ENV_FILE"
+                echo ""
+                echo "Options:"
+                echo "  1) Check and update existing configuration"
+                echo "  2) Start fresh with new configuration"
+                echo "  3) Use existing configuration as-is"
+                echo ""
+                prompt "Select option [1-3]" "1" "config_choice"
 
-            create_env_file
-            create_override_file
+                case "$config_choice" in
+                    1)
+                        # Check and update
+                        if ! check_env_config "$ENV_FILE"; then
+                            if prompt_yn "Fix missing/weak configuration?" "y"; then
+                                prompt_missing_config "$ENV_FILE"
+                            fi
+                        fi
+                        verify_docker_network_config "$ENV_FILE"
+
+                        # Load config for deployment
+                        if [ -f "$CONFIG_FILE" ]; then
+                            source "$CONFIG_FILE"
+                        fi
+                        ;;
+                    2)
+                        # Fresh configuration
+                        configure_deployment
+                        save_config
+                        create_env_file
+                        create_override_file
+                        ;;
+                    3)
+                        # Use as-is, just load saved config
+                        if [ -f "$CONFIG_FILE" ]; then
+                            source "$CONFIG_FILE"
+                        fi
+                        ;;
+                    *)
+                        print_error "Invalid selection"
+                        exit 1
+                        ;;
+                esac
+            else
+                # No existing config - run full setup
+                if ! load_config; then
+                    configure_deployment
+                    save_config
+                fi
+                create_env_file
+                create_override_file
+            fi
 
             echo ""
             print_info "Configuration complete. Review the settings above."

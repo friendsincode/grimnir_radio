@@ -390,6 +390,78 @@ func (c *Client) StreamTelemetry(ctx context.Context, stationID, mountID string,
 	}
 }
 
+// AnalyzeMedia performs media analysis (metadata, loudness, cue points)
+func (c *Client) AnalyzeMedia(ctx context.Context, filePath string) (*pb.AnalyzeMediaResponse, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("not connected to media engine")
+	}
+
+	req := &pb.AnalyzeMediaRequest{
+		FilePath: filePath,
+	}
+
+	resp, err := client.AnalyzeMedia(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to analyze media: %w", err)
+	}
+
+	return resp, nil
+}
+
+// ExtractArtwork extracts embedded album art from media
+func (c *Client) ExtractArtwork(ctx context.Context, filePath string, maxWidth, maxHeight int32, format string, quality int32) (*pb.ExtractArtworkResponse, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("not connected to media engine")
+	}
+
+	req := &pb.ExtractArtworkRequest{
+		FilePath:  filePath,
+		MaxWidth:  maxWidth,
+		MaxHeight: maxHeight,
+		Format:    format,
+		Quality:   quality,
+	}
+
+	resp, err := client.ExtractArtwork(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract artwork: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GenerateWaveform generates peak/RMS waveform data for visualization
+func (c *Client) GenerateWaveform(ctx context.Context, filePath string, samplesPerSecond int32, waveformType pb.WaveformType) (*pb.GenerateWaveformResponse, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("not connected to media engine")
+	}
+
+	req := &pb.GenerateWaveformRequest{
+		FilePath:         filePath,
+		SamplesPerSecond: samplesPerSecond,
+		Type:             waveformType,
+	}
+
+	resp, err := client.GenerateWaveform(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate waveform: %w", err)
+	}
+
+	return resp, nil
+}
+
 // Retry wraps an operation with retry logic
 func (c *Client) Retry(ctx context.Context, operation func() error) error {
 	maxRetries := 3
