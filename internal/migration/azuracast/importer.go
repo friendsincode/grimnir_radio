@@ -327,9 +327,11 @@ func (i *Importer) importMedia(ctx context.Context, azuraDB *sql.DB, stationMap 
 		if i.options.MediaCopyMethod != "none" {
 			srcPath := filepath.Join(mediaDir, m.Path)
 			if _, err := os.Stat(srcPath); err == nil {
-				// Destination: /media/<station_id>/<filename>
-				destPath = filepath.Join("/media", stationID, filepath.Base(m.Path))
-				destDir := filepath.Dir(destPath)
+				// Relative path for database storage: <station_id>/<filename>
+				destPath = filepath.Join(stationID, filepath.Base(m.Path))
+				// Full path for file operations: <media_root>/<station_id>/<filename>
+				fullDestPath := filepath.Join(i.options.MediaRoot, destPath)
+				destDir := filepath.Dir(fullDestPath)
 
 				if !i.options.DryRun {
 					if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -339,13 +341,13 @@ func (i *Importer) importMedia(ctx context.Context, azuraDB *sql.DB, stationMap 
 					}
 
 					if i.options.MediaCopyMethod == "copy" {
-						if err := copyFile(srcPath, destPath); err != nil {
+						if err := copyFile(srcPath, fullDestPath); err != nil {
 							i.logger.Error().Err(err).Str("src", srcPath).Msg("copy media file")
 							i.stats.ErrorsEncountered++
 							continue
 						}
 					} else if i.options.MediaCopyMethod == "symlink" {
-						if err := os.Symlink(srcPath, destPath); err != nil {
+						if err := os.Symlink(srcPath, fullDestPath); err != nil {
 							i.logger.Error().Err(err).Str("src", srcPath).Msg("symlink media file")
 							i.stats.ErrorsEncountered++
 							continue
