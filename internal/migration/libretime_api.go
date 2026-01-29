@@ -331,7 +331,7 @@ type LTFile struct {
 	Bitrate     *int     `json:"bit_rate"`
 	Samplerate  *int     `json:"sample_rate"`
 	Mime        string   `json:"mime"`
-	ImportedAt  *string  `json:"import_status"`
+	ImportStatus *int    `json:"import_status"`
 	FileExists  bool     `json:"file_exists"`
 	Hidden      bool     `json:"hidden"`
 	TrackNumber *int     `json:"track_number"`
