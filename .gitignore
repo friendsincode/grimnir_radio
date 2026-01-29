@@ -61,3 +61,4 @@ Thumbs.db
 /grimnirradio
 .docker-deploy/
 docker-compose.override.yml
+CLAUDE.md

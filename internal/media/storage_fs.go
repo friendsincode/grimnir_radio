@@ -60,20 +60,25 @@ func (fs *FilesystemStorage) Store(ctx context.Context, stationID, mediaID strin
 
 	fs.logger.Debug().
 		Str("path", fullPath).
+		Str("relative_path", relativePath).
 		Str("station_id", stationID).
 		Str("media_id", mediaID).
 		Msg("filesystem storage: file stored")
 
-	return fullPath, nil
+	// Return relative path for database storage (not fullPath)
+	// The media root will be joined when reading
+	return relativePath, nil
 }
 
 // Delete removes a file from the filesystem.
 func (fs *FilesystemStorage) Delete(ctx context.Context, path string) error {
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	// Join relative path with root directory (path should be relative from Store())
+	fullPath := filepath.Join(fs.rootDir, path)
+	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove file: %w", err)
 	}
 
-	fs.logger.Debug().Str("path", path).Msg("filesystem storage: file deleted")
+	fs.logger.Debug().Str("path", fullPath).Msg("filesystem storage: file deleted")
 	return nil
 }
 

@@ -176,6 +176,7 @@ type MigrationOptions struct {
 	SkipPlaylists   bool
 	SkipUsers       bool
 	MediaCopyMethod string // "copy", "symlink", or "none"
+	MediaRoot       string // Base directory for media files (e.g., /var/lib/grimnir/media)
 }
 
 // MigrationStats tracks import statistics for legacy importers.
