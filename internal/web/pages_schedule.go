@@ -637,10 +637,19 @@ func (h *Handler) ScheduleMediaSearchJSON(w http.ResponseWriter, r *http.Request
 	}
 
 	query := r.URL.Query().Get("q")
+	includeArchive := r.URL.Query().Get("include_archive") == "true"
 	limit := 20
 
 	var items []models.MediaItem
-	dbQuery := h.db.Where("station_id = ?", station.ID)
+	dbQuery := h.db.Model(&models.MediaItem{})
+
+	// Include public archive media from other stations if requested
+	if includeArchive {
+		dbQuery = dbQuery.Where("station_id = ? OR show_in_archive = ?", station.ID, true)
+		dbQuery = dbQuery.Preload("Station")
+	} else {
+		dbQuery = dbQuery.Where("station_id = ?", station.ID)
+	}
 
 	if query != "" {
 		searchPattern := "%" + query + "%"
@@ -652,20 +661,30 @@ func (h *Handler) ScheduleMediaSearchJSON(w http.ResponseWriter, r *http.Request
 
 	// Return simplified response for dropdown
 	type mediaResponse struct {
-		ID       string  `json:"id"`
-		Title    string  `json:"title"`
-		Artist   string  `json:"artist"`
-		Duration float64 `json:"duration"`
+		ID          string  `json:"id"`
+		Title       string  `json:"title"`
+		Artist      string  `json:"artist"`
+		Duration    float64 `json:"duration"`
+		StationName string  `json:"station_name,omitempty"`
+		IsArchive   bool    `json:"is_archive,omitempty"`
 	}
 
 	response := make([]mediaResponse, len(items))
 	for i, item := range items {
-		response[i] = mediaResponse{
+		resp := mediaResponse{
 			ID:       item.ID,
 			Title:    item.Title,
 			Artist:   item.Artist,
 			Duration: item.Duration.Seconds(),
 		}
+		// Mark items from other stations as archive
+		if includeArchive && item.StationID != station.ID {
+			resp.IsArchive = true
+			if item.Station != nil {
+				resp.StationName = item.Station.Name
+			}
+		}
+		response[i] = resp
 	}
 
 	w.Header().Set("Content-Type", "application/json")

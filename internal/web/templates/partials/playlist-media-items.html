@@ -1,13 +1,25 @@
 {{define "partials/playlist-media-items"}}
-{{range .}}
+{{$currentStationID := .CurrentStationID}}
+{{$includeArchive := .IncludeArchive}}
+{{range .Media}}
 <div class="list-group-item list-group-item-action d-flex align-items-center gap-2 media-item draggable-media"
      draggable="true"
      data-media-id="{{.ID}}" data-title="{{.Title}}" data-artist="{{.Artist}}" data-genre="{{.Genre}}"
      data-mood="{{.Mood}}" data-year="{{.Year}}" data-bpm="{{.BPM}}" data-explicit="{{.Explicit}}">
     <div class="flex-grow-1 min-width-0">
-        <div class="text-truncate fw-medium">{{.Title}}</div>
+        <div class="text-truncate fw-medium">
+            {{.Title}}
+            {{if and $includeArchive (ne .StationID $currentStationID)}}
+            <span class="badge bg-info text-dark ms-1" title="From {{if .Station}}{{.Station.Name}}{{else}}another station{{end}}">
+                <i class="bi bi-globe"></i>
+            </span>
+            {{end}}
+        </div>
         <small class="text-body-secondary text-truncate d-block">
             {{if .Artist}}{{.Artist}}{{else}}Unknown{{end}}
+            {{if and $includeArchive (ne .StationID $currentStationID) .Station}}
+            <span class="text-info ms-1">via {{.Station.Name}}</span>
+            {{end}}
             {{if .Genre}}<span class="badge bg-secondary ms-1">{{.Genre}}</span>{{end}}
             {{if ne .BPM 0.0}}<span class="badge bg-info ms-1">{{printf "%.0f" .BPM}} BPM</span>{{end}}
         </small>

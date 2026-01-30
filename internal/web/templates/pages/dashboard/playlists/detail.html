@@ -198,7 +198,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="row g-2">
+                        <div class="row g-2 mb-2">
                             <div class="col-6">
                                 <select class="form-select form-select-sm media-filter" id="genreFilter" name="genre">
                                     <option value="">All Genres</option>
@@ -215,6 +215,12 @@
                                     {{end}}
                                 </select>
                             </div>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input media-filter" id="includeArchive" name="include_archive" value="true">
+                            <label class="form-check-label small" for="includeArchive">
+                                <i class="bi bi-globe me-1"></i>Include public archive from other stations
+                            </label>
                         </div>
                     </form>
                 </div>
@@ -263,34 +269,16 @@
                     </div>
                 </div>
 
-                <!-- Media List -->
-                <div id="availableMedia" class="list-group list-group-flush" style="max-height: 350px; overflow-y: auto;">
-                    {{range $availableMedia}}
-                    <div class="list-group-item list-group-item-action d-flex align-items-center gap-2 media-item draggable-media"
-                         draggable="true"
-                         data-media-id="{{.ID}}" data-title="{{.Title}}" data-artist="{{.Artist}}" data-genre="{{.Genre}}"
-                         data-mood="{{.Mood}}" data-year="{{.Year}}" data-bpm="{{.BPM}}" data-explicit="{{.Explicit}}">
-                        <div class="flex-grow-1 min-width-0">
-                            <div class="text-truncate fw-medium">{{.Title}}</div>
-                            <small class="text-body-secondary text-truncate d-block">
-                                {{if .Artist}}{{.Artist}}{{else}}Unknown{{end}}
-                                {{if .Genre}}<span class="badge bg-secondary ms-1">{{.Genre}}</span>{{end}}
-                                {{if ne .BPM 0.0}}<span class="badge bg-info ms-1">{{printf "%.0f" .BPM}} BPM</span>{{end}}
-                            </small>
+                <!-- Media List (loads via HTMX on page load) -->
+                <div id="availableMedia" class="list-group list-group-flush" style="max-height: 350px; overflow-y: auto;"
+                     hx-get="/dashboard/playlists/{{$playlist.ID}}/media-search"
+                     hx-trigger="load"
+                     hx-indicator="#searchSpinner">
+                    <div class="text-center py-4">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
                         </div>
-                        <span class="text-body-secondary small flex-shrink-0">{{formatDuration .Duration}}</span>
-                        <button type="button" class="btn btn-sm btn-outline-primary flex-shrink-0 add-media-btn"
-                                data-media-id="{{.ID}}"
-                                title="Add to playlist">
-                            <i class="bi bi-plus"></i>
-                        </button>
                     </div>
-                    {{else}}
-                    <div class="list-group-item text-center text-body-secondary py-4">
-                        <i class="bi bi-music-note-beamed mb-2 d-block"></i>
-                        No media available
-                    </div>
-                    {{end}}
                 </div>
                 <div id="noResults" class="text-center text-body-secondary py-4 d-none">
                     <i class="bi bi-search fs-4 mb-2 d-block"></i>

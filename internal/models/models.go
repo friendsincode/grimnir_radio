@@ -403,6 +403,7 @@ type EncoderPreset struct {
 type MediaItem struct {
 	ID            string `gorm:"type:uuid;primaryKey"`
 	StationID     string `gorm:"type:uuid;index"`
+	Station       *Station `gorm:"foreignKey:StationID"` // Belongs to station (for cross-station queries)
 	Title         string `gorm:"index"`
 	Artist        string `gorm:"index"`
 	Album         string `gorm:"index"`

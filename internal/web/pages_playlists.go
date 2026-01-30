@@ -642,9 +642,17 @@ func (h *Handler) PlaylistMediaSearch(w http.ResponseWriter, r *http.Request) {
 	bpmFrom := r.URL.Query().Get("bpm_from")
 	bpmTo := r.URL.Query().Get("bpm_to")
 	excludeExplicit := r.URL.Query().Get("exclude_explicit") == "true"
+	includeArchive := r.URL.Query().Get("include_archive") == "true"
 
-	// Build query
-	dbQuery := h.db.Model(&models.MediaItem{}).Where("station_id = ?", station.ID)
+	// Build query - include public archive media from other stations if requested
+	dbQuery := h.db.Model(&models.MediaItem{})
+	if includeArchive {
+		// Include own station's media OR public archive media from any station
+		dbQuery = dbQuery.Where("station_id = ? OR show_in_archive = ?", station.ID, true)
+	} else {
+		// Only own station's media
+		dbQuery = dbQuery.Where("station_id = ?", station.ID)
+	}
 
 	// Text search
 	if query != "" {
@@ -691,8 +699,24 @@ func (h *Handler) PlaylistMediaSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch results - limit to 200 but allow searching all
 	var media []models.MediaItem
+
+	// Preload station when including archive (to show source station in UI)
+	if includeArchive {
+		dbQuery = dbQuery.Preload("Station")
+	}
+
 	dbQuery.Order("artist ASC, title ASC").Limit(200).Find(&media)
 
-	// Render as HTML partial
-	h.RenderPartial(w, r, "partials/playlist-media-items", media)
+	// Pass current station ID to template for comparison
+	type templateData struct {
+		Media            []models.MediaItem
+		CurrentStationID string
+		IncludeArchive   bool
+	}
+
+	h.RenderPartial(w, r, "partials/playlist-media-items", templateData{
+		Media:            media,
+		CurrentStationID: station.ID,
+		IncludeArchive:   includeArchive,
+	})
 }

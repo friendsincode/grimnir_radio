@@ -361,8 +361,14 @@
                     <div class="tab-content pt-3" id="sourceTypeTabContent">
                         <!-- Media Search -->
                         <div class="tab-pane fade show active" id="mediaPane" role="tabpanel">
-                            <input type="text" class="form-control mb-3" id="mediaSearchInput"
+                            <input type="text" class="form-control mb-2" id="mediaSearchInput"
                                    placeholder="Search media by title, artist...">
+                            <div class="form-check mb-3">
+                                <input type="checkbox" class="form-check-input" id="includeArchiveMedia">
+                                <label class="form-check-label small" for="includeArchiveMedia">
+                                    <i class="bi bi-globe me-1"></i>Include public archive from other stations
+                                </label>
+                            </div>
                             <div id="mediaSearchResults" class="list-group" style="max-height: 300px; overflow-y: auto;">
                                 <!-- Results populated by JS -->
                             </div>
@@ -547,6 +553,12 @@
                         <label class="form-label">Search Media</label>
                         <input type="text" class="form-control mb-2" id="editMediaSearchInput"
                                placeholder="Search by title, artist...">
+                        <div class="form-check mb-2">
+                            <input type="checkbox" class="form-check-input" id="editIncludeArchiveMedia">
+                            <label class="form-check-label small" for="editIncludeArchiveMedia">
+                                <i class="bi bi-globe me-1"></i>Include public archive
+                            </label>
+                        </div>
                         <div id="editMediaSearchResults" class="list-group" style="max-height: 200px; overflow-y: auto;">
                             <div class="list-group-item text-body-secondary">Type to search media...</div>
                         </div>
@@ -1256,9 +1268,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Load initial media items (without search query)
+    // Helper to get include archive setting
+    function getIncludeArchive() {
+        return document.getElementById('includeArchiveMedia')?.checked || false;
+    }
+
     async function loadInitialMedia() {
         try {
-            const response = await fetch('/dashboard/schedule/media.json');
+            const includeArchive = getIncludeArchive();
+            const url = `/dashboard/schedule/media.json${includeArchive ? '?include_archive=true' : ''}`;
+            const response = await fetch(url);
             const data = await response.json();
             displayMediaResults('mediaSearchResults', data.items || []);
         } catch (e) {
@@ -1282,11 +1301,20 @@ document.addEventListener('DOMContentLoaded', function() {
             div.className = 'list-group-item list-group-item-action';
             div.dataset.mediaId = item.id;
             div.dataset.duration = item.duration;
+
+            // Show station badge for archive items
+            const stationBadge = item.is_archive && item.station_name
+                ? `<span class="badge bg-info text-dark ms-1" title="From ${item.station_name}"><i class="bi bi-globe"></i></span>`
+                : '';
+            const stationInfo = item.is_archive && item.station_name
+                ? ` <span class="text-info">via ${item.station_name}</span>`
+                : '';
+
             div.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <strong>${item.title}</strong><br>
-                        <small class="text-body-secondary">${item.artist || 'Unknown'} • ${formatDuration(item.duration)}</small>
+                        <strong>${item.title}</strong>${stationBadge}<br>
+                        <small class="text-body-secondary">${item.artist || 'Unknown'}${stationInfo} • ${formatDuration(item.duration)}</small>
                     </div>
                     <i class="bi bi-plus-circle text-primary"></i>
                 </div>
@@ -1300,6 +1328,16 @@ document.addEventListener('DOMContentLoaded', function() {
             results.appendChild(div);
         });
     }
+
+    // Re-search when archive toggle changes
+    document.getElementById('includeArchiveMedia')?.addEventListener('change', function() {
+        const searchInput = document.getElementById('mediaSearchInput');
+        if (searchInput && searchInput.value.length >= 2) {
+            searchInput.dispatchEvent(new Event('input'));
+        } else {
+            loadInitialMedia();
+        }
+    });
 
     // Media search
     let mediaSearchTimeout;
@@ -1317,7 +1355,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         mediaSearchTimeout = setTimeout(async () => {
             try {
-                const response = await fetch(`/dashboard/schedule/media.json?q=${encodeURIComponent(query)}`);
+                const includeArchive = getIncludeArchive();
+                const archiveParam = includeArchive ? '&include_archive=true' : '';
+                const response = await fetch(`/dashboard/schedule/media.json?q=${encodeURIComponent(query)}${archiveParam}`);
                 const data = await response.json();
                 displayMediaResults('mediaSearchResults', data.items || []);
             } catch (e) { console.error('Media search failed:', e); }
@@ -1498,7 +1538,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         editMediaSearchTimeout = setTimeout(async () => {
             try {
-                const response = await fetch(`/dashboard/schedule/media.json?q=${encodeURIComponent(query)}`);
+                const editIncludeArchive = document.getElementById('editIncludeArchiveMedia')?.checked || false;
+                const archiveParam = editIncludeArchive ? '&include_archive=true' : '';
+                const response = await fetch(`/dashboard/schedule/media.json?q=${encodeURIComponent(query)}${archiveParam}`);
                 const data = await response.json();
                 results.innerHTML = '';
 
@@ -1512,11 +1554,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     div.href = '#';
                     div.className = 'list-group-item list-group-item-action';
                     div.dataset.mediaId = item.id;
+
+                    // Show station badge for archive items
+                    const stationBadge = item.is_archive && item.station_name
+                        ? `<span class="badge bg-info text-dark ms-1" title="From ${item.station_name}"><i class="bi bi-globe"></i></span>`
+                        : '';
+                    const stationInfo = item.is_archive && item.station_name
+                        ? ` <span class="text-info">via ${item.station_name}</span>`
+                        : '';
+
                     div.innerHTML = `
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <strong>${item.title}</strong><br>
-                                <small class="text-body-secondary">${item.artist || 'Unknown'} • ${formatDuration(item.duration)}</small>
+                                <strong>${item.title}</strong>${stationBadge}<br>
+                                <small class="text-body-secondary">${item.artist || 'Unknown'}${stationInfo} • ${formatDuration(item.duration)}</small>
                             </div>
                             <i class="bi bi-plus-circle text-primary"></i>
                         </div>
