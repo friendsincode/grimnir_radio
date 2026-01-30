@@ -326,7 +326,7 @@ type LTFile struct {
 	CueOut      *float64 `json:"cueout"`
 	FadeIn      *float64 `json:"fadein"`
 	FadeOut     *float64 `json:"fadeout"`
-	ReplayGain  *float64 `json:"replay_gain"`
+	ReplayGain  *string  `json:"replay_gain"`
 	Filepath    string   `json:"filepath"`
 	Bitrate     *int     `json:"bit_rate"`
 	Samplerate  *int     `json:"sample_rate"`
