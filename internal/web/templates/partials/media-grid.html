@@ -1,0 +1,41 @@
+{{define "partials/media-grid"}}
+<div class="row g-3">
+{{range .}}
+<div class="col-6 col-md-4 col-lg-3">
+    <div class="card h-100 media-card" onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+        <div class="position-relative">
+            {{if len .Artwork}}
+            <img src="/dashboard/media/{{.ID}}/artwork" class="card-img-top" alt="" style="height: 160px; object-fit: cover;">
+            {{else}}
+            <div class="card-img-top bg-secondary d-flex align-items-center justify-content-center" style="height: 160px;">
+                <i class="bi bi-music-note fs-1 text-white"></i>
+            </div>
+            {{end}}
+            <button class="btn btn-sm btn-light position-absolute bottom-0 end-0 m-2 rounded-circle"
+                    onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)"
+                    title="Preview">
+                <i class="bi bi-play-fill"></i>
+            </button>
+            {{if .Explicit}}
+            <span class="badge bg-warning text-dark position-absolute top-0 end-0 m-2">E</span>
+            {{end}}
+        </div>
+        <div class="card-body p-2">
+            <h6 class="card-title mb-1 text-truncate" title="{{.Title}}">{{.Title}}</h6>
+            <p class="card-text small text-body-secondary text-truncate mb-1">
+                {{if .Artist}}{{.Artist}}{{else}}Unknown Artist{{end}}
+            </p>
+            {{if .Genre}}
+            <span class="badge bg-secondary small">{{.Genre}}</span>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{else}}
+<div class="col-12 text-center py-5 text-body-secondary">
+    <i class="bi bi-music-note-beamed fs-1 mb-3 d-block"></i>
+    No media found
+</div>
+{{end}}
+</div>
+{{end}}
