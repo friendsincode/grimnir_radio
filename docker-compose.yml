@@ -8,7 +8,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-grimnir_secret}
       POSTGRES_DB: grimnir
       PGDATA: /var/lib/postgresql/data/pgdata
-      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     volumes:
       - postgres-data:/var/lib/postgresql/data
     # Ports defined in docker-compose.override.yml
