@@ -179,16 +179,42 @@
                     </div>
 
                     <div class="mb-3">
+                        <label class="form-label">Import Options</label>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="skip_media" id="ltSkipMedia">
                             <label class="form-check-label" for="ltSkipMedia">
-                                Skip media download (metadata only)
+                                Skip media files
                             </label>
                         </div>
                         <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="skip_playlists" id="ltSkipPlaylists">
+                            <label class="form-check-label" for="ltSkipPlaylists">
+                                Skip playlists
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="skip_schedules" id="ltSkipSchedules">
+                            <label class="form-check-label" for="ltSkipSchedules">
+                                Skip shows/schedules
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="skip_smartblocks" id="ltSkipSmartblocks">
+                            <label class="form-check-label" for="ltSkipSmartblocks">
+                                Skip smart blocks
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="skip_webstreams" id="ltSkipWebstreams">
+                            <label class="form-check-label" for="ltSkipWebstreams">
+                                Skip webstreams
+                            </label>
+                        </div>
+                        <hr class="my-2">
+                        <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="dry_run" id="ltDryRun">
                             <label class="form-check-label" for="ltDryRun">
-                                Dry run (analyze only, don't import)
+                                <strong>Dry run</strong> (analyze only, don't import)
                             </label>
                         </div>
                     </div>

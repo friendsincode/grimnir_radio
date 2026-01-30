@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/go-chi/chi/v5"
@@ -613,6 +614,10 @@ func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
 	apiKey := r.FormValue("api_key")
 	targetStationID := r.FormValue("target_station_id")
 	skipMedia := r.FormValue("skip_media") == "on"
+	skipPlaylists := r.FormValue("skip_playlists") == "on"
+	skipSchedules := r.FormValue("skip_schedules") == "on"
+	skipSmartblocks := r.FormValue("skip_smartblocks") == "on"
+	skipWebstreams := r.FormValue("skip_webstreams") == "on"
 	dryRun := r.FormValue("dry_run") == "on"
 
 	if apiURL == "" {
@@ -629,6 +634,10 @@ func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
 		Str("url", apiURL).
 		Str("target_station", targetStationID).
 		Bool("skip_media", skipMedia).
+		Bool("skip_playlists", skipPlaylists).
+		Bool("skip_schedules", skipSchedules).
+		Bool("skip_smartblocks", skipSmartblocks).
+		Bool("skip_webstreams", skipWebstreams).
 		Bool("dry_run", dryRun).
 		Msg("starting LibreTime API import")
 
@@ -645,6 +654,10 @@ func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
 		LibreTimeAPIKey: apiKey,
 		TargetStationID: targetStationID,
 		SkipMedia:       skipMedia,
+		SkipPlaylists:   skipPlaylists,
+		SkipSchedules:   skipSchedules,
+		SkipSmartblocks: skipSmartblocks,
+		SkipWebstreams:  skipWebstreams,
 		ImportingUserID: importingUserID,
 	}
 
@@ -694,8 +707,23 @@ func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
 		if len(report.Playlists) > 0 {
 			html += `<h6 class="mt-3 mb-2">Playlists</h6><ul class="small mb-0">`
 			for _, pl := range report.Playlists {
-				html += fmt.Sprintf(`<li>%s <span class="text-body-secondary">(%d items, %s)</span></li>`,
-					pl.Name, pl.ItemCount, pl.Length)
+				// Build item breakdown string
+				var parts []string
+				if pl.FileCount > 0 {
+					parts = append(parts, fmt.Sprintf("%d files", pl.FileCount))
+				}
+				if pl.BlockCount > 0 {
+					parts = append(parts, fmt.Sprintf("%d smart blocks", pl.BlockCount))
+				}
+				if pl.StreamCount > 0 {
+					parts = append(parts, fmt.Sprintf("%d streams", pl.StreamCount))
+				}
+				itemsDesc := "empty"
+				if len(parts) > 0 {
+					itemsDesc = strings.Join(parts, ", ")
+				}
+				html += fmt.Sprintf(`<li>%s <span class="text-body-secondary">(%s, %s)</span></li>`,
+					pl.Name, itemsDesc, pl.Length)
 			}
 			html += `</ul>`
 		}
