@@ -176,7 +176,8 @@ func (c *LibreTimeAPIClient) GetPlaylists(ctx context.Context) ([]LTPlaylist, er
 
 // GetPlaylistContents returns the contents of a specific playlist.
 func (c *LibreTimeAPIClient) GetPlaylistContents(ctx context.Context, playlistID int) ([]LTPlaylistContent, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v2/playlists/%d/contents", playlistID))
+	// LibreTime API v2 uses a separate endpoint with query filter, not nested routes
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v2/playlist-contents?playlist=%d", playlistID))
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +261,8 @@ func (c *LibreTimeAPIClient) GetSmartBlocks(ctx context.Context) ([]LTSmartBlock
 
 // GetSmartBlockCriteria returns criteria for a smart block.
 func (c *LibreTimeAPIClient) GetSmartBlockCriteria(ctx context.Context, blockID int) ([]LTSmartBlockCriteria, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v2/smart-blocks/%d/criteria", blockID))
+	// LibreTime API v2 uses a separate endpoint with query filter, not nested routes
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v2/smart-block-criteria?block=%d", blockID))
 	if err != nil {
 		return nil, err
 	}
@@ -314,28 +316,26 @@ func (c *LibreTimeAPIClient) DownloadShowImage(ctx context.Context, showID int) 
 
 // LTFile represents a file/media item from the LibreTime API.
 type LTFile struct {
-	ID          int      `json:"id"`
-	Name        string   `json:"name"`
-	Artist      string   `json:"artist_name"`
-	Title       string   `json:"track_title"`
-	Album       string   `json:"album_title"`
-	Genre       string   `json:"genre"`
-	Year        *int     `json:"year"`
-	Length      string   `json:"length"`      // "HH:MM:SS.mmm"
-	CueIn       *float64 `json:"cuein"`
-	CueOut      *float64 `json:"cueout"`
-	FadeIn      *float64 `json:"fadein"`
-	FadeOut     *float64 `json:"fadeout"`
-	ReplayGain  *string  `json:"replay_gain"`
-	Filepath    string   `json:"filepath"`
-	Bitrate     *int     `json:"bit_rate"`
-	Samplerate  *int     `json:"sample_rate"`
-	Mime        string   `json:"mime"`
-	ImportStatus *int    `json:"import_status"`
-	FileExists  bool     `json:"file_exists"`
-	Hidden      bool     `json:"hidden"`
-	TrackNumber *int     `json:"track_number"`
-	Size        int64    `json:"filesize"`
+	ID          int     `json:"id"`
+	Name        string  `json:"name"`
+	Artist      string  `json:"artist_name"`
+	Title       string  `json:"track_title"`
+	Album       string  `json:"album_title"`
+	Genre       string  `json:"genre"`
+	Date        string  `json:"date"`          // Year as string (was "year" in old API)
+	Length      string  `json:"length"`        // "HH:MM:SS.mmm"
+	CueIn       *string `json:"cue_in"`        // Duration string
+	CueOut      *string `json:"cue_out"`       // Duration string
+	ReplayGain  *string `json:"replay_gain"`
+	Filepath    string  `json:"filepath"`
+	Bitrate     *int    `json:"bit_rate"`
+	Samplerate  *int    `json:"sample_rate"`
+	Mime        string  `json:"mime"`
+	ImportStatus *int   `json:"import_status"`
+	FileExists  bool    `json:"exists"`        // API uses "exists" not "file_exists"
+	Hidden      bool    `json:"hidden"`
+	TrackNumber *int    `json:"track_number"`
+	Size        int64   `json:"size"`          // API uses "size" not "filesize"
 }
 
 // LTPlaylist represents a playlist from the LibreTime API.
@@ -349,16 +349,18 @@ type LTPlaylist struct {
 
 // LTPlaylistContent represents a playlist item from the LibreTime API.
 type LTPlaylistContent struct {
-	ID         int      `json:"id"`
-	PlaylistID int      `json:"playlist_id"`
-	FileID     *int     `json:"file_id"`
-	BlockID    *int     `json:"block_id"`
-	StreamID   *int     `json:"stream_id"`
-	Position   int      `json:"position"`
-	Offset     float64  `json:"offset"`
-	Length     string   `json:"length"`
-	FadeIn     *float64 `json:"fadein"`
-	FadeOut    *float64 `json:"fadeout"`
+	ID         int     `json:"id"`
+	PlaylistID *int    `json:"playlist"`   // API uses "playlist" not "playlist_id"
+	FileID     *int    `json:"file"`       // API uses "file" not "file_id"
+	BlockID    *int    `json:"block"`      // API uses "block" not "block_id"
+	StreamID   *int    `json:"stream"`     // API uses "stream" not "stream_id"
+	Position   int     `json:"position"`
+	Offset     float64 `json:"offset"`
+	Length     string  `json:"length"`
+	CueIn      *string `json:"cue_in"`     // Duration string
+	CueOut     *string `json:"cue_out"`    // Duration string
+	FadeIn     *string `json:"fade_in"`    // Duration string (underscore format)
+	FadeOut    *string `json:"fade_out"`   // Duration string (underscore format)
 }
 
 // LTShow represents a show from the LibreTime API.
@@ -490,33 +492,31 @@ type LTWebstream struct {
 	Description string `json:"description"`
 	URL         string `json:"url"`
 	Length      string `json:"length"`
-	CreatorID   *int   `json:"creator_id"`
+	OwnerID     *int   `json:"owner"`  // API uses "owner" not "creator_id"
 	Mime        string `json:"mime"`
 }
 
 // LTSmartBlock represents a smart block (dynamic playlist) from the LibreTime API.
+// Note: LibreTime API v2 has a simplified SmartBlock model. Limit/sort settings
+// are managed through the UI and not exposed via the API.
 type LTSmartBlock struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Length      string `json:"length"`
-	Type        string `json:"type"`        // "static" or "dynamic"
-	Limit       int    `json:"limit_value"` // Track limit
-	LimitType   string `json:"limit_type"`  // "items", "hours", "minutes"
-	RepeatTracks bool  `json:"repeat_tracks"`
-	SortType    string `json:"sort_type"`   // "random", "newest", "oldest", etc.
-	CreatorID   *int   `json:"creator_id"`
+	Kind        string `json:"kind"`   // API uses "kind" not "type"
+	OwnerID     *int   `json:"owner"`  // API uses "owner" not "creator_id"
 }
 
 // LTSmartBlockCriteria represents criteria for a smart block.
 type LTSmartBlockCriteria struct {
-	ID           int    `json:"id"`
-	BlockID      int    `json:"block_id"`
-	Criteria     string `json:"criteria"`  // Field name (artist, album, genre, etc.)
-	Modifier     string `json:"modifier"`  // "is", "is not", "contains", etc.
-	Value        string `json:"value"`
-	Extra        string `json:"extra,omitempty"`
-	CriteriaGroup int   `json:"criteriagroup"` // For OR grouping
+	ID        int    `json:"id"`
+	BlockID   int    `json:"block"`      // API uses "block" not "block_id"
+	Criteria  string `json:"criteria"`   // Field name (artist, album, genre, etc.)
+	Condition string `json:"condition"`  // API uses "condition" not "modifier"
+	Value     string `json:"value"`
+	Extra     string `json:"extra,omitempty"`
+	Group     int    `json:"group"`      // API uses "group" not "criteriagroup"
 }
 
 // LTListenerStats represents listener statistics from the LibreTime API.

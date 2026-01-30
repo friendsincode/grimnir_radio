@@ -835,8 +835,9 @@ func (l *LibreTimeImporter) createMediaItemFromLTFile(ltFile LTFile, stationID, 
 		mediaItem.Title = filepath.Base(ltFile.Name)
 	}
 
-	if ltFile.Year != nil {
-		mediaItem.Year = fmt.Sprintf("%d", *ltFile.Year)
+	// Date field contains the year as a string
+	if ltFile.Date != "" {
+		mediaItem.Year = ltFile.Date
 	}
 
 	if ltFile.TrackNumber != nil {
@@ -858,20 +859,18 @@ func (l *LibreTimeImporter) createMediaItemFromLTFile(ltFile LTFile, stationID, 
 		mediaItem.Samplerate = *ltFile.Samplerate
 	}
 
-	// Set cue points if available
-	if ltFile.CueIn != nil || ltFile.CueOut != nil || ltFile.FadeIn != nil || ltFile.FadeOut != nil {
+	// Set cue points if available (API returns duration strings)
+	if ltFile.CueIn != nil || ltFile.CueOut != nil {
 		cuePoints := models.CuePointSet{}
 		if ltFile.CueIn != nil {
-			cuePoints.IntroEnd = *ltFile.CueIn
+			if dur, err := parseDuration(*ltFile.CueIn); err == nil {
+				cuePoints.IntroEnd = dur.Seconds()
+			}
 		}
 		if ltFile.CueOut != nil {
-			cuePoints.OutroIn = *ltFile.CueOut
-		}
-		if ltFile.FadeIn != nil {
-			cuePoints.FadeIn = *ltFile.FadeIn
-		}
-		if ltFile.FadeOut != nil {
-			cuePoints.FadeOut = *ltFile.FadeOut
+			if dur, err := parseDuration(*ltFile.CueOut); err == nil {
+				cuePoints.OutroIn = dur.Seconds()
+			}
 		}
 		mediaItem.CuePoints = cuePoints
 	}
@@ -927,12 +926,17 @@ func (l *LibreTimeImporter) importPlaylistsFromAPI(ctx context.Context, client *
 					Position:   content.Position,
 				}
 
+				// Parse fade durations from string format (e.g., "00:00:02.500")
 				if content.FadeIn != nil {
-					playlistItem.FadeIn = int(*content.FadeIn * 1000) // Convert to milliseconds
+					if dur, err := parseDuration(*content.FadeIn); err == nil {
+						playlistItem.FadeIn = int(dur.Seconds() * 1000) // Convert to milliseconds
+					}
 				}
 
 				if content.FadeOut != nil {
-					playlistItem.FadeOut = int(*content.FadeOut * 1000)
+					if dur, err := parseDuration(*content.FadeOut); err == nil {
+						playlistItem.FadeOut = int(dur.Seconds() * 1000)
+					}
 				}
 
 				if err := l.db.WithContext(ctx).Create(playlistItem).Error; err != nil {
@@ -1090,23 +1094,18 @@ func (l *LibreTimeImporter) importSmartBlocksFromAPI(ctx context.Context, client
 			for _, c := range criteria {
 				criteriaList = append(criteriaList, map[string]string{
 					"field":    c.Criteria,
-					"operator": c.Modifier,
+					"operator": c.Condition, // API uses "condition" not "modifier"
 					"value":    c.Value,
 				})
 			}
 			rules["criteria"] = criteriaList
 		}
 
-		// Set sequence options
-		sequence["order"] = ltBlock.SortType
-		if sequence["order"] == "" {
-			sequence["order"] = "random"
-		}
-		sequence["limit"] = ltBlock.Limit
-		if sequence["limit"] == 0 {
-			sequence["limit"] = 10
-		}
-		sequence["repeat_tracks"] = ltBlock.RepeatTracks
+		// Set sequence options with defaults
+		// Note: LibreTime API v2 doesn't expose limit/sort settings, using defaults
+		sequence["order"] = "random"
+		sequence["limit"] = 10
+		sequence["repeat_tracks"] = false
 
 		// Create Grimnir smart block
 		smartBlock := &models.SmartBlock{
