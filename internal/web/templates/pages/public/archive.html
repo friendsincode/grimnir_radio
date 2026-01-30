@@ -6,30 +6,113 @@
 <div class="container py-5">
     <h1 class="mb-4"><i class="bi bi-collection me-2"></i>Music Archive</h1>
 
-    <!-- Search -->
+    <!-- Search and Filters -->
     <div class="card mb-4">
         <div class="card-body">
-            <form method="GET" action="/archive" class="row g-3">
-                <div class="col-md-9">
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control" name="q"
-                               placeholder="Search by title, artist, or album..."
-                               value="{{.Data.Query}}">
+            <form method="GET" action="/archive">
+                <!-- Search Row -->
+                <div class="row g-3 mb-3">
+                    <div class="col-12">
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" name="q"
+                                   placeholder="Search by title, artist, or album..."
+                                   value="{{.Data.Query}}">
+                        </div>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <button type="submit" class="btn btn-primary w-100">Search</button>
+
+                <!-- Filter Row 1 -->
+                <div class="row g-3 mb-3">
+                    {{if gt (len .Data.Stations) 1}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary">Station</label>
+                        <select class="form-select form-select-sm" name="station">
+                            <option value="">All Stations</option>
+                            {{range .Data.Stations}}
+                            <option value="{{.ID}}" {{if eq .ID $.Data.StationID}}selected{{end}}>{{.Name}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+                    {{end}}
+                    {{if .Data.Genres}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary">Genre</label>
+                        <select class="form-select form-select-sm" name="genre">
+                            <option value="">All Genres</option>
+                            {{range .Data.Genres}}
+                            <option value="{{.}}" {{if eq . $.Data.Genre}}selected{{end}}>{{.}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+                    {{end}}
+                    {{if .Data.Years}}
+                    <div class="col-md-2">
+                        <label class="form-label small text-body-secondary">Year</label>
+                        <select class="form-select form-select-sm" name="year">
+                            <option value="">All Years</option>
+                            {{range .Data.Years}}
+                            <option value="{{.}}" {{if eq . $.Data.Year}}selected{{end}}>{{.}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+                    {{end}}
+                    {{if .Data.Artists}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Artist</label>
+                        <select class="form-select form-select-sm" name="artist">
+                            <option value="">All Artists</option>
+                            {{range .Data.Artists}}
+                            <option value="{{.}}" {{if eq . $.Data.Artist}}selected{{end}}>{{.}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+                    {{end}}
+                </div>
+
+                <!-- Filter Row 2 -->
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary">Duration</label>
+                        <select class="form-select form-select-sm" name="duration">
+                            <option value="">Any Length</option>
+                            <option value="short" {{if eq .Data.Duration "short"}}selected{{end}}>Short (&lt; 3 min)</option>
+                            <option value="medium" {{if eq .Data.Duration "medium"}}selected{{end}}>Medium (3-6 min)</option>
+                            <option value="long" {{if eq .Data.Duration "long"}}selected{{end}}>Long (&gt; 6 min)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary">Sort By</label>
+                        <select class="form-select form-select-sm" name="sort">
+                            <option value="" {{if eq .Data.Sort ""}}selected{{end}}>Newest First</option>
+                            <option value="oldest" {{if eq .Data.Sort "oldest"}}selected{{end}}>Oldest First</option>
+                            <option value="title" {{if eq .Data.Sort "title"}}selected{{end}}>Title (A-Z)</option>
+                            <option value="artist" {{if eq .Data.Sort "artist"}}selected{{end}}>Artist (A-Z)</option>
+                            <option value="duration" {{if eq .Data.Sort "duration"}}selected{{end}}>Longest First</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-funnel me-1"></i>Apply Filters
+                        </button>
+                        {{if or .Data.Query .Data.StationID .Data.Genre .Data.Year .Data.Artist .Data.Duration .Data.Sort}}
+                        <a href="/archive" class="btn btn-outline-secondary ms-2">
+                            <i class="bi bi-x-circle me-1"></i>Clear
+                        </a>
+                        {{end}}
+                    </div>
                 </div>
             </form>
         </div>
     </div>
 
-    {{if .Data.Query}}
-    <p class="text-body-secondary mb-4">
-        Found {{.Data.Total}} results for "{{.Data.Query}}"
-    </p>
-    {{end}}
+    <!-- Results Summary -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <p class="text-body-secondary mb-0">
+            {{.Data.Total}} tracks found
+            {{if .Data.Query}} matching "{{.Data.Query}}"{{end}}
+        </p>
+    </div>
 
     <!-- Results Grid -->
     <div class="row g-4">
@@ -72,8 +155,8 @@
         <div class="col-12">
             <div class="alert alert-info">
                 <i class="bi bi-info-circle me-2"></i>
-                {{if .Data.Query}}
-                No results found. Try a different search term.
+                {{if or .Data.Query .Data.Genre .Data.Year .Data.Artist .Data.Duration}}
+                No results found. Try adjusting your filters.
                 {{else}}
                 No media available in the archive.
                 {{end}}
@@ -84,22 +167,24 @@
 
     <!-- Pagination -->
     {{if gt .Data.Total .Data.PerPage}}
+    {{$totalPages := div (add .Data.Total (sub .Data.PerPage 1)) .Data.PerPage}}
+    {{$params := printf "%s%s%s%s%s%s%s" (ternary (printf "&q=%s" .Data.Query) "" (ne .Data.Query "")) (ternary (printf "&station=%s" .Data.StationID) "" (ne .Data.StationID "")) (ternary (printf "&genre=%s" .Data.Genre) "" (ne .Data.Genre "")) (ternary (printf "&year=%s" .Data.Year) "" (ne .Data.Year "")) (ternary (printf "&artist=%s" .Data.Artist) "" (ne .Data.Artist "")) (ternary (printf "&duration=%s" .Data.Duration) "" (ne .Data.Duration "")) (ternary (printf "&sort=%s" .Data.Sort) "" (ne .Data.Sort ""))}}
     <nav class="mt-4">
         <ul class="pagination justify-content-center">
             {{if gt .Data.Page 1}}
             <li class="page-item">
-                <a class="page-link" href="?page={{sub .Data.Page 1}}{{if .Data.Query}}&q={{.Data.Query}}{{end}}">
-                    Previous
+                <a class="page-link" href="?page={{sub .Data.Page 1}}{{$params}}">
+                    <i class="bi bi-chevron-left"></i> Previous
                 </a>
             </li>
             {{end}}
             <li class="page-item active">
-                <span class="page-link">Page {{.Data.Page}}</span>
+                <span class="page-link">Page {{.Data.Page}} of {{$totalPages}}</span>
             </li>
             {{if lt (mul .Data.Page .Data.PerPage) .Data.Total}}
             <li class="page-item">
-                <a class="page-link" href="?page={{add .Data.Page 1}}{{if .Data.Query}}&q={{.Data.Query}}{{end}}">
-                    Next
+                <a class="page-link" href="?page={{add .Data.Page 1}}{{$params}}">
+                    Next <i class="bi bi-chevron-right"></i>
                 </a>
             </li>
             {{end}}
