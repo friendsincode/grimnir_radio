@@ -9,6 +9,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -97,6 +98,11 @@ func (h *Handler) Listen(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	// Pagination
 	page := 1
+	if p := r.URL.Query().Get("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
 	perPage := 24
 
 	// Get public stations for filtering
@@ -109,22 +115,49 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		publicStationIDs = append(publicStationIDs, s.ID)
 	}
 
+	// Base query for archive media
+	baseQuery := h.db.Model(&models.MediaItem{}).Where("show_in_archive = ?", true)
+	if len(publicStationIDs) > 0 {
+		baseQuery = baseQuery.Where("station_id IN ?", publicStationIDs)
+	} else {
+		baseQuery = baseQuery.Where("1=0")
+	}
+
+	// Fetch distinct genres for filter dropdown
+	var genres []string
+	h.db.Model(&models.MediaItem{}).
+		Where("show_in_archive = ? AND station_id IN ? AND genre != '' AND genre IS NOT NULL", true, publicStationIDs).
+		Distinct().Pluck("genre", &genres)
+
+	// Fetch distinct years for filter dropdown
+	var years []string
+	h.db.Model(&models.MediaItem{}).
+		Where("show_in_archive = ? AND station_id IN ? AND year != '' AND year IS NOT NULL", true, publicStationIDs).
+		Distinct().Order("year DESC").Pluck("year", &years)
+
+	// Fetch distinct artists for filter dropdown
+	var artists []string
+	h.db.Model(&models.MediaItem{}).
+		Where("show_in_archive = ? AND station_id IN ? AND artist != '' AND artist IS NOT NULL", true, publicStationIDs).
+		Distinct().Order("artist ASC").Pluck("artist", &artists)
+
 	var media []models.MediaItem
 	var total int64
 
-	// Only show media from public stations with archive visibility enabled
-	query := h.db.Model(&models.MediaItem{}).Where("show_in_archive = ?", true)
-	if len(publicStationIDs) > 0 {
-		query = query.Where("station_id IN ?", publicStationIDs)
-	} else {
-		// No public stations - show nothing
-		query = query.Where("1=0")
-	}
+	// Clone base query for filtering
+	query := baseQuery
+
+	// Get filter parameters
+	stationID := r.URL.Query().Get("station")
+	genre := r.URL.Query().Get("genre")
+	year := r.URL.Query().Get("year")
+	artist := r.URL.Query().Get("artist")
+	sortBy := r.URL.Query().Get("sort")
+	duration := r.URL.Query().Get("duration")
+	searchQuery := r.URL.Query().Get("q")
 
 	// Station filter
-	stationID := r.URL.Query().Get("station")
 	if stationID != "" {
-		// Verify the station is in our public list
 		isPublic := false
 		for _, id := range publicStationIDs {
 			if id == stationID {
@@ -137,14 +170,55 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Search filter
-	if q := r.URL.Query().Get("q"); q != "" {
-		query = query.Where("title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
-			"%"+q+"%", "%"+q+"%", "%"+q+"%")
+	// Genre filter
+	if genre != "" {
+		query = query.Where("genre = ?", genre)
 	}
 
+	// Year filter
+	if year != "" {
+		query = query.Where("year = ?", year)
+	}
+
+	// Artist filter
+	if artist != "" {
+		query = query.Where("artist = ?", artist)
+	}
+
+	// Duration filter (in seconds)
+	switch duration {
+	case "short": // Under 3 minutes
+		query = query.Where("duration < ?", 180)
+	case "medium": // 3-6 minutes
+		query = query.Where("duration >= ? AND duration <= ?", 180, 360)
+	case "long": // Over 6 minutes
+		query = query.Where("duration > ?", 360)
+	}
+
+	// Search filter
+	if searchQuery != "" {
+		query = query.Where("title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
+			"%"+searchQuery+"%", "%"+searchQuery+"%", "%"+searchQuery+"%")
+	}
+
+	// Count total results
 	query.Count(&total)
-	query.Order("created_at DESC").
+
+	// Sort order
+	orderClause := "created_at DESC" // default: newest first
+	switch sortBy {
+	case "oldest":
+		orderClause = "created_at ASC"
+	case "title":
+		orderClause = "title ASC"
+	case "artist":
+		orderClause = "artist ASC, title ASC"
+	case "duration":
+		orderClause = "duration DESC"
+	}
+
+	// Fetch paginated results
+	query.Order(orderClause).
 		Offset((page - 1) * perPage).
 		Limit(perPage).
 		Find(&media)
@@ -156,9 +230,17 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 			"Total":     total,
 			"Page":      page,
 			"PerPage":   perPage,
-			"Query":     r.URL.Query().Get("q"),
+			"Query":     searchQuery,
 			"Stations":  publicStations,
 			"StationID": stationID,
+			"Genres":    genres,
+			"Genre":     genre,
+			"Years":     years,
+			"Year":      year,
+			"Artists":   artists,
+			"Artist":    artist,
+			"Sort":      sortBy,
+			"Duration":  duration,
 		},
 	})
 }
