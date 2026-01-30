@@ -887,6 +887,9 @@ func (l *LibreTimeImporter) importPlaylistsFromAPI(ctx context.Context, client *
 
 	l.logger.Info().Int("count", len(playlists)).Msg("importing playlists via API")
 
+	// Track skipped items for reporting
+	var skippedMediaItems int
+
 	for i, ltPlaylist := range playlists {
 		// Create Grimnir playlist
 		playlist := &models.Playlist{
@@ -915,7 +918,8 @@ func (l *LibreTimeImporter) importPlaylistsFromAPI(ctx context.Context, client *
 				mediaKey := fmt.Sprintf("media_%d", *content.FileID)
 				mediaMapping, ok := result.Mappings[mediaKey]
 				if !ok {
-					l.logger.Warn().Int("file_id", *content.FileID).Msg("media item not found in mappings")
+					// Media wasn't imported (likely skip_media was enabled)
+					skippedMediaItems++
 					continue
 				}
 
@@ -965,6 +969,13 @@ func (l *LibreTimeImporter) importPlaylistsFromAPI(ctx context.Context, client *
 			PlaylistsImported: i + 1,
 			StartTime:         startTime,
 		})
+	}
+
+	if skippedMediaItems > 0 {
+		l.logger.Warn().
+			Int("skipped_items", skippedMediaItems).
+			Msg("playlist items skipped (media not imported)")
+		result.Skipped["playlist_items_no_media"] = skippedMediaItems
 	}
 
 	l.logger.Info().Int("count", result.PlaylistsCreated).Msg("playlist import complete")
