@@ -182,6 +182,13 @@
                 </li>
 
                 <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/media"}}active bg-primary text-white{{end}}" href="/dashboard/admin/media" data-bs-toggle="tooltip" data-bs-placement="right" title="All Media">
+                        <i class="bi bi-collection"></i>
+                        <span class="sidebar-text ms-2">All Media</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/settings"}}active bg-primary text-white{{end}}" href="/dashboard/settings" data-bs-toggle="tooltip" data-bs-placement="right" title="Platform Settings">
                         <i class="bi bi-gear"></i>
                         <span class="sidebar-text ms-2">Platform Settings</span>

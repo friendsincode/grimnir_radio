@@ -623,3 +623,76 @@ func (h *Handler) PlaylistDeleteCover(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, "/dashboard/playlists/"+id, http.StatusSeeOther)
 }
+
+// PlaylistMediaSearch returns filtered media items for the playlist media picker (HTMX)
+func (h *Handler) PlaylistMediaSearch(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	// Get filter parameters
+	query := r.URL.Query().Get("q")
+	genre := r.URL.Query().Get("genre")
+	artist := r.URL.Query().Get("artist")
+	mood := r.URL.Query().Get("mood")
+	yearFrom := r.URL.Query().Get("year_from")
+	yearTo := r.URL.Query().Get("year_to")
+	bpmFrom := r.URL.Query().Get("bpm_from")
+	bpmTo := r.URL.Query().Get("bpm_to")
+	excludeExplicit := r.URL.Query().Get("exclude_explicit") == "true"
+
+	// Build query
+	dbQuery := h.db.Model(&models.MediaItem{}).Where("station_id = ?", station.ID)
+
+	// Text search
+	if query != "" {
+		searchPattern := "%" + query + "%"
+		dbQuery = dbQuery.Where("title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
+			searchPattern, searchPattern, searchPattern)
+	}
+
+	// Genre filter
+	if genre != "" {
+		dbQuery = dbQuery.Where("genre = ?", genre)
+	}
+
+	// Artist filter
+	if artist != "" {
+		dbQuery = dbQuery.Where("artist = ?", artist)
+	}
+
+	// Mood filter
+	if mood != "" {
+		dbQuery = dbQuery.Where("mood = ?", mood)
+	}
+
+	// Year range
+	if yearFrom != "" {
+		dbQuery = dbQuery.Where("year >= ?", yearFrom)
+	}
+	if yearTo != "" {
+		dbQuery = dbQuery.Where("year <= ?", yearTo)
+	}
+
+	// BPM range
+	if bpmFrom != "" {
+		dbQuery = dbQuery.Where("bpm >= ?", bpmFrom)
+	}
+	if bpmTo != "" {
+		dbQuery = dbQuery.Where("bpm <= ?", bpmTo)
+	}
+
+	// Exclude explicit
+	if excludeExplicit {
+		dbQuery = dbQuery.Where("explicit = ?", false)
+	}
+
+	// Fetch results - limit to 200 but allow searching all
+	var media []models.MediaItem
+	dbQuery.Order("artist ASC, title ASC").Limit(200).Find(&media)
+
+	// Render as HTML partial
+	h.RenderPartial(w, r, "partials/playlist-media-items", media)
+}

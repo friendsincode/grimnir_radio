@@ -154,6 +154,7 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/{id}/cover", h.PlaylistCover)
 					r.Post("/{id}/cover", h.PlaylistUploadCover)
 					r.Delete("/{id}/cover", h.PlaylistDeleteCover)
+					r.Get("/{id}/media-search", h.PlaylistMediaSearch)
 				})
 
 				// Smart Blocks
@@ -288,6 +289,13 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Get("/users/{id}/edit", h.AdminUserEdit)
 				r.Post("/users/{id}", h.AdminUserUpdate)
 				r.Delete("/users/{id}", h.AdminUserDelete)
+
+				// Platform media library
+				r.Get("/media", h.AdminMediaList)
+				r.Post("/media/bulk", h.AdminMediaBulk)
+				r.Post("/media/{id}/toggle-public", h.AdminMediaTogglePublic)
+				r.Post("/media/{id}/move", h.AdminMediaMove)
+				r.Delete("/media/{id}", h.AdminMediaDelete)
 			})
 		})
 	})

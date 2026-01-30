@@ -114,11 +114,11 @@ func (h *Handler) SmartBlockCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Redirect", "/dashboard/smart-blocks/"+block.ID)
+		w.Header().Set("HX-Redirect", "/dashboard/smart-blocks/"+block.ID+"/edit")
 		return
 	}
 
-	http.Redirect(w, r, "/dashboard/smart-blocks/"+block.ID, http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/smart-blocks/"+block.ID+"/edit", http.StatusSeeOther)
 }
 
 // SmartBlockDetail renders the smart block detail page
@@ -239,11 +239,11 @@ func (h *Handler) SmartBlockUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Redirect", "/dashboard/smart-blocks/"+id)
+		w.Header().Set("HX-Redirect", "/dashboard/smart-blocks/"+id+"/edit")
 		return
 	}
 
-	http.Redirect(w, r, "/dashboard/smart-blocks/"+id, http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/smart-blocks/"+id+"/edit", http.StatusSeeOther)
 }
 
 // SmartBlockDelete handles smart block deletion

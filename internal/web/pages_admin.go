@@ -9,6 +9,8 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -509,4 +511,335 @@ func (h *Handler) AdminUsersBulk(w http.ResponseWriter, r *http.Request) {
 		Msg("bulk user action completed")
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// =============================================================================
+// PLATFORM MEDIA LIBRARY
+// =============================================================================
+
+// MediaWithStation embeds media item with its station info
+type MediaWithStation struct {
+	models.MediaItem
+	Station *models.Station
+}
+
+// AdminMediaList renders the platform-wide media library
+func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Pagination
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	perPage := 50
+
+	// Filters
+	query := r.URL.Query().Get("q")
+	stationID := r.URL.Query().Get("station")
+	genre := r.URL.Query().Get("genre")
+	showInArchive := r.URL.Query().Get("public") // "true", "false", or "" (all)
+	sortBy := r.URL.Query().Get("sort")
+	if sortBy == "" {
+		sortBy = "created_at"
+	}
+	sortOrder := r.URL.Query().Get("order")
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+
+	// Build query
+	dbQuery := h.db.Model(&models.MediaItem{})
+
+	// Search filter
+	if query != "" {
+		dbQuery = dbQuery.Where(
+			"title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
+			"%"+query+"%", "%"+query+"%", "%"+query+"%",
+		)
+	}
+
+	// Station filter
+	if stationID != "" {
+		dbQuery = dbQuery.Where("station_id = ?", stationID)
+	}
+
+	// Genre filter
+	if genre != "" {
+		dbQuery = dbQuery.Where("genre = ?", genre)
+	}
+
+	// Public/private filter
+	if showInArchive == "true" {
+		dbQuery = dbQuery.Where("show_in_archive = ?", true)
+	} else if showInArchive == "false" {
+		dbQuery = dbQuery.Where("show_in_archive = ?", false)
+	}
+
+	// Count total
+	var total int64
+	dbQuery.Count(&total)
+
+	// Fetch media with pagination
+	var media []models.MediaItem
+	orderClause := sortBy + " " + strings.ToUpper(sortOrder)
+	dbQuery.Order(orderClause).
+		Offset((page - 1) * perPage).
+		Limit(perPage).
+		Find(&media)
+
+	// Load station info for each media item
+	stationMap := make(map[string]*models.Station)
+	var stationIDs []string
+	for _, m := range media {
+		if m.StationID != "" {
+			stationIDs = append(stationIDs, m.StationID)
+		}
+	}
+	if len(stationIDs) > 0 {
+		var stations []models.Station
+		h.db.Where("id IN ?", stationIDs).Find(&stations)
+		for i := range stations {
+			stationMap[stations[i].ID] = &stations[i]
+		}
+	}
+
+	// Build media with station info
+	var mediaWithStations []MediaWithStation
+	for _, m := range media {
+		mws := MediaWithStation{MediaItem: m}
+		if s, ok := stationMap[m.StationID]; ok {
+			mws.Station = s
+		}
+		mediaWithStations = append(mediaWithStations, mws)
+	}
+
+	// Get all stations for filter dropdown
+	var allStations []models.Station
+	h.db.Order("name ASC").Find(&allStations)
+
+	// Get unique genres for filter dropdown
+	var genres []string
+	h.db.Model(&models.MediaItem{}).
+		Where("genre != '' AND genre IS NOT NULL").
+		Distinct().
+		Order("genre ASC").
+		Pluck("genre", &genres)
+
+	totalPages := int(total) / perPage
+	if int(total)%perPage > 0 {
+		totalPages++
+	}
+
+	h.Render(w, r, "pages/dashboard/admin/media", PageData{
+		Title:    "Platform Media Library - Admin",
+		Stations: h.LoadStations(r),
+		Data: map[string]any{
+			"Media":         mediaWithStations,
+			"Total":         total,
+			"Page":          page,
+			"PerPage":       perPage,
+			"TotalPages":    totalPages,
+			"Query":         query,
+			"StationID":     stationID,
+			"Genre":         genre,
+			"ShowInArchive": showInArchive,
+			"SortBy":        sortBy,
+			"SortOrder":     sortOrder,
+			"AllStations":   allStations,
+			"Genres":        genres,
+		},
+	})
+}
+
+// AdminMediaBulk handles bulk actions on media items
+func (h *Handler) AdminMediaBulk(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	var req BulkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		http.Error(w, "No items selected", http.StatusBadRequest)
+		return
+	}
+
+	var affected int64
+	var err error
+
+	switch req.Action {
+	case "make_public":
+		result := h.db.Model(&models.MediaItem{}).Where("id IN ?", req.IDs).Update("show_in_archive", true)
+		affected, err = result.RowsAffected, result.Error
+	case "make_private":
+		result := h.db.Model(&models.MediaItem{}).Where("id IN ?", req.IDs).Update("show_in_archive", false)
+		affected, err = result.RowsAffected, result.Error
+	case "move_to_station":
+		if req.Value == "" {
+			http.Error(w, "Target station required", http.StatusBadRequest)
+			return
+		}
+		// Verify target station exists
+		var station models.Station
+		if err := h.db.First(&station, "id = ?", req.Value).Error; err != nil {
+			http.Error(w, "Target station not found", http.StatusBadRequest)
+			return
+		}
+		result := h.db.Model(&models.MediaItem{}).Where("id IN ?", req.IDs).Update("station_id", req.Value)
+		affected, err = result.RowsAffected, result.Error
+
+		h.logger.Info().
+			Str("target_station", station.Name).
+			Int64("count", affected).
+			Str("admin_id", user.ID).
+			Msg("media items moved to station")
+	case "delete":
+		// Note: This only deletes database records, not the actual files
+		// A separate cleanup job should handle orphaned files
+		result := h.db.Where("id IN ?", req.IDs).Delete(&models.MediaItem{})
+		affected, err = result.RowsAffected, result.Error
+	default:
+		http.Error(w, "Unknown action", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		h.logger.Error().Err(err).Str("action", req.Action).Msg("bulk media action failed")
+		http.Error(w, "Operation failed", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("action", req.Action).
+		Int64("affected", affected).
+		Str("admin_id", user.ID).
+		Msg("bulk media action completed")
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// AdminMediaTogglePublic toggles a media item's public archive visibility
+func (h *Handler) AdminMediaTogglePublic(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	var media models.MediaItem
+	if err := h.db.First(&media, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	media.ShowInArchive = !media.ShowInArchive
+	if err := h.db.Save(&media).Error; err != nil {
+		http.Error(w, "Failed to update media", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("media_id", media.ID).
+		Bool("show_in_archive", media.ShowInArchive).
+		Str("admin_id", user.ID).
+		Msg("media archive visibility toggled")
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		return
+	}
+	http.Redirect(w, r, "/dashboard/admin/media", http.StatusSeeOther)
+}
+
+// AdminMediaMove moves a media item to a different station
+func (h *Handler) AdminMediaMove(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	var media models.MediaItem
+	if err := h.db.First(&media, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	targetStationID := r.FormValue("station_id")
+	if targetStationID == "" {
+		http.Error(w, "Target station required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify target station exists
+	var station models.Station
+	if err := h.db.First(&station, "id = ?", targetStationID).Error; err != nil {
+		http.Error(w, "Target station not found", http.StatusBadRequest)
+		return
+	}
+
+	oldStationID := media.StationID
+	media.StationID = targetStationID
+	if err := h.db.Save(&media).Error; err != nil {
+		http.Error(w, "Failed to move media", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("media_id", media.ID).
+		Str("from_station", oldStationID).
+		Str("to_station", targetStationID).
+		Str("admin_id", user.ID).
+		Msg("media moved to different station")
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		return
+	}
+	http.Redirect(w, r, "/dashboard/admin/media", http.StatusSeeOther)
+}
+
+// AdminMediaDelete deletes a media item
+func (h *Handler) AdminMediaDelete(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+
+	if err := h.db.Delete(&models.MediaItem{}, "id = ?", id).Error; err != nil {
+		http.Error(w, "Failed to delete media", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("media_id", id).
+		Str("admin_id", user.ID).
+		Msg("media deleted by admin")
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		return
+	}
+	http.Redirect(w, r, "/dashboard/admin/media", http.StatusSeeOther)
 }

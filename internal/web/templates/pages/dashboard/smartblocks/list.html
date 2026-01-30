@@ -23,11 +23,18 @@
 </div>
 
 {{if .Data}}
+<!-- Search Filter -->
+<div class="mb-4">
+    <div class="input-group" style="max-width: 400px;">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="text" class="form-control" id="smartBlockSearch" placeholder="Search smart blocks by name...">
+    </div>
+</div>
 <div class="row g-3">
     {{range .Data}}
     {{$rules := .Rules}}
     {{$seq := .Sequence}}
-    <div class="col-md-6 col-lg-4">
+    <div class="col-md-6 col-lg-4 smart-block-card" data-name="{{.Name | lower}}">
         <div class="card h-100 hover-shadow" style="cursor: pointer;" onclick="window.location='/dashboard/smart-blocks/{{.ID}}'">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start mb-2">
@@ -137,4 +144,15 @@
     transition: box-shadow 0.2s ease-in-out;
 }
 </style>
+
+<script>
+document.getElementById('smartBlockSearch')?.addEventListener('input', function() {
+    const search = this.value.toLowerCase();
+    document.querySelectorAll('.smart-block-card').forEach(card => {
+        const name = card.dataset.name || '';
+        const visible = !search || name.includes(search);
+        card.style.display = visible ? '' : 'none';
+    });
+});
+</script>
 {{end}}

@@ -111,7 +111,7 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>{{.Data.Total}} items</span>
-        <div class="btn-group btn-group-sm">
+        <div class="btn-group btn-group-sm" id="viewToggle">
             <button class="btn btn-outline-secondary active" data-view="table" title="Table view">
                 <i class="bi bi-list-ul"></i>
             </button>
@@ -120,7 +120,9 @@
             </button>
         </div>
     </div>
-    <div class="table-responsive">
+
+    <!-- Table View -->
+    <div id="tableView" class="table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead>
                 <tr>
@@ -130,12 +132,24 @@
                     </th>
                     <th style="width: 40px;"></th>
                     <th style="width: 50px;"></th>
-                    <th>Title</th>
-                    <th>Artist</th>
+                    <th class="sortable-header" data-sort="title" style="cursor: pointer;">
+                        Title
+                        {{if eq .Data.SortBy "title"}}<i class="bi bi-chevron-{{if eq .Data.SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                    </th>
+                    <th class="sortable-header" data-sort="artist" style="cursor: pointer;">
+                        Artist
+                        {{if eq .Data.SortBy "artist"}}<i class="bi bi-chevron-{{if eq .Data.SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                    </th>
                     <th>Album</th>
                     <th>Genre</th>
-                    <th>Duration</th>
-                    <th>Added</th>
+                    <th class="sortable-header" data-sort="duration" style="cursor: pointer;">
+                        Duration
+                        {{if eq .Data.SortBy "duration"}}<i class="bi bi-chevron-{{if eq .Data.SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                    </th>
+                    <th class="sortable-header" data-sort="created_at" style="cursor: pointer;">
+                        Added
+                        {{if eq .Data.SortBy "created_at"}}<i class="bi bi-chevron-{{if eq .Data.SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                    </th>
                     <th style="width: 100px;"></th>
                 </tr>
             </thead>
@@ -210,6 +224,50 @@
                 {{end}}
             </tbody>
         </table>
+    </div>
+
+    <!-- Grid View (hidden by default) -->
+    <div id="gridView" class="card-body d-none">
+        <div class="row g-3">
+        {{range .Data.Media}}
+        <div class="col-6 col-md-4 col-lg-3">
+            <div class="card h-100 media-card" onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+                <div class="position-relative">
+                    {{if len .Artwork}}
+                    <img src="/dashboard/media/{{.ID}}/artwork" class="card-img-top" alt="" style="height: 140px; object-fit: cover;">
+                    {{else}}
+                    <div class="card-img-top bg-secondary d-flex align-items-center justify-content-center" style="height: 140px;">
+                        <i class="bi bi-music-note fs-1 text-white"></i>
+                    </div>
+                    {{end}}
+                    <button class="btn btn-sm btn-light position-absolute bottom-0 end-0 m-2 rounded-circle"
+                            onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)"
+                            title="Preview">
+                        <i class="bi bi-play-fill"></i>
+                    </button>
+                    {{if .Explicit}}
+                    <span class="badge bg-warning text-dark position-absolute top-0 end-0 m-2">E</span>
+                    {{end}}
+                </div>
+                <div class="card-body p-2">
+                    <h6 class="card-title mb-1 text-truncate" title="{{.Title}}">{{.Title}}</h6>
+                    <p class="card-text small text-body-secondary text-truncate mb-1">
+                        {{if .Artist}}{{.Artist}}{{else}}Unknown Artist{{end}}
+                    </p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        {{if .Genre}}<span class="badge bg-secondary small">{{.Genre}}</span>{{else}}<span></span>{{end}}
+                        <small class="text-body-secondary">{{formatDuration .Duration}}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {{else}}
+        <div class="col-12 text-center py-5 text-body-secondary">
+            <i class="bi bi-music-note-beamed fs-1 mb-3 d-block"></i>
+            {{if .Data.Query}}No results found{{else}}No media items{{end}}
+        </div>
+        {{end}}
+        </div>
     </div>
 
     {{if gt .Data.TotalPages 1}}
@@ -337,5 +395,69 @@ function bulkAction(action, value) {
         }
     }).catch(err => alert('Error: ' + err));
 }
+
+// ==================== VIEW TOGGLE ====================
+const viewToggle = document.getElementById('viewToggle');
+const tableView = document.getElementById('tableView');
+const gridView = document.getElementById('gridView');
+
+// Store preference in localStorage
+const savedView = localStorage.getItem('mediaLibraryView') || 'table';
+if (savedView === 'grid') {
+    showView('grid');
+}
+
+function showView(view) {
+    if (view === 'grid') {
+        tableView.classList.add('d-none');
+        gridView.classList.remove('d-none');
+        viewToggle.querySelector('[data-view="table"]').classList.remove('active');
+        viewToggle.querySelector('[data-view="grid"]').classList.add('active');
+    } else {
+        tableView.classList.remove('d-none');
+        gridView.classList.add('d-none');
+        viewToggle.querySelector('[data-view="table"]').classList.add('active');
+        viewToggle.querySelector('[data-view="grid"]').classList.remove('active');
+    }
+    localStorage.setItem('mediaLibraryView', view);
+}
+
+viewToggle?.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        showView(btn.dataset.view);
+    });
+});
+
+// ==================== CLICKABLE SORT HEADERS ====================
+document.querySelectorAll('.sortable-header').forEach(header => {
+    header.addEventListener('click', () => {
+        const sort = header.dataset.sort;
+        const url = new URL(window.location.href);
+        const currentSort = url.searchParams.get('sort') || 'created_at';
+        const currentOrder = url.searchParams.get('order') || 'desc';
+
+        url.searchParams.set('sort', sort);
+        // Toggle order if clicking the same column, otherwise default to desc
+        if (sort === currentSort) {
+            url.searchParams.set('order', currentOrder === 'asc' ? 'desc' : 'asc');
+        } else {
+            url.searchParams.set('order', 'desc');
+        }
+        url.searchParams.set('page', '1'); // Reset to first page when sorting
+
+        window.location.href = url.toString();
+    });
+});
 </script>
+
+<style>
+.sortable-header:hover {
+    background-color: var(--bs-tertiary-bg);
+}
+.media-card:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+    transition: all 0.2s ease-in-out;
+}
+</style>
 {{end}}
