@@ -220,13 +220,26 @@ func (l *LibreTimeImporter) AnalyzeDetailed(ctx context.Context, options Options
 	} else {
 		report.TotalPlaylists = len(playlists)
 		for _, pl := range playlists {
-			// Try to get playlist contents to count items
+			// Try to get playlist contents to count items by type
 			contents, _ := client.GetPlaylistContents(ctx, pl.ID)
+			var fileCount, blockCount, streamCount int
+			for _, c := range contents {
+				if c.FileID != nil {
+					fileCount++
+				} else if c.BlockID != nil {
+					blockCount++
+				} else if c.StreamID != nil {
+					streamCount++
+				}
+			}
 			report.Playlists = append(report.Playlists, LTPlaylistSummary{
-				ID:        pl.ID,
-				Name:      pl.Name,
-				ItemCount: len(contents),
-				Length:    pl.Length,
+				ID:          pl.ID,
+				Name:        pl.Name,
+				ItemCount:   len(contents),
+				FileCount:   fileCount,
+				BlockCount:  blockCount,
+				StreamCount: streamCount,
+				Length:      pl.Length,
 			})
 		}
 	}
@@ -504,33 +517,37 @@ func (l *LibreTimeImporter) importAPI(ctx context.Context, options Options, prog
 	}
 
 	// Phase 5: Import webstreams
-	progressCallback(Progress{
-		Phase:          "importing_webstreams",
-		CurrentStep:    "Importing webstreams",
-		TotalSteps:     7,
-		CompletedSteps: 5,
-		Percentage:     75,
-		StartTime:      startTime,
-	})
+	if !options.SkipWebstreams {
+		progressCallback(Progress{
+			Phase:          "importing_webstreams",
+			CurrentStep:    "Importing webstreams",
+			TotalSteps:     7,
+			CompletedSteps: 5,
+			Percentage:     75,
+			StartTime:      startTime,
+		})
 
-	if err := l.importWebstreamsFromAPI(ctx, client, stationID, result); err != nil {
-		l.logger.Error().Err(err).Msg("failed to import webstreams")
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to import webstreams: %v", err))
+		if err := l.importWebstreamsFromAPI(ctx, client, stationID, result); err != nil {
+			l.logger.Error().Err(err).Msg("failed to import webstreams")
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to import webstreams: %v", err))
+		}
 	}
 
 	// Phase 6: Import smart blocks
-	progressCallback(Progress{
-		Phase:          "importing_smartblocks",
-		CurrentStep:    "Importing smart blocks",
-		TotalSteps:     7,
-		CompletedSteps: 6,
-		Percentage:     90,
-		StartTime:      startTime,
-	})
+	if !options.SkipSmartblocks {
+		progressCallback(Progress{
+			Phase:          "importing_smartblocks",
+			CurrentStep:    "Importing smart blocks",
+			TotalSteps:     7,
+			CompletedSteps: 6,
+			Percentage:     90,
+			StartTime:      startTime,
+		})
 
-	if err := l.importSmartBlocksFromAPI(ctx, client, stationID, result); err != nil {
-		l.logger.Error().Err(err).Msg("failed to import smart blocks")
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to import smart blocks: %v", err))
+		if err := l.importSmartBlocksFromAPI(ctx, client, stationID, result); err != nil {
+			l.logger.Error().Err(err).Msg("failed to import smart blocks")
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to import smart blocks: %v", err))
+		}
 	}
 
 	// Complete

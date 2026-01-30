@@ -56,10 +56,12 @@ type Job struct {
 // Options contains migration-specific configuration.
 type Options struct {
 	// Common options
-	SkipMedia     bool `json:"skip_media"`
-	SkipSchedules bool `json:"skip_schedules"`
-	SkipPlaylists bool `json:"skip_playlists"`
-	SkipUsers     bool `json:"skip_users"`
+	SkipMedia       bool `json:"skip_media"`
+	SkipSchedules   bool `json:"skip_schedules"`
+	SkipPlaylists   bool `json:"skip_playlists"`
+	SkipUsers       bool `json:"skip_users"`
+	SkipSmartblocks bool `json:"skip_smartblocks"`
+	SkipWebstreams  bool `json:"skip_webstreams"`
 
 	// AzuraCast options
 	AzuraCastBackupPath string `json:"azuracast_backup_path,omitempty"`

@@ -454,10 +454,13 @@ type LTFileSummary struct {
 
 // LTPlaylistSummary provides a summary of a playlist for reporting.
 type LTPlaylistSummary struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	ItemCount int    `json:"item_count"`
-	Length    string `json:"length"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	ItemCount   int    `json:"item_count"`    // Total items (files + blocks + streams)
+	FileCount   int    `json:"file_count"`    // Direct media files
+	BlockCount  int    `json:"block_count"`   // Smart block references
+	StreamCount int    `json:"stream_count"`  // Webstream references
+	Length      string `json:"length"`
 }
 
 // LTShowSummary provides a summary of a show for reporting.
