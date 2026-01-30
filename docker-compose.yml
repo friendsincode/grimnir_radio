@@ -11,7 +11,6 @@ services:
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./docker/postgres/init-pg-hba.sh:/docker-entrypoint-initdb.d/init-pg-hba.sh:ro
     # Ports defined in docker-compose.override.yml
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U grimnir -d grimnir && psql -U grimnir -d grimnir -c 'SELECT 1' > /dev/null 2>&1"]

@@ -1711,7 +1711,7 @@ EOF
     print_success "Created docker-compose.prod.yml"
 
     # Create helper script for easier management
-    cat > "$DEPLOY_DIR/grimnir" <<'SCRIPT'
+    cat > "$DEPLOY_DIR/grimnir" <<SCRIPT
 #!/bin/bash
 # Grimnir Radio - Docker Compose Wrapper
 # Usage: ./grimnir [command]
@@ -1720,8 +1720,12 @@ EOF
 #   ./grimnir logs -f    Follow logs
 #   ./grimnir ps         Show status
 #   ./grimnir pull       Pull latest images
+#   ./grimnir reset-db   Reset database to fresh state (DESTRUCTIVE)
 
-cd "$(dirname "$0")"
+cd "\$(dirname "\$0")"
+
+# Data directory from deployment
+DATA_DIR="$DATA_DIR"
 
 # Use docker compose (v2) if available, else docker-compose
 if docker compose version >/dev/null 2>&1; then
@@ -1730,7 +1734,43 @@ else
     COMPOSE="docker-compose"
 fi
 
-$COMPOSE -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml "$@"
+COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml"
+
+case "\$1" in
+    reset-db)
+        echo ""
+        echo "============================================================"
+        echo "  WARNING: THIS ACTION IS NOT RECOVERABLE!"
+        echo "============================================================"
+        echo ""
+        echo "  This will PERMANENTLY DELETE all database data including:"
+        echo "    - All users and accounts"
+        echo "    - All stations and configurations"
+        echo "    - All media library metadata"
+        echo "    - All playlists, schedules, and history"
+        echo ""
+        echo "  Data directory: \$DATA_DIR/postgres-data"
+        echo ""
+        echo "============================================================"
+        echo ""
+        read -p "Type 'yes' to confirm deletion: " confirm
+        if [ "\$confirm" = "yes" ]; then
+            echo "Stopping services..."
+            \$COMPOSE \$COMPOSE_FILES down
+            echo "Removing postgres data..."
+            sudo rm -rf "\$DATA_DIR/postgres-data"
+            echo "Starting services..."
+            \$COMPOSE \$COMPOSE_FILES up -d
+            echo ""
+            echo "Database reset complete. Visit the web UI to run setup wizard."
+        else
+            echo "Aborted."
+        fi
+        ;;
+    *)
+        \$COMPOSE \$COMPOSE_FILES "\$@"
+        ;;
+esac
 SCRIPT
 
     chmod +x "$DEPLOY_DIR/grimnir"
