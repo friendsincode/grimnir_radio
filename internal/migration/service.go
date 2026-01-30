@@ -170,6 +170,21 @@ func (s *Service) StartJob(parentCtx context.Context, jobID string) error {
 	// Start job in background
 	go func() {
 		defer cancel()
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error().
+					Interface("panic", r).
+					Str("job_id", jobID).
+					Msg("migration job panicked")
+
+				// Update job status to failed
+				job.Status = JobStatusFailed
+				job.Error = fmt.Sprintf("panic: %v", r)
+				now := time.Now()
+				job.CompletedAt = &now
+				_ = s.updateJob(context.Background(), job)
+			}
+		}()
 		s.runJob(ctx, job, importer)
 	}()
 
