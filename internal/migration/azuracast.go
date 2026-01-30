@@ -634,6 +634,7 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 
 		// Import mounts for this station
 		mounts, err := client.GetMounts(ctx, azStation.ID)
+		mountsImported := 0
 		if err != nil {
 			a.logger.Warn().Err(err).Int("station_id", azStation.ID).Msg("failed to get mounts")
 		} else {
@@ -653,7 +654,7 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 					ID:         uuid.New().String(),
 					StationID:  station.ID,
 					Name:       mountPath, // Without leading slash (e.g., "radio.mp3")
-					URL:        "/listen/" + mountPath,
+					URL:        "/live/" + mountPath,
 					Format:     azMount.AutodjFormat,
 					Bitrate:    azMount.AutodjBitrate,
 					Channels:   2,
@@ -662,7 +663,35 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 
 				if err := a.db.WithContext(ctx).Create(mount).Error; err != nil {
 					a.logger.Error().Err(err).Str("mount", mountPath).Msg("failed to create mount")
+				} else {
+					mountsImported++
 				}
+			}
+		}
+
+		// Create a default mount if no mounts were imported
+		if mountsImported == 0 {
+			mountName := models.GenerateMountName(station.Shortcode)
+			if mountName == "" || mountName == "radio" {
+				mountName = models.GenerateMountName(station.Name)
+			}
+			mount := &models.Mount{
+				ID:         uuid.New().String(),
+				StationID:  station.ID,
+				Name:       mountName,
+				URL:        "/live/" + mountName,
+				Format:     "mp3",
+				Bitrate:    128,
+				Channels:   2,
+				SampleRate: 44100,
+			}
+			if err := a.db.WithContext(ctx).Create(mount).Error; err != nil {
+				a.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to create default mount")
+			} else {
+				a.logger.Info().
+					Str("station_id", station.ID).
+					Str("mount", mountName).
+					Msg("created default mount (no mounts from source)")
 			}
 		}
 	}

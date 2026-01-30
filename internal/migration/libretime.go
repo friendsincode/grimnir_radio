@@ -459,6 +459,30 @@ func (l *LibreTimeImporter) importAPI(ctx context.Context, options Options, prog
 			Name:  station.Name,
 		}
 
+		// Auto-generate default mount point
+		mountName := models.GenerateMountName(station.Shortcode)
+		if mountName == "" || mountName == "radio" {
+			mountName = models.GenerateMountName(station.Name)
+		}
+		mount := &models.Mount{
+			ID:         uuid.New().String(),
+			StationID:  station.ID,
+			Name:       mountName,
+			URL:        "/live/" + mountName,
+			Format:     "mp3",
+			Bitrate:    128,
+			Channels:   2,
+			SampleRate: 44100,
+		}
+		if err := l.db.WithContext(ctx).Create(mount).Error; err != nil {
+			l.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to create default mount")
+		} else {
+			l.logger.Info().
+				Str("station_id", station.ID).
+				Str("mount", mountName).
+				Msg("created default mount")
+		}
+
 		l.logger.Info().
 			Str("station_id", station.ID).
 			Str("name", station.Name).
@@ -1403,6 +1427,27 @@ func (l *LibreTimeImporter) importStation(ctx context.Context, ltDB *gorm.DB, re
 	}
 
 	result.StationsCreated++
+
+	// Auto-generate default mount point
+	mountName := models.GenerateMountName(stationName)
+	mount := &models.Mount{
+		ID:         uuid.New().String(),
+		StationID:  station.ID,
+		Name:       mountName,
+		URL:        "/live/" + mountName,
+		Format:     "mp3",
+		Bitrate:    128,
+		Channels:   2,
+		SampleRate: 44100,
+	}
+	if err := l.db.WithContext(ctx).Create(mount).Error; err != nil {
+		l.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to create default mount")
+	} else {
+		l.logger.Info().
+			Str("station_id", station.ID).
+			Str("mount", mountName).
+			Msg("created default mount")
+	}
 
 	l.logger.Info().Str("station_id", station.ID).Str("name", stationName).Msg("station imported")
 	return nil
