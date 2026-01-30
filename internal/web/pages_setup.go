@@ -148,6 +148,26 @@ func (h *Handler) SetupSubmit(w http.ResponseWriter, r *http.Request) {
 		if err := h.db.Create(&stationUser).Error; err != nil {
 			h.logger.Error().Err(err).Msg("failed to create station-user association")
 		}
+
+		// Auto-generate default mount point
+		mountName := models.GenerateMountName(stationName)
+		mount := models.Mount{
+			ID:         uuid.New().String(),
+			StationID:  station.ID,
+			Name:       mountName,
+			Format:     "mp3",
+			Bitrate:    128,
+			Channels:   2,
+			SampleRate: 44100,
+		}
+		if err := h.db.Create(&mount).Error; err != nil {
+			h.logger.Error().Err(err).Msg("failed to create default mount")
+		} else {
+			h.logger.Info().
+				Str("mount", mountName).
+				Str("station_id", station.ID).
+				Msg("default mount created")
+		}
 	}
 
 	h.logger.Info().

@@ -398,11 +398,41 @@ func (a *API) handleStationsCreate(w http.ResponseWriter, r *http.Request) {
 		Timezone:    req.Timezone,
 	}
 
-	if err := a.db.WithContext(r.Context()).Create(&station).Error; err != nil {
+	// Use transaction for station + mount creation
+	tx := a.db.WithContext(r.Context()).Begin()
+
+	if err := tx.Create(&station).Error; err != nil {
+		tx.Rollback()
 		a.logger.Error().Err(err).Msg("create station failed")
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
+
+	// Auto-generate default mount point
+	mountName := models.GenerateMountName(station.Name)
+	mount := models.Mount{
+		ID:         uuid.NewString(),
+		StationID:  station.ID,
+		Name:       mountName,
+		Format:     "mp3",
+		Bitrate:    128,
+		Channels:   2,
+		SampleRate: 44100,
+	}
+
+	if err := tx.Create(&mount).Error; err != nil {
+		tx.Rollback()
+		a.logger.Error().Err(err).Msg("create default mount failed")
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+
+	tx.Commit()
+
+	a.logger.Info().
+		Str("station_id", station.ID).
+		Str("mount", mountName).
+		Msg("station created with default mount")
 
 	writeJSON(w, http.StatusCreated, station)
 }

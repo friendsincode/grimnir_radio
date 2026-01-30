@@ -11,9 +11,33 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// GenerateMountName creates a URL-safe mount name from a station name.
+// It converts to lowercase, replaces spaces with hyphens, and removes
+// any characters that aren't alphanumeric or hyphens.
+func GenerateMountName(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+	// Replace spaces with hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+	// Remove any characters that aren't alphanumeric or hyphens
+	reg := regexp.MustCompile(`[^a-z0-9-]`)
+	name = reg.ReplaceAllString(name, "")
+	// Remove multiple consecutive hyphens
+	reg = regexp.MustCompile(`-+`)
+	name = reg.ReplaceAllString(name, "-")
+	// Trim leading/trailing hyphens
+	name = strings.Trim(name, "-")
+	// If empty after sanitization, use a default
+	if name == "" {
+		name = "radio"
+	}
+	return name
+}
 
 // =============================================================================
 // PLATFORM-LEVEL ROLES AND PERMISSIONS

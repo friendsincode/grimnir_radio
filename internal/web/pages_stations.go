@@ -102,13 +102,37 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-generate default mount point
+	mountName := models.GenerateMountName(station.Shortcode)
+	if mountName == "" || mountName == "radio" {
+		mountName = models.GenerateMountName(station.Name)
+	}
+
+	mount := models.Mount{
+		ID:         uuid.New().String(),
+		StationID:  station.ID,
+		Name:       mountName,
+		Format:     "mp3",
+		Bitrate:    128,
+		Channels:   2,
+		SampleRate: 44100,
+	}
+
+	if err := tx.Create(&mount).Error; err != nil {
+		tx.Rollback()
+		h.logger.Error().Err(err).Msg("failed to create default mount")
+		h.renderStationFormError(w, r, station, true, "Failed to create station")
+		return
+	}
+
 	tx.Commit()
 
 	h.logger.Info().
 		Str("station_id", station.ID).
 		Str("owner_id", user.ID).
 		Str("name", station.Name).
-		Msg("station created")
+		Str("mount", mountName).
+		Msg("station created with default mount")
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/stations")
