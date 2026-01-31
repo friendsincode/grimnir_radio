@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -195,10 +196,11 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		query = query.Where("duration > ?", 360)
 	}
 
-	// Search filter
+	// Search filter (use LOWER for cross-database compatibility)
 	if searchQuery != "" {
-		query = query.Where("title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
-			"%"+searchQuery+"%", "%"+searchQuery+"%", "%"+searchQuery+"%")
+		searchPattern := "%" + strings.ToLower(searchQuery) + "%"
+		query = query.Where("LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
+			searchPattern, searchPattern, searchPattern)
 	}
 
 	// Count total results

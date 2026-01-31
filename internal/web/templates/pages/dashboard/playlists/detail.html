@@ -182,15 +182,17 @@
                 </div>
                 {{end}}
 
-                <!-- Search and Basic Filters -->
-                <div class="p-3 border-bottom">
-                    <form id="mediaSearchForm"
-                          hx-get="/dashboard/playlists/{{$playlist.ID}}/media-search"
-                          hx-target="#availableMedia"
-                          hx-trigger="input delay:300ms from:#mediaSearch, change from:.media-filter"
-                          hx-indicator="#searchSpinner">
+                <!-- Search and Filters Form -->
+                <form id="mediaSearchForm"
+                      hx-get="/dashboard/playlists/{{$playlist.ID}}/media-search"
+                      hx-target="#availableMedia"
+                      hx-trigger="load, input delay:300ms from:#mediaSearch, change from:.media-filter"
+                      hx-indicator="#searchSpinner">
+
+                    <!-- Basic Filters -->
+                    <div class="p-3 border-bottom">
                         <div class="position-relative mb-2">
-                            <input type="text" class="form-control form-control-sm" placeholder="Search by title or artist..."
+                            <input type="text" class="form-control form-control-sm" placeholder="Search by title, artist, or album..."
                                    id="mediaSearch" name="q">
                             <div class="position-absolute top-50 end-0 translate-middle-y pe-2 htmx-indicator" id="searchSpinner">
                                 <div class="spinner-border spinner-border-sm text-primary" role="status">
@@ -222,58 +224,55 @@
                                 <i class="bi bi-globe me-1"></i>Include public archive from other stations
                             </label>
                         </div>
-                    </form>
-                </div>
-
-                <!-- Advanced Filters (collapsed by default) -->
-                <div class="collapse border-bottom" id="advancedFilters">
-                    <div class="p-3 bg-body-tertiary">
-                        <div class="row g-2 mb-2">
-                            <div class="col-6">
-                                <label class="form-label small mb-1">Mood</label>
-                                <select class="form-select form-select-sm media-filter" id="moodFilter" name="mood" form="mediaSearchForm">
-                                    <option value="">Any Mood</option>
-                                    {{range $moods}}
-                                    <option value="{{.}}">{{.}}</option>
-                                    {{end}}
-                                    <option value="energetic">Energetic</option>
-                                    <option value="happy">Happy</option>
-                                    <option value="relaxed">Relaxed</option>
-                                    <option value="melancholic">Melancholic</option>
-                                </select>
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label small mb-1">Year</label>
-                                <div class="input-group input-group-sm">
-                                    <input type="number" class="form-control media-filter" id="yearFrom" name="year_from" placeholder="From" min="1900" max="2100" form="mediaSearchForm">
-                                    <input type="number" class="form-control media-filter" id="yearTo" name="year_to" placeholder="To" min="1900" max="2100" form="mediaSearchForm">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="row g-2 mb-2">
-                            <div class="col-12">
-                                <label class="form-label small mb-1">BPM Range</label>
-                                <div class="input-group input-group-sm">
-                                    <input type="number" class="form-control media-filter" id="bpmFrom" name="bpm_from" placeholder="Min" min="0" max="300" form="mediaSearchForm">
-                                    <input type="number" class="form-control media-filter" id="bpmTo" name="bpm_to" placeholder="Max" min="0" max="300" form="mediaSearchForm">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-check">
-                            <input type="checkbox" class="form-check-input media-filter" id="excludeExplicit" name="exclude_explicit" value="true" form="mediaSearchForm">
-                            <label class="form-check-label small" for="excludeExplicit">Exclude explicit</label>
-                        </div>
-                        <button class="btn btn-sm btn-outline-secondary w-100 mt-2" type="button" id="clearFilters">
-                            <i class="bi bi-x-circle me-1"></i>Clear All Filters
-                        </button>
                     </div>
-                </div>
 
-                <!-- Media List (loads via HTMX on page load) -->
-                <div id="availableMedia" class="list-group list-group-flush" style="max-height: 350px; overflow-y: auto;"
-                     hx-get="/dashboard/playlists/{{$playlist.ID}}/media-search"
-                     hx-trigger="load"
-                     hx-indicator="#searchSpinner">
+                    <!-- Advanced Filters (collapsed by default) -->
+                    <div class="collapse border-bottom" id="advancedFilters">
+                        <div class="p-3 bg-body-tertiary">
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small mb-1">Mood</label>
+                                    <select class="form-select form-select-sm media-filter" id="moodFilter" name="mood">
+                                        <option value="">Any Mood</option>
+                                        {{range $moods}}
+                                        <option value="{{.}}">{{.}}</option>
+                                        {{end}}
+                                        <option value="energetic">Energetic</option>
+                                        <option value="happy">Happy</option>
+                                        <option value="relaxed">Relaxed</option>
+                                        <option value="melancholic">Melancholic</option>
+                                    </select>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small mb-1">Year</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control media-filter" id="yearFrom" name="year_from" placeholder="From" min="1900" max="2100">
+                                        <input type="number" class="form-control media-filter" id="yearTo" name="year_to" placeholder="To" min="1900" max="2100">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-12">
+                                    <label class="form-label small mb-1">BPM Range</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control media-filter" id="bpmFrom" name="bpm_from" placeholder="Min" min="0" max="300">
+                                        <input type="number" class="form-control media-filter" id="bpmTo" name="bpm_to" placeholder="Max" min="0" max="300">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input media-filter" id="excludeExplicit" name="exclude_explicit" value="true">
+                                <label class="form-check-label small" for="excludeExplicit">Exclude explicit</label>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary w-100 mt-2" type="button" id="clearFilters">
+                                <i class="bi bi-x-circle me-1"></i>Clear All Filters
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Media List -->
+                <div id="availableMedia" class="list-group list-group-flush" style="max-height: 350px; overflow-y: auto;">
                     <div class="text-center py-4">
                         <div class="spinner-border spinner-border-sm text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
