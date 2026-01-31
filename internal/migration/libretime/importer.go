@@ -291,12 +291,16 @@ func (i *Importer) importWebstreams(ctx context.Context, ltDB *sql.DB, stationID
 		}
 
 		webstream := &models.Webstream{
-			ID:          uuid.New().String(),
-			StationID:   stationID,
-			Name:        w.Name,
-			Description: w.Description,
-			URLs:        []string{w.URL},
-			Active:      true,
+			ID:                  uuid.New().String(),
+			StationID:           stationID,
+			Name:                w.Name,
+			Description:         w.Description,
+			URLs:                []string{w.URL},
+			Active:              true,
+			HealthCheckInterval: 30 * time.Second,
+			HealthCheckTimeout:  10 * time.Second,
+			HealthCheckMethod:   "HEAD",
+			HealthStatus:        "unknown",
 		}
 
 		if !i.options.DryRun {
@@ -433,9 +437,29 @@ func (i *Importer) importPlaylists(ctx context.Context, ltDB *sql.DB, stationID 
 	return rows.Err()
 }
 
-// importShows imports shows as clock templates from cc_show
+// importShows imports shows and their instances from LibreTime
 func (i *Importer) importShows(ctx context.Context, ltDB *sql.DB, stationID string) error {
-	rows, err := ltDB.QueryContext(ctx, `
+	// Get default mount for schedule entries
+	var defaultMount models.Mount
+	if err := i.db.Where("station_id = ?", stationID).First(&defaultMount).Error; err != nil {
+		// Create a default mount if none exists
+		defaultMount = models.Mount{
+			ID:        uuid.New().String(),
+			StationID: stationID,
+			Name:      "Main",
+			URL:       "/stream",
+		}
+		if !i.options.DryRun {
+			if err := i.db.WithContext(ctx).Create(&defaultMount).Error; err != nil {
+				i.logger.Warn().Err(err).Msg("failed to create default mount, continuing")
+			}
+		}
+	}
+
+	// First, import shows as Clock templates
+	showToClockID := make(map[int]string)
+
+	showRows, err := ltDB.QueryContext(ctx, `
 		SELECT id, name, description, genre, url, color
 		FROM cc_show
 		ORDER BY id
@@ -443,40 +467,129 @@ func (i *Importer) importShows(ctx context.Context, ltDB *sql.DB, stationID stri
 	if err != nil {
 		return fmt.Errorf("query shows: %w", err)
 	}
-	defer rows.Close()
+	defer showRows.Close()
 
-	for rows.Next() {
+	for showRows.Next() {
 		var s Show
-		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.Genre, &s.URL, &s.Color); err != nil {
+		if err := showRows.Scan(&s.ID, &s.Name, &s.Description, &s.Genre, &s.URL, &s.Color); err != nil {
 			i.logger.Error().Err(err).Msg("scan show")
 			i.stats.ErrorsEncountered++
 			continue
 		}
 
-		// Create clock hour for this show
-		clockHour := &models.ClockHour{
-			ID:        uuid.New().String(),
-			StationID: stationID,
-			Name:      s.Name,
+		// Create Clock for this show
+		clock := &models.Clock{
+			ID:          uuid.New().String(),
+			StationID:   stationID,
+			Name:        s.Name,
+			Description: s.Description,
+			Duration:    3600, // 1 hour default
 		}
 
 		if !i.options.DryRun {
-			if err := i.db.WithContext(ctx).Create(clockHour).Error; err != nil {
-				i.logger.Error().Err(err).Str("name", s.Name).Msg("create clock hour")
+			if err := i.db.WithContext(ctx).Create(clock).Error; err != nil {
+				i.logger.Error().Err(err).Str("name", s.Name).Msg("create clock")
+				i.stats.ErrorsEncountered++
+				continue
+			}
+		}
+
+		showToClockID[s.ID] = clock.ID
+		i.logger.Debug().Str("name", s.Name).Str("clock_id", clock.ID).Msg("created clock for show")
+	}
+
+	if err := showRows.Err(); err != nil {
+		return fmt.Errorf("iterate shows: %w", err)
+	}
+
+	// Now import show instances as ScheduleEntry records
+	instanceRows, err := ltDB.QueryContext(ctx, `
+		SELECT si.id, si.show_id, si.starts, si.ends, s.name
+		FROM cc_show_instances si
+		JOIN cc_show s ON si.show_id = s.id
+		WHERE si.starts > NOW() - INTERVAL '30 days'
+		ORDER BY si.starts
+	`)
+	if err != nil {
+		// Table might not exist in older versions, log and continue
+		i.logger.Warn().Err(err).Msg("failed to query show instances, skipping schedule import")
+		return nil
+	}
+	defer instanceRows.Close()
+
+	for instanceRows.Next() {
+		var instanceID, showID int
+		var startsStr, endsStr, showName string
+
+		if err := instanceRows.Scan(&instanceID, &showID, &startsStr, &endsStr, &showName); err != nil {
+			i.logger.Error().Err(err).Msg("scan show instance")
+			i.stats.ErrorsEncountered++
+			continue
+		}
+
+		// Parse times (LibreTime stores as UTC timestamps)
+		startsAt, err := time.Parse("2006-01-02 15:04:05", startsStr)
+		if err != nil {
+			startsAt, err = time.Parse(time.RFC3339, startsStr)
+			if err != nil {
+				i.logger.Error().Err(err).Str("starts", startsStr).Msg("parse start time")
+				i.stats.ErrorsEncountered++
+				continue
+			}
+		}
+
+		endsAt, err := time.Parse("2006-01-02 15:04:05", endsStr)
+		if err != nil {
+			endsAt, err = time.Parse(time.RFC3339, endsStr)
+			if err != nil {
+				i.logger.Error().Err(err).Str("ends", endsStr).Msg("parse end time")
+				i.stats.ErrorsEncountered++
+				continue
+			}
+		}
+
+		// Get the clock ID for this show
+		clockID, hasClockID := showToClockID[showID]
+
+		scheduleEntry := &models.ScheduleEntry{
+			ID:        uuid.New().String(),
+			StationID: stationID,
+			MountID:   defaultMount.ID,
+			StartsAt:  startsAt,
+			EndsAt:    endsAt,
+			Metadata: map[string]any{
+				"title":           showName,
+				"libretime_id":    instanceID,
+				"imported_from":   "libretime",
+			},
+		}
+
+		// If we have a clock, reference it
+		if hasClockID {
+			scheduleEntry.SourceType = "clock"
+			scheduleEntry.SourceID = clockID
+		} else {
+			scheduleEntry.SourceType = "show"
+			scheduleEntry.Metadata["show_name"] = showName
+		}
+
+		if !i.options.DryRun {
+			if err := i.db.WithContext(ctx).Create(scheduleEntry).Error; err != nil {
+				i.logger.Error().Err(err).Str("show", showName).Msg("create schedule entry")
 				i.stats.ErrorsEncountered++
 				continue
 			}
 		}
 
 		i.stats.SchedulesImported++
-
-		i.logger.Info().
-			Str("name", s.Name).
-			Str("clock_id", clockHour.ID).
-			Msg("imported show as clock")
 	}
 
-	return rows.Err()
+	if err := instanceRows.Err(); err != nil {
+		return fmt.Errorf("iterate show instances: %w", err)
+	}
+
+	i.logger.Info().Int("clocks_created", len(showToClockID)).Int("schedules_created", i.stats.SchedulesImported).Msg("imported shows and schedules")
+	return nil
 }
 
 // importUsers imports users from cc_subjs
