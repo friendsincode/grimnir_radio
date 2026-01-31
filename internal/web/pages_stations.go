@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -203,14 +204,102 @@ func (h *Handler) StationUpdate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/stations", http.StatusSeeOther)
 }
 
-// StationDelete handles station deletion
+// StationDelete handles station deletion with full cascade
 func (h *Handler) StationDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	if err := h.db.Delete(&models.Station{}, "id = ?", id).Error; err != nil {
+	// Verify station exists
+	var station models.Station
+	if err := h.db.First(&station, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Delete in transaction to ensure consistency
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		// Delete schedule entries
+		if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleEntry{}).Error; err != nil {
+			return err
+		}
+
+		// Delete clock slots (via clock hours)
+		var clockHourIDs []string
+		tx.Model(&models.ClockHour{}).Where("station_id = ?", id).Pluck("id", &clockHourIDs)
+		if len(clockHourIDs) > 0 {
+			if err := tx.Where("clock_hour_id IN ?", clockHourIDs).Delete(&models.ClockSlot{}).Error; err != nil {
+				return err
+			}
+		}
+
+		// Delete clock hours
+		if err := tx.Where("station_id = ?", id).Delete(&models.ClockHour{}).Error; err != nil {
+			return err
+		}
+
+		// Delete clocks
+		if err := tx.Where("station_id = ?", id).Delete(&models.Clock{}).Error; err != nil {
+			return err
+		}
+
+		// Delete playlist items (via playlists)
+		var playlistIDs []string
+		tx.Model(&models.Playlist{}).Where("station_id = ?", id).Pluck("id", &playlistIDs)
+		if len(playlistIDs) > 0 {
+			if err := tx.Where("playlist_id IN ?", playlistIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
+				return err
+			}
+		}
+
+		// Delete playlists
+		if err := tx.Where("station_id = ?", id).Delete(&models.Playlist{}).Error; err != nil {
+			return err
+		}
+
+		// Delete smart blocks
+		if err := tx.Where("station_id = ?", id).Delete(&models.SmartBlock{}).Error; err != nil {
+			return err
+		}
+
+		// Delete media items
+		if err := tx.Where("station_id = ?", id).Delete(&models.MediaItem{}).Error; err != nil {
+			return err
+		}
+
+		// Delete webstreams
+		if err := tx.Where("station_id = ?", id).Delete(&models.Webstream{}).Error; err != nil {
+			return err
+		}
+
+		// Delete mounts
+		if err := tx.Where("station_id = ?", id).Delete(&models.Mount{}).Error; err != nil {
+			return err
+		}
+
+		// Delete station users
+		if err := tx.Where("station_id = ?", id).Delete(&models.StationUser{}).Error; err != nil {
+			return err
+		}
+
+		// Delete play history
+		if err := tx.Where("station_id = ?", id).Delete(&models.PlayHistory{}).Error; err != nil {
+			return err
+		}
+
+		// Finally delete the station
+		if err := tx.Delete(&station).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		h.logger.Error().Err(err).Str("station_id", id).Msg("failed to delete station")
 		http.Error(w, "Failed to delete station", http.StatusInternalServerError)
 		return
 	}
+
+	h.logger.Info().Str("station_id", id).Str("station_name", station.Name).Msg("station deleted with all data")
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Refresh", "true")
