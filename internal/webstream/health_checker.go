@@ -52,7 +52,12 @@ func (hc *HealthChecker) Run(ctx context.Context) {
 		return
 	}
 
-	ticker := time.NewTicker(ws.HealthCheckInterval)
+	interval := ws.HealthCheckInterval
+	if interval <= 0 {
+		interval = 30 * time.Second // Default to 30 seconds if not set
+		hc.logger.Warn().Dur("default_interval", interval).Msg("health check interval not set, using default")
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	// Run initial health check immediately
@@ -74,8 +79,12 @@ func (hc *HealthChecker) Run(ctx context.Context) {
 			}
 
 			// Adjust ticker interval if changed
+			interval = ws.HealthCheckInterval
+			if interval <= 0 {
+				interval = 30 * time.Second
+			}
 			ticker.Stop()
-			ticker = time.NewTicker(ws.HealthCheckInterval)
+			ticker = time.NewTicker(interval)
 
 			hc.performHealthCheck(&ws)
 		}
@@ -273,6 +282,9 @@ func (hc *HealthChecker) triggerFailover(ws *models.Webstream) {
 }
 
 func (hc *HealthChecker) checkURL(url, method string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
