@@ -45,21 +45,53 @@ func (h *Handler) PlaylistList(w http.ResponseWriter, r *http.Request) {
 	var playlists []models.Playlist
 	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&playlists)
 
-	// Get item counts and preview items for each playlist
+	// Collect all playlist IDs
+	playlistIDs := make([]string, len(playlists))
+	for i, p := range playlists {
+		playlistIDs[i] = p.ID
+	}
+
+	// Fetch all playlist items in one query
+	var allPlaylistItems []models.PlaylistItem
+	if len(playlistIDs) > 0 {
+		h.db.Where("playlist_id IN ?", playlistIDs).Order("playlist_id, position ASC").Find(&allPlaylistItems)
+	}
+
+	// Collect all unique media IDs
+	mediaIDSet := make(map[string]struct{})
+	for _, item := range allPlaylistItems {
+		mediaIDSet[item.MediaID] = struct{}{}
+	}
+	mediaIDs := make([]string, 0, len(mediaIDSet))
+	for id := range mediaIDSet {
+		mediaIDs = append(mediaIDs, id)
+	}
+
+	// Fetch all media in one query
+	mediaMap := make(map[string]models.MediaItem)
+	if len(mediaIDs) > 0 {
+		var mediaItems []models.MediaItem
+		h.db.Select("id", "title", "duration").Where("id IN ?", mediaIDs).Find(&mediaItems)
+		for _, m := range mediaItems {
+			mediaMap[m.ID] = m
+		}
+	}
+
+	// Group playlist items by playlist ID
+	itemsByPlaylist := make(map[string][]models.PlaylistItem)
+	for _, item := range allPlaylistItems {
+		itemsByPlaylist[item.PlaylistID] = append(itemsByPlaylist[item.PlaylistID], item)
+	}
+
+	// Build preview data for each playlist
 	var playlistsWithPreviews []PlaylistWithPreview
 	for _, p := range playlists {
-		var count int64
-		h.db.Model(&models.PlaylistItem{}).Where("playlist_id = ?", p.ID).Count(&count)
-
-		// Get all items to calculate total duration
-		var allItems []models.PlaylistItem
-		h.db.Where("playlist_id = ?", p.ID).Order("position ASC").Find(&allItems)
-
+		items := itemsByPlaylist[p.ID]
 		var previewItems []PreviewItem
 		var totalDuration time.Duration
-		for i, item := range allItems {
-			var media models.MediaItem
-			if err := h.db.Select("title", "duration").First(&media, "id = ?", item.MediaID).Error; err == nil {
+
+		for i, item := range items {
+			if media, ok := mediaMap[item.MediaID]; ok {
 				totalDuration += media.Duration
 
 				// Only include first 10 items in preview
@@ -79,7 +111,7 @@ func (h *Handler) PlaylistList(w http.ResponseWriter, r *http.Request) {
 
 		playlistsWithPreviews = append(playlistsWithPreviews, PlaylistWithPreview{
 			Playlist:      p,
-			ItemCount:     count,
+			ItemCount:     int64(len(items)),
 			PreviewItems:  previewItems,
 			HasCover:      len(p.CoverImage) > 0,
 			TotalDuration: totalDuration,
@@ -163,7 +195,22 @@ func (h *Handler) PlaylistDetail(w http.ResponseWriter, r *http.Request) {
 	var items []models.PlaylistItem
 	h.db.Where("playlist_id = ?", id).Order("position ASC").Find(&items)
 
-	// Load media for each item
+	// Collect all media IDs and fetch in one query
+	mediaIDs := make([]string, len(items))
+	for i, item := range items {
+		mediaIDs[i] = item.MediaID
+	}
+
+	mediaMap := make(map[string]models.MediaItem)
+	if len(mediaIDs) > 0 {
+		var mediaItems []models.MediaItem
+		h.db.Where("id IN ?", mediaIDs).Find(&mediaItems)
+		for _, m := range mediaItems {
+			mediaMap[m.ID] = m
+		}
+	}
+
+	// Build items with media
 	type itemWithMedia struct {
 		models.PlaylistItem
 		Media models.MediaItem
@@ -172,8 +219,7 @@ func (h *Handler) PlaylistDetail(w http.ResponseWriter, r *http.Request) {
 	var itemsWithMedia []itemWithMedia
 	var totalDuration time.Duration
 	for _, item := range items {
-		var media models.MediaItem
-		h.db.First(&media, "id = ?", item.MediaID)
+		media := mediaMap[item.MediaID]
 		itemsWithMedia = append(itemsWithMedia, itemWithMedia{item, media})
 		totalDuration += media.Duration
 	}
