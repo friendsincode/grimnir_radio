@@ -429,12 +429,16 @@ func (i *Importer) importPlaylists(ctx context.Context, azuraDB *sql.DB, station
 		if p.Source == "remote_url" && p.RemoteURL != "" {
 			// Create webstream
 			webstream := &models.Webstream{
-				ID:          uuid.New().String(),
-				StationID:   stationID,
-				Name:        p.Name,
-				Description: "Imported from AzuraCast",
-				URLs:        []string{p.RemoteURL},
-				Active:      p.IsEnabled,
+				ID:                  uuid.New().String(),
+				StationID:           stationID,
+				Name:                p.Name,
+				Description:         "Imported from AzuraCast",
+				URLs:                []string{p.RemoteURL},
+				Active:              p.IsEnabled,
+				HealthCheckInterval: 30 * time.Second,
+				HealthCheckTimeout:  10 * time.Second,
+				HealthCheckMethod:   "HEAD",
+				HealthStatus:        "unknown",
 			}
 
 			if !i.options.DryRun {
@@ -478,9 +482,28 @@ func (i *Importer) importPlaylists(ctx context.Context, azuraDB *sql.DB, station
 	return rows.Err()
 }
 
-// importSchedules imports schedules as clocks
+// importSchedules imports schedules as clocks and schedule entries
 func (i *Importer) importSchedules(ctx context.Context, azuraDB *sql.DB, stationMap map[int]string) error {
-	// First, query all schedules with their associated playlists
+	// Get or create default mounts for each station
+	mountMap := make(map[string]string) // stationID -> mountID
+	for _, stationID := range stationMap {
+		var mount models.Mount
+		if err := i.db.Where("station_id = ?", stationID).First(&mount).Error; err != nil {
+			// Create default mount
+			mount = models.Mount{
+				ID:        uuid.New().String(),
+				StationID: stationID,
+				Name:      "Main",
+				URL:       "/stream",
+			}
+			if !i.options.DryRun {
+				i.db.Create(&mount)
+			}
+		}
+		mountMap[stationID] = mount.ID
+	}
+
+	// Query all schedules with their associated playlists
 	rows, err := azuraDB.QueryContext(ctx, `
 		SELECT s.id, s.playlist_id, s.start_time, s.end_time, s.start_date, s.end_date, s.days, s.loop_once,
 		       p.station_id, p.name
@@ -492,9 +515,6 @@ func (i *Importer) importSchedules(ctx context.Context, azuraDB *sql.DB, station
 		return fmt.Errorf("query schedules: %w", err)
 	}
 	defer rows.Close()
-
-	// Group schedules by station
-	schedulesByStation := make(map[string][]StationSchedule)
 
 	for rows.Next() {
 		var s StationSchedule
@@ -515,56 +535,93 @@ func (i *Importer) importSchedules(ctx context.Context, azuraDB *sql.DB, station
 			continue
 		}
 
-		if startDate.Valid {
-			s.StartDate = &startDate.String
-		}
-		if endDate.Valid {
-			s.EndDate = &endDate.String
-		}
+		mountID := mountMap[stationID]
 
-		schedulesByStation[stationID] = append(schedulesByStation[stationID], s)
-	}
+		// Convert start_time/end_time from minutes since midnight to time.Time
+		// Use today as base date for the schedule
+		baseDate := time.Now().Truncate(24 * time.Hour)
+		startHour := s.StartTime / 60
+		startMin := s.StartTime % 60
+		endHour := s.EndTime / 60
+		endMin := s.EndTime % 60
 
-	if err := rows.Err(); err != nil {
-		return err
-	}
+		startsAt := baseDate.Add(time.Duration(startHour)*time.Hour + time.Duration(startMin)*time.Minute)
+		endsAt := baseDate.Add(time.Duration(endHour)*time.Hour + time.Duration(endMin)*time.Minute)
 
-	// Create clocks for each station
-	for stationID, schedules := range schedulesByStation {
-		// Group schedules by hour to create clock templates
-		hourSchedules := make(map[int][]StationSchedule)
-		for _, sched := range schedules {
-			hour := sched.StartTime / 60 // Convert minutes to hour
-			hourSchedules[hour] = append(hourSchedules[hour], sched)
+		// If end is before start, it wraps to next day
+		if endsAt.Before(startsAt) {
+			endsAt = endsAt.Add(24 * time.Hour)
 		}
 
-		// Create a clock template for each hour
-		for hour := range hourSchedules {
-			clockHour := &models.ClockHour{
-				ID:        uuid.New().String(),
-				StationID: stationID,
-				Name:      fmt.Sprintf("Hour %02d:00 (Imported)", hour),
-			}
-
-			if !i.options.DryRun {
-				if err := i.db.WithContext(ctx).Create(clockHour).Error; err != nil {
-					i.logger.Error().Err(err).Str("station", stationID).Msg("create clock hour")
-					i.stats.ErrorsEncountered++
-					continue
+		// Convert days string to array (AzuraCast uses "1,2,3,4,5,6,7" where 1=Mon, 7=Sun)
+		var recurrenceDays []int
+		if s.Days != "" {
+			for _, dayStr := range strings.Split(s.Days, ",") {
+				dayStr = strings.TrimSpace(dayStr)
+				if dayNum, err := strconv.Atoi(dayStr); err == nil {
+					// AzuraCast: 1=Mon, 7=Sun -> Go: 0=Sun, 1=Mon, 6=Sat
+					goDay := dayNum % 7 // 7 (Sun) becomes 0, 1 (Mon) stays 1
+					recurrenceDays = append(recurrenceDays, goDay)
 				}
 			}
-
-			i.stats.SchedulesImported++
-
-			i.logger.Info().
-				Str("station_id", stationID).
-				Int("hour", hour).
-				Str("clock_id", clockHour.ID).
-				Msg("imported clock hour")
 		}
+
+		// Determine recurrence type
+		var recurrenceType models.RecurrenceType
+		if len(recurrenceDays) == 7 {
+			recurrenceType = models.RecurrenceDaily
+		} else if len(recurrenceDays) == 5 && !containsDay(recurrenceDays, 0) && !containsDay(recurrenceDays, 6) {
+			recurrenceType = models.RecurrenceWeekdays
+		} else if len(recurrenceDays) > 0 {
+			recurrenceType = models.RecurrenceCustom
+		}
+
+		// Create schedule entry
+		scheduleEntry := &models.ScheduleEntry{
+			ID:             uuid.New().String(),
+			StationID:      stationID,
+			MountID:        mountID,
+			StartsAt:       startsAt,
+			EndsAt:         endsAt,
+			SourceType:     "playlist",
+			RecurrenceType: recurrenceType,
+			RecurrenceDays: recurrenceDays,
+			Metadata: map[string]any{
+				"title":          playlistName,
+				"azuracast_id":   s.ID,
+				"imported_from":  "azuracast",
+			},
+		}
+
+		if !i.options.DryRun {
+			if err := i.db.WithContext(ctx).Create(scheduleEntry).Error; err != nil {
+				i.logger.Error().Err(err).Str("playlist", playlistName).Msg("create schedule entry")
+				i.stats.ErrorsEncountered++
+				continue
+			}
+		}
+
+		i.stats.SchedulesImported++
+
+		i.logger.Debug().
+			Str("station_id", stationID).
+			Str("playlist", playlistName).
+			Time("starts_at", startsAt).
+			Time("ends_at", endsAt).
+			Msg("imported schedule entry")
 	}
 
-	return nil
+	return rows.Err()
+}
+
+// containsDay checks if a day is in the recurrence days slice
+func containsDay(days []int, day int) bool {
+	for _, d := range days {
+		if d == day {
+			return true
+		}
+	}
+	return false
 }
 
 // importUsers imports users
