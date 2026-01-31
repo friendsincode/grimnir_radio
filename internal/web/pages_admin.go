@@ -555,11 +555,12 @@ func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 	// Build query
 	dbQuery := h.db.Model(&models.MediaItem{})
 
-	// Search filter
+	// Search filter (use LOWER for cross-database compatibility)
 	if query != "" {
+		searchPattern := "%" + strings.ToLower(query) + "%"
 		dbQuery = dbQuery.Where(
-			"title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
-			"%"+query+"%", "%"+query+"%", "%"+query+"%",
+			"LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
+			searchPattern, searchPattern, searchPattern,
 		)
 	}
 

@@ -55,11 +55,12 @@ func (h *Handler) MediaList(w http.ResponseWriter, r *http.Request) {
 
 	dbQuery := h.db.Model(&models.MediaItem{}).Where("station_id = ?", station.ID)
 
-	// Search filter
+	// Search filter (use LOWER for cross-database compatibility)
 	if query != "" {
+		searchPattern := "%" + strings.ToLower(query) + "%"
 		dbQuery = dbQuery.Where(
-			"title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
-			"%"+query+"%", "%"+query+"%", "%"+query+"%",
+			"LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
+			searchPattern, searchPattern, searchPattern,
 		)
 	}
 
@@ -121,9 +122,10 @@ func (h *Handler) MediaTablePartial(w http.ResponseWriter, r *http.Request) {
 	dbQuery := h.db.Where("station_id = ?", station.ID)
 
 	if query != "" {
+		searchPattern := "%" + strings.ToLower(query) + "%"
 		dbQuery = dbQuery.Where(
-			"title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
-			"%"+query+"%", "%"+query+"%", "%"+query+"%",
+			"LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
+			searchPattern, searchPattern, searchPattern,
 		)
 	}
 
@@ -146,9 +148,10 @@ func (h *Handler) MediaGridPartial(w http.ResponseWriter, r *http.Request) {
 	dbQuery := h.db.Where("station_id = ?", station.ID)
 
 	if query != "" {
+		searchPattern := "%" + strings.ToLower(query) + "%"
 		dbQuery = dbQuery.Where(
-			"title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
-			"%"+query+"%", "%"+query+"%", "%"+query+"%",
+			"LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
+			searchPattern, searchPattern, searchPattern,
 		)
 	}
 

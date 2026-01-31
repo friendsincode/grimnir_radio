@@ -9,6 +9,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -652,8 +653,8 @@ func (h *Handler) ScheduleMediaSearchJSON(w http.ResponseWriter, r *http.Request
 	}
 
 	if query != "" {
-		searchPattern := "%" + query + "%"
-		dbQuery = dbQuery.Where("title ILIKE ? OR artist ILIKE ? OR album ILIKE ?",
+		searchPattern := "%" + strings.ToLower(query) + "%"
+		dbQuery = dbQuery.Where("LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
 			searchPattern, searchPattern, searchPattern)
 	}
 
