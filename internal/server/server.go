@@ -31,6 +31,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/executor"
 	"github.com/friendsincode/grimnir_radio/internal/leadership"
 	"github.com/friendsincode/grimnir_radio/internal/live"
+	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
@@ -53,6 +54,7 @@ type Server struct {
 
 	db                   *gorm.DB
 	cache                *cache.Cache
+	logBuffer            *logbuffer.Buffer
 	api                  *api.API
 	webHandler           *web.Handler
 	scheduler            *scheduler.Service
@@ -68,7 +70,7 @@ type Server struct {
 }
 
 // New constructs the server and wires dependencies.
-func New(cfg *config.Config, logger zerolog.Logger) (*Server, error) {
+func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*Server, error) {
 	router := chi.NewRouter()
 
 	router.Use(middleware.RequestID)
@@ -101,10 +103,11 @@ func New(cfg *config.Config, logger zerolog.Logger) (*Server, error) {
 	})
 
 	srv := &Server{
-		cfg:    cfg,
-		logger: logger,
-		router: router,
-		bus:    events.NewBus(),
+		cfg:       cfg,
+		logger:    logger,
+		router:    router,
+		bus:       events.NewBus(),
+		logBuffer: logBuf,
 	}
 
 	if err := srv.initDependencies(); err != nil {
@@ -245,7 +248,7 @@ func (s *Server) initDependencies() error {
 
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
-	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, broadcastSrv, s.bus, s.logger, []byte(s.cfg.JWTSigningKey))
+	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, broadcastSrv, s.bus, s.logBuffer, s.logger, []byte(s.cfg.JWTSigningKey))
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
@@ -266,6 +269,11 @@ func (s *Server) initDependencies() error {
 // HTTPServer exposes the underlying net/http server.
 func (s *Server) HTTPServer() *http.Server {
 	return s.httpServer
+}
+
+// LogBuffer returns the server's log buffer for attaching to zerolog.
+func (s *Server) LogBuffer() *logbuffer.Buffer {
+	return s.logBuffer
 }
 
 // Close releases owned resources in reverse order.

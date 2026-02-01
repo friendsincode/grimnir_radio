@@ -189,6 +189,13 @@
                 </li>
 
                 <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/logs"}}active bg-primary text-white{{end}}" href="/dashboard/admin/logs" data-bs-toggle="tooltip" data-bs-placement="right" title="System Logs">
+                        <i class="bi bi-terminal"></i>
+                        <span class="sidebar-text ms-2">System Logs</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/settings"}}active bg-primary text-white{{end}}" href="/dashboard/settings" data-bs-toggle="tooltip" data-bs-placement="right" title="Platform Settings">
                         <i class="bi bi-gear"></i>
                         <span class="sidebar-text ms-2">Platform Settings</span>

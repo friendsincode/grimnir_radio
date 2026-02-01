@@ -28,6 +28,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/executor"
 	"github.com/friendsincode/grimnir_radio/internal/live"
+	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
@@ -53,12 +54,13 @@ type API struct {
 	migrationHandler *MigrationHandler
 	broadcast        *broadcast.Server
 	bus              *events.Bus
+	logBuffer        *logbuffer.Buffer
 	logger           zerolog.Logger
 	jwtSecret        []byte
 }
 
 // New creates the API router wrapper.
-func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, broadcastSrv *broadcast.Server, bus *events.Bus, logger zerolog.Logger, jwtSecret []byte) *API {
+func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, logger zerolog.Logger, jwtSecret []byte) *API {
 	migrationHandler := NewMigrationHandler(db, media, bus, logger)
 
 	return &API{
@@ -72,6 +74,7 @@ func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, 
 		prioritySvc:      prioritySvc,
 		executorStateMgr: executorStateMgr,
 		migrationHandler: migrationHandler,
+		logBuffer:        logBuf,
 		broadcast:        broadcastSrv,
 		bus:              bus,
 		logger:           logger,
@@ -274,6 +277,10 @@ func (a *API) Routes(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin)).Get("/status", a.handleSystemStatus)
 				r.With(a.requireRoles(models.RoleAdmin)).Post("/test-media-engine", a.handleTestMediaEngine)
 				r.With(a.requireRoles(models.RoleAdmin)).Post("/reanalyze-missing-artwork", a.handleReanalyzeMissingArtwork)
+				r.With(a.requireRoles(models.RoleAdmin)).Get("/logs", a.handleSystemLogs)
+				r.With(a.requireRoles(models.RoleAdmin)).Get("/logs/components", a.handleLogComponents)
+				r.With(a.requireRoles(models.RoleAdmin)).Get("/logs/stats", a.handleLogStats)
+				r.With(a.requireRoles(models.RoleAdmin)).Delete("/logs", a.handleClearLogs)
 			})
 
 			// Priority management routes
@@ -1447,6 +1454,88 @@ func (a *API) handleReanalyzeMissingArtwork(w http.ResponseWriter, r *http.Reque
 		"total_found":  len(mediaIDs),
 		"queued":       queued,
 		"already_done": len(mediaIDs) - queued,
+	})
+}
+
+func (a *API) handleSystemLogs(w http.ResponseWriter, r *http.Request) {
+	if a.logBuffer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "Log buffer not available",
+		})
+		return
+	}
+
+	// Parse query parameters
+	params := logbuffer.QueryParams{
+		Level:      r.URL.Query().Get("level"),
+		Component:  r.URL.Query().Get("component"),
+		Search:     r.URL.Query().Get("search"),
+		Descending: true, // Default to newest first
+	}
+
+	if since := r.URL.Query().Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			params.Since = t
+		}
+	}
+
+	if limit := r.URL.Query().Get("limit"); limit != "" {
+		if n, err := strconv.Atoi(limit); err == nil && n > 0 {
+			params.Limit = n
+		}
+	} else {
+		params.Limit = 500 // Default limit
+	}
+
+	if order := r.URL.Query().Get("order"); order == "asc" {
+		params.Descending = false
+	}
+
+	entries := a.logBuffer.Query(params)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries": entries,
+		"count":   len(entries),
+	})
+}
+
+func (a *API) handleLogComponents(w http.ResponseWriter, r *http.Request) {
+	if a.logBuffer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "Log buffer not available",
+		})
+		return
+	}
+
+	components := a.logBuffer.GetComponents()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"components": components,
+	})
+}
+
+func (a *API) handleLogStats(w http.ResponseWriter, r *http.Request) {
+	if a.logBuffer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "Log buffer not available",
+		})
+		return
+	}
+
+	stats := a.logBuffer.Stats()
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (a *API) handleClearLogs(w http.ResponseWriter, r *http.Request) {
+	if a.logBuffer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "Log buffer not available",
+		})
+		return
+	}
+
+	a.logBuffer.Clear()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"message": "Log buffer cleared",
 	})
 }
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/friendsincode/grimnir_radio/internal/db"
+	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/logging"
 	"github.com/friendsincode/grimnir_radio/internal/server"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
@@ -28,8 +29,9 @@ import (
 )
 
 var (
-	logger zerolog.Logger
-	cfg    *config.Config
+	logger    zerolog.Logger
+	cfg       *config.Config
+	logBuffer *logbuffer.Buffer
 )
 
 var rootCmd = &cobra.Command{
@@ -64,7 +66,12 @@ func loadConfig() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger = logging.Setup(cfg.Environment)
+	// Create log buffer for in-memory log storage (10,000 entries)
+	logBuffer = logbuffer.New(10000)
+
+	// Setup logging with log buffer capture
+	logWriter := logbuffer.NewWriter(logBuffer, nil)
+	logger = logging.SetupWithWriter(cfg.Environment, logWriter)
 	return nil
 }
 
@@ -92,7 +99,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	srv, err := server.New(cfg, logger)
+	srv, err := server.New(cfg, logBuffer, logger)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}

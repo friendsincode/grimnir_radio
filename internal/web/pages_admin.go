@@ -845,3 +845,21 @@ func (h *Handler) AdminMediaDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/dashboard/admin/media", http.StatusSeeOther)
 }
+
+// =============================================================================
+// SYSTEM LOGS
+// =============================================================================
+
+// AdminLogs renders the system logs viewer page
+func (h *Handler) AdminLogs(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	h.Render(w, r, "pages/dashboard/admin/logs", PageData{
+		Title:    "System Logs - Admin",
+		Stations: h.LoadStations(r),
+	})
+}
