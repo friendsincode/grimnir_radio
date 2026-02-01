@@ -232,24 +232,53 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error().Err(err).Str("search", searchQuery).Msg("archive search query failed")
 	}
 
+	// Build pagination query string preserving all filters
+	var paginationParams []string
+	if searchQuery != "" {
+		paginationParams = append(paginationParams, "q="+searchQuery)
+	}
+	if stationID != "" {
+		paginationParams = append(paginationParams, "station="+stationID)
+	}
+	if genre != "" {
+		paginationParams = append(paginationParams, "genre="+genre)
+	}
+	if year != "" {
+		paginationParams = append(paginationParams, "year="+year)
+	}
+	if artist != "" {
+		paginationParams = append(paginationParams, "artist="+artist)
+	}
+	if duration != "" {
+		paginationParams = append(paginationParams, "duration="+duration)
+	}
+	if sortBy != "" {
+		paginationParams = append(paginationParams, "sort="+sortBy)
+	}
+	filterParams := ""
+	if len(paginationParams) > 0 {
+		filterParams = "&" + strings.Join(paginationParams, "&")
+	}
+
 	h.Render(w, r, "pages/public/archive", PageData{
 		Title: "Archive",
 		Data: map[string]any{
-			"Media":     media,
-			"Total":     total,
-			"Page":      page,
-			"PerPage":   perPage,
-			"Query":     searchQuery,
-			"Stations":  publicStations,
-			"StationID": stationID,
-			"Genres":    genres,
-			"Genre":     genre,
-			"Years":     years,
-			"Year":      year,
-			"Artists":   artists,
-			"Artist":    artist,
-			"Sort":      sortBy,
-			"Duration":  duration,
+			"Media":        media,
+			"Total":        total,
+			"Page":         page,
+			"PerPage":      perPage,
+			"Query":        searchQuery,
+			"Stations":     publicStations,
+			"StationID":    stationID,
+			"Genres":       genres,
+			"Genre":        genre,
+			"Years":        years,
+			"Year":         year,
+			"Artists":      artists,
+			"Artist":       artist,
+			"Sort":         sortBy,
+			"Duration":     duration,
+			"FilterParams": filterParams,
 		},
 	})
 }

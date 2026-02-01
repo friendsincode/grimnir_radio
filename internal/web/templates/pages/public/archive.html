@@ -168,12 +168,11 @@
     <!-- Pagination -->
     {{if gt .Data.Total .Data.PerPage}}
     {{$totalPages := div (add .Data.Total (sub .Data.PerPage 1)) .Data.PerPage}}
-    {{$params := printf "%s%s%s%s%s%s%s" (ternary (ne .Data.Query "") (printf "&q=%s" .Data.Query) "") (ternary (ne .Data.StationID "") (printf "&station=%s" .Data.StationID) "") (ternary (ne .Data.Genre "") (printf "&genre=%s" .Data.Genre) "") (ternary (ne .Data.Year "") (printf "&year=%s" .Data.Year) "") (ternary (ne .Data.Artist "") (printf "&artist=%s" .Data.Artist) "") (ternary (ne .Data.Duration "") (printf "&duration=%s" .Data.Duration) "") (ternary (ne .Data.Sort "") (printf "&sort=%s" .Data.Sort) "")}}
     <nav class="mt-4">
         <ul class="pagination justify-content-center">
             {{if gt .Data.Page 1}}
             <li class="page-item">
-                <a class="page-link" href="?page={{sub .Data.Page 1}}{{$params}}">
+                <a class="page-link" href="?page={{sub .Data.Page 1}}{{.Data.FilterParams}}">
                     <i class="bi bi-chevron-left"></i> Previous
                 </a>
             </li>
@@ -183,7 +182,7 @@
             </li>
             {{if lt (mul .Data.Page .Data.PerPage) .Data.Total}}
             <li class="page-item">
-                <a class="page-link" href="?page={{add .Data.Page 1}}{{$params}}">
+                <a class="page-link" href="?page={{add .Data.Page 1}}{{.Data.FilterParams}}">
                     Next <i class="bi bi-chevron-right"></i>
                 </a>
             </li>
