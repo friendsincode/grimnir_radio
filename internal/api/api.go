@@ -273,6 +273,7 @@ func (a *API) Routes(r chi.Router) {
 			pr.Route("/system", func(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin)).Get("/status", a.handleSystemStatus)
 				r.With(a.requireRoles(models.RoleAdmin)).Post("/test-media-engine", a.handleTestMediaEngine)
+				r.With(a.requireRoles(models.RoleAdmin)).Post("/reanalyze-missing-artwork", a.handleReanalyzeMissingArtwork)
 			})
 
 			// Priority management routes
@@ -1393,6 +1394,59 @@ func (a *API) handleTestMediaEngine(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": "Media engine connection successful",
+	})
+}
+
+func (a *API) handleReanalyzeMissingArtwork(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if a.analyzer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"success": false,
+			"error":   "Analyzer service not available",
+		})
+		return
+	}
+
+	// Find media items without artwork that haven't been analyzed or need re-analysis
+	var mediaIDs []string
+	err := a.db.WithContext(ctx).
+		Model(&models.MediaItem{}).
+		Select("id").
+		Where("(artwork_mime IS NULL OR artwork_mime = '') AND (analysis_state IS NULL OR analysis_state != ?)", models.AnalysisPending).
+		Pluck("id", &mediaIDs).Error
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Queue each item for analysis
+	queued := 0
+	for _, mediaID := range mediaIDs {
+		// Check if already in queue
+		var existingJob models.AnalysisJob
+		err := a.db.WithContext(ctx).Where("media_id = ? AND status IN ?", mediaID, []string{"pending", "running"}).First(&existingJob).Error
+		if err == nil {
+			continue // Already queued
+		}
+
+		// Update analysis state and queue
+		a.db.WithContext(ctx).Model(&models.MediaItem{}).Where("id = ?", mediaID).Update("analysis_state", models.AnalysisPending)
+		if _, err := a.analyzer.Enqueue(ctx, mediaID); err != nil {
+			a.logger.Warn().Err(err).Str("media_id", mediaID).Msg("failed to queue media for re-analysis")
+			continue
+		}
+		queued++
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":      true,
+		"total_found":  len(mediaIDs),
+		"queued":       queued,
+		"already_done": len(mediaIDs) - queued,
 	})
 }
 
