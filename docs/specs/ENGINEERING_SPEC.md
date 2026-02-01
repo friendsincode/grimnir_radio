@@ -32,13 +32,12 @@ This document describes the architecture, design decisions, and technical specif
 - Multi-station/multi-mount architecture
 - API-first design (REST + WebSocket)
 
-### ⏳ PLANNED Goals
-- Replace Liquidsoap with graph-based media pipeline
-- Outperform legacy stacks in scheduling accuracy, live handover, and audio quality
+### ✓ IMPLEMENTED Goals (Post-1.0)
+- GStreamer-based media engine with graph-based DSP pipeline
 - Sample-accurate timing with professional DSP (loudness normalization, AGC, compression)
 - Multiple outputs per station with isolated failure domains
-- Suitable for live broadcasting with priority-based source management
-- Production-grade observability (metrics, tracing, alerting)
+- Live broadcasting with 5-tier priority-based source management
+- Production-grade observability (Prometheus metrics, OpenTelemetry tracing, alerting)
 
 ---
 
@@ -220,42 +219,36 @@ This document describes the architecture, design decisions, and technical specif
 **`internal/storage`**
 - Object storage abstraction (S3-compatible or filesystem)
 
-### ⏳ PLANNED Modules
+### ✓ IMPLEMENTED Modules (Post-1.0)
 
-**`internal/planner`** (renamed from `scheduler`)
-- Pure timeline generator
-- No execution logic
-- Event-sourced state machine
-- Offline simulation capabilities
-
-**`internal/executor`** ⭐ NEW
+**`internal/executor`**
 - Per-station execution goroutines
-- State machine: Idle → Preloading → Playing → Fading → Live → Emergency
+- State machine: Idle → Loading → Playing → Fading → Live → Error → Stopped
 - Priority-based source management
 - gRPC client to media engine
 - Telemetry monitoring and failover logic
 
-**`internal/mediaengine`** ⭐ NEW
+**`internal/mediaengine`**
 - gRPC client for media engine control
 - Command wrappers: LoadGraph, Play, Stop, Fade, InsertEmergency, RouteLive
 - Telemetry stream consumer
 
-**`internal/priority`** ⭐ NEW
+**`internal/priority`**
 - Priority tier definitions and logic
 - Source priority: Emergency (0) → Live Override (1) → Live Scheduled (2) → Automation (3) → Fallback (4)
 - Conflict resolution
 
-**`internal/dsp`** ⭐ NEW
+**`internal/mediaengine/dsp`**
 - DSP graph configuration builder
 - Node definitions: loudness, AGC, compressor, limiter, ducking, silence detector
 - GStreamer pipeline templates
 
-**`internal/eventbus`** (replacement for `internal/events`)
-- Redis Pub/Sub or NATS adapter
-- Multi-instance support
-- Event serialization (JSON or protobuf)
+**`internal/eventbus`**
+- Redis Pub/Sub and NATS adapters
+- Multi-instance support with leader election
+- Event serialization (JSON)
 
-**`cmd/mediaengine`** ⭐ NEW
+**`cmd/mediaengine`**
 - Separate media engine binary
 - gRPC server implementation
 - GStreamer graph builder and manager
@@ -284,9 +277,9 @@ All entities currently exist in `internal/models/models.go`:
 - **play_history**: Played tracks for analytics and separation rules
 - **analysis_jobs**: Analyzer work queue
 
-### ⏳ PLANNED Entities
+### ✓ IMPLEMENTED Entities (Post-1.0)
 
-**`executor_states`** - Executor runtime state
+**`executor_states`** - Executor runtime state (`internal/models/priority.go`)
 ```go
 type ExecutorState struct {
     ID            string    `gorm:"type:uuid;primaryKey"`
@@ -301,7 +294,7 @@ type ExecutorState struct {
 }
 ```
 
-**`priority_sources`** - Active sources with priority
+**`priority_sources`** - Active sources with priority (`internal/models/priority.go`)
 ```go
 type PrioritySource struct {
     ID         string `gorm:"type:uuid;primaryKey"`
@@ -317,7 +310,7 @@ type PrioritySource struct {
 }
 ```
 
-**`webstreams`** - External stream definitions
+**`webstreams`** - External stream definitions (`internal/models/webstream.go`)
 ```go
 type Webstream struct {
     ID            string         `gorm:"type:uuid;primaryKey"`
@@ -332,7 +325,7 @@ type Webstream struct {
 }
 ```
 
-**`dsp_graphs`** - Saved DSP configurations
+**`dsp_graphs`** - DSP configurations (`internal/mediaengine/dsp/graph.go` - runtime only, not persisted)
 ```go
 type DSPGraph struct {
     ID          string         `gorm:"type:uuid;primaryKey"`
@@ -350,7 +343,7 @@ type DSPNode struct {
 }
 ```
 
-**`migration_jobs`** - Import job tracking
+**`migration_jobs`** - Import job tracking (`internal/migration/types.go`)
 ```go
 type MigrationJob struct {
     ID         string `gorm:"type:uuid;primaryKey"`
@@ -389,24 +382,47 @@ All currently implemented endpoints remain as-is. See `docs/API_REFERENCE.md` fo
 - Events: WebSocket stream
 - Health: health checks
 
-### ⏳ PLANNED Endpoints (New Architecture)
+### ✓ IMPLEMENTED Endpoints (Post-1.0)
 
-**Priority Management:**
+**Priority Management:** (`internal/api/priority.go`)
 ```
-POST   /api/v1/priority/sources                  # Create priority source
-GET    /api/v1/priority/sources                  # List active sources
-DELETE /api/v1/priority/sources/{sourceID}       # Remove priority source
 POST   /api/v1/priority/emergency                # Emergency takeover (priority 0)
 POST   /api/v1/priority/override                 # Manual override (priority 1)
+DELETE /api/v1/priority/{sourceID}               # Release priority source
+GET    /api/v1/priority/current                  # Get current priority
+GET    /api/v1/priority/active                   # List active sources
 ```
 
-**Executor State:**
+**Executor State:** (`internal/api/executor.go`)
 ```
 GET    /api/v1/executor/states                   # List all executor states
 GET    /api/v1/executor/states/{stationID}       # Get executor state for station
+GET    /api/v1/executor/telemetry/{stationID}    # Get real-time telemetry
+GET    /api/v1/executor/health                   # Health check for all executors
 ```
 
-**DSP Graphs:**
+**Webstreams:** (`internal/api/api.go`)
+```
+GET    /api/v1/webstreams                        # List webstreams
+POST   /api/v1/webstreams                        # Create webstream
+GET    /api/v1/webstreams/{id}                   # Get webstream
+PUT    /api/v1/webstreams/{id}                   # Update webstream
+DELETE /api/v1/webstreams/{id}                   # Delete webstream
+POST   /api/v1/webstreams/{id}/failover          # Trigger failover
+POST   /api/v1/webstreams/{id}/reset             # Reset to primary
+```
+
+**Migrations:** (`internal/api/migration.go`)
+```
+POST   /api/v1/migrations                        # Create migration job
+POST   /api/v1/migrations/{jobID}/start          # Start migration job
+GET    /api/v1/migrations/{jobID}                # Get migration status
+GET    /api/v1/migrations                        # List all migrations
+```
+
+### ⏳ PLANNED Endpoints
+
+**DSP Graph Management API:** (graphs exist internally but no HTTP API yet)
 ```
 GET    /api/v1/dsp-graphs                        # List DSP graphs
 POST   /api/v1/dsp-graphs                        # Create DSP graph
@@ -414,24 +430,6 @@ GET    /api/v1/dsp-graphs/{graphID}              # Get DSP graph
 PATCH  /api/v1/dsp-graphs/{graphID}              # Update DSP graph
 DELETE /api/v1/dsp-graphs/{graphID}              # Delete DSP graph
 POST   /api/v1/dsp-graphs/{graphID}/apply        # Apply graph to station
-```
-
-**Webstreams:**
-```
-GET    /api/v1/webstreams                        # List webstreams
-POST   /api/v1/webstreams                        # Create webstream
-GET    /api/v1/webstreams/{streamID}             # Get webstream
-PATCH  /api/v1/webstreams/{streamID}             # Update webstream
-DELETE /api/v1/webstreams/{streamID}             # Delete webstream
-GET    /api/v1/webstreams/{streamID}/health      # Check health
-```
-
-**Migrations:**
-```
-POST   /api/v1/migrations/azuracast              # Import AzuraCast backup
-POST   /api/v1/migrations/libretime              # Import LibreTime backup
-GET    /api/v1/migrations/{jobID}                # Migration status
-GET    /api/v1/migrations/{jobID}/events         # SSE progress stream
 ```
 
 **Media Engine Control (internal gRPC, not HTTP):**
