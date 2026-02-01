@@ -188,6 +188,12 @@ func (a *API) Routes(r chi.Router) {
 						r.Get("/", a.handleMountsList)
 						r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/", a.handleMountsCreate)
 					})
+					// Station logs (accessible to all station roles)
+					r.Route("/logs", func(lr chi.Router) {
+						lr.Get("/", a.handleStationLogs)
+						lr.Get("/components", a.handleStationLogComponents)
+						lr.Get("/stats", a.handleStationLogStats)
+					})
 				})
 			})
 
@@ -266,13 +272,6 @@ func (a *API) Routes(r chi.Router) {
 			pr.Route("/analytics", func(r chi.Router) {
 				r.Get("/now-playing", a.handleAnalyticsNowPlaying)
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/spins", a.handleAnalyticsSpins)
-			})
-
-			// Station logs (accessible to all station roles)
-			pr.Route("/logs", func(r chi.Router) {
-				r.Get("/", a.handleStationLogs)
-				r.Get("/components", a.handleStationLogComponents)
-				r.Get("/stats", a.handleStationLogStats)
 			})
 
 			pr.Route("/webhooks", func(r chi.Router) {
