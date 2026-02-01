@@ -27,7 +27,7 @@ This document describes the architecture, design decisions, and technical specif
 ### ✓ IMPLEMENTED Goals
 - Deliver a reliable, deterministic radio automation control plane
 - Support multiple databases (PostgreSQL, MySQL, SQLite)
-- JWT-based authentication with RBAC
+- API key authentication with RBAC (web dashboard uses session cookies)
 - Event-driven architecture for inter-service communication
 - Multi-station/multi-mount architecture
 - API-first design (REST + WebSocket)
@@ -48,7 +48,7 @@ This document describes the architecture, design decisions, and technical specif
 ┌──────────────────────────────────────────────────────────────┐
 │                    API Gateway (Go)                          │
 │         :8080 REST + :9090 gRPC + WebSocket + SSE            │
-│              JWT Auth + RBAC + Rate Limiting                 │
+│           API Key Auth + RBAC + Rate Limiting                │
 └───────┬──────────────────────────────────┬───────────────────┘
         │                                  │
    ┌────▼─────────────┐            ┌──────▼────────────────┐
@@ -152,7 +152,7 @@ This document describes the architecture, design decisions, and technical specif
 **`internal/api`**
 - REST endpoints (stations, media, smart blocks, clocks, schedule, playout, analytics)
 - WebSocket event streaming
-- JWT middleware
+- API key middleware
 - RBAC enforcement
 - Request/response validation
 
@@ -174,7 +174,7 @@ This document describes the architecture, design decisions, and technical specif
 - Multi-backend support (PostgreSQL, MySQL, SQLite)
 
 **`internal/auth`**
-- JWT token issuance and validation
+- API key generation and validation (SHA256 hashed)
 - Claims structure (user_id, roles, station_id)
 - RBAC middleware
 
@@ -375,7 +375,7 @@ type MigrationJob struct {
 All currently implemented endpoints remain as-is. See `docs/API_REFERENCE.md` for full documentation.
 
 **Summary:**
-- Auth: login, refresh
+- Auth: API key via X-API-Key header (keys managed in profile page)
 - Stations: list, create, get
 - Mounts: list, create
 - Media: upload, get
@@ -960,7 +960,8 @@ priorities:
 
 ### ✓ IMPLEMENTED
 
-- JWT-based authentication with 15-minute TTL
+- API key authentication (SHA256 hashed, configurable expiration up to 1 year)
+- Web dashboard session cookies (JWT-based)
 - RBAC with three roles: admin, manager, dj
 - Route-level middleware for auth and role enforcement
 - Bcrypt password hashing (cost 10)
@@ -971,8 +972,6 @@ priorities:
 
 **Enhanced Security:**
 - Optional OIDC/OAuth2 integration for SSO
-- Refresh token rotation (sliding window)
-- API key authentication for webhooks/integrations
 - Rate limiting on public endpoints (per IP, per user)
 - Audit logging for sensitive operations (schedule changes, priority overrides)
 - IP allowlisting for admin endpoints
@@ -1023,7 +1022,7 @@ priorities:
 
 - Deterministic Smart Block materialization given identical seed and inputs
 - 48h rolling schedule persists and reconciles on media changes
-- JWT authentication with role-based access control
+- API key authentication with role-based access control
 - Multi-database support (PostgreSQL, MySQL, SQLite)
 - Event bus pub/sub with WebSocket streaming
 - Media upload with analysis job queuing
@@ -1087,7 +1086,7 @@ priorities:
 - End-to-end: API → Planner → Executor → Media Engine (mock) → Output
 - Database: test all queries with PostgreSQL/MySQL/SQLite
 - Event bus: Redis/NATS pub/sub under load
-- Auth: JWT issuance, validation, expiry, refresh
+- Auth: API key generation, validation, expiry, revocation
 
 **Stress Tests:**
 - 10 stations, 3 outputs each, 24-hour continuous run
@@ -1182,7 +1181,7 @@ priorities:
 - GORM (ORM with PostgreSQL/MySQL/SQLite)
 - Zerolog (structured logging)
 - nhooyr.io/websocket (WebSocket)
-- golang-jwt/jwt/v5 (JWT auth)
+- golang-jwt/jwt/v5 (web session cookies)
 - google/uuid (UUID generation)
 - golang.org/x/crypto (bcrypt)
 

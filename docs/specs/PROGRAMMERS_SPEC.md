@@ -36,8 +36,8 @@ grimnir_radio/
 │   │   └── api.go             # REST endpoints, WebSocket handling
 │   ├── analyzer/              # Media analysis service ✓ (partial)
 │   │   └── analyzer.go        # LUFS analysis, cue points (basic)
-│   ├── auth/                  # JWT auth + RBAC ✓
-│   │   ├── jwt.go             # Token issuance/validation
+│   ├── auth/                  # API key auth + RBAC ✓
+│   │   ├── apikey.go          # API key generation/validation
 │   │   └── middleware.go      # Auth middleware
 │   ├── clock/                 # Clock compilation ✓
 │   │   └── clock.go           # Hour template processing
@@ -184,7 +184,7 @@ GRIMNIR_MEDIA_ROOT=./media                 # Media storage path
 GRIMNIR_OBJECT_STORAGE_URL=                # S3 URL (optional)
 GRIMNIR_GSTREAMER_BIN=gst-launch-1.0       # GStreamer binary path
 GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES=48     # Schedule horizon (48 hours)
-GRIMNIR_JWT_SIGNING_KEY=secret             # JWT secret (required)
+GRIMNIR_JWT_SIGNING_KEY=secret             # Session signing key (required)
 GRIMNIR_METRICS_BIND=127.0.0.1:9000        # Metrics endpoint
 ```
 
@@ -232,7 +232,7 @@ GRIMNIR_IMPORT_DRY_RUN=false
 # 1. Set environment variables
 export GRIMNIR_DB_BACKEND=sqlite
 export GRIMNIR_DB_DSN="file:dev.sqlite?_foreign_keys=on"
-export GRIMNIR_JWT_SIGNING_KEY="dev-secret-change-in-production"
+export GRIMNIR_JWT_SIGNING_KEY="dev-secret-change-in-production"  # For web session cookies
 
 # 2. Run migrations (automatic on startup)
 ./grimnirradio
@@ -255,7 +255,7 @@ docker run -d \
 # 2. Set environment variables
 export GRIMNIR_DB_BACKEND=postgres
 export GRIMNIR_DB_DSN="postgres://postgres:password@localhost:5432/grimnir?sslmode=disable"
-export GRIMNIR_JWT_SIGNING_KEY="dev-secret"
+export GRIMNIR_JWT_SIGNING_KEY="dev-secret"  # For web session cookies
 
 # 3. Run
 ./grimnirradio
@@ -293,8 +293,8 @@ See `docs/API_REFERENCE.md` for complete documentation with schemas and examples
 
 **Authentication:**
 ```
-POST /api/v1/auth/login             # Login → JWT token
-POST /api/v1/auth/refresh           # Refresh token
+# API uses X-API-Key header (generate keys from profile page)
+# Web dashboard uses session cookies (login via /login page)
 ```
 
 **Stations:**
@@ -564,7 +564,7 @@ go tool cover -html=coverage.out
 - Smart Block rule evaluation (`internal/smartblock`)
 - Schedule generation (`internal/scheduler`)
 - API endpoint validation (`internal/api`)
-- JWT auth (`internal/auth`)
+- API key auth (`internal/auth`)
 
 ### ⏳ PLANNED Testing
 
@@ -866,14 +866,14 @@ user:password@tcp(host:3306)/dbname?parseTime=true
 file:dev.sqlite?_foreign_keys=on
 ```
 
-**JWT authentication failures:**
+**API authentication failures:**
 ```bash
-# Ensure JWT_SIGNING_KEY is set
-echo $GRIMNIR_JWT_SIGNING_KEY
+# Use API key from profile page (X-API-Key header)
+curl http://localhost:8080/api/v1/stations \
+  -H "X-API-Key: gr_your-api-key"
 
-# Token expires after 15 minutes, use /auth/refresh
-curl -X POST http://localhost:8080/api/v1/auth/refresh \
-  -H "Authorization: Bearer $TOKEN"
+# Check key hasn't expired or been revoked
+# Generate new key from Profile → API Keys in web dashboard
 ```
 
 **GStreamer not found:**
@@ -889,15 +889,15 @@ export GRIMNIR_GSTREAMER_BIN=/usr/local/bin/gst-launch-1.0
 ```bash
 # Check clocks are defined
 curl http://localhost:8080/api/v1/clocks?station_id=$STATION_ID \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 
 # Check smart blocks have matching media
 curl http://localhost:8080/api/v1/smart-blocks \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 
 # Manually refresh schedule
 curl -X POST http://localhost:8080/api/v1/schedule/refresh \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"station_id":"$STATION_ID"}'
 ```
