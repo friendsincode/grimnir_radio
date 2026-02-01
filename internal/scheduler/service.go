@@ -286,7 +286,7 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 
 	if err != nil {
 		if errors.Is(err, smartblock.ErrUnresolved) {
-			s.logger.Warn().Str("smart_block", blockID).Msg("smart block unresolved")
+			s.logger.Debug().Str("smart_block", blockID).Msg("smart block unresolved - no analyzed media available")
 			return nil
 		}
 		return err
