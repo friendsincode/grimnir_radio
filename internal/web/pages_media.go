@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -69,11 +70,12 @@ func (h *Handler) MediaList(w http.ResponseWriter, r *http.Request) {
 		dbQuery = dbQuery.Where("genre = ?", genre)
 	}
 
-	dbQuery.Count(&total)
+	// Use Session clones to avoid Count mutating query state
+	dbQuery.Session(&gorm.Session{}).Count(&total)
 
 	// Sorting
 	orderClause := sortBy + " " + strings.ToUpper(sortOrder)
-	dbQuery.Order(orderClause).
+	dbQuery.Session(&gorm.Session{}).Order(orderClause).
 		Offset((page - 1) * perPage).
 		Limit(perPage).
 		Find(&media)
