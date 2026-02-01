@@ -20,7 +20,7 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Smart scheduling with rule-based playlist generation (deterministic, reproducible)
 - 48-hour rolling schedule automation with clock templates
 - Multi-station/multi-mount architecture with isolation
-- JWT authentication with role-based access (admin, manager, DJ)
+- API key authentication with role-based access (admin, manager, DJ)
 - Media upload and metadata management
 - HTTP JSON API with WebSocket events for real-time updates
 - PostgreSQL/MySQL/SQLite database support
@@ -151,7 +151,7 @@ Professional radio automation where Go owns the control plane and a dedicated me
 **Modern API-First Design**
 - RESTful JSON API for all operations
 - WebSocket events for real-time updates (now-playing, health, schedule changes)
-- JWT authentication with role-based access (admin, manager, DJ)
+- API key authentication with role-based access (admin, manager, DJ)
 - **vs. Legacy Systems:** Can build custom frontends, mobile apps, integrations
 
 **Cloud or On-Prem Flexibility**
@@ -230,12 +230,12 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Storage: filesystem or S3-compatible object storage
 
 **Authentication & Access Control**
-- JWT-based authentication (15-minute token TTL)
+- API key authentication (configurable expiration up to 1 year)
 - Role-based access control (RBAC):
   - **Admin:** Full system access
   - **Manager:** Station management, programming, analytics
   - **DJ:** Media upload, playout skip
-- Token refresh endpoint for session extension
+- API keys managed via web dashboard profile page
 - Bcrypt password hashing
 
 **Multi-Station Architecture**
@@ -647,7 +647,7 @@ Professional radio automation where Go owns the control plane and a dedicated me
 ### ✓ IMPLEMENTED
 
 **Authentication & Access:**
-- JWT-based with 15-minute token expiry
+- API key authentication with configurable expiration (up to 1 year)
 - Bcrypt password hashing (cost 10)
 - Role-based access control (admin, manager, DJ)
 - Route-level authorization enforcement
