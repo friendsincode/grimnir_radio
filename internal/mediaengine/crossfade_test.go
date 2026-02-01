@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package mediaengine
 
 import (
@@ -353,9 +352,9 @@ func TestCrossfadeManager_GetCurrentTrack(t *testing.T) {
 
 func TestFadeTiming_OverlapCalculation(t *testing.T) {
 	tests := []struct {
-		name           string
-		fadeOutMs      int32
-		fadeInMs       int32
+		name            string
+		fadeOutMs       int32
+		fadeInMs        int32
 		expectedOverlap time.Duration
 	}{
 		{

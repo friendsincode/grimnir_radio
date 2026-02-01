@@ -316,26 +316,26 @@ func (c *LibreTimeAPIClient) DownloadShowImage(ctx context.Context, showID int) 
 
 // LTFile represents a file/media item from the LibreTime API.
 type LTFile struct {
-	ID          int     `json:"id"`
-	Name        string  `json:"name"`
-	Artist      string  `json:"artist_name"`
-	Title       string  `json:"track_title"`
-	Album       string  `json:"album_title"`
-	Genre       string  `json:"genre"`
-	Date        string  `json:"date"`          // Year as string (was "year" in old API)
-	Length      string  `json:"length"`        // "HH:MM:SS.mmm"
-	CueIn       *string `json:"cue_in"`        // Duration string
-	CueOut      *string `json:"cue_out"`       // Duration string
-	ReplayGain  *string `json:"replay_gain"`
-	Filepath    string  `json:"filepath"`
-	Bitrate     *int    `json:"bit_rate"`
-	Samplerate  *int    `json:"sample_rate"`
-	Mime        string  `json:"mime"`
-	ImportStatus *int   `json:"import_status"`
-	FileExists  bool    `json:"exists"`        // API uses "exists" not "file_exists"
-	Hidden      bool    `json:"hidden"`
-	TrackNumber *int    `json:"track_number"`
-	Size        int64   `json:"size"`          // API uses "size" not "filesize"
+	ID           int     `json:"id"`
+	Name         string  `json:"name"`
+	Artist       string  `json:"artist_name"`
+	Title        string  `json:"track_title"`
+	Album        string  `json:"album_title"`
+	Genre        string  `json:"genre"`
+	Date         string  `json:"date"`    // Year as string (was "year" in old API)
+	Length       string  `json:"length"`  // "HH:MM:SS.mmm"
+	CueIn        *string `json:"cue_in"`  // Duration string
+	CueOut       *string `json:"cue_out"` // Duration string
+	ReplayGain   *string `json:"replay_gain"`
+	Filepath     string  `json:"filepath"`
+	Bitrate      *int    `json:"bit_rate"`
+	Samplerate   *int    `json:"sample_rate"`
+	Mime         string  `json:"mime"`
+	ImportStatus *int    `json:"import_status"`
+	FileExists   bool    `json:"exists"` // API uses "exists" not "file_exists"
+	Hidden       bool    `json:"hidden"`
+	TrackNumber  *int    `json:"track_number"`
+	Size         int64   `json:"size"` // API uses "size" not "filesize"
 }
 
 // LTPlaylist represents a playlist from the LibreTime API.
@@ -350,32 +350,32 @@ type LTPlaylist struct {
 // LTPlaylistContent represents a playlist item from the LibreTime API.
 type LTPlaylistContent struct {
 	ID         int     `json:"id"`
-	PlaylistID *int    `json:"playlist"`   // API uses "playlist" not "playlist_id"
-	FileID     *int    `json:"file"`       // API uses "file" not "file_id"
-	BlockID    *int    `json:"block"`      // API uses "block" not "block_id"
-	StreamID   *int    `json:"stream"`     // API uses "stream" not "stream_id"
+	PlaylistID *int    `json:"playlist"` // API uses "playlist" not "playlist_id"
+	FileID     *int    `json:"file"`     // API uses "file" not "file_id"
+	BlockID    *int    `json:"block"`    // API uses "block" not "block_id"
+	StreamID   *int    `json:"stream"`   // API uses "stream" not "stream_id"
 	Position   int     `json:"position"`
 	Offset     float64 `json:"offset"`
 	Length     string  `json:"length"`
-	CueIn      *string `json:"cue_in"`     // Duration string
-	CueOut     *string `json:"cue_out"`    // Duration string
-	FadeIn     *string `json:"fade_in"`    // Duration string (underscore format)
-	FadeOut    *string `json:"fade_out"`   // Duration string (underscore format)
+	CueIn      *string `json:"cue_in"`   // Duration string
+	CueOut     *string `json:"cue_out"`  // Duration string
+	FadeIn     *string `json:"fade_in"`  // Duration string (underscore format)
+	FadeOut    *string `json:"fade_out"` // Duration string (underscore format)
 }
 
 // LTShow represents a show from the LibreTime API.
 type LTShow struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Genre       string `json:"genre"`
-	Color       string `json:"color"`
-	BackgroundColor string `json:"background_color"`
-	LinkedShow  *int   `json:"linked_show_id"` // For multi-show/calendar association
-	HasAutoplaylist bool `json:"has_autoplaylist"`
-	AutoplaylistID *int `json:"autoplaylist_id"`
-	AutoplaylistRepeat bool `json:"autoplaylist_repeat"`
+	ID                 int    `json:"id"`
+	Name               string `json:"name"`
+	Description        string `json:"description"`
+	URL                string `json:"url"`
+	Genre              string `json:"genre"`
+	Color              string `json:"color"`
+	BackgroundColor    string `json:"background_color"`
+	LinkedShow         *int   `json:"linked_show_id"` // For multi-show/calendar association
+	HasAutoplaylist    bool   `json:"has_autoplaylist"`
+	AutoplaylistID     *int   `json:"autoplaylist_id"`
+	AutoplaylistRepeat bool   `json:"autoplaylist_repeat"`
 }
 
 // LTShowInstance represents a show instance from the LibreTime API.
@@ -392,34 +392,34 @@ type LTShowInstance struct {
 
 // LTShowDays represents show recurrence days from the LibreTime API.
 type LTShowDays struct {
-	ID            int    `json:"id"`
-	ShowID        int    `json:"show_id"`
-	FirstShow     string `json:"first_show"`     // Date string
-	LastShow      *string `json:"last_show"`     // Date string, nullable
-	StartTime     string `json:"start_time"`     // Time string HH:MM:SS
-	Timezone      string `json:"timezone"`
-	Duration      string `json:"duration"`       // HH:MM:SS
-	Day           int    `json:"day"`            // 0=Mon, 6=Sun
-	RepeatType    int    `json:"repeat_type"`    // 0=weekly, 1=biweekly, etc.
-	NextPopDate   string `json:"next_pop_date"`
+	ID          int     `json:"id"`
+	ShowID      int     `json:"show_id"`
+	FirstShow   string  `json:"first_show"` // Date string
+	LastShow    *string `json:"last_show"`  // Date string, nullable
+	StartTime   string  `json:"start_time"` // Time string HH:MM:SS
+	Timezone    string  `json:"timezone"`
+	Duration    string  `json:"duration"`    // HH:MM:SS
+	Day         int     `json:"day"`         // 0=Mon, 6=Sun
+	RepeatType  int     `json:"repeat_type"` // 0=weekly, 1=biweekly, etc.
+	NextPopDate string  `json:"next_pop_date"`
 }
 
 // LTScheduleEntry represents a schedule entry from the LibreTime API.
 type LTScheduleEntry struct {
-	ID               int       `json:"id"`
-	Starts           time.Time `json:"starts"`
-	Ends             time.Time `json:"ends"`
-	FileID           *int      `json:"file_id"`
-	StreamID         *int      `json:"stream_id"`
-	ClipLength       string    `json:"clip_length"`
-	FadeIn           *float64  `json:"fade_in"`
-	FadeOut          *float64  `json:"fade_out"`
-	CueIn            *float64  `json:"cue_in"`
-	CueOut           *float64  `json:"cue_out"`
-	InstanceID       int       `json:"instance_id"`
-	PlayoutStatus    int       `json:"playout_status"`
-	Broadcasted      int       `json:"broadcasted"`
-	Position         int       `json:"position"`
+	ID            int       `json:"id"`
+	Starts        time.Time `json:"starts"`
+	Ends          time.Time `json:"ends"`
+	FileID        *int      `json:"file_id"`
+	StreamID      *int      `json:"stream_id"`
+	ClipLength    string    `json:"clip_length"`
+	FadeIn        *float64  `json:"fade_in"`
+	FadeOut       *float64  `json:"fade_out"`
+	CueIn         *float64  `json:"cue_in"`
+	CueOut        *float64  `json:"cue_out"`
+	InstanceID    int       `json:"instance_id"`
+	PlayoutStatus int       `json:"playout_status"`
+	Broadcasted   int       `json:"broadcasted"`
+	Position      int       `json:"position"`
 }
 
 // =============================================================================
@@ -458,10 +458,10 @@ type LTFileSummary struct {
 type LTPlaylistSummary struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
-	ItemCount   int    `json:"item_count"`    // Total items (files + blocks + streams)
-	FileCount   int    `json:"file_count"`    // Direct media files
-	BlockCount  int    `json:"block_count"`   // Smart block references
-	StreamCount int    `json:"stream_count"`  // Webstream references
+	ItemCount   int    `json:"item_count"`   // Total items (files + blocks + streams)
+	FileCount   int    `json:"file_count"`   // Direct media files
+	BlockCount  int    `json:"block_count"`  // Smart block references
+	StreamCount int    `json:"stream_count"` // Webstream references
 	Length      string `json:"length"`
 }
 
@@ -475,14 +475,14 @@ type LTShowSummary struct {
 
 // LTStationInfo represents station metadata from the LibreTime API.
 type LTStationInfo struct {
-	StationName        string `json:"station_name"`
-	StationDescription string `json:"station_description"`
-	StationWebsite     string `json:"station_website"`
-	StationGenre       string `json:"station_genre"`
-	StationLanguage    string `json:"station_language"`
-	StationTimezone    string `json:"station_timezone"`
+	StationName         string `json:"station_name"`
+	StationDescription  string `json:"station_description"`
+	StationWebsite      string `json:"station_website"`
+	StationGenre        string `json:"station_genre"`
+	StationLanguage     string `json:"station_language"`
+	StationTimezone     string `json:"station_timezone"`
 	StationContactEmail string `json:"station_contact_email"`
-	StationLogo        string `json:"station_logo,omitempty"` // URL or base64
+	StationLogo         string `json:"station_logo,omitempty"` // URL or base64
 }
 
 // LTWebstream represents a remote webstream from the LibreTime API.
@@ -492,7 +492,7 @@ type LTWebstream struct {
 	Description string `json:"description"`
 	URL         string `json:"url"`
 	Length      string `json:"length"`
-	OwnerID     *int   `json:"owner"`  // API uses "owner" not "creator_id"
+	OwnerID     *int   `json:"owner"` // API uses "owner" not "creator_id"
 	Mime        string `json:"mime"`
 }
 
@@ -504,19 +504,19 @@ type LTSmartBlock struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Length      string `json:"length"`
-	Kind        string `json:"kind"`   // API uses "kind" not "type"
-	OwnerID     *int   `json:"owner"`  // API uses "owner" not "creator_id"
+	Kind        string `json:"kind"`  // API uses "kind" not "type"
+	OwnerID     *int   `json:"owner"` // API uses "owner" not "creator_id"
 }
 
 // LTSmartBlockCriteria represents criteria for a smart block.
 type LTSmartBlockCriteria struct {
 	ID        int    `json:"id"`
-	BlockID   int    `json:"block"`      // API uses "block" not "block_id"
-	Criteria  string `json:"criteria"`   // Field name (artist, album, genre, etc.)
-	Condition string `json:"condition"`  // API uses "condition" not "modifier"
+	BlockID   int    `json:"block"`     // API uses "block" not "block_id"
+	Criteria  string `json:"criteria"`  // Field name (artist, album, genre, etc.)
+	Condition string `json:"condition"` // API uses "condition" not "modifier"
 	Value     string `json:"value"`
 	Extra     string `json:"extra,omitempty"`
-	Group     int    `json:"group"`      // API uses "group" not "criteriagroup"
+	Group     int    `json:"group"` // API uses "group" not "criteriagroup"
 }
 
 // LTListenerStats represents listener statistics from the LibreTime API.

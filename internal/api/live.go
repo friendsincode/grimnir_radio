@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package api
 
 import (
@@ -24,7 +23,7 @@ type liveGenerateTokenRequest struct {
 	MountID   string `json:"mount_id"`
 	UserID    string `json:"user_id"`
 	Username  string `json:"username"`
-	Priority  int    `json:"priority"` // 1 = override, 2 = scheduled
+	Priority  int    `json:"priority"`                     // 1 = override, 2 = scheduled
 	ExpiresIn int    `json:"expires_in_seconds,omitempty"` // Optional, default 3600
 }
 
@@ -279,20 +278,20 @@ type liveStartHandoverRequest struct {
 	StationID       string `json:"station_id"`
 	MountID         string `json:"mount_id"`
 	UserID          string `json:"user_id"`
-	Priority        int    `json:"priority"`                   // 1 = override, 2 = scheduled
+	Priority        int    `json:"priority"`                    // 1 = override, 2 = scheduled
 	Immediate       bool   `json:"immediate,omitempty"`         // Default: false
 	FadeTimeMs      int    `json:"fade_time_ms,omitempty"`      // 0 = use default
 	RollbackOnError bool   `json:"rollback_on_error,omitempty"` // Default: true
 }
 
 type liveHandoverResponse struct {
-	Success        bool                    `json:"success"`
-	SessionID      string                  `json:"session_id"`
-	HandoverAt     time.Time               `json:"handover_at"`
-	TransitionType string                  `json:"transition_type"` // "immediate", "faded", "delayed"
-	PreviousSource *prioritySourceInfo     `json:"previous_source,omitempty"`
-	NewSource      *prioritySourceInfo     `json:"new_source,omitempty"`
-	Error          string                  `json:"error,omitempty"`
+	Success        bool                `json:"success"`
+	SessionID      string              `json:"session_id"`
+	HandoverAt     time.Time           `json:"handover_at"`
+	TransitionType string              `json:"transition_type"` // "immediate", "faded", "delayed"
+	PreviousSource *prioritySourceInfo `json:"previous_source,omitempty"`
+	NewSource      *prioritySourceInfo `json:"new_source,omitempty"`
+	Error          string              `json:"error,omitempty"`
 }
 
 type prioritySourceInfo struct {

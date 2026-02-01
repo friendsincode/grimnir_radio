@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package live
 
 import (
@@ -26,16 +25,16 @@ type HandoverRequest struct {
 	Priority  models.PriorityLevel // PriorityLiveOverride (1) or PriorityLiveScheduled (2)
 
 	// Handover behavior
-	Immediate   bool // If true, preempt current source immediately
-	FadeTimeMs  int  // Fade transition duration (0 = use default)
+	Immediate       bool // If true, preempt current source immediately
+	FadeTimeMs      int  // Fade transition duration (0 = use default)
 	RollbackOnError bool // If true, rollback to automation on handover failure
 }
 
 // HandoverResult contains the result of a live handover operation.
 type HandoverResult struct {
-	SessionID   string
-	Success     bool
-	HandoverAt  time.Time
+	SessionID      string
+	Success        bool
+	HandoverAt     time.Time
 	PreviousSource *PrioritySourceInfo
 	NewSource      *PrioritySourceInfo
 	TransitionType string // "immediate", "faded", "delayed"
@@ -118,9 +117,9 @@ func (s *Service) StartHandover(ctx context.Context, req HandoverRequest) (*Hand
 			SourceType: models.SourceTypeLive,
 			SourceID:   req.SessionID,
 			Metadata: map[string]any{
-				"session_id": req.SessionID,
-				"user_id":    req.UserID,
-				"username":   session.Username,
+				"session_id":  req.SessionID,
+				"user_id":     req.UserID,
+				"username":    session.Username,
 				"handover_at": startTime,
 			},
 		})
@@ -128,13 +127,13 @@ func (s *Service) StartHandover(ctx context.Context, req HandoverRequest) (*Hand
 	case models.PriorityLiveScheduled:
 		// Scheduled live show (priority 2)
 		priorityResult, transitionErr = s.prioritySvc.StartScheduledLive(ctx, priority.StartScheduledLiveRequest{
-			StationID:  req.StationID,
-			MountID:    req.MountID,
-			SourceID:   req.SessionID,
+			StationID: req.StationID,
+			MountID:   req.MountID,
+			SourceID:  req.SessionID,
 			Metadata: map[string]any{
-				"session_id": req.SessionID,
-				"user_id":    req.UserID,
-				"username":   session.Username,
+				"session_id":  req.SessionID,
+				"user_id":     req.UserID,
+				"username":    session.Username,
 				"handover_at": startTime,
 			},
 		})
@@ -191,9 +190,9 @@ func (s *Service) StartHandover(ctx context.Context, req HandoverRequest) (*Hand
 	})
 
 	result := &HandoverResult{
-		SessionID:   req.SessionID,
-		Success:     true,
-		HandoverAt:  startTime,
+		SessionID:      req.SessionID,
+		Success:        true,
+		HandoverAt:     startTime,
 		PreviousSource: previousSource,
 		NewSource: &PrioritySourceInfo{
 			Priority:   req.Priority,
@@ -237,11 +236,11 @@ func (s *Service) ReleaseHandover(ctx context.Context, sessionID string) error {
 
 	// Publish release event
 	s.bus.Publish(events.EventLiveReleased, events.Payload{
-		"station_id":   session.StationID,
-		"session_id":   sessionID,
-		"user_id":      session.UserID,
-		"username":     session.Username,
-		"released_at":  time.Now(),
+		"station_id":  session.StationID,
+		"session_id":  sessionID,
+		"user_id":     session.UserID,
+		"username":    session.Username,
+		"released_at": time.Now(),
 	})
 
 	s.logger.Info().

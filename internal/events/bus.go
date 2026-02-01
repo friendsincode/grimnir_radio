@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package events
 
 import "sync"
@@ -13,21 +12,36 @@ import "sync"
 type EventType string
 
 const (
-	EventNowPlaying      EventType = "now_playing"
-	EventHealth          EventType = "health"
-	EventListenerStats   EventType = "listener_stats"
-	EventDJConnect       EventType = "dj_connect"
-	EventDJDisconnect    EventType = "dj_disconnect"
-	EventScheduleUpdate  EventType = "schedule_update"
-	EventPriorityEmergency EventType = "priority.emergency"
-	EventPriorityOverride  EventType = "priority.override"
-	EventPriorityReleased  EventType = "priority.released"
-	EventPriorityChange    EventType = "priority.change"
-	EventLiveHandover    EventType = "live.handover"
-	EventLiveReleased    EventType = "live.released"
-	EventWebstreamFailover EventType = "webstream.failover"
+	EventNowPlaying         EventType = "now_playing"
+	EventHealth             EventType = "health"
+	EventListenerStats      EventType = "listener_stats"
+	EventDJConnect          EventType = "dj_connect"
+	EventDJDisconnect       EventType = "dj_disconnect"
+	EventScheduleUpdate     EventType = "schedule_update"
+	EventPriorityEmergency  EventType = "priority.emergency"
+	EventPriorityOverride   EventType = "priority.override"
+	EventPriorityReleased   EventType = "priority.released"
+	EventPriorityChange     EventType = "priority.change"
+	EventLiveHandover       EventType = "live.handover"
+	EventLiveReleased       EventType = "live.released"
+	EventWebstreamFailover  EventType = "webstream.failover"
 	EventWebstreamRecovered EventType = "webstream.recovered"
-	EventMigration       EventType = "migration"
+	EventMigration          EventType = "migration"
+
+	// Cache invalidation events
+	EventStationUpdated    EventType = "cache.station_updated"
+	EventStationCreated    EventType = "cache.station_created"
+	EventStationDeleted    EventType = "cache.station_deleted"
+	EventMountUpdated      EventType = "cache.mount_updated"
+	EventMountCreated      EventType = "cache.mount_created"
+	EventMountDeleted      EventType = "cache.mount_deleted"
+	EventSmartBlockUpdated EventType = "cache.smartblock_updated"
+	EventSmartBlockDeleted EventType = "cache.smartblock_deleted"
+	EventClockUpdated      EventType = "cache.clock_updated"
+	EventClockDeleted      EventType = "cache.clock_deleted"
+	EventMediaUpdated      EventType = "cache.media_updated"
+	EventMediaDeleted      EventType = "cache.media_deleted"
+	EventAnalysisComplete  EventType = "cache.analysis_complete"
 )
 
 // Payload generic event payload.

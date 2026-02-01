@@ -57,7 +57,7 @@ type RedisConfig struct {
 	WriteTimeout time.Duration
 
 	// Circuit breaker
-	MaxFailures int
+	MaxFailures   int
 	CheckInterval time.Duration
 }
 

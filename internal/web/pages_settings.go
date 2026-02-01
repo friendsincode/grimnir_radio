@@ -21,13 +21,13 @@ func (h *Handler) SettingsPage(w http.ResponseWriter, r *http.Request) {
 	// TODO: Load actual system settings from config/database
 
 	settings := map[string]any{
-		"scheduler_lookahead":  "48h",
-		"media_root":           "/var/lib/grimnir/media",
-		"analysis_enabled":     true,
-		"websocket_enabled":    true,
-		"leader_election":      false,
-		"metrics_enabled":      true,
-		"log_level":            "info",
+		"scheduler_lookahead": "48h",
+		"media_root":          "/var/lib/grimnir/media",
+		"analysis_enabled":    true,
+		"websocket_enabled":   true,
+		"leader_election":     false,
+		"metrics_enabled":     true,
+		"log_level":           "info",
 	}
 
 	h.Render(w, r, "pages/dashboard/settings/index", PageData{

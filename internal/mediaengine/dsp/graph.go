@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package dsp
 
 import (
@@ -262,7 +261,7 @@ func (b *Builder) buildMixNode(node *pb.DSPNode) (string, error) {
 
 // buildDuckNode creates an audio ducking element
 func (b *Builder) buildDuckNode(node *pb.DSPNode) (string, error) {
-	_ = getParamFloat(node.Params, "threshold", -20.0)   // TODO: implement ducking threshold
+	_ = getParamFloat(node.Params, "threshold", -20.0)    // TODO: implement ducking threshold
 	_ = getParamFloat(node.Params, "reduction_db", -12.0) // TODO: implement ducking reduction
 
 	// Audio ducking requires custom logic to reduce volume when a trigger signal is present

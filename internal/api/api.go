@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package api
 
 import (
@@ -23,20 +22,20 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-    "github.com/friendsincode/grimnir_radio/internal/analyzer"
-    "github.com/friendsincode/grimnir_radio/internal/auth"
-    "github.com/friendsincode/grimnir_radio/internal/broadcast"
-    "github.com/friendsincode/grimnir_radio/internal/events"
-    "github.com/friendsincode/grimnir_radio/internal/executor"
-    "github.com/friendsincode/grimnir_radio/internal/live"
-    "github.com/friendsincode/grimnir_radio/internal/media"
-    "github.com/friendsincode/grimnir_radio/internal/models"
-    "github.com/friendsincode/grimnir_radio/internal/playout"
-    "github.com/friendsincode/grimnir_radio/internal/priority"
-    "github.com/friendsincode/grimnir_radio/internal/scheduler"
-    "github.com/friendsincode/grimnir_radio/internal/smartblock"
-    "github.com/friendsincode/grimnir_radio/internal/telemetry"
-    "github.com/friendsincode/grimnir_radio/internal/webstream"
+	"github.com/friendsincode/grimnir_radio/internal/analyzer"
+	"github.com/friendsincode/grimnir_radio/internal/auth"
+	"github.com/friendsincode/grimnir_radio/internal/broadcast"
+	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/executor"
+	"github.com/friendsincode/grimnir_radio/internal/live"
+	"github.com/friendsincode/grimnir_radio/internal/media"
+	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/playout"
+	"github.com/friendsincode/grimnir_radio/internal/priority"
+	"github.com/friendsincode/grimnir_radio/internal/scheduler"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
+	"github.com/friendsincode/grimnir_radio/internal/webstream"
 	ws "nhooyr.io/websocket"
 )
 
@@ -238,23 +237,22 @@ func (a *API) Routes(r chi.Router) {
 				// Legacy handover endpoint (deprecated, kept for compatibility)
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/handover", a.handleLiveHandover)
 			})
-		pr.Route("/webstreams", func(r chi.Router) {
-			// List and create webstreams (admin/manager)
-			r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/", a.handleListWebstreams)
-			r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/", a.handleCreateWebstream)
+			pr.Route("/webstreams", func(r chi.Router) {
+				// List and create webstreams (admin/manager)
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/", a.handleListWebstreams)
+				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/", a.handleCreateWebstream)
 
-			// Individual webstream operations
-			r.Route("/{id}", func(r chi.Router) {
-				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/", a.handleGetWebstream)
-				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Put("/", a.handleUpdateWebstream)
-				r.With(a.requireRoles(models.RoleAdmin)).Delete("/", a.handleDeleteWebstream)
+				// Individual webstream operations
+				r.Route("/{id}", func(r chi.Router) {
+					r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/", a.handleGetWebstream)
+					r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Put("/", a.handleUpdateWebstream)
+					r.With(a.requireRoles(models.RoleAdmin)).Delete("/", a.handleDeleteWebstream)
 
-				// Failover operations
-				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/failover", a.handleTriggerWebstreamFailover)
-				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/reset", a.handleResetWebstreamToPrimary)
+					// Failover operations
+					r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/failover", a.handleTriggerWebstreamFailover)
+					r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/reset", a.handleResetWebstreamToPrimary)
+				})
 			})
-		})
-
 
 			pr.Route("/playout", func(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/reload", a.handlePlayoutReload)

@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package api
 
 import (
@@ -185,15 +184,15 @@ func (a *API) handlePriorityCurrent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"source_id":    source.ID,
-		"station_id":   source.StationID,
-		"mount_id":     source.MountID,
-		"priority":     int(source.Priority),
+		"source_id":     source.ID,
+		"station_id":    source.StationID,
+		"mount_id":      source.MountID,
+		"priority":      int(source.Priority),
 		"priority_name": source.Priority.String(),
-		"source_type":  string(source.SourceType),
-		"active":       source.Active,
-		"activated_at": source.ActivatedAt,
-		"metadata":     source.Metadata,
+		"source_type":   string(source.SourceType),
+		"active":        source.Active,
+		"activated_at":  source.ActivatedAt,
+		"metadata":      source.Metadata,
 	})
 }
 

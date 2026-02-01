@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package libretime
 
 import (
@@ -558,9 +557,9 @@ func (i *Importer) importShows(ctx context.Context, ltDB *sql.DB, stationID stri
 			StartsAt:  startsAt,
 			EndsAt:    endsAt,
 			Metadata: map[string]any{
-				"title":           showName,
-				"libretime_id":    instanceID,
-				"imported_from":   "libretime",
+				"title":         showName,
+				"libretime_id":  instanceID,
+				"imported_from": "libretime",
 			},
 		}
 

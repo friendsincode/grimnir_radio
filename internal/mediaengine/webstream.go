@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package mediaengine
 
 import (
@@ -18,11 +17,11 @@ import (
 
 // WebstreamPlayer handles relayed HTTP/ICY streams.
 type WebstreamPlayer struct {
-	WebstreamID string
-	StationID   string
-	MountID     string
-	URLs        []string // Failover chain
-	CurrentURL  string
+	WebstreamID  string
+	StationID    string
+	MountID      string
+	URLs         []string // Failover chain
+	CurrentURL   string
 	CurrentIndex int
 
 	// Stream state

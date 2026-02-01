@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package clock
 
 import (
@@ -13,7 +12,7 @@ import (
 	"sort"
 	"time"
 
-    "github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )

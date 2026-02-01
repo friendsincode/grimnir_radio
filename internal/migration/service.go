@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package migration
 
 import (
@@ -21,9 +20,9 @@ import (
 
 // Service manages migration jobs.
 type Service struct {
-	db       *gorm.DB
-	bus      *events.Bus
-	logger   zerolog.Logger
+	db        *gorm.DB
+	bus       *events.Bus
+	logger    zerolog.Logger
 	importers map[SourceType]Importer
 
 	mu      sync.RWMutex

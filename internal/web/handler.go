@@ -32,7 +32,7 @@ import (
 type Theme string
 
 const (
-	ThemeDAWDark   Theme = "daw-dark"
+	ThemeDAWDark    Theme = "daw-dark"
 	ThemeCleanLight Theme = "clean-light"
 	ThemeBroadcast  Theme = "broadcast"
 	ThemeClassic    Theme = "classic"
@@ -43,10 +43,10 @@ type Handler struct {
 	db               *gorm.DB
 	logger           zerolog.Logger
 	jwtSecret        []byte
-	mediaRoot        string                         // Root directory for media files
-	mediaService     *media.Service                 // Media storage service
-	icecastURL       string                         // Internal Icecast URL for stream proxy
-	icecastPublicURL string                         // Public Icecast URL for browser playback
+	mediaRoot        string                        // Root directory for media files
+	mediaService     *media.Service                // Media storage service
+	icecastURL       string                        // Internal Icecast URL for stream proxy
+	icecastPublicURL string                        // Public Icecast URL for browser playback
 	templates        map[string]*template.Template // Each page gets its own template set
 	partials         *template.Template            // Shared partials
 	updateChecker    *version.Checker              // Checks for new versions
@@ -71,7 +71,7 @@ type PageData struct {
 	Flash       *FlashMessage
 	CurrentPath string
 	CSRFToken   string
-	WSToken     string              // Auth token for WebSocket connections (non-HttpOnly)
+	WSToken     string // Auth token for WebSocket connections (non-HttpOnly)
 	Data        any
 	Version     string              // Current application version
 	UpdateInfo  *version.UpdateInfo // Available update info (nil if no update)
@@ -148,48 +148,48 @@ func (h *Handler) StopUpdateChecker() {
 
 func (h *Handler) loadTemplates() error {
 	funcMap := template.FuncMap{
-		"formatTime":     formatTime,
-		"timeago":        timeago,
-		"formatDuration": formatDuration,
-		"formatMs":       formatMs,
-		"formatBytes":    formatBytes,
-		"truncate":       truncate,
-		"lower":          strings.ToLower,
-		"upper":          strings.ToUpper,
-		"title":          strings.Title,
-		"contains":       strings.Contains,
-		"hasPrefix":      strings.HasPrefix,
-		"hasSuffix":      strings.HasSuffix,
-		"join":           strings.Join,
-		"split":          strings.Split,
-		"dict":           dict,
-		"list":           list,
-		"safeHTML":       safeHTML,
-		"safeJS":         safeJS,
-		"safeURL":        safeURL,
-		"add":            add,
-		"sub":            sub,
-		"mul":            mul,
-		"div":            div,
-		"mod":            mod,
-		"eq":             eq,
-		"ne":             ne,
-		"lt":             lt,
-		"le":             le,
-		"gt":             gt,
-		"ge":             ge,
-		"and":            and,
-		"or":             or,
-		"not":            not,
-		"default":        defaultVal,
-		"coalesce":       coalesce,
-		"ternary":        ternary,
-		"jsonMarshal":    jsonMarshal,
-		"roleAtLeast":    roleAtLeast,
+		"formatTime":      formatTime,
+		"timeago":         timeago,
+		"formatDuration":  formatDuration,
+		"formatMs":        formatMs,
+		"formatBytes":     formatBytes,
+		"truncate":        truncate,
+		"lower":           strings.ToLower,
+		"upper":           strings.ToUpper,
+		"title":           strings.Title,
+		"contains":        strings.Contains,
+		"hasPrefix":       strings.HasPrefix,
+		"hasSuffix":       strings.HasSuffix,
+		"join":            strings.Join,
+		"split":           strings.Split,
+		"dict":            dict,
+		"list":            list,
+		"safeHTML":        safeHTML,
+		"safeJS":          safeJS,
+		"safeURL":         safeURL,
+		"add":             add,
+		"sub":             sub,
+		"mul":             mul,
+		"div":             div,
+		"mod":             mod,
+		"eq":              eq,
+		"ne":              ne,
+		"lt":              lt,
+		"le":              le,
+		"gt":              gt,
+		"ge":              ge,
+		"and":             and,
+		"or":              or,
+		"not":             not,
+		"default":         defaultVal,
+		"coalesce":        coalesce,
+		"ternary":         ternary,
+		"jsonMarshal":     jsonMarshal,
+		"roleAtLeast":     roleAtLeast,
 		"isPlatformAdmin": isPlatformAdmin,
-		"isActive":       isActive,
-		"iterate":        iterate,
-		"stationColor":   stationColor,
+		"isActive":        isActive,
+		"iterate":         iterate,
+		"stationColor":    stationColor,
 	}
 
 	h.templates = make(map[string]*template.Template)
@@ -568,8 +568,8 @@ func safeURL(s string) template.URL {
 	return template.URL(s)
 }
 
-func add(a, b any) int      { return toInt(a) + toInt(b) }
-func sub(a, b any) int      { return toInt(a) - toInt(b) }
+func add(a, b any) int { return toInt(a) + toInt(b) }
+func sub(a, b any) int { return toInt(a) - toInt(b) }
 
 // iterate returns a slice of integers from 0 to n-1 for range loops in templates
 func iterate(n int) []int {
@@ -579,15 +579,27 @@ func iterate(n int) []int {
 	}
 	return result
 }
-func mul(a, b any) int      { return toInt(a) * toInt(b) }
-func div(a, b any) int      { ai, bi := toInt(a), toInt(b); if bi == 0 { return 0 }; return ai / bi }
-func mod(a, b any) int      { ai, bi := toInt(a), toInt(b); if bi == 0 { return 0 }; return ai % bi }
-func eq(a, b any) bool      { return a == b }
-func ne(a, b any) bool      { return a != b }
-func lt(a, b any) bool      { return toInt(a) < toInt(b) }
-func le(a, b any) bool      { return toInt(a) <= toInt(b) }
-func gt(a, b any) bool      { return toInt(a) > toInt(b) }
-func ge(a, b any) bool      { return toInt(a) >= toInt(b) }
+func mul(a, b any) int { return toInt(a) * toInt(b) }
+func div(a, b any) int {
+	ai, bi := toInt(a), toInt(b)
+	if bi == 0 {
+		return 0
+	}
+	return ai / bi
+}
+func mod(a, b any) int {
+	ai, bi := toInt(a), toInt(b)
+	if bi == 0 {
+		return 0
+	}
+	return ai % bi
+}
+func eq(a, b any) bool { return a == b }
+func ne(a, b any) bool { return a != b }
+func lt(a, b any) bool { return toInt(a) < toInt(b) }
+func le(a, b any) bool { return toInt(a) <= toInt(b) }
+func gt(a, b any) bool { return toInt(a) > toInt(b) }
+func ge(a, b any) bool { return toInt(a) >= toInt(b) }
 
 // toInt converts various numeric types to int
 func toInt(v any) int {
@@ -604,9 +616,9 @@ func toInt(v any) int {
 		return 0
 	}
 }
-func and(a, b bool) bool    { return a && b }
-func or(a, b bool) bool     { return a || b }
-func not(a bool) bool       { return !a }
+func and(a, b bool) bool { return a && b }
+func or(a, b bool) bool  { return a || b }
+func not(a bool) bool    { return !a }
 
 func defaultVal(def, val any) any {
 	if val == nil || val == "" || val == 0 || val == false {

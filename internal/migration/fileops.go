@@ -26,13 +26,13 @@ type FileOperations struct {
 	logger       zerolog.Logger
 
 	// Progress tracking
-	mu             sync.Mutex
-	totalBytes     int64
-	copiedBytes    int64
-	totalFiles     int
-	copiedFiles    int
-	failedFiles    int
-	skippedFiles   int
+	mu           sync.Mutex
+	totalBytes   int64
+	copiedBytes  int64
+	totalFiles   int
+	copiedFiles  int
+	failedFiles  int
+	skippedFiles int
 }
 
 // NewFileOperations creates a new file operations handler.
@@ -72,18 +72,18 @@ func DefaultCopyOptions() CopyOptions {
 
 // FileCopyJob represents a single file copy task.
 type FileCopyJob struct {
-	SourcePath  string
-	StationID   string
-	MediaID     string
-	FileSize    int64
+	SourcePath string
+	StationID  string
+	MediaID    string
+	FileSize   int64
 }
 
 // FileCopyResult represents the result of a file copy operation.
 type FileCopyResult struct {
-	MediaID    string
-	StorageKey string
-	Success    bool
-	Error      error
+	MediaID     string
+	StorageKey  string
+	Success     bool
+	Error       error
 	BytesCopied int64
 	Checksum    string
 }

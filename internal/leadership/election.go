@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package leadership
 
 import (
@@ -35,9 +34,9 @@ const (
 
 // Election manages distributed leader election using Redis
 type Election struct {
-	client   *redis.Client
-	logger   zerolog.Logger
-	config   ElectionConfig
+	client     *redis.Client
+	logger     zerolog.Logger
+	config     ElectionConfig
 	instanceID string
 
 	// Internal state

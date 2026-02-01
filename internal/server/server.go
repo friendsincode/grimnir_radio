@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package server
 
 import (
@@ -21,26 +20,27 @@ import (
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
-    "github.com/friendsincode/grimnir_radio/internal/analyzer"
-    "github.com/friendsincode/grimnir_radio/internal/api"
-    "github.com/friendsincode/grimnir_radio/internal/broadcast"
-    "github.com/friendsincode/grimnir_radio/internal/clock"
-    "github.com/friendsincode/grimnir_radio/internal/config"
-    "github.com/friendsincode/grimnir_radio/internal/db"
-    "github.com/friendsincode/grimnir_radio/internal/events"
-    "github.com/friendsincode/grimnir_radio/internal/executor"
-    "github.com/friendsincode/grimnir_radio/internal/leadership"
-    "github.com/friendsincode/grimnir_radio/internal/live"
-    "github.com/friendsincode/grimnir_radio/internal/media"
-    "github.com/friendsincode/grimnir_radio/internal/playout"
-    "github.com/friendsincode/grimnir_radio/internal/priority"
-    "github.com/friendsincode/grimnir_radio/internal/scheduler"
-    schedulerstate "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
-    "github.com/friendsincode/grimnir_radio/internal/smartblock"
-    "github.com/friendsincode/grimnir_radio/internal/telemetry"
-    "github.com/friendsincode/grimnir_radio/internal/web"
-    "github.com/friendsincode/grimnir_radio/internal/webrtc"
-    "github.com/friendsincode/grimnir_radio/internal/webstream"
+	"github.com/friendsincode/grimnir_radio/internal/analyzer"
+	"github.com/friendsincode/grimnir_radio/internal/api"
+	"github.com/friendsincode/grimnir_radio/internal/broadcast"
+	"github.com/friendsincode/grimnir_radio/internal/cache"
+	"github.com/friendsincode/grimnir_radio/internal/clock"
+	"github.com/friendsincode/grimnir_radio/internal/config"
+	"github.com/friendsincode/grimnir_radio/internal/db"
+	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/executor"
+	"github.com/friendsincode/grimnir_radio/internal/leadership"
+	"github.com/friendsincode/grimnir_radio/internal/live"
+	"github.com/friendsincode/grimnir_radio/internal/media"
+	"github.com/friendsincode/grimnir_radio/internal/playout"
+	"github.com/friendsincode/grimnir_radio/internal/priority"
+	"github.com/friendsincode/grimnir_radio/internal/scheduler"
+	schedulerstate "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
+	"github.com/friendsincode/grimnir_radio/internal/web"
+	"github.com/friendsincode/grimnir_radio/internal/webrtc"
+	"github.com/friendsincode/grimnir_radio/internal/webstream"
 )
 
 // Server bundles HTTP and supporting services.
@@ -52,6 +52,7 @@ type Server struct {
 	closers    []func() error
 
 	db                   *gorm.DB
+	cache                *cache.Cache
 	api                  *api.API
 	webHandler           *web.Handler
 	scheduler            *scheduler.Service
@@ -144,10 +145,28 @@ func (s *Server) initDependencies() error {
 	}
 	s.logger.Info().Str("path", s.cfg.MediaRoot).Msg("media directory ready")
 
+	// Initialize Redis cache for reducing database load
+	cacheCfg := cache.DefaultConfig()
+	cacheCfg.RedisAddr = s.cfg.RedisAddr
+	cacheCfg.RedisPassword = s.cfg.RedisPassword
+	cacheCfg.RedisDB = s.cfg.RedisDB
+	entityCache, err := cache.New(cacheCfg, s.logger)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("cache initialization failed, continuing without cache")
+	} else {
+		s.cache = entityCache
+		s.DeferClose(func() error { return s.cache.Close() })
+	}
+
 	planner := clock.NewPlanner(database, s.logger)
 	stateStore := schedulerstate.NewStore()
 	blockEngine := smartblock.New(database, s.logger)
 	s.scheduler = scheduler.New(database, planner, blockEngine, stateStore, s.cfg.SchedulerLookahead, s.logger)
+
+	// Wire cache into scheduler to reduce database load
+	if s.cache != nil {
+		s.scheduler.SetCache(s.cache)
+	}
 
 	// Setup leader-aware scheduler if leader election is enabled
 	if s.cfg.LeaderElectionEnabled {
@@ -347,6 +366,88 @@ func (s *Server) startBackgroundWorkers() {
 	// Start version update checker
 	if s.webHandler != nil {
 		s.webHandler.StartUpdateChecker(ctx)
+	}
+
+	// Start cache invalidation listener
+	if s.cache != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			s.runCacheInvalidationListener(ctx)
+		}()
+	}
+}
+
+// runCacheInvalidationListener subscribes to cache events and invalidates cache accordingly.
+func (s *Server) runCacheInvalidationListener(ctx context.Context) {
+	// Subscribe to all cache invalidation events
+	stationCreated := s.bus.Subscribe(events.EventStationCreated)
+	stationUpdated := s.bus.Subscribe(events.EventStationUpdated)
+	stationDeleted := s.bus.Subscribe(events.EventStationDeleted)
+	mountCreated := s.bus.Subscribe(events.EventMountCreated)
+	mountUpdated := s.bus.Subscribe(events.EventMountUpdated)
+	mountDeleted := s.bus.Subscribe(events.EventMountDeleted)
+
+	defer func() {
+		s.bus.Unsubscribe(events.EventStationCreated, stationCreated)
+		s.bus.Unsubscribe(events.EventStationUpdated, stationUpdated)
+		s.bus.Unsubscribe(events.EventStationDeleted, stationDeleted)
+		s.bus.Unsubscribe(events.EventMountCreated, mountCreated)
+		s.bus.Unsubscribe(events.EventMountUpdated, mountUpdated)
+		s.bus.Unsubscribe(events.EventMountDeleted, mountDeleted)
+	}()
+
+	s.logger.Info().Msg("cache invalidation listener started")
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info().Msg("cache invalidation listener stopped")
+			return
+
+		case payload := <-stationCreated:
+			s.logger.Debug().Msg("invalidating station list cache (station created)")
+			s.cache.InvalidateStationList(ctx)
+			if stationID, ok := payload["station_id"].(string); ok {
+				s.cache.InvalidateStation(ctx, stationID)
+			}
+
+		case payload := <-stationUpdated:
+			s.logger.Debug().Msg("invalidating station list cache (station updated)")
+			s.cache.InvalidateStationList(ctx)
+			if stationID, ok := payload["station_id"].(string); ok {
+				s.cache.InvalidateStation(ctx, stationID)
+			}
+
+		case payload := <-stationDeleted:
+			s.logger.Debug().Msg("invalidating station list cache (station deleted)")
+			s.cache.InvalidateStationList(ctx)
+			if stationID, ok := payload["station_id"].(string); ok {
+				s.cache.InvalidateStation(ctx, stationID)
+			}
+
+		case payload := <-mountCreated:
+			if stationID, ok := payload["station_id"].(string); ok {
+				s.logger.Debug().Str("station_id", stationID).Msg("invalidating mount cache (mount created)")
+				s.cache.InvalidateMounts(ctx, stationID)
+			}
+
+		case payload := <-mountUpdated:
+			mountID, _ := payload["mount_id"].(string)
+			stationID, _ := payload["station_id"].(string)
+			if mountID != "" && stationID != "" {
+				s.logger.Debug().Str("mount_id", mountID).Msg("invalidating mount cache (mount updated)")
+				s.cache.InvalidateMount(ctx, mountID, stationID)
+			}
+
+		case payload := <-mountDeleted:
+			mountID, _ := payload["mount_id"].(string)
+			stationID, _ := payload["station_id"].(string)
+			if mountID != "" && stationID != "" {
+				s.logger.Debug().Str("mount_id", mountID).Msg("invalidating mount cache (mount deleted)")
+				s.cache.InvalidateMount(ctx, mountID, stationID)
+			}
+		}
 	}
 }
 

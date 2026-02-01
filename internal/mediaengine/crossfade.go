@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package mediaengine
 
 import (
@@ -41,9 +40,9 @@ type FadeState string
 
 const (
 	FadeStateIdle    FadeState = "idle"
-	FadeStatePreload FadeState = "preload"  // Loading next track
-	FadeStateFading  FadeState = "fading"   // Active crossfade
-	FadeStateReady   FadeState = "ready"    // Next track ready to fade
+	FadeStatePreload FadeState = "preload" // Loading next track
+	FadeStateFading  FadeState = "fading"  // Active crossfade
+	FadeStateReady   FadeState = "ready"   // Next track ready to fade
 )
 
 // NewCrossfadeManager creates a new crossfade manager
