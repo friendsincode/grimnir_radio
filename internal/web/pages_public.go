@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -186,14 +187,14 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		query = query.Where("artist = ?", artist)
 	}
 
-	// Duration filter (in seconds)
+	// Duration filter (Duration is time.Duration stored as nanoseconds)
 	switch duration {
 	case "short": // Under 3 minutes
-		query = query.Where("duration < ?", 180)
+		query = query.Where("duration < ?", 3*time.Minute)
 	case "medium": // 3-6 minutes
-		query = query.Where("duration >= ? AND duration <= ?", 180, 360)
+		query = query.Where("duration >= ? AND duration <= ?", 3*time.Minute, 6*time.Minute)
 	case "long": // Over 6 minutes
-		query = query.Where("duration > ?", 360)
+		query = query.Where("duration > ?", 6*time.Minute)
 	}
 
 	// Search filter (use LOWER for cross-database compatibility)
@@ -202,9 +203,6 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		query = query.Where("LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
 			searchPattern, searchPattern, searchPattern)
 	}
-
-	// Count total results
-	query.Count(&total)
 
 	// Sort order
 	orderClause := "created_at DESC" // default: newest first
@@ -219,8 +217,12 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		orderClause = "duration DESC"
 	}
 
+	// Count total results (use Session clone to avoid mutating query state)
+	query.Session(&gorm.Session{}).Count(&total)
+
 	// Fetch paginated results
-	query.Order(orderClause).
+	query.Session(&gorm.Session{}).
+		Order(orderClause).
 		Offset((page - 1) * perPage).
 		Limit(perPage).
 		Find(&media)

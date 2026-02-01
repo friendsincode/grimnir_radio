@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -119,8 +121,9 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	query.Count(&total)
-	query.Order("started_at DESC").
+	// Use Session clones to avoid Count mutating query state
+	query.Session(&gorm.Session{}).Count(&total)
+	query.Session(&gorm.Session{}).Order("started_at DESC").
 		Offset((page - 1) * perPage).
 		Limit(perPage).
 		Find(&history)

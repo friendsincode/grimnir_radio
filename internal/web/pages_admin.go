@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -581,14 +582,14 @@ func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 		dbQuery = dbQuery.Where("show_in_archive = ?", false)
 	}
 
-	// Count total
+	// Count total (use Session clone to avoid mutating query state)
 	var total int64
-	dbQuery.Count(&total)
+	dbQuery.Session(&gorm.Session{}).Count(&total)
 
 	// Fetch media with pagination
 	var media []models.MediaItem
 	orderClause := sortBy + " " + strings.ToUpper(sortOrder)
-	dbQuery.Order(orderClause).
+	dbQuery.Session(&gorm.Session{}).Order(orderClause).
 		Offset((page - 1) * perPage).
 		Limit(perPage).
 		Find(&media)

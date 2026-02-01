@@ -243,8 +243,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 	if len(preservedUsers) > 0 {
 		logger.Info().Int("count", len(preservedUsers)).Msg("Restoring preserved users")
 		for _, u := range preservedUsers {
-			// Reset timestamps for clean restore
-			u.CreatedAt = u.CreatedAt // Keep original
+			// Keep original CreatedAt, set UpdatedAt to match
 			u.UpdatedAt = u.CreatedAt
 
 			if err := database.Create(&u).Error; err != nil {

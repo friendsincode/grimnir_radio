@@ -34,7 +34,8 @@ func createTestHandler(t *testing.T, db *gorm.DB) *web.Handler {
 	logger := zerolog.Nop()
 	eventBus := events.NewBus()
 	webrtcCfg := web.WebRTCConfig{}
-	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, eventBus, logger)
+	// Pass nil for mediaService and director since they're optional for basic route testing
+	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, eventBus, nil, logger)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -117,8 +118,8 @@ func TestAuthenticatedRoutes(t *testing.T) {
 	db := setupTestDB(t)
 	setupTestFixtures(t, db)
 
-	// Create admin user for testing
-	adminUser := createTestUser(t, db, "admin@test.com", "password123", models.RoleAdmin)
+	// Create admin user for testing (platform admin can access all routes)
+	adminUser := createTestUser(t, db, "admin@test.com", "password123", models.PlatformRoleAdmin)
 
 	handler := createTestHandler(t, db)
 
@@ -190,7 +191,7 @@ func TestFormRoutes(t *testing.T) {
 
 	db := setupTestDB(t)
 	station := setupTestFixtures(t, db)
-	createTestUser(t, db, "admin@test.com", "password123", models.RoleAdmin)
+	createTestUser(t, db, "admin@test.com", "password123", models.PlatformRoleAdmin)
 
 	handler := createTestHandler(t, db)
 
@@ -328,7 +329,8 @@ func TestLoginFlow(t *testing.T) {
 
 	db := setupTestDB(t)
 	setupTestFixtures(t, db)
-	createTestUser(t, db, "test@example.com", "testpass123", models.RoleDJ)
+	// Create a regular user (not admin) for testing login flow
+	createTestUser(t, db, "test@example.com", "testpass123", models.PlatformRoleUser)
 
 	handler := createTestHandler(t, db)
 
@@ -390,6 +392,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	err = db.AutoMigrate(
 		&models.User{},
 		&models.Station{},
+		&models.StationUser{},
 		&models.Mount{},
 		&models.MediaItem{},
 		&models.Playlist{},
@@ -436,7 +439,9 @@ func setupTestFixtures(t *testing.T, db *gorm.DB) *models.Station {
 	return station
 }
 
-func createTestUser(t *testing.T, db *gorm.DB, email, password string, role models.RoleName) *models.User {
+// createTestUser creates a test user with the specified platform role.
+// For station-level permissions, create a StationUser record separately.
+func createTestUser(t *testing.T, db *gorm.DB, email, password string, platformRole models.PlatformRole) *models.User {
 	// Hash password
 	hashedPassword, err := bcryptHash(password)
 	if err != nil {
@@ -444,10 +449,10 @@ func createTestUser(t *testing.T, db *gorm.DB, email, password string, role mode
 	}
 
 	user := &models.User{
-		ID:       fmt.Sprintf("user-%s", strings.Replace(email, "@", "-", -1)),
-		Email:    email,
-		Password: hashedPassword,
-		Role:     role,
+		ID:           fmt.Sprintf("user-%s", strings.Replace(email, "@", "-", -1)),
+		Email:        email,
+		Password:     hashedPassword,
+		PlatformRole: platformRole,
 	}
 
 	if err := db.Create(user).Error; err != nil {
@@ -467,13 +472,20 @@ func bcryptHash(password string) (string, error) {
 
 // BenchmarkPageLoad benchmarks page loading times.
 func BenchmarkPageLoad(b *testing.B) {
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		b.Fatalf("failed to open db: %v", err)
+	}
 	db.AutoMigrate(&models.User{}, &models.Station{})
 
 	logger := zerolog.Nop()
 	eventBus := events.NewBus()
 	webrtcCfg := web.WebRTCConfig{}
-	handler, _ := web.NewHandler(db, []byte("test"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, eventBus, logger)
+	// Pass nil for mediaService and director since they're optional for basic route testing
+	handler, err := web.NewHandler(db, []byte("test"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, eventBus, nil, logger)
+	if err != nil {
+		b.Fatalf("failed to create handler: %v", err)
+	}
 
 	r := chi.NewRouter()
 	handler.Routes(r)
