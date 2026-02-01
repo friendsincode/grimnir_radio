@@ -1,5 +1,81 @@
 # Changelog
 
+## 1.2.26 — 2026-02-01
+
+### API Documentation
+- **OpenAPI/Swagger Specification**: Created comprehensive OpenAPI 3.0 spec at `api/openapi.yaml`
+  - Complete documentation for all 26+ REST API endpoints
+  - Request/response schemas for all data models
+  - Authentication documentation (JWT Bearer tokens)
+  - Error response schemas
+- **Python Client Library**: Created full-featured Python client at `docs/api/examples/python/grimnir_client.py`
+  - All API operations: stations, media, playlists, smart blocks, schedule, live, webstreams
+  - Automatic token refresh
+  - Error handling with custom exceptions
+  - Type hints and docstrings
+- **API Documentation Guide**: Created `docs/api/README.md` with quick start examples
+- **Updated README**: Added API Documentation section with Python and curl examples
+
+### Bug Fixes
+- **Log Buffer Timestamp Fix**: Fixed all log entries showing the same timestamp
+  - zerolog uses Unix timestamps (float64) but buffer was parsing RFC3339 strings
+  - Added handling for float64 time values in the Writer's Write method
+
+---
+
+## 1.2.25 — 2026-01-31
+
+### Bug Fixes
+- **Station Logs API Route Fix**: Fixed 404 errors on station logs API
+  - Routes were incorrectly added at `/api/v1/logs` instead of `/api/v1/stations/{stationID}/logs`
+  - Moved routes inside the `/{stationID}` route group
+
+---
+
+## 1.2.24 — 2026-01-31
+
+### Features
+- **Station-Level Logs**: Added logging for DJs and station owners to troubleshoot their own issues
+  - Added `StationID` filter to log buffer `QueryParams`
+  - Added `StatsForStation()` and `GetComponentsForStation()` methods
+  - Added station-scoped API endpoints under `/stations/{stationID}/logs`
+  - Created station logs web page at `/dashboard/station/logs`
+  - Added nav link in sidebar
+- **Platform Logs Enhancement**: Updated platform logs to show station names instead of UUIDs
+  - Added `station_names` mapping in API response
+
+---
+
+## 1.2.23 — 2026-01-30
+
+### Improvements
+- **Broadcast Server Logging**: Added mount name to key broadcast log messages
+  - Added `Str("mount", m.Name)` to: feed started, feed active, client connected/disconnected, stream ended
+  - Improves debugging by showing which mount point logs refer to
+
+---
+
+## 1.2.22 — 2026-01-30
+
+### Bug Fixes
+- **System Logs API Auth Fix**: Fixed 403 errors on `/api/v1/system/logs` endpoints
+  - WSToken contained `platform_admin` role but middleware checked for station-level `admin` role
+  - Added `requirePlatformAdmin()` middleware that checks for `platform_admin` in claims.Roles
+  - Applied to all `/system` routes
+
+---
+
+## 1.2.21 — 2026-01-30
+
+### Features
+- **System Logs for Platform Admins**: Added in-memory log buffer with web UI
+  - Ring buffer storing last 10,000 log entries
+  - Filter by level, component, search text
+  - Real-time log streaming via API
+  - Platform admin only access
+
+---
+
 ## 1.0.0 (Production Release) — 2026-01-22
 
 **🎉 Grimnir Radio 1.0 is production-ready!**

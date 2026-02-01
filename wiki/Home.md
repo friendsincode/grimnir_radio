@@ -93,10 +93,11 @@ Grimnir Radio uses a modern microservices-inspired architecture:
 
 ## 📝 Version Information
 
-- **Current Version**: 1.0.0 (Production Release)
-- **Latest Update**: 2026-01-23
+- **Current Version**: 1.2.26
+- **Latest Update**: 2026-02-01
 - **Status**: Production Ready ✅
-- **Next Version**: 1.1.0 (Feature Enhancement) - In Progress
+- **OpenAPI Spec**: [api/openapi.yaml](https://github.com/friendsincode/grimnir_radio/blob/main/api/openapi.yaml)
+- **Python Client**: [grimnir_client.py](https://github.com/friendsincode/grimnir_radio/blob/main/docs/api/examples/python/grimnir_client.py)
 
 See [CHANGELOG](CHANGELOG) for version history and [Roadmap](Roadmap) for upcoming features.
 

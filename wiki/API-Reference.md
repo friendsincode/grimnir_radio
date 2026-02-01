@@ -1,10 +1,57 @@
 # Grimnir Radio API Reference
 
-Version: 0.0.1-alpha
+**Version:** 1.2.26
 
-Base URL: `http://localhost:8080/api/v1`
+**Base URL:** `https://your-instance.com/api/v1`
 
-This document describes both **IMPLEMENTED** and **⏳ PLANNED** API endpoints. Implemented endpoints are available in the current release. Planned endpoints are part of the future multi-process architecture (API Gateway, Planner, Executor Pool, Media Engine) and are clearly marked with ⏳. See `docs/ARCHITECTURE_ROADMAP.md` for implementation timeline.
+Grimnir Radio provides a comprehensive REST API for programmatic access to all station management, scheduling, and playback features.
+
+## Quick Links
+
+- **[OpenAPI Specification](https://github.com/friendsincode/grimnir_radio/blob/main/api/openapi.yaml)** - Complete API spec in OpenAPI 3.0 format
+- **[Python Client Library](https://github.com/friendsincode/grimnir_radio/blob/main/docs/api/examples/python/grimnir_client.py)** - Full-featured Python client
+- **[API Guide](https://github.com/friendsincode/grimnir_radio/blob/main/docs/api/README.md)** - Quick start guide with examples
+
+## Using the OpenAPI Spec
+
+The full API is documented in OpenAPI 3.0 format. You can view it interactively:
+
+```bash
+# Using Swagger UI with Docker
+docker run -p 8081:8080 -e SWAGGER_JSON=/api/openapi.yaml \
+  -v $(pwd)/api:/api swaggerapi/swagger-ui
+
+# Then open http://localhost:8081
+```
+
+## Python Client
+
+A full-featured Python client is available for easy integration:
+
+```python
+from grimnir_client import GrimnirClient
+
+client = GrimnirClient("https://your-instance.com")
+client.login("user@example.com", "password")
+
+# Get stations
+stations = client.get_stations()
+
+# Get now playing
+np = client.get_now_playing(station_id)
+print(f"Now Playing: {np['title']} by {np['artist']}")
+
+# Upload media
+media = client.upload_media(station_id, "/path/to/song.mp3")
+```
+
+See [Client Libraries](Client-Libraries) for installation and full documentation.
+
+---
+
+## API Endpoints Reference
+
+This section provides detailed documentation for all API endpoints.
 
 ## Table of Contents
 

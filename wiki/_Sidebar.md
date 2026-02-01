@@ -21,6 +21,7 @@
 
 **Integration**
 - [API Reference](API-Reference)
+- [Client Libraries](Client-Libraries)
 - [WebSocket Events](WebSocket-Events)
 - [Migration Guide](Migration-Guide)
 
