@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/go-chi/chi/v5"
 )
@@ -129,6 +130,14 @@ func (a *API) handleCreateWebstream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "create_failed")
 		return
 	}
+
+	// Publish audit event
+	a.publishAuditEvent(r, events.EventAuditWebstreamCreate, events.Payload{
+		"station_id":    ws.StationID,
+		"resource_type": "webstream",
+		"resource_id":   ws.ID,
+		"name":          ws.Name,
+	})
 
 	writeJSON(w, http.StatusCreated, toWebstreamResponse(ws))
 }
@@ -249,6 +258,14 @@ func (a *API) handleUpdateWebstream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Publish audit event
+	a.publishAuditEvent(r, events.EventAuditWebstreamUpdate, events.Payload{
+		"station_id":    ws.StationID,
+		"resource_type": "webstream",
+		"resource_id":   ws.ID,
+		"name":          ws.Name,
+	})
+
 	writeJSON(w, http.StatusOK, toWebstreamResponse(ws))
 }
 
@@ -259,11 +276,25 @@ func (a *API) handleDeleteWebstream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get webstream info before deleting for audit
+	ws, _ := a.webstreamSvc.GetWebstream(r.Context(), id)
+
 	if err := a.webstreamSvc.DeleteWebstream(r.Context(), id); err != nil {
 		a.logger.Error().Err(err).Msg("failed to delete webstream")
 		writeError(w, http.StatusInternalServerError, "delete_failed")
 		return
 	}
+
+	// Publish audit event
+	auditPayload := events.Payload{
+		"resource_type": "webstream",
+		"resource_id":   id,
+	}
+	if ws != nil {
+		auditPayload["station_id"] = ws.StationID
+		auditPayload["name"] = ws.Name
+	}
+	a.publishAuditEvent(r, events.EventAuditWebstreamDelete, auditPayload)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -287,6 +318,16 @@ func (a *API) handleTriggerWebstreamFailover(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusOK, map[string]string{"status": "failover_triggered"})
 		return
 	}
+
+	// Publish audit event
+	a.publishAuditEvent(r, events.EventWebstreamFailover, events.Payload{
+		"station_id":    ws.StationID,
+		"resource_type": "webstream",
+		"resource_id":   ws.ID,
+		"name":          ws.Name,
+		"new_url":       ws.CurrentURL,
+		"new_index":     ws.CurrentIndex,
+	})
 
 	writeJSON(w, http.StatusOK, toWebstreamResponse(ws))
 }

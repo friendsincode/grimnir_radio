@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/friendsincode/grimnir_radio/internal/auth"
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -390,6 +391,17 @@ func (h *Handler) APIKeyGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Publish audit event
+	h.eventBus.Publish(events.EventAuditAPIKeyCreate, events.Payload{
+		"user_id":       user.ID,
+		"user_email":    user.Email,
+		"resource_type": "apikey",
+		"resource_id":   apiKey.ID,
+		"key_name":      apiKey.Name,
+		"ip_address":    r.RemoteAddr,
+		"user_agent":    r.UserAgent(),
+	})
+
 	// Get all keys including the new one for the list
 	keys, _ := auth.ListAPIKeys(h.db, user.ID)
 
@@ -425,6 +437,16 @@ func (h *Handler) APIKeyRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to revoke API key", http.StatusInternalServerError)
 		return
 	}
+
+	// Publish audit event
+	h.eventBus.Publish(events.EventAuditAPIKeyRevoke, events.Payload{
+		"user_id":       user.ID,
+		"user_email":    user.Email,
+		"resource_type": "apikey",
+		"resource_id":   keyID,
+		"ip_address":    r.RemoteAddr,
+		"user_agent":    r.UserAgent(),
+	})
 
 	// Return updated list
 	keys, _ := auth.ListAPIKeys(h.db, user.ID)
