@@ -98,8 +98,8 @@ Grimnir Radio provides a comprehensive REST API for integration with external ap
 ```python
 from grimnir_client import GrimnirClient
 
-client = GrimnirClient("https://your-instance.com")
-client.login("user@example.com", "password")
+# Initialize with your API key (get it from your profile page)
+client = GrimnirClient("https://your-instance.com", api_key="gr_your-api-key")
 
 # Get stations
 stations = client.get_stations()
@@ -115,14 +115,12 @@ media = client.upload_media(station_id, "/path/to/song.mp3")
 ### Quick Example (curl)
 
 ```bash
-# Login
-TOKEN=$(curl -s -X POST https://your-instance.com/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "pass"}' | jq -r .token)
+# Use your API key (get it from your profile page in the web dashboard)
+API_KEY="gr_your-api-key-here"
 
 # Get stations
 curl https://your-instance.com/api/v1/stations \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 
 # Get now playing (no auth required)
 curl https://your-instance.com/api/v1/analytics/now-playing

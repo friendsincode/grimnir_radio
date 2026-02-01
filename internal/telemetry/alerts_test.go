@@ -58,10 +58,10 @@ func TestCriticalAlertsPresent(t *testing.T) {
 
 	criticalAlerts := []string{
 		"MediaEngineDown",
-		"HighAPIErrorRate",
-		"SchedulerStuck",
-		"PlayoutDropouts",
-		"DatabaseDown",
+		"APIHighErrorRate",
+		"ScheduleGap",
+		"PlayoutUnderrunHigh",
+		"AudioSilence",
 	}
 
 	for _, alertName := range criticalAlerts {

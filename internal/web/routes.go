@@ -71,6 +71,11 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Put("/profile", h.ProfileUpdate)
 			r.Post("/profile/password", h.ProfileUpdatePassword)
 
+			// API Keys management
+			r.Get("/profile/api-keys", h.APIKeysSection)
+			r.Post("/profile/api-keys", h.APIKeyGenerate)
+			r.Delete("/profile/api-keys/{id}", h.APIKeyRevoke)
+
 			// Station selection (no station required)
 			r.Get("/stations/select", h.StationSelect)
 			r.Post("/stations/select", h.StationSelectSubmit)

@@ -12,21 +12,15 @@ https://your-instance.com/api/v1
 
 ### Authentication
 
-Most endpoints require JWT Bearer token authentication:
+Most endpoints require API key authentication. Generate an API key from your profile page in the web dashboard.
 
 ```bash
-# Login to get a token
-curl -X POST https://your-instance.com/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "yourpassword"}'
-
-# Response:
-# {"token": "eyJ...", "user": {...}}
-
-# Use the token in subsequent requests
+# Use your API key in the X-API-Key header
 curl https://your-instance.com/api/v1/stations \
-  -H "Authorization: Bearer eyJ..."
+  -H "X-API-Key: gr_your-api-key-here"
 ```
+
+API keys have configurable expiration (30 days, 90 days, 180 days, or 1 year max) and can be revoked at any time from your profile page.
 
 ### Public Endpoints (No Auth Required)
 
@@ -61,9 +55,8 @@ A full-featured Python client is available:
 ```python
 from grimnir_client import GrimnirClient
 
-# Initialize and login
-client = GrimnirClient("https://your-instance.com")
-client.login("user@example.com", "password")
+# Initialize with your API key
+client = GrimnirClient("https://your-instance.com", api_key="gr_your-api-key-here")
 
 # Get stations
 stations = client.get_stations()
@@ -90,14 +83,14 @@ pip install requests
 
 ```bash
 curl "https://your-instance.com/api/v1/schedule?station_id=UUID&hours=24" \
-  -H "Authorization: Bearer TOKEN"
+  -H "X-API-Key: YOUR_API_KEY"
 ```
 
 ### Upload Media
 
 ```bash
 curl -X POST https://your-instance.com/api/v1/media/upload \
-  -H "Authorization: Bearer TOKEN" \
+  -H "X-API-Key: YOUR_API_KEY" \
   -F "file=@/path/to/song.mp3" \
   -F "station_id=UUID"
 ```
@@ -106,7 +99,7 @@ curl -X POST https://your-instance.com/api/v1/media/upload \
 
 ```bash
 curl -X POST https://your-instance.com/api/v1/playout/skip \
-  -H "Authorization: Bearer TOKEN" \
+  -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"station_id": "UUID"}'
 ```
@@ -115,7 +108,7 @@ curl -X POST https://your-instance.com/api/v1/playout/skip \
 
 ```bash
 curl -X POST https://your-instance.com/api/v1/smart-blocks \
-  -H "Authorization: Bearer TOKEN" \
+  -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "station_id": "UUID",
@@ -133,7 +126,7 @@ curl -X POST https://your-instance.com/api/v1/smart-blocks \
 ```javascript
 const eventSource = new EventSource(
   'https://your-instance.com/api/v1/events?types=now_playing,listener_update',
-  { headers: { 'Authorization': 'Bearer TOKEN' } }
+  { headers: { 'X-API-Key': 'YOUR_API_KEY' } }
 );
 
 eventSource.onmessage = (event) => {

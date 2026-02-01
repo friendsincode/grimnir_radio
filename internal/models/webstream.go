@@ -21,18 +21,19 @@ type Webstream struct {
 	URLs []string `gorm:"serializer:json"`
 
 	// Health check configuration
-	HealthCheckEnabled  bool          `gorm:"default:true"`
+	// Note: Defaults are set in CreateWebstream, not GORM tags, to allow explicit false values
+	HealthCheckEnabled  bool          `gorm:""`
 	HealthCheckInterval time.Duration `gorm:"type:bigint"` // Stored as nanoseconds
 	HealthCheckTimeout  time.Duration `gorm:"type:bigint"`
 	HealthCheckMethod   string        `gorm:"type:varchar(10);default:'HEAD'"` // HEAD or GET
 
 	// Failover settings
-	FailoverEnabled    bool `gorm:"default:true"`
+	FailoverEnabled    bool `gorm:""`
 	FailoverGraceMs    int  `gorm:"type:int;default:5000"` // Grace period before failover
-	AutoRecoverEnabled bool `gorm:"default:true"`          // Auto-recover to primary when healthy
+	AutoRecoverEnabled bool `gorm:""`                      // Auto-recover to primary when healthy
 
 	// Connection settings
-	PreflightCheck       bool `gorm:"default:true"` // Test connection before scheduling
+	PreflightCheck       bool `gorm:""` // Test connection before scheduling
 	BufferSizeMS         int  `gorm:"type:int;default:2000"`
 	ReconnectDelayMS     int  `gorm:"type:int;default:1000"`
 	MaxReconnectAttempts int  `gorm:"type:int;default:5"`

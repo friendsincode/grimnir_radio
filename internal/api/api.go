@@ -19,7 +19,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/analyzer"
@@ -56,11 +55,10 @@ type API struct {
 	bus              *events.Bus
 	logBuffer        *logbuffer.Buffer
 	logger           zerolog.Logger
-	jwtSecret        []byte
 }
 
 // New creates the API router wrapper.
-func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, logger zerolog.Logger, jwtSecret []byte) *API {
+func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, logger zerolog.Logger) *API {
 	migrationHandler := NewMigrationHandler(db, media, bus, logger)
 
 	return &API{
@@ -78,17 +76,8 @@ func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, 
 		broadcast:        broadcastSrv,
 		bus:              bus,
 		logger:           logger,
-		jwtSecret:        jwtSecret,
 	}
 }
-
-type loginRequest struct {
-	Email     string `json:"email"`
-	Password  string `json:"password"`
-	StationID string `json:"station_id"`
-}
-
-const accessTokenTTL = 15 * time.Minute
 
 type mountRequest struct {
 	StationID     string         `json:"station_id"`
@@ -166,7 +155,6 @@ type spinsQuery struct {
 func (a *API) Routes(r chi.Router) {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", a.handleHealth)
-		r.Post("/auth/login", a.handleAuthLogin)
 
 		// Public endpoints (no auth required)
 		r.Get("/analytics/now-playing", a.handleAnalyticsNowPlaying)
@@ -175,8 +163,6 @@ func (a *API) Routes(r chi.Router) {
 
 		r.Group(func(pr chi.Router) {
 			pr.Use(a.authMiddleware())
-
-			pr.Post("/auth/refresh", a.handleAuthRefresh)
 
 			pr.Route("/stations", func(r chi.Router) {
 				r.Get("/", a.handleStationsList)
@@ -309,69 +295,6 @@ func (a *API) Routes(r chi.Router) {
 
 func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (a *API) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
-	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json")
-		return
-	}
-	if req.Email == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "credentials_required")
-		return
-	}
-
-	var user models.User
-	result := a.db.WithContext(r.Context()).Where("email = ?", strings.ToLower(req.Email)).First(&user)
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		writeError(w, http.StatusUnauthorized, "invalid_credentials")
-		return
-	}
-	if result.Error != nil {
-		writeError(w, http.StatusInternalServerError, "db_error")
-		return
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid_credentials")
-		return
-	}
-
-	claims := auth.Claims{
-		UserID:    user.ID,
-		Roles:     []string{string(user.PlatformRole)},
-		StationID: req.StationID,
-	}
-	token, err := auth.Issue(a.jwtSecret, claims, accessTokenTTL)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "token_issue_failed")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": token,
-		"expires_in":   int(accessTokenTTL.Seconds()),
-	})
-}
-
-func (a *API) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.ClaimsFromContext(r.Context())
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	token, err := auth.Issue(a.jwtSecret, *claims, accessTokenTTL)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "token_issue_failed")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": token,
-		"expires_in":   int(accessTokenTTL.Seconds()),
-	})
 }
 
 func (a *API) handleStationsList(w http.ResponseWriter, r *http.Request) {
@@ -1271,7 +1194,7 @@ func (a *API) writeEvent(ctx context.Context, conn *ws.Conn, eventType events.Ev
 }
 
 func (a *API) authMiddleware() func(http.Handler) http.Handler {
-	return auth.Middleware(a.jwtSecret)
+	return auth.Middleware(a.db)
 }
 
 func (a *API) requireRoles(allowed ...models.RoleName) func(http.Handler) http.Handler {

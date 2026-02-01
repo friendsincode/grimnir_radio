@@ -20,24 +20,24 @@ import (
 
 // Default TTL values for different cache types
 const (
-	DefaultStationListTTL    = 5 * time.Minute
-	DefaultMountTTL          = 1 * time.Hour
-	DefaultSmartBlockTTL     = 1 * time.Hour
-	DefaultMediaItemTTL      = 1 * time.Hour
-	DefaultClockTTL          = 1 * time.Hour
-	DefaultStationMountsTTL  = 30 * time.Minute
+	DefaultStationListTTL   = 5 * time.Minute
+	DefaultMountTTL         = 1 * time.Hour
+	DefaultSmartBlockTTL    = 1 * time.Hour
+	DefaultMediaItemTTL     = 1 * time.Hour
+	DefaultClockTTL         = 1 * time.Hour
+	DefaultStationMountsTTL = 30 * time.Minute
 )
 
 // Key prefixes for Redis cache
 const (
-	KeyStationList         = "grimnir:cache:stations"
-	KeyStationMounts       = "grimnir:cache:station_mounts:" // + station_id
-	KeyDefaultMount        = "grimnir:cache:default_mount:"  // + station_id
-	KeyMount               = "grimnir:cache:mount:"          // + mount_id
-	KeySmartBlock          = "grimnir:cache:smartblock:"     // + smartblock_id
-	KeyMediaItem           = "grimnir:cache:media:"          // + media_id
-	KeyClock               = "grimnir:cache:clock:"          // + clock_id
-	KeyClockHours          = "grimnir:cache:clock_hours:"    // + station_id
+	KeyStationList   = "grimnir:cache:stations"
+	KeyStationMounts = "grimnir:cache:station_mounts:" // + station_id
+	KeyDefaultMount  = "grimnir:cache:default_mount:"  // + station_id
+	KeyMount         = "grimnir:cache:mount:"          // + mount_id
+	KeySmartBlock    = "grimnir:cache:smartblock:"     // + smartblock_id
+	KeyMediaItem     = "grimnir:cache:media:"          // + media_id
+	KeyClock         = "grimnir:cache:clock:"          // + clock_id
+	KeyClockHours    = "grimnir:cache:clock_hours:"    // + station_id
 )
 
 // Config contains cache configuration.

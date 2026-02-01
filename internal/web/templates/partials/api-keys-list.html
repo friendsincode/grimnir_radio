@@ -1,0 +1,88 @@
+{{define "partials/api-keys-list"}}
+<div id="api-keys-container">
+    {{if .Flash}}
+    <div class="alert alert-{{if eq .Flash.Type "error"}}danger{{else}}{{.Flash.Type}}{{end}} alert-dismissible fade show" role="alert">
+        {{.Flash.Message}}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {{end}}
+
+    {{if .APIKeys}}
+    <div class="table-responsive mb-3">
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Key</th>
+                    <th>Created</th>
+                    <th>Last Used</th>
+                    <th>Expires</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .APIKeys}}
+                <tr>
+                    <td>{{.Name}}</td>
+                    <td><code>{{.KeyPrefix}}...</code></td>
+                    <td>{{formatTime .CreatedAt}}</td>
+                    <td>{{if .LastUsedAt}}{{formatTime .LastUsedAt}}{{else}}<span class="text-body-secondary">Never</span>{{end}}</td>
+                    <td>{{formatTime .ExpiresAt}}</td>
+                    <td>
+                        {{if .RevokedAt}}
+                        <span class="badge bg-danger">Revoked</span>
+                        {{else if .IsExpired}}
+                        <span class="badge bg-warning">Expired</span>
+                        {{else}}
+                        <span class="badge bg-success">Active</span>
+                        {{end}}
+                    </td>
+                    <td>
+                        {{if and (not .RevokedAt) (not .IsExpired)}}
+                        <button class="btn btn-sm btn-outline-danger"
+                                hx-delete="/dashboard/profile/api-keys/{{.ID}}"
+                                hx-target="#api-keys-container"
+                                hx-swap="outerHTML"
+                                hx-confirm="Are you sure you want to revoke this API key? This cannot be undone.">
+                            <i class="bi bi-x-circle"></i> Revoke
+                        </button>
+                        {{end}}
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{else}}
+    <p class="text-body-secondary">You don't have any API keys yet.</p>
+    {{end}}
+
+    <hr class="my-3">
+
+    <h6>Generate New API Key</h6>
+    <form hx-post="/dashboard/profile/api-keys"
+          hx-target="#api-keys-container"
+          hx-swap="outerHTML">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Key Name</label>
+                <input type="text" class="form-control" name="name" placeholder="My API Key" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Expiration</label>
+                <select class="form-select" name="expiration_days">
+                    {{range .ExpirationOptions}}
+                    <option value="{{.Days}}" {{if eq .Days 90}}selected{{end}}>{{.Label}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-key me-1"></i>Generate Key
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{{end}}

@@ -27,8 +27,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("failed to open test db: %v", err)
 	}
 
-	// Migrate tables (ignore any duplicate index errors)
-	_ = db.AutoMigrate(&models.Webstream{})
+	// Migrate tables
+	if err := db.AutoMigrate(&models.Webstream{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
 
 	return db
 }
@@ -40,7 +42,40 @@ func createTestWebstream(t *testing.T, db *gorm.DB, urls []string) *models.Webst
 		Name:                 "Test Webstream",
 		Description:          "Test webstream for integration testing",
 		URLs:                 urls,
-		HealthCheckEnabled:   true,
+		HealthCheckEnabled:   false, // Disable for testing to avoid background goroutines
+		HealthCheckInterval:  30 * time.Second,
+		HealthCheckTimeout:   5 * time.Second,
+		HealthCheckMethod:    "HEAD",
+		FailoverEnabled:      true,
+		FailoverGraceMs:      5000,
+		AutoRecoverEnabled:   true,
+		PreflightCheck:       false, // Disable for testing
+		BufferSizeMS:         2000,
+		ReconnectDelayMS:     1000,
+		MaxReconnectAttempts: 5,
+		PassthroughMetadata:  true,
+		OverrideMetadata:     false,
+		Active:               true,
+		CurrentURL:           urls[0],
+		CurrentIndex:         0,
+		HealthStatus:         "healthy",
+	}
+
+	if err := db.Create(ws).Error; err != nil {
+		t.Fatalf("failed to create webstream: %v", err)
+	}
+
+	return ws
+}
+
+func createTestWebstreamWithHealthDisabled(t *testing.T, db *gorm.DB, urls []string) *models.Webstream {
+	ws := &models.Webstream{
+		ID:                   uuid.NewString(),
+		StationID:            uuid.NewString(),
+		Name:                 "Test Webstream",
+		Description:          "Test webstream for integration testing",
+		URLs:                 urls,
+		HealthCheckEnabled:   false, // Disabled for testing
 		HealthCheckInterval:  30 * time.Second,
 		HealthCheckTimeout:   5 * time.Second,
 		HealthCheckMethod:    "HEAD",
@@ -71,6 +106,7 @@ func TestWebstream_Create(t *testing.T) {
 	logger := zerolog.Nop()
 	bus := events.NewBus()
 	svc := NewService(db, bus, logger)
+	defer svc.Shutdown()
 
 	urls := []string{
 		"http://primary.example.com/stream.mp3",
@@ -82,11 +118,12 @@ func TestWebstream_Create(t *testing.T) {
 		StationID:           uuid.NewString(),
 		Name:                "Test Stream",
 		URLs:                urls,
-		HealthCheckEnabled:  true,
+		HealthCheckEnabled:  false, // Disable for testing to avoid background queries
 		HealthCheckInterval: 30 * time.Second,
 		HealthCheckTimeout:  5 * time.Second,
 		FailoverEnabled:     true,
 		FailoverGraceMs:     5000,
+		PreflightCheck:      false, // Disable for testing
 	}
 
 	ctx := context.Background()
@@ -302,13 +339,14 @@ func TestWebstreamService_TriggerFailover(t *testing.T) {
 	logger := zerolog.Nop()
 	bus := events.NewBus()
 	svc := NewService(db, bus, logger)
+	defer svc.Shutdown()
 
 	urls := []string{
 		"http://primary.example.com/stream.mp3",
 		"http://backup.example.com/stream.mp3",
 	}
 
-	ws := createTestWebstream(t, db, urls)
+	ws := createTestWebstreamWithHealthDisabled(t, db, urls)
 
 	// Subscribe to failover events
 	failoverSub := bus.Subscribe(events.EventWebstreamFailover)
@@ -349,13 +387,14 @@ func TestWebstreamService_ResetToPrimary(t *testing.T) {
 	logger := zerolog.Nop()
 	bus := events.NewBus()
 	svc := NewService(db, bus, logger)
+	defer svc.Shutdown()
 
 	urls := []string{
 		"http://primary.example.com/stream.mp3",
 		"http://backup.example.com/stream.mp3",
 	}
 
-	ws := createTestWebstream(t, db, urls)
+	ws := createTestWebstreamWithHealthDisabled(t, db, urls)
 
 	// Subscribe to recovered events
 	recoveredSub := bus.Subscribe(events.EventWebstreamRecovered)
@@ -409,6 +448,7 @@ func TestWebstreamService_ListWebstreams(t *testing.T) {
 	logger := zerolog.Nop()
 	bus := events.NewBus()
 	svc := NewService(db, bus, logger)
+	defer svc.Shutdown()
 
 	stationID := uuid.NewString()
 
@@ -419,16 +459,18 @@ func TestWebstreamService_ListWebstreams(t *testing.T) {
 		StationID:           stationID,
 		Name:                "Stream 1",
 		URLs:                urls,
-		HealthCheckEnabled:  true,
+		HealthCheckEnabled:  false, // Disable for testing
 		HealthCheckInterval: 30 * time.Second,
+		PreflightCheck:      false,
 	}
 	ws2 := &models.Webstream{
 		ID:                  uuid.NewString(),
 		StationID:           stationID,
 		Name:                "Stream 2",
 		URLs:                urls,
-		HealthCheckEnabled:  true,
+		HealthCheckEnabled:  false, // Disable for testing
 		HealthCheckInterval: 30 * time.Second,
+		PreflightCheck:      false,
 	}
 
 	ctx := context.Background()
@@ -455,9 +497,10 @@ func TestWebstreamService_UpdateWebstream(t *testing.T) {
 	logger := zerolog.Nop()
 	bus := events.NewBus()
 	svc := NewService(db, bus, logger)
+	defer svc.Shutdown()
 
 	urls := []string{"http://example.com/stream.mp3"}
-	ws := createTestWebstream(t, db, urls)
+	ws := createTestWebstreamWithHealthDisabled(t, db, urls)
 
 	ctx := context.Background()
 	updates := map[string]any{
@@ -490,9 +533,10 @@ func TestWebstreamService_DeleteWebstream(t *testing.T) {
 	logger := zerolog.Nop()
 	bus := events.NewBus()
 	svc := NewService(db, bus, logger)
+	defer svc.Shutdown()
 
 	urls := []string{"http://example.com/stream.mp3"}
-	ws := createTestWebstream(t, db, urls)
+	ws := createTestWebstreamWithHealthDisabled(t, db, urls)
 
 	ctx := context.Background()
 	err := svc.DeleteWebstream(ctx, ws.ID)

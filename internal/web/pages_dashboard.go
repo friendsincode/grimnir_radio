@@ -8,10 +8,13 @@ package web
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/friendsincode/grimnir_radio/internal/auth"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -321,5 +324,114 @@ func (h *Handler) renderPasswordError(w http.ResponseWriter, r *http.Request, me
 			"User":          user,
 			"PasswordError": true,
 		},
+	})
+}
+
+// APIKeysSection renders the API keys section for the profile page
+func (h *Handler) APIKeysSection(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	keys, err := auth.ListAPIKeys(h.db, user.ID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to list api keys")
+		http.Error(w, "Failed to load API keys", http.StatusInternalServerError)
+		return
+	}
+
+	// Render partial for HTMX
+	h.RenderPartial(w, r, "partials/api-keys-list", map[string]any{
+		"APIKeys":           keys,
+		"ExpirationOptions": auth.APIKeyExpirationOptions,
+	})
+}
+
+// APIKeyGenerate generates a new API key for the user
+func (h *Handler) APIKeyGenerate(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	name := r.FormValue("name")
+	if name == "" {
+		name = "API Key"
+	}
+
+	expirationDays := r.FormValue("expiration_days")
+	days := 90 // default
+	if expirationDays != "" {
+		if parsed, err := strconv.Atoi(expirationDays); err == nil && parsed > 0 && parsed <= 365 {
+			days = parsed
+		}
+	}
+
+	expiration := time.Duration(days) * 24 * time.Hour
+
+	plaintextKey, apiKey, err := auth.GenerateAPIKey(user.ID, name, expiration)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to generate api key")
+		http.Error(w, "Failed to generate API key", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.db.Create(apiKey).Error; err != nil {
+		h.logger.Error().Err(err).Msg("failed to save api key")
+		http.Error(w, "Failed to save API key", http.StatusInternalServerError)
+		return
+	}
+
+	// Get all keys including the new one for the list
+	keys, _ := auth.ListAPIKeys(h.db, user.ID)
+
+	// Return both the new key reveal and the updated list
+	h.RenderPartial(w, r, "partials/api-key-created", map[string]any{
+		"NewKey":            plaintextKey,
+		"APIKey":            apiKey,
+		"APIKeys":           keys,
+		"ExpirationOptions": auth.APIKeyExpirationOptions,
+	})
+}
+
+// APIKeyRevoke revokes an API key
+func (h *Handler) APIKeyRevoke(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	keyID := chi.URLParam(r, "id")
+	if keyID == "" {
+		http.Error(w, "Key ID required", http.StatusBadRequest)
+		return
+	}
+
+	if err := auth.RevokeAPIKey(h.db, keyID, user.ID); err != nil {
+		if err == auth.ErrAPIKeyNotFound {
+			http.Error(w, "API key not found", http.StatusNotFound)
+			return
+		}
+		h.logger.Error().Err(err).Msg("failed to revoke api key")
+		http.Error(w, "Failed to revoke API key", http.StatusInternalServerError)
+		return
+	}
+
+	// Return updated list
+	keys, _ := auth.ListAPIKeys(h.db, user.ID)
+
+	h.RenderPartial(w, r, "partials/api-keys-list", map[string]any{
+		"APIKeys":           keys,
+		"ExpirationOptions": auth.APIKeyExpirationOptions,
+		"Flash":             &FlashMessage{Type: "success", Message: "API key revoked successfully"},
 	})
 }

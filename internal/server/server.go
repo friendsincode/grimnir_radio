@@ -248,7 +248,7 @@ func (s *Server) initDependencies() error {
 
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
-	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, broadcastSrv, s.bus, s.logBuffer, s.logger, []byte(s.cfg.JWTSigningKey))
+	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, broadcastSrv, s.bus, s.logBuffer, s.logger)
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{

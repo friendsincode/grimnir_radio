@@ -1,6 +1,6 @@
 # Grimnir Radio API Reference
 
-**Version:** 1.2.26
+**Version:** 1.3.0
 
 **Base URL:** `https://your-instance.com/api/v1`
 
@@ -31,8 +31,8 @@ A full-featured Python client is available for easy integration:
 ```python
 from grimnir_client import GrimnirClient
 
-client = GrimnirClient("https://your-instance.com")
-client.login("user@example.com", "password")
+# Initialize with your API key (get it from your profile page)
+client = GrimnirClient("https://your-instance.com", api_key="gr_your-api-key")
 
 # Get stations
 stations = client.get_stations()
@@ -55,7 +55,6 @@ This section provides detailed documentation for all API endpoints.
 
 ## Table of Contents
 
-- [Authentication](#authentication)
 - [Stations](#stations)
 - [Mounts](#mounts)
 - [Media](#media)
@@ -76,68 +75,6 @@ This section provides detailed documentation for all API endpoints.
   - [Migrations](#migrations)
 - [Data Models](#data-models)
 - [Error Responses](#error-responses)
-
----
-
-## Authentication
-
-### POST /auth/login
-
-Authenticate with email/password and receive a JWT access token.
-
-**Request Body:**
-```json
-{
-  "email": "admin@example.com",
-  "password": "password123",
-  "station_id": "optional-station-uuid"
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "expires_in": 900
-}
-```
-
-**Token TTL:** 15 minutes (900 seconds)
-
-**Error Codes:**
-- `credentials_required` (400) - Missing email or password
-- `invalid_credentials` (401) - Wrong email or password
-
-**Example:**
-```bash
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"password123"}'
-```
-
----
-
-### POST /auth/refresh
-
-Refresh an existing JWT token to extend the session.
-
-**Authentication:** Required (Bearer token)
-
-**Request Body:** Empty
-
-**Response (200 OK):**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "expires_in": 900
-}
-```
-
-**Example:**
-```bash
-curl -X POST http://localhost:8080/api/v1/auth/refresh \
-  -H "Authorization: Bearer $TOKEN"
-```
 
 ---
 
@@ -166,7 +103,7 @@ List all stations.
 **Example:**
 ```bash
 curl http://localhost:8080/api/v1/stations \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: YOUR_API_KEY"
 ```
 
 ---
@@ -373,7 +310,7 @@ Upload an audio file with metadata.
 **Example:**
 ```bash
 curl -X POST http://localhost:8080/api/v1/media/upload \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-API-Key: YOUR_API_KEY" \
   -F "file=@song.mp3" \
   -F "title=Example Song" \
   -F "artist=Example Artist" \
@@ -2311,7 +2248,7 @@ All errors follow this format:
 
 **400 Bad Request:**
 - `invalid_json` - Request body is not valid JSON
-- `credentials_required` - Email and password are required
+- `api_key_required` - API key is required
 - `station_id_required` - Station ID is missing
 - `name_required` - Name field is required
 - `missing_required_fields` - One or more required fields missing
@@ -2329,8 +2266,7 @@ All errors follow this format:
 - `invalid_ends_at` - Invalid timestamp format for ends_at
 
 **401 Unauthorized:**
-- `invalid_credentials` - Email or password is incorrect
-- `unauthorized` - Not authenticated or invalid token
+- `unauthorized` - Invalid, expired, or revoked API key
 
 **403 Forbidden:**
 - `insufficient_role` - User role lacks permission for this action
@@ -2343,7 +2279,6 @@ All errors follow this format:
 
 **500 Internal Server Error:**
 - `db_error` - Database operation failed
-- `token_issue_failed` - JWT token generation failed
 - `media_store_failed` - File storage failed
 - `analysis_queue_error` - Failed to enqueue analysis job
 - `materialize_failed` - Smart block materialization failed
@@ -2361,15 +2296,22 @@ All errors follow this format:
 
 ## Authentication
 
-All authenticated endpoints require a `Authorization: Bearer <token>` header.
+All authenticated endpoints require an `X-API-Key` header with a valid API key.
 
-**Token Acquisition:**
-1. POST to `/api/v1/auth/login` with email/password
-2. Store the returned `access_token`
-3. Include in subsequent requests: `Authorization: Bearer <token>`
-4. Refresh before expiry using `/api/v1/auth/refresh`
+**API Key Management:**
+1. Log into the web dashboard
+2. Go to Profile page
+3. Generate an API key (choose expiration: 30 days, 90 days, 180 days, or 1 year)
+4. Copy the key (shown only once)
+5. Include in requests: `X-API-Key: YOUR_API_KEY`
 
-**Token Expiration:** 15 minutes
+**API Key Format:** `gr_<32 random characters>` (e.g., `gr_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6`)
+
+**Example:**
+```bash
+curl http://localhost:8080/api/v1/stations \
+  -H "X-API-Key: gr_your-api-key-here"
+```
 
 **Role-Based Access Control:**
 
