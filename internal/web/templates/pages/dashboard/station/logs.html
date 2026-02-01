@@ -1,17 +1,14 @@
-{{define "pages/dashboard/admin/logs"}}
+{{define "pages/dashboard/station/logs"}}
 {{template "layouts/dashboard" .}}
 {{end}}
 
 {{define "main"}}
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3 mb-0"><i class="bi bi-terminal me-2"></i>System Logs</h1>
+        <h1 class="h3 mb-0"><i class="bi bi-terminal me-2"></i>Station Logs</h1>
         <div class="d-flex gap-2">
             <button class="btn btn-outline-secondary" onclick="refreshLogs()">
                 <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-            </button>
-            <button class="btn btn-outline-danger" onclick="clearLogs()">
-                <i class="bi bi-trash me-1"></i>Clear
             </button>
         </div>
     </div>
@@ -47,7 +44,6 @@
                         <option value="250">250</option>
                         <option value="500" selected>500</option>
                         <option value="1000">1000</option>
-                        <option value="2500">2500</option>
                     </select>
                 </div>
                 <div class="col-md-1 d-flex align-items-end">
@@ -113,6 +109,13 @@
         </div>
     </div>
 
+    <!-- Info message -->
+    <div class="alert alert-info mb-4">
+        <i class="bi bi-info-circle me-2"></i>
+        Showing logs related to this station only. Use filters to narrow down results.
+        Logs auto-refresh every 30 seconds.
+    </div>
+
     <!-- Log entries -->
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -126,7 +129,6 @@
                         <tr>
                             <th style="width: 160px;">Timestamp</th>
                             <th style="width: 70px;">Level</th>
-                            <th style="width: 100px;">Station</th>
                             <th style="width: 120px;">Component</th>
                             <th>Message</th>
                             <th style="width: 50px;"></th>
@@ -134,7 +136,7 @@
                     </thead>
                     <tbody id="logBody">
                         <tr>
-                            <td colspan="6" class="text-center text-muted py-4">
+                            <td colspan="5" class="text-center text-muted py-4">
                                 <i class="bi bi-hourglass-split me-2"></i>Loading logs...
                             </td>
                         </tr>
@@ -177,8 +179,8 @@
 
 <script>
 const wsToken = '{{.WSToken}}';
+const stationID = '{{.Station.ID}}';
 let logDetailModal;
-let stationNames = {};
 
 document.addEventListener('DOMContentLoaded', function() {
     logDetailModal = new bootstrap.Modal(document.getElementById('logDetailModal'));
@@ -186,8 +188,8 @@ document.addEventListener('DOMContentLoaded', function() {
     loadStats();
     refreshLogs();
 
-    // Auto-refresh every 10 seconds
-    setInterval(refreshLogs, 10000);
+    // Auto-refresh every 30 seconds
+    setInterval(refreshLogs, 30000);
 
     // Filter on Enter key
     document.getElementById('filterSearch').addEventListener('keyup', function(e) {
@@ -196,7 +198,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function loadComponents() {
-    fetch('/api/v1/system/logs/components', {
+    fetch(`/api/v1/stations/${stationID}/logs/components`, {
         headers: { 'Authorization': 'Bearer ' + wsToken }
     })
     .then(r => r.json())
@@ -216,7 +218,7 @@ function loadComponents() {
 }
 
 function loadStats() {
-    fetch('/api/v1/system/logs/stats', {
+    fetch(`/api/v1/stations/${stationID}/logs/stats`, {
         headers: { 'Authorization': 'Bearer ' + wsToken }
     })
     .then(r => r.json())
@@ -236,7 +238,7 @@ function refreshLogs() {
     const search = document.getElementById('filterSearch').value;
     const limit = document.getElementById('filterLimit').value;
 
-    let url = `/api/v1/system/logs?limit=${limit}`;
+    let url = `/api/v1/stations/${stationID}/logs?limit=${limit}`;
     if (level) url += `&level=${encodeURIComponent(level)}`;
     if (component) url += `&component=${encodeURIComponent(component)}`;
     if (search) url += `&search=${encodeURIComponent(search)}`;
@@ -246,7 +248,6 @@ function refreshLogs() {
     })
     .then(r => r.json())
     .then(data => {
-        stationNames = data.station_names || {};
         renderLogs(data.entries || []);
         document.getElementById('entryCount').textContent = (data.count || 0) + ' entries';
         loadStats(); // Also refresh stats
@@ -255,7 +256,7 @@ function refreshLogs() {
         console.error('Failed to load logs:', err);
         document.getElementById('logBody').innerHTML = `
             <tr>
-                <td colspan="6" class="text-center text-danger py-4">
+                <td colspan="5" class="text-center text-danger py-4">
                     <i class="bi bi-exclamation-triangle me-2"></i>Failed to load logs
                 </td>
             </tr>
@@ -269,8 +270,8 @@ function renderLogs(entries) {
     if (!entries || entries.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" class="text-center text-muted py-4">
-                    <i class="bi bi-inbox me-2"></i>No log entries found
+                <td colspan="5" class="text-center text-muted py-4">
+                    <i class="bi bi-inbox me-2"></i>No log entries found for this station
                 </td>
             </tr>
         `;
@@ -283,14 +284,11 @@ function renderLogs(entries) {
         const levelBadge = getLevelBadge(entry.level);
         const message = escapeHtml(entry.message || '(no message)');
         const component = entry.component || '-';
-        const stationId = entry.fields?.station_id || '';
-        const stationName = stationId ? (stationNames[stationId] || '-') : '-';
 
         return `
             <tr>
                 <td class="text-muted">${ts}</td>
                 <td>${levelBadge}</td>
-                <td class="small">${escapeHtml(stationName)}</td>
                 <td><code class="small">${escapeHtml(component)}</code></td>
                 <td class="log-message" title="${escapeHtml(entry.message)}">${message}</td>
                 <td>
@@ -316,23 +314,6 @@ function getLevelBadge(level) {
 function showLogDetail(entry) {
     document.getElementById('logDetailContent').textContent = JSON.stringify(entry, null, 2);
     logDetailModal.show();
-}
-
-function clearLogs() {
-    if (!confirm('Are you sure you want to clear all logs from the buffer?')) return;
-
-    fetch('/api/v1/system/logs', {
-        method: 'DELETE',
-        headers: { 'Authorization': 'Bearer ' + wsToken }
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            refreshLogs();
-            loadStats();
-        }
-    })
-    .catch(err => console.error('Failed to clear logs:', err));
 }
 
 function escapeHtml(text) {

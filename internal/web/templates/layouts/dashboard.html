@@ -159,6 +159,13 @@
                         <span class="sidebar-text ms-2">Station Settings</span>
                     </a>
                 </li>
+
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/station/logs"}}active bg-primary text-white{{end}}" href="/dashboard/station/logs" data-bs-toggle="tooltip" data-bs-placement="right" title="Station Logs">
+                        <i class="bi bi-terminal"></i>
+                        <span class="sidebar-text ms-2">Station Logs</span>
+                    </a>
+                </li>
                 {{end}}
 
                 <!-- Platform Admin Section (only for platform admins) -->

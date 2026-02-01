@@ -268,6 +268,13 @@ func (a *API) Routes(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/spins", a.handleAnalyticsSpins)
 			})
 
+			// Station logs (accessible to all station roles)
+			pr.Route("/logs", func(r chi.Router) {
+				r.Get("/", a.handleStationLogs)
+				r.Get("/components", a.handleStationLogComponents)
+				r.Get("/stats", a.handleStationLogStats)
+			})
+
 			pr.Route("/webhooks", func(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin)).Post("/track-start", a.handleWebhookTrackStart)
 			})
@@ -1512,9 +1519,32 @@ func (a *API) handleSystemLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entries := a.logBuffer.Query(params)
+
+	// Collect unique station IDs and fetch their names
+	stationIDs := make(map[string]bool)
+	for _, entry := range entries {
+		if sid, ok := entry.Fields["station_id"].(string); ok && sid != "" {
+			stationIDs[sid] = true
+		}
+	}
+
+	stationNames := make(map[string]string)
+	if len(stationIDs) > 0 {
+		ids := make([]string, 0, len(stationIDs))
+		for id := range stationIDs {
+			ids = append(ids, id)
+		}
+		var stations []models.Station
+		a.db.Select("id", "name").Where("id IN ?", ids).Find(&stations)
+		for _, s := range stations {
+			stationNames[s.ID] = s.Name
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"entries": entries,
-		"count":   len(entries),
+		"entries":       entries,
+		"count":         len(entries),
+		"station_names": stationNames,
 	})
 }
 
@@ -1557,6 +1587,96 @@ func (a *API) handleClearLogs(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": "Log buffer cleared",
 	})
+}
+
+// Station-scoped log handlers
+
+func (a *API) handleStationLogs(w http.ResponseWriter, r *http.Request) {
+	if a.logBuffer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "Log buffer not available",
+		})
+		return
+	}
+
+	stationID := chi.URLParam(r, "stationID")
+	if stationID == "" {
+		writeError(w, http.StatusBadRequest, "station_id required")
+		return
+	}
+
+	// Parse query parameters
+	params := logbuffer.QueryParams{
+		StationID:  stationID,
+		Level:      r.URL.Query().Get("level"),
+		Component:  r.URL.Query().Get("component"),
+		Search:     r.URL.Query().Get("search"),
+		Descending: true, // Default to newest first
+	}
+
+	if since := r.URL.Query().Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			params.Since = t
+		}
+	}
+
+	if limit := r.URL.Query().Get("limit"); limit != "" {
+		if n, err := strconv.Atoi(limit); err == nil && n > 0 {
+			params.Limit = n
+		}
+	} else {
+		params.Limit = 500 // Default limit
+	}
+
+	if order := r.URL.Query().Get("order"); order == "asc" {
+		params.Descending = false
+	}
+
+	entries := a.logBuffer.Query(params)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries":    entries,
+		"count":      len(entries),
+		"station_id": stationID,
+	})
+}
+
+func (a *API) handleStationLogComponents(w http.ResponseWriter, r *http.Request) {
+	if a.logBuffer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "Log buffer not available",
+		})
+		return
+	}
+
+	stationID := chi.URLParam(r, "stationID")
+	if stationID == "" {
+		writeError(w, http.StatusBadRequest, "station_id required")
+		return
+	}
+
+	components := a.logBuffer.GetComponentsForStation(stationID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"components": components,
+		"station_id": stationID,
+	})
+}
+
+func (a *API) handleStationLogStats(w http.ResponseWriter, r *http.Request) {
+	if a.logBuffer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "Log buffer not available",
+		})
+		return
+	}
+
+	stationID := chi.URLParam(r, "stationID")
+	if stationID == "" {
+		writeError(w, http.StatusBadRequest, "station_id required")
+		return
+	}
+
+	stats := a.logBuffer.StatsForStation(stationID)
+	writeJSON(w, http.StatusOK, stats)
 }
 
 func parseEventTypes(raw string) []events.EventType {

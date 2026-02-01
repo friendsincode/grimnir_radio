@@ -84,6 +84,7 @@ func (b *Buffer) GetAll() []LogEntry {
 type QueryParams struct {
 	Level      string    // Filter by level (debug, info, warn, error)
 	Component  string    // Filter by component
+	StationID  string    // Filter by station_id field
 	Search     string    // Search in message
 	Since      time.Time // Only entries after this time
 	Limit      int       // Max entries to return (0 = all)
@@ -105,6 +106,14 @@ func (b *Buffer) Query(params QueryParams) []LogEntry {
 		// Component filter
 		if params.Component != "" && entry.Component != params.Component {
 			continue
+		}
+
+		// Station ID filter - check in Fields
+		if params.StationID != "" {
+			stationID, ok := entry.Fields["station_id"].(string)
+			if !ok || stationID != params.StationID {
+				continue
+			}
 		}
 
 		// Time filter
@@ -184,12 +193,18 @@ type Stats struct {
 }
 
 func (b *Buffer) Stats() Stats {
+	return b.StatsForStation("")
+}
+
+// StatsForStation returns buffer statistics filtered by station_id.
+// If stationID is empty, returns stats for all entries.
+func (b *Buffer) StatsForStation(stationID string) Stats {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	stats := Stats{
 		Capacity:   b.capacity,
-		Count:      b.count,
+		Count:      0,
 		LevelCount: make(map[string]int),
 	}
 
@@ -198,10 +213,55 @@ func (b *Buffer) Stats() Stats {
 		if b.count == b.capacity {
 			idx = (b.head + i) % b.capacity
 		}
-		stats.LevelCount[b.entries[idx].Level]++
+		entry := b.entries[idx]
+
+		// Filter by station_id if specified
+		if stationID != "" {
+			entryStationID, ok := entry.Fields["station_id"].(string)
+			if !ok || entryStationID != stationID {
+				continue
+			}
+		}
+
+		stats.Count++
+		stats.LevelCount[entry.Level]++
 	}
 
 	return stats
+}
+
+// GetComponentsForStation returns unique components for a specific station.
+// If stationID is empty, returns all components.
+func (b *Buffer) GetComponentsForStation(stationID string) []string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	componentMap := make(map[string]bool)
+	for i := 0; i < b.count; i++ {
+		idx := i
+		if b.count == b.capacity {
+			idx = (b.head + i) % b.capacity
+		}
+		entry := b.entries[idx]
+
+		// Filter by station_id if specified
+		if stationID != "" {
+			entryStationID, ok := entry.Fields["station_id"].(string)
+			if !ok || entryStationID != stationID {
+				continue
+			}
+		}
+
+		if entry.Component != "" {
+			componentMap[entry.Component] = true
+		}
+	}
+
+	components := make([]string, 0, len(componentMap))
+	for c := range componentMap {
+		components = append(components, c)
+	}
+	return components
 }
 
 // Clear empties the buffer.
