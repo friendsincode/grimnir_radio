@@ -155,7 +155,7 @@ func (m *Mount) FeedFrom(r io.Reader) error {
 	count := m.inputCount
 	m.mu.Unlock()
 
-	m.logger.Info().Int("input_count", count).Msg("feed started")
+	m.logger.Info().Str("mount", m.Name).Int("input_count", count).Msg("feed started")
 
 	defer func() {
 		m.mu.Lock()
@@ -181,7 +181,11 @@ func (m *Mount) FeedFrom(r io.Reader) error {
 			totalBytes += n
 			// Log every 10 seconds to show data is flowing
 			if time.Since(lastLog) > 10*time.Second {
-				m.logger.Info().Int("bytes_last_10s", totalBytes).Int("clients", m.ClientCount()).Msg("feed active")
+				m.logger.Info().
+					Str("mount", m.Name).
+					Int("bytes_last_10s", totalBytes).
+					Int("clients", m.ClientCount()).
+					Msg("feed active")
 				totalBytes = 0
 				lastLog = time.Now()
 			}
@@ -192,9 +196,9 @@ func (m *Mount) FeedFrom(r io.Reader) error {
 		}
 		if err != nil {
 			if err == io.EOF {
-				m.logger.Info().Msg("input stream ended (EOF)")
+				m.logger.Info().Str("mount", m.Name).Msg("input stream ended (EOF)")
 			} else {
-				m.logger.Error().Err(err).Msg("input read error")
+				m.logger.Error().Str("mount", m.Name).Err(err).Msg("input read error")
 			}
 			return err
 		}
@@ -264,7 +268,7 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clientCount := len(m.clients)
 	m.mu.Unlock()
 
-	m.logger.Info().Int("clients", clientCount).Bool("quality_switch", skipBuffer).Msg("client connected")
+	m.logger.Info().Str("mount", m.Name).Int("clients", clientCount).Bool("quality_switch", skipBuffer).Msg("client connected")
 
 	// Publish listener stats event
 	m.publishListenerStats(clientCount, "connect")
@@ -316,7 +320,7 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		clientCount := len(m.clients)
 		m.mu.Unlock()
 
-		m.logger.Info().Int("clients", clientCount).Msg("client disconnected")
+		m.logger.Info().Str("mount", m.Name).Int("clients", clientCount).Msg("client disconnected")
 
 		// Publish listener stats event
 		m.publishListenerStats(clientCount, "disconnect")
