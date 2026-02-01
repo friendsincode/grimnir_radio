@@ -388,8 +388,8 @@ func (h *Handler) PublicSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var entries []models.ScheduleEntry
-	query := h.db.Where("starts_at >= ? AND starts_at <= ?",
-		time.Now(), time.Now().Add(48*time.Hour))
+	query := h.db.Where("starts_at >= ? AND starts_at <= ? AND source_type != ?",
+		time.Now(), time.Now().Add(48*time.Hour), "media")
 
 	// Only show schedule for public stations
 	if len(publicStationIDs) > 0 {
@@ -501,15 +501,16 @@ func (h *Handler) PublicScheduleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch non-recurring entries within range
+	// Exclude 'media' source type - public schedule shows programs, not individual tracks
 	var entries []models.ScheduleEntry
-	h.db.Where("station_id IN ? AND starts_at >= ? AND starts_at <= ? AND (recurrence_type = '' OR recurrence_type IS NULL OR is_instance = true)",
-		publicStationIDs, startTime, endTime).
+	h.db.Where("station_id IN ? AND starts_at >= ? AND starts_at <= ? AND source_type != ? AND (recurrence_type = '' OR recurrence_type IS NULL OR is_instance = true)",
+		publicStationIDs, startTime, endTime, "media").
 		Order("starts_at ASC").Find(&entries)
 
-	// Also fetch recurring entries
+	// Also fetch recurring entries (excluding media)
 	var recurringEntries []models.ScheduleEntry
-	h.db.Where("station_id IN ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false",
-		publicStationIDs).Find(&recurringEntries)
+	h.db.Where("station_id IN ? AND source_type != ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false",
+		publicStationIDs, "media").Find(&recurringEntries)
 
 	// Expand recurring entries
 	for _, re := range recurringEntries {
