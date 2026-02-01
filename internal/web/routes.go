@@ -91,6 +91,9 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Get("/settings", h.StationSettings)
 				r.Put("/settings", h.StationSettingsUpdate)
 				r.Post("/settings/stop-playout", h.StationStopPlayout)
+
+				// Station logs (all station members)
+				r.Get("/logs", h.StationLogs)
 			})
 
 			// Station-scoped routes
