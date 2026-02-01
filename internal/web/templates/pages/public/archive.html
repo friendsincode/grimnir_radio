@@ -168,7 +168,7 @@
     <!-- Pagination -->
     {{if gt .Data.Total .Data.PerPage}}
     {{$totalPages := div (add .Data.Total (sub .Data.PerPage 1)) .Data.PerPage}}
-    {{$params := printf "%s%s%s%s%s%s%s" (ternary (printf "&q=%s" .Data.Query) "" (ne .Data.Query "")) (ternary (printf "&station=%s" .Data.StationID) "" (ne .Data.StationID "")) (ternary (printf "&genre=%s" .Data.Genre) "" (ne .Data.Genre "")) (ternary (printf "&year=%s" .Data.Year) "" (ne .Data.Year "")) (ternary (printf "&artist=%s" .Data.Artist) "" (ne .Data.Artist "")) (ternary (printf "&duration=%s" .Data.Duration) "" (ne .Data.Duration "")) (ternary (printf "&sort=%s" .Data.Sort) "" (ne .Data.Sort ""))}}
+    {{$params := printf "%s%s%s%s%s%s%s" (ternary (ne .Data.Query "") (printf "&q=%s" .Data.Query) "") (ternary (ne .Data.StationID "") (printf "&station=%s" .Data.StationID) "") (ternary (ne .Data.Genre "") (printf "&genre=%s" .Data.Genre) "") (ternary (ne .Data.Year "") (printf "&year=%s" .Data.Year) "") (ternary (ne .Data.Artist "") (printf "&artist=%s" .Data.Artist) "") (ternary (ne .Data.Duration "") (printf "&duration=%s" .Data.Duration) "") (ternary (ne .Data.Sort "") (printf "&sort=%s" .Data.Sort) "")}}
     <nav class="mt-4">
         <ul class="pagination justify-content-center">
             {{if gt .Data.Page 1}}
