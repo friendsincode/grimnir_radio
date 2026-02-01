@@ -23,9 +23,8 @@ Or copy `grimnir_client.py` from the repository directly into your project.
 ```python
 from grimnir_client import GrimnirClient
 
-# Initialize and login
-client = GrimnirClient("https://your-instance.com")
-client.login("user@example.com", "password")
+# Initialize with your API key (get it from your profile page)
+client = GrimnirClient("https://your-instance.com", api_key="gr_your-api-key")
 
 # Get stations
 stations = client.get_stations()
@@ -186,26 +185,13 @@ client.reset_webstream(webstream_id)
 ```python
 from grimnir_client import GrimnirClient, GrimnirAPIError
 
-client = GrimnirClient("https://your-instance.com")
+client = GrimnirClient("https://your-instance.com", api_key="gr_your-api-key")
 
 try:
-    client.login("user@example.com", "wrong-password")
+    stations = client.get_stations()
 except GrimnirAPIError as e:
-    print(f"API Error: {e.error_code} - {e.message}")
-    print(f"Status Code: {e.status_code}")
-```
-
-### Token Refresh
-
-The client automatically handles token expiration. You can also manually refresh:
-
-```python
-# Refresh token before it expires
-client.refresh_token()
-
-# Check if logged in
-if client.is_authenticated():
-    print("Authenticated")
+    print(f"API Error: {e.status_code} on {e.endpoint}")
+    print(f"Message: {e.message}")
 ```
 
 ## OpenAPI / Swagger
@@ -237,27 +223,25 @@ See [OpenAPI Generator](https://openapi-generator.tech/) for all supported langu
 For quick testing or shell scripts:
 
 ```bash
-# Login and get token
-TOKEN=$(curl -s -X POST https://your-instance.com/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "pass"}' | jq -r .token)
+# Set your API key (get it from your profile page in the web dashboard)
+API_KEY="gr_your-api-key-here"
 
 # Get stations
 curl https://your-instance.com/api/v1/stations \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 
 # Get now playing (no auth required)
 curl https://your-instance.com/api/v1/analytics/now-playing?station_id=UUID
 
 # Upload media
 curl -X POST https://your-instance.com/api/v1/media/upload \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-API-Key: $API_KEY" \
   -F "file=@song.mp3" \
   -F "station_id=UUID"
 
 # Skip current track
 curl -X POST https://your-instance.com/api/v1/playout/skip \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"station_id": "UUID"}'
 ```

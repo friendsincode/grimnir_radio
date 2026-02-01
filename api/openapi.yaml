@@ -6,11 +6,13 @@ info:
 
     ## Authentication
 
-    Most endpoints require JWT Bearer token authentication. Obtain a token via the `/auth/login` endpoint.
+    Most endpoints require API key authentication. Generate an API key from your profile page in the web dashboard.
 
     ```
-    Authorization: Bearer <your-jwt-token>
+    X-API-Key: your-api-key
     ```
+
+    API keys have configurable expiration (30 days, 90 days, 180 days, or 1 year max) and can be revoked at any time.
 
     ## Rate Limiting
 
@@ -27,7 +29,7 @@ info:
     - `404` - Not Found
     - `500` - Internal Server Error
 
-  version: 1.2.26
+  version: 1.3.0
   contact:
     name: Grimnir Radio Support
     url: https://github.com/friendsincode/grimnir_radio
@@ -42,8 +44,6 @@ servers:
     description: Development server
 
 tags:
-  - name: Authentication
-    description: User authentication and token management
   - name: Stations
     description: Radio station management
   - name: Media
@@ -84,53 +84,6 @@ paths:
                     type: string
                     example: ok
 
-  /auth/login:
-    post:
-      summary: Login
-      description: Authenticate with email and password to receive a JWT token
-      tags: [Authentication]
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, password]
-              properties:
-                email:
-                  type: string
-                  format: email
-                  example: user@example.com
-                password:
-                  type: string
-                  format: password
-                  example: your-password
-      responses:
-        '200':
-          description: Login successful
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '401':
-          description: Invalid credentials
-
-  /auth/refresh:
-    post:
-      summary: Refresh token
-      description: Get a new JWT token using an existing valid token
-      tags: [Authentication]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Token refreshed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
-
   /public/stations:
     get:
       summary: List public stations
@@ -156,7 +109,7 @@ paths:
       description: Get all stations the user has access to
       tags: [Stations]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       responses:
         '200':
           description: List of stations
@@ -174,7 +127,7 @@ paths:
       description: Create a new radio station (Admin/Manager only)
       tags: [Stations]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -195,7 +148,7 @@ paths:
       description: Get details of a specific station
       tags: [Stations]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - $ref: '#/components/parameters/stationID'
       responses:
@@ -212,7 +165,7 @@ paths:
       description: Get all stream mounts for a station
       tags: [Stations]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - $ref: '#/components/parameters/stationID'
       responses:
@@ -234,7 +187,7 @@ paths:
       description: Get logs for a specific station
       tags: [Stations]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - $ref: '#/components/parameters/stationID'
         - name: level
@@ -269,7 +222,7 @@ paths:
       description: Upload an audio file to the media library
       tags: [Media]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -299,7 +252,7 @@ paths:
       description: Get details of a media item
       tags: [Media]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: mediaID
           in: path
@@ -321,7 +274,7 @@ paths:
       description: Get all playlists for the current station
       tags: [Playlists]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: station_id
           in: query
@@ -347,7 +300,7 @@ paths:
       description: Get all smart blocks for the current station
       tags: [Smart Blocks]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: station_id
           in: query
@@ -371,7 +324,7 @@ paths:
       description: Create a new smart block (Admin/Manager only)
       tags: [Smart Blocks]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -392,7 +345,7 @@ paths:
       description: Generate concrete track list from smart block rules
       tags: [Smart Blocks]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: blockID
           in: path
@@ -429,7 +382,7 @@ paths:
       description: Get upcoming schedule entries
       tags: [Schedule]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: station_id
           in: query
@@ -461,7 +414,7 @@ paths:
       description: Force regeneration of schedule (Admin/Manager only)
       tags: [Schedule]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       requestBody:
         content:
           application/json:
@@ -481,7 +434,7 @@ paths:
       description: Generate a token for live DJ streaming (Admin/Manager only)
       tags: [Live]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -516,7 +469,7 @@ paths:
       description: Get all active live DJ sessions
       tags: [Live]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: station_id
           in: query
@@ -542,7 +495,7 @@ paths:
       description: Get all webstream relays for the station
       tags: [Webstreams]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: station_id
           in: query
@@ -566,7 +519,7 @@ paths:
       description: Create a new webstream relay
       tags: [Webstreams]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -587,7 +540,7 @@ paths:
       description: Skip to the next scheduled track
       tags: [Playout]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       requestBody:
         content:
           application/json:
@@ -607,7 +560,7 @@ paths:
       description: Stop all playout for a station (Admin/Manager only)
       tags: [Playout]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       requestBody:
         content:
           application/json:
@@ -672,7 +625,7 @@ paths:
       description: Get track play history (Admin/Manager only)
       tags: [Analytics]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: station_id
           in: query
@@ -709,7 +662,7 @@ paths:
       description: Get system health status (Platform Admin only)
       tags: [System]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       responses:
         '200':
           description: System status
@@ -724,7 +677,7 @@ paths:
       description: Get all system logs (Platform Admin only)
       tags: [System]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: level
           in: query
@@ -756,7 +709,7 @@ paths:
       description: Clear the log buffer (Platform Admin only)
       tags: [System]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       responses:
         '200':
           description: Logs cleared
@@ -767,7 +720,7 @@ paths:
       description: Subscribe to real-time events via SSE
       tags: [System]
       security:
-        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: types
           in: query
@@ -784,10 +737,11 @@ paths:
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication. Generate from your profile page in the web dashboard.
 
   parameters:
     stationID:
@@ -800,18 +754,6 @@ components:
       description: Station UUID
 
   schemas:
-    AuthResponse:
-      type: object
-      properties:
-        token:
-          type: string
-          description: JWT access token
-        expires_at:
-          type: string
-          format: date-time
-        user:
-          $ref: '#/components/schemas/User'
-
     User:
       type: object
       properties:

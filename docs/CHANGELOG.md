@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.3.0 — 2026-02-01
+
+### Breaking Changes
+- **API Key Authentication**: Replaced JWT login-based API authentication with API key authentication
+  - Removed `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh` endpoints
+  - API requests now use `X-API-Key: <key>` header instead of `Authorization: Bearer <jwt>`
+  - Users generate API keys from their profile page in the web dashboard
+  - API keys have configurable expiration (30 days, 90 days, 180 days, or 1 year max)
+  - Key format: `gr_<32 random chars>` (e.g., `gr_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6`)
+
+### Features
+- **API Key Management UI**: Added API key management to profile page
+  - Generate new API keys with custom names and expiration
+  - View existing keys (prefix, creation date, last used, expiration)
+  - Revoke individual API keys
+  - One-time display of full key on creation (not stored in cleartext)
+
+### Migration Guide
+If you have scripts or applications using the old JWT-based API:
+1. Log into the web dashboard
+2. Go to Profile → API Keys
+3. Generate a new API key with appropriate expiration
+4. Replace `Authorization: Bearer $TOKEN` header with `X-API-Key: YOUR_API_KEY`
+5. Remove any login/refresh token logic from your code
+
+**Before:**
+```bash
+TOKEN=$(curl -X POST .../auth/login -d '{"email":"...","password":"..."}' | jq -r .token)
+curl .../stations -H "Authorization: Bearer $TOKEN"
+```
+
+**After:**
+```bash
+curl .../stations -H "X-API-Key: gr_your-api-key-here"
+```
+
+---
+
 ## 1.2.26 — 2026-02-01
 
 ### API Documentation

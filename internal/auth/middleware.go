@@ -9,26 +9,30 @@ package auth
 import (
 	"net/http"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
-// Middleware validates bearer tokens and injects claims into request context.
-func Middleware(secret []byte) func(http.Handler) http.Handler {
+// Middleware validates API keys and injects claims into request context.
+// API keys are expected in the X-API-Key header.
+func Middleware(db *gorm.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := extractToken(r)
-			if token == "" {
-				unauthorized(w)
+			// Check for API key in X-API-Key header
+			apiKey := r.Header.Get("X-API-Key")
+			if apiKey != "" {
+				claims, err := ValidateAPIKey(db, apiKey)
+				if err != nil {
+					unauthorized(w)
+					return
+				}
+				ctx := WithClaims(r.Context(), claims)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			claims, err := Parse(secret, token)
-			if err != nil {
-				unauthorized(w)
-				return
-			}
-
-			ctx := WithClaims(r.Context(), claims)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			// No API key provided
+			unauthorized(w)
 		})
 	}
 }

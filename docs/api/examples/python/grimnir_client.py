@@ -7,8 +7,8 @@ A Python client library for interacting with the Grimnir Radio API.
 Usage:
     from grimnir_client import GrimnirClient
 
-    client = GrimnirClient("https://your-instance.com")
-    client.login("user@example.com", "password")
+    # Initialize with your API key (get it from your profile page)
+    client = GrimnirClient("https://your-instance.com", api_key="gr_your-api-key")
 
     # Get stations
     stations = client.get_stations()
@@ -31,26 +31,26 @@ from pathlib import Path
 class GrimnirClient:
     """Client for the Grimnir Radio API."""
 
-    def __init__(self, base_url: str, timeout: int = 30):
+    def __init__(self, base_url: str, api_key: Optional[str] = None, timeout: int = 30):
         """
         Initialize the client.
 
         Args:
             base_url: Base URL of the Grimnir Radio instance (e.g., "https://radio.example.com")
+            api_key: API key for authentication (get from your profile page)
             timeout: Request timeout in seconds
         """
         self.base_url = base_url.rstrip("/")
         self.api_url = f"{self.base_url}/api/v1"
         self.timeout = timeout
-        self.token: Optional[str] = None
-        self.token_expires: Optional[datetime] = None
+        self.api_key = api_key
         self.session = requests.Session()
 
     def _headers(self) -> Dict[str, str]:
-        """Get request headers with auth token."""
+        """Get request headers with API key auth."""
         headers = {"Content-Type": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+        if self.api_key:
+            headers["X-API-Key"] = self.api_key
         return headers
 
     def _request(
@@ -89,43 +89,6 @@ class GrimnirClient:
         if response.content:
             return response.json()
         return {}
-
-    # =========================================================================
-    # Authentication
-    # =========================================================================
-
-    def login(self, email: str, password: str) -> Dict[str, Any]:
-        """
-        Login and obtain an access token.
-
-        Args:
-            email: User email
-            password: User password
-
-        Returns:
-            Auth response with token and user info
-
-        Example:
-            >>> client.login("dj@example.com", "mypassword")
-            {'token': 'eyJ...', 'user': {'id': '...', 'email': 'dj@example.com'}}
-        """
-        response = self._request(
-            "POST",
-            "/auth/login",
-            data={"email": email, "password": password},
-        )
-        self.token = response.get("token")
-        if "expires_at" in response:
-            self.token_expires = datetime.fromisoformat(
-                response["expires_at"].replace("Z", "+00:00")
-            )
-        return response
-
-    def refresh_token(self) -> Dict[str, Any]:
-        """Refresh the access token."""
-        response = self._request("POST", "/auth/refresh")
-        self.token = response.get("token")
-        return response
 
     # =========================================================================
     # Stations
@@ -662,21 +625,21 @@ if __name__ == "__main__":
     # Example usage
     import os
 
-    # Get credentials from environment
+    # Get API key from environment
     BASE_URL = os.getenv("GRIMNIR_URL", "http://localhost:8080")
-    EMAIL = os.getenv("GRIMNIR_EMAIL", "admin@example.com")
-    PASSWORD = os.getenv("GRIMNIR_PASSWORD", "password")
+    API_KEY = os.getenv("GRIMNIR_API_KEY")
 
-    # Create client and login
-    client = GrimnirClient(BASE_URL)
+    if not API_KEY:
+        print("Error: Set GRIMNIR_API_KEY environment variable")
+        print("Generate an API key from your profile page in the web dashboard")
+        exit(1)
+
+    # Create client with API key
+    client = GrimnirClient(BASE_URL, api_key=API_KEY)
 
     try:
-        print("Logging in...")
-        auth = client.login(EMAIL, PASSWORD)
-        print(f"Logged in as: {auth['user']['email']}")
-
         # Get stations
-        print("\nStations:")
+        print("Stations:")
         stations = client.get_stations()
         for station in stations:
             print(f"  - {station['name']} ({station['id']})")
