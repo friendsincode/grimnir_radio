@@ -296,6 +296,9 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Post("/media/{id}/toggle-public", h.AdminMediaTogglePublic)
 				r.Post("/media/{id}/move", h.AdminMediaMove)
 				r.Delete("/media/{id}", h.AdminMediaDelete)
+
+				// System logs
+				r.Get("/logs", h.AdminLogs)
 			})
 		})
 	})

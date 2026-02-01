@@ -1,0 +1,339 @@
+{{define "pages/dashboard/admin/logs"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "main"}}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0"><i class="bi bi-terminal me-2"></i>System Logs</h1>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary" onclick="refreshLogs()">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+            </button>
+            <button class="btn btn-outline-danger" onclick="clearLogs()">
+                <i class="bi bi-trash me-1"></i>Clear
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label small">Level</label>
+                    <select class="form-select form-select-sm" id="filterLevel">
+                        <option value="">All Levels</option>
+                        <option value="debug">Debug</option>
+                        <option value="info">Info</option>
+                        <option value="warn">Warning</option>
+                        <option value="error">Error</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">Component</label>
+                    <select class="form-select form-select-sm" id="filterComponent">
+                        <option value="">All Components</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Search</label>
+                    <input type="text" class="form-control form-control-sm" id="filterSearch" placeholder="Search messages...">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">Limit</label>
+                    <select class="form-select form-select-sm" id="filterLimit">
+                        <option value="100">100</option>
+                        <option value="250">250</option>
+                        <option value="500" selected>500</option>
+                        <option value="1000">1000</option>
+                        <option value="2500">2500</option>
+                    </select>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button class="btn btn-primary btn-sm w-100" onclick="refreshLogs()">
+                        <i class="bi bi-funnel"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="row mb-4" id="logStats">
+        <div class="col-md-3">
+            <div class="card bg-secondary text-white">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between">
+                        <span>Total</span>
+                        <span id="statTotal">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card bg-info text-white">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between">
+                        <span>Debug</span>
+                        <span id="statDebug">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card bg-success text-white">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between">
+                        <span>Info</span>
+                        <span id="statInfo">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card bg-warning text-dark">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between">
+                        <span>Warn</span>
+                        <span id="statWarn">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-danger text-white">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between">
+                        <span>Error</span>
+                        <span id="statError">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log entries -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Log Entries</span>
+            <span class="badge bg-secondary" id="entryCount">0 entries</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                <table class="table table-sm table-striped table-hover mb-0" id="logTable">
+                    <thead class="sticky-top bg-dark">
+                        <tr>
+                            <th style="width: 160px;">Timestamp</th>
+                            <th style="width: 70px;">Level</th>
+                            <th style="width: 120px;">Component</th>
+                            <th>Message</th>
+                            <th style="width: 50px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="logBody">
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-4">
+                                <i class="bi bi-hourglass-split me-2"></i>Loading logs...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Detail Modal -->
+<div class="modal fade" id="logDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Log Entry Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="logDetailContent" class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow: auto; font-size: 0.85em;"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.log-level-debug { color: #0dcaf0; }
+.log-level-info { color: #198754; }
+.log-level-warn { color: #ffc107; }
+.log-level-error { color: #dc3545; font-weight: bold; }
+#logTable tbody tr { font-size: 0.85em; }
+#logTable td { vertical-align: middle; }
+.log-message {
+    max-width: 600px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+</style>
+
+<script>
+const wsToken = '{{.WSToken}}';
+let logDetailModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    logDetailModal = new bootstrap.Modal(document.getElementById('logDetailModal'));
+    loadComponents();
+    loadStats();
+    refreshLogs();
+
+    // Auto-refresh every 10 seconds
+    setInterval(refreshLogs, 10000);
+
+    // Filter on Enter key
+    document.getElementById('filterSearch').addEventListener('keyup', function(e) {
+        if (e.key === 'Enter') refreshLogs();
+    });
+});
+
+function loadComponents() {
+    fetch('/api/v1/system/logs/components', {
+        headers: { 'Authorization': 'Bearer ' + wsToken }
+    })
+    .then(r => r.json())
+    .then(data => {
+        const select = document.getElementById('filterComponent');
+        select.innerHTML = '<option value="">All Components</option>';
+        if (data.components) {
+            data.components.sort().forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.textContent = c;
+                select.appendChild(opt);
+            });
+        }
+    })
+    .catch(err => console.error('Failed to load components:', err));
+}
+
+function loadStats() {
+    fetch('/api/v1/system/logs/stats', {
+        headers: { 'Authorization': 'Bearer ' + wsToken }
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('statTotal').textContent = data.count || 0;
+        document.getElementById('statDebug').textContent = data.level_count?.debug || 0;
+        document.getElementById('statInfo').textContent = data.level_count?.info || 0;
+        document.getElementById('statWarn').textContent = data.level_count?.warn || 0;
+        document.getElementById('statError').textContent = data.level_count?.error || 0;
+    })
+    .catch(err => console.error('Failed to load stats:', err));
+}
+
+function refreshLogs() {
+    const level = document.getElementById('filterLevel').value;
+    const component = document.getElementById('filterComponent').value;
+    const search = document.getElementById('filterSearch').value;
+    const limit = document.getElementById('filterLimit').value;
+
+    let url = `/api/v1/system/logs?limit=${limit}`;
+    if (level) url += `&level=${encodeURIComponent(level)}`;
+    if (component) url += `&component=${encodeURIComponent(component)}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+
+    fetch(url, {
+        headers: { 'Authorization': 'Bearer ' + wsToken }
+    })
+    .then(r => r.json())
+    .then(data => {
+        renderLogs(data.entries || []);
+        document.getElementById('entryCount').textContent = (data.count || 0) + ' entries';
+        loadStats(); // Also refresh stats
+    })
+    .catch(err => {
+        console.error('Failed to load logs:', err);
+        document.getElementById('logBody').innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center text-danger py-4">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Failed to load logs
+                </td>
+            </tr>
+        `;
+    });
+}
+
+function renderLogs(entries) {
+    const tbody = document.getElementById('logBody');
+
+    if (!entries || entries.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center text-muted py-4">
+                    <i class="bi bi-inbox me-2"></i>No log entries found
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = entries.map((entry, idx) => {
+        const ts = new Date(entry.timestamp).toLocaleString();
+        const levelClass = `log-level-${entry.level}`;
+        const levelBadge = getLevelBadge(entry.level);
+        const message = escapeHtml(entry.message || '(no message)');
+        const component = entry.component || '-';
+
+        return `
+            <tr>
+                <td class="text-muted">${ts}</td>
+                <td>${levelBadge}</td>
+                <td><code class="small">${escapeHtml(component)}</code></td>
+                <td class="log-message" title="${escapeHtml(entry.message)}">${message}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick='showLogDetail(${JSON.stringify(entry)})'>
+                        <i class="bi bi-code"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function getLevelBadge(level) {
+    const badges = {
+        'debug': '<span class="badge bg-info">DBG</span>',
+        'info': '<span class="badge bg-success">INF</span>',
+        'warn': '<span class="badge bg-warning text-dark">WRN</span>',
+        'error': '<span class="badge bg-danger">ERR</span>',
+    };
+    return badges[level] || `<span class="badge bg-secondary">${level}</span>`;
+}
+
+function showLogDetail(entry) {
+    document.getElementById('logDetailContent').textContent = JSON.stringify(entry, null, 2);
+    logDetailModal.show();
+}
+
+function clearLogs() {
+    if (!confirm('Are you sure you want to clear all logs from the buffer?')) return;
+
+    fetch('/api/v1/system/logs', {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + wsToken }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            refreshLogs();
+            loadStats();
+        }
+    })
+    .catch(err => console.error('Failed to clear logs:', err));
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{{end}}
