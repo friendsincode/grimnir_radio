@@ -50,25 +50,25 @@ type S3Config struct {
 	UsePathStyle  bool   // Use path-style URLs (required for MinIO)
 
 	// Performance
-	PartSize          int64 // Multipart upload part size (default: 5MB)
-	Concurrency       int   // Upload concurrency (default: 5)
-	MaxUploadParts    int32 // Max parts for multipart (default: 10000)
-	PresignedExpiry   time.Duration
-	DisableSSL        bool
-	ForcePathStyle    bool
+	PartSize        int64 // Multipart upload part size (default: 5MB)
+	Concurrency     int   // Upload concurrency (default: 5)
+	MaxUploadParts  int32 // Max parts for multipart (default: 10000)
+	PresignedExpiry time.Duration
+	DisableSSL      bool
+	ForcePathStyle  bool
 }
 
 // DefaultS3Config returns default S3 configuration.
 func DefaultS3Config() S3Config {
 	return S3Config{
-		Region:            "us-east-1",
-		PartSize:          5 * 1024 * 1024, // 5MB
-		Concurrency:       5,
-		MaxUploadParts:    10000,
-		PresignedExpiry:   15 * time.Minute,
-		UsePathStyle:      false,
-		DisableSSL:        false,
-		ForcePathStyle:    false,
+		Region:          "us-east-1",
+		PartSize:        5 * 1024 * 1024, // 5MB
+		Concurrency:     5,
+		MaxUploadParts:  10000,
+		PresignedExpiry: 15 * time.Minute,
+		UsePathStyle:    false,
+		DisableSSL:      false,
+		ForcePathStyle:  false,
 	}
 }
 

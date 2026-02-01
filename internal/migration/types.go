@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package migration
 
 import (
@@ -93,24 +92,24 @@ type Options struct {
 
 // Progress tracks migration progress.
 type Progress struct {
-	Phase             string    `json:"phase"`
-	TotalSteps        int       `json:"total_steps"`
-	CompletedSteps    int       `json:"completed_steps"`
-	CurrentStep       string    `json:"current_step"`
-	StationsTotal     int       `json:"stations_total"`
-	StationsImported  int       `json:"stations_imported"`
-	MediaTotal        int       `json:"media_total"`
-	MediaImported     int       `json:"media_imported"`
-	MediaCopied       int       `json:"media_copied"`
-	PlaylistsTotal    int       `json:"playlists_total"`
-	PlaylistsImported int       `json:"playlists_imported"`
-	SchedulesTotal    int       `json:"schedules_total"`
-	SchedulesImported int       `json:"schedules_imported"`
-	UsersTotal        int       `json:"users_total"`
-	UsersImported     int       `json:"users_imported"`
-	Percentage        float64   `json:"percentage"`
-	EstimatedRemaining string   `json:"estimated_remaining,omitempty"`
-	StartTime         time.Time `json:"start_time"`
+	Phase              string    `json:"phase"`
+	TotalSteps         int       `json:"total_steps"`
+	CompletedSteps     int       `json:"completed_steps"`
+	CurrentStep        string    `json:"current_step"`
+	StationsTotal      int       `json:"stations_total"`
+	StationsImported   int       `json:"stations_imported"`
+	MediaTotal         int       `json:"media_total"`
+	MediaImported      int       `json:"media_imported"`
+	MediaCopied        int       `json:"media_copied"`
+	PlaylistsTotal     int       `json:"playlists_total"`
+	PlaylistsImported  int       `json:"playlists_imported"`
+	SchedulesTotal     int       `json:"schedules_total"`
+	SchedulesImported  int       `json:"schedules_imported"`
+	UsersTotal         int       `json:"users_total"`
+	UsersImported      int       `json:"users_imported"`
+	Percentage         float64   `json:"percentage"`
+	EstimatedRemaining string    `json:"estimated_remaining,omitempty"`
+	StartTime          time.Time `json:"start_time"`
 }
 
 // Result contains the final migration results.

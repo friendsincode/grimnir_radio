@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package scheduler
 
 import (
@@ -12,11 +11,12 @@ import (
 	"errors"
 	"time"
 
-    "github.com/friendsincode/grimnir_radio/internal/clock"
-    "github.com/friendsincode/grimnir_radio/internal/models"
-    "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
-    "github.com/friendsincode/grimnir_radio/internal/smartblock"
-    "github.com/friendsincode/grimnir_radio/internal/telemetry"
+	"github.com/friendsincode/grimnir_radio/internal/cache"
+	"github.com/friendsincode/grimnir_radio/internal/clock"
+	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/scheduler/state"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -28,6 +28,7 @@ type Service struct {
 	planner    *clock.Planner
 	engine     *smartblock.Engine
 	stateStore *state.Store
+	cache      *cache.Cache
 	logger     zerolog.Logger
 	lookahead  time.Duration
 }
@@ -38,6 +39,11 @@ func New(db *gorm.DB, planner *clock.Planner, engine *smartblock.Engine, stateSt
 		lookahead = 24 * time.Hour
 	}
 	return &Service{db: db, planner: planner, engine: engine, stateStore: stateStore, lookahead: lookahead, logger: logger}
+}
+
+// SetCache sets the cache instance for the scheduler.
+func (s *Service) SetCache(c *cache.Cache) {
+	s.cache = c
 }
 
 // Run executes the scheduler loop until the context is cancelled.
@@ -60,19 +66,59 @@ func (s *Service) Run(ctx context.Context) error {
 func (s *Service) tick(ctx context.Context) {
 	telemetry.SchedulerTicksTotal.Inc()
 
-	var stations []models.Station
-	if err := s.db.WithContext(ctx).Find(&stations).Error; err != nil {
+	// Try to get station list from cache first
+	stationIDs, err := s.getStationIDs(ctx)
+	if err != nil {
 		s.logger.Error().Err(err).Msg("scheduler failed to load stations")
 		telemetry.SchedulerErrorsTotal.WithLabelValues("", "load_stations").Inc()
 		return
 	}
 
-	for _, station := range stations {
-		if err := s.scheduleStation(ctx, station.ID); err != nil {
-			s.logger.Warn().Err(err).Str("station", station.ID).Msg("station scheduling failed")
-			telemetry.SchedulerErrorsTotal.WithLabelValues(station.ID, "schedule_station").Inc()
+	for _, stationID := range stationIDs {
+		if err := s.scheduleStation(ctx, stationID); err != nil {
+			s.logger.Warn().Err(err).Str("station", stationID).Msg("station scheduling failed")
+			telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "schedule_station").Inc()
 		}
 	}
+}
+
+// getStationIDs retrieves station IDs, using cache when available.
+func (s *Service) getStationIDs(ctx context.Context) ([]string, error) {
+	// Try cache first
+	if s.cache != nil {
+		if cached, ok := s.cache.GetStationList(ctx); ok {
+			ids := make([]string, len(cached))
+			for i, station := range cached {
+				ids[i] = station.ID
+			}
+			return ids, nil
+		}
+	}
+
+	// Fallback to database
+	var stations []models.Station
+	if err := s.db.WithContext(ctx).Select("id").Find(&stations).Error; err != nil {
+		return nil, err
+	}
+
+	// Populate cache for next time
+	if s.cache != nil {
+		cached := make([]cache.CachedStation, len(stations))
+		for i, station := range stations {
+			cached[i] = cache.CachedStation{
+				ID: station.ID,
+			}
+		}
+		if err := s.cache.SetStationList(ctx, cached); err != nil {
+			s.logger.Debug().Err(err).Msg("failed to cache station list")
+		}
+	}
+
+	ids := make([]string, len(stations))
+	for i, station := range stations {
+		ids[i] = station.ID
+	}
+	return ids, nil
 }
 
 func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
@@ -164,8 +210,16 @@ func (s *Service) slotAlreadyScheduled(ctx context.Context, stationID string, pl
 	return count > 0, nil
 }
 
-// getDefaultMountID retrieves the first mount for a station
+// getDefaultMountID retrieves the first mount for a station, using cache when available.
 func (s *Service) getDefaultMountID(ctx context.Context, stationID string) string {
+	// Try cache first
+	if s.cache != nil {
+		if cached, ok := s.cache.GetDefaultMount(ctx, stationID); ok {
+			return cached.ID
+		}
+	}
+
+	// Fallback to database
 	var mount models.Mount
 	err := s.db.WithContext(ctx).
 		Where("station_id = ?", stationID).
@@ -174,6 +228,24 @@ func (s *Service) getDefaultMountID(ctx context.Context, stationID string) strin
 	if err != nil {
 		return ""
 	}
+
+	// Cache the result
+	if s.cache != nil {
+		cached := &cache.CachedMount{
+			ID:         mount.ID,
+			StationID:  mount.StationID,
+			Name:       mount.Name,
+			URL:        mount.URL,
+			Format:     mount.Format,
+			Bitrate:    mount.Bitrate,
+			Channels:   mount.Channels,
+			SampleRate: mount.SampleRate,
+		}
+		if err := s.cache.SetDefaultMount(ctx, stationID, cached); err != nil {
+			s.logger.Debug().Err(err).Str("station_id", stationID).Msg("failed to cache default mount")
+		}
+	}
+
 	return mount.ID
 }
 

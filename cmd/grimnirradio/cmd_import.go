@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package main
 
 import (
@@ -63,16 +62,16 @@ var (
 
 // LibreTime import flags
 var (
-	libretimeDBHost     string
-	libretimeDBPort     int
-	libretimeDBName     string
-	libretimeDBUser     string
-	libretimeDBPassword string
-	libretimeMediaPath  string
-	libretimeSkipMedia  bool
+	libretimeDBHost        string
+	libretimeDBPort        int
+	libretimeDBName        string
+	libretimeDBUser        string
+	libretimeDBPassword    string
+	libretimeMediaPath     string
+	libretimeSkipMedia     bool
 	libretimeSkipPlaylists bool
 	libretimeSkipSchedules bool
-	libretimeDryRun     bool
+	libretimeDryRun        bool
 )
 
 func init() {

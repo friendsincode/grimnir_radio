@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package mediaengine
 
 import (
@@ -25,18 +24,18 @@ import (
 
 // GStreamerProcess manages a single GStreamer process with monitoring
 type GStreamerProcess struct {
-	id       string
-	cmd      *exec.Cmd
-	logger   zerolog.Logger
-	ctx      context.Context
-	cancel   context.CancelFunc
+	id     string
+	cmd    *exec.Cmd
+	logger zerolog.Logger
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// Process state
-	mu         sync.RWMutex
-	state      ProcessState
-	startTime  time.Time
-	exitCode   int
-	exitError  error
+	mu        sync.RWMutex
+	state     ProcessState
+	startTime time.Time
+	exitCode  int
+	exitError error
 
 	// Output monitoring
 	stdout     io.ReadCloser
@@ -44,7 +43,7 @@ type GStreamerProcess struct {
 	outputDone chan struct{}
 
 	// Telemetry extracted from GStreamer output
-	telemetry  *GStreamerTelemetry
+	telemetry *GStreamerTelemetry
 
 	// Callbacks
 	onStateChange func(ProcessState)
@@ -69,10 +68,10 @@ type GStreamerTelemetry struct {
 	mu sync.RWMutex
 
 	// Audio levels (from level element)
-	AudioLevelL   float32
-	AudioLevelR   float32
-	PeakLevelL    float32
-	PeakLevelR    float32
+	AudioLevelL float32
+	AudioLevelR float32
+	PeakLevelL  float32
+	PeakLevelR  float32
 
 	// Buffer status
 	BufferFillPct int32
@@ -89,18 +88,18 @@ type GStreamerTelemetry struct {
 	PipelineState   string // NULL, READY, PAUSED, PLAYING
 
 	// Performance
-	CPUPercent    float32
-	MemoryMB      int64
+	CPUPercent float32
+	MemoryMB   int64
 }
 
 // GStreamerProcessConfig contains configuration for launching GStreamer
 type GStreamerProcessConfig struct {
-	ID              string
-	Pipeline        string
-	LogLevel        string // "none", "error", "warning", "info", "debug"
-	OnStateChange   func(ProcessState)
-	OnTelemetry     func(*GStreamerTelemetry)
-	OnExit          func(exitCode int, err error)
+	ID            string
+	Pipeline      string
+	LogLevel      string // "none", "error", "warning", "info", "debug"
+	OnStateChange func(ProcessState)
+	OnTelemetry   func(*GStreamerTelemetry)
+	OnExit        func(exitCode int, err error)
 }
 
 // Regular expressions for parsing GStreamer output

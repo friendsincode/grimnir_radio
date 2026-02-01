@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -59,8 +60,8 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		Description: r.FormValue("description"),
 		Timezone:    r.FormValue("timezone"),
 		OwnerID:     user.ID,
-		Active:      true,                  // Active by default
-		Public:      false,                 // Private by default
+		Active:      true,                   // Active by default
+		Public:      false,                  // Private by default
 		Approved:    user.IsPlatformAdmin(), // Auto-approve for admins, otherwise needs approval
 	}
 
@@ -128,6 +129,9 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 
 	tx.Commit()
 
+	// Publish cache invalidation event
+	h.publishCacheEvent(events.EventStationCreated, station.ID)
+
 	h.logger.Info().
 		Str("station_id", station.ID).
 		Str("owner_id", user.ID).
@@ -194,6 +198,9 @@ func (h *Handler) StationUpdate(w http.ResponseWriter, r *http.Request) {
 		h.renderStationFormError(w, r, station, false, "Failed to update station")
 		return
 	}
+
+	// Publish cache invalidation event
+	h.publishCacheEvent(events.EventStationUpdated, station.ID)
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/stations")
@@ -299,6 +306,9 @@ func (h *Handler) StationDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Publish cache invalidation event
+	h.publishCacheEvent(events.EventStationDeleted, id)
+
 	h.logger.Info().Str("station_id", id).Str("station_name", station.Name).Msg("station deleted with all data")
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -403,6 +413,9 @@ func (h *Handler) MountCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Publish cache invalidation event
+	h.publishMountCacheEvent(events.EventMountCreated, mount.ID, stationID)
+
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/stations/"+stationID+"/mounts")
 		return
@@ -464,6 +477,9 @@ func (h *Handler) MountUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Publish cache invalidation event
+	h.publishMountCacheEvent(events.EventMountUpdated, mount.ID, stationID)
+
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/stations/"+stationID+"/mounts")
 		return
@@ -482,10 +498,34 @@ func (h *Handler) MountDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Publish cache invalidation event
+	h.publishMountCacheEvent(events.EventMountDeleted, id, stationID)
+
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Refresh", "true")
 		return
 	}
 
 	http.Redirect(w, r, "/dashboard/stations/"+stationID+"/mounts", http.StatusSeeOther)
+}
+
+// publishCacheEvent publishes a cache invalidation event for a station.
+func (h *Handler) publishCacheEvent(eventType events.EventType, stationID string) {
+	if h.eventBus == nil {
+		return
+	}
+	h.eventBus.Publish(eventType, events.Payload{
+		"station_id": stationID,
+	})
+}
+
+// publishMountCacheEvent publishes a cache invalidation event for a mount.
+func (h *Handler) publishMountCacheEvent(eventType events.EventType, mountID, stationID string) {
+	if h.eventBus == nil {
+		return
+	}
+	h.eventBus.Publish(eventType, events.Payload{
+		"mount_id":   mountID,
+		"station_id": stationID,
+	})
 }

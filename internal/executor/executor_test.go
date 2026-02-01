@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package executor
 
 import (
@@ -17,10 +16,10 @@ func TestIsValidTransition(t *testing.T) {
 	executor := &Executor{}
 
 	tests := []struct {
-		name    string
-		from    models.ExecutorStateEnum
-		to      models.ExecutorStateEnum
-		valid   bool
+		name  string
+		from  models.ExecutorStateEnum
+		to    models.ExecutorStateEnum
+		valid bool
 	}{
 		// From Idle
 		{"idle to preloading", models.ExecutorStateIdle, models.ExecutorStatePreloading, true},

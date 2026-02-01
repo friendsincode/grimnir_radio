@@ -27,7 +27,7 @@ func (h *Handler) RequireSetup(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip if already on setup page
 		if r.URL.Path == "/setup" || r.URL.Path == "/static/" ||
-		   len(r.URL.Path) > 8 && r.URL.Path[:8] == "/static/" {
+			len(r.URL.Path) > 8 && r.URL.Path[:8] == "/static/" {
 			next.ServeHTTP(w, r)
 			return
 		}

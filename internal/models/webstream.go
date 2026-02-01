@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package models
 
 import (
@@ -13,10 +12,10 @@ import (
 
 // Webstream represents a relayed HTTP/ICY stream with failover support.
 type Webstream struct {
-	ID          string    `gorm:"type:uuid;primaryKey"`
-	StationID   string    `gorm:"type:uuid;index"`
-	Name        string    `gorm:"type:varchar(255)"`
-	Description string    `gorm:"type:text"`
+	ID          string `gorm:"type:uuid;primaryKey"`
+	StationID   string `gorm:"type:uuid;index"`
+	Name        string `gorm:"type:varchar(255)"`
+	Description string `gorm:"type:text"`
 
 	// URLs for failover chain (primary -> backup -> backup2, etc.)
 	URLs []string `gorm:"serializer:json"`
@@ -28,14 +27,14 @@ type Webstream struct {
 	HealthCheckMethod   string        `gorm:"type:varchar(10);default:'HEAD'"` // HEAD or GET
 
 	// Failover settings
-	FailoverEnabled    bool          `gorm:"default:true"`
-	FailoverGraceMs    int           `gorm:"type:int;default:5000"` // Grace period before failover
-	AutoRecoverEnabled bool          `gorm:"default:true"`          // Auto-recover to primary when healthy
+	FailoverEnabled    bool `gorm:"default:true"`
+	FailoverGraceMs    int  `gorm:"type:int;default:5000"` // Grace period before failover
+	AutoRecoverEnabled bool `gorm:"default:true"`          // Auto-recover to primary when healthy
 
 	// Connection settings
-	PreflightCheck     bool `gorm:"default:true"` // Test connection before scheduling
-	BufferSizeMS       int  `gorm:"type:int;default:2000"`
-	ReconnectDelayMS   int  `gorm:"type:int;default:1000"`
+	PreflightCheck       bool `gorm:"default:true"` // Test connection before scheduling
+	BufferSizeMS         int  `gorm:"type:int;default:2000"`
+	ReconnectDelayMS     int  `gorm:"type:int;default:1000"`
 	MaxReconnectAttempts int  `gorm:"type:int;default:5"`
 
 	// Metadata
@@ -44,11 +43,11 @@ type Webstream struct {
 	CustomMetadata      map[string]any `gorm:"serializer:json"`
 
 	// State tracking
-	Active       bool       `gorm:"index"`
-	CurrentURL   string     `gorm:"type:text"` // Currently active URL
-	CurrentIndex int        `gorm:"type:int"`  // Index in URLs array
+	Active          bool   `gorm:"index"`
+	CurrentURL      string `gorm:"type:text"` // Currently active URL
+	CurrentIndex    int    `gorm:"type:int"`  // Index in URLs array
 	LastHealthCheck *time.Time
-	HealthStatus string     `gorm:"type:varchar(50)"` // healthy, degraded, unhealthy
+	HealthStatus    string `gorm:"type:varchar(50)"` // healthy, degraded, unhealthy
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

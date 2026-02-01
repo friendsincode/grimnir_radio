@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package models
 
 import (
@@ -55,23 +54,23 @@ const (
 // PlatformPermissions defines what a platform group can do.
 type PlatformPermissions struct {
 	// Station management
-	CanApproveStations  bool `json:"can_approve_stations"`
-	CanSuspendStations  bool `json:"can_suspend_stations"`
-	CanDeleteStations   bool `json:"can_delete_stations"`
-	CanViewAllStations  bool `json:"can_view_all_stations"`
+	CanApproveStations bool `json:"can_approve_stations"`
+	CanSuspendStations bool `json:"can_suspend_stations"`
+	CanDeleteStations  bool `json:"can_delete_stations"`
+	CanViewAllStations bool `json:"can_view_all_stations"`
 
 	// User management
-	CanManageUsers      bool `json:"can_manage_users"`
-	CanSuspendUsers     bool `json:"can_suspend_users"`
-	CanDeleteUsers      bool `json:"can_delete_users"`
+	CanManageUsers  bool `json:"can_manage_users"`
+	CanSuspendUsers bool `json:"can_suspend_users"`
+	CanDeleteUsers  bool `json:"can_delete_users"`
 
 	// Platform settings
-	CanManageSettings   bool `json:"can_manage_settings"`
-	CanViewAnalytics    bool `json:"can_view_analytics"`
+	CanManageSettings bool `json:"can_manage_settings"`
+	CanViewAnalytics  bool `json:"can_view_analytics"`
 
 	// Limits (0 = unlimited for admins, default for users)
-	MaxStations         int  `json:"max_stations"`
-	MaxStorageBytes     int64 `json:"max_storage_bytes"`
+	MaxStations     int   `json:"max_stations"`
+	MaxStorageBytes int64 `json:"max_storage_bytes"`
 }
 
 // Value implements driver.Valuer for database serialization.
@@ -98,10 +97,10 @@ func (p *PlatformPermissions) Scan(value interface{}) error {
 
 // PlatformGroup allows grouping users with shared platform permissions.
 type PlatformGroup struct {
-	ID          string              `gorm:"type:uuid;primaryKey"`
-	Name        string              `gorm:"uniqueIndex"`
-	Description string              `gorm:"type:text"`
-	Permissions PlatformPermissions `gorm:"type:jsonb"`
+	ID          string                `gorm:"type:uuid;primaryKey"`
+	Name        string                `gorm:"uniqueIndex"`
+	Description string                `gorm:"type:text"`
+	Permissions PlatformPermissions   `gorm:"type:jsonb"`
 	Members     []PlatformGroupMember `gorm:"foreignKey:GroupID"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -117,17 +116,17 @@ type PlatformGroupMember struct {
 
 // User represents an authenticated account.
 type User struct {
-	ID              string       `gorm:"type:uuid;primaryKey"`
-	Email           string       `gorm:"uniqueIndex"`
-	Password        string
-	PlatformRole       PlatformRole `gorm:"type:varchar(20);default:'user'"` // Global platform role
-	Suspended          bool         `gorm:"default:false"`                    // Platform-level suspension
-	SuspendedReason    string       `gorm:"type:text"`
-	CalendarColorTheme string       `gorm:"type:varchar(32);default:'default'"` // Calendar color theme preset
+	ID                 string `gorm:"type:uuid;primaryKey"`
+	Email              string `gorm:"uniqueIndex"`
+	Password           string
+	PlatformRole       PlatformRole          `gorm:"type:varchar(20);default:'user'"` // Global platform role
+	Suspended          bool                  `gorm:"default:false"`                   // Platform-level suspension
+	SuspendedReason    string                `gorm:"type:text"`
+	CalendarColorTheme string                `gorm:"type:varchar(32);default:'default'"` // Calendar color theme preset
 	Stations           []StationUser         `gorm:"foreignKey:UserID"`
-	PlatformGroups  []PlatformGroupMember `gorm:"foreignKey:UserID"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	PlatformGroups     []PlatformGroupMember `gorm:"foreignKey:UserID"`
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // RoleName is kept for backward compatibility during migration.
@@ -180,9 +179,9 @@ const (
 // StationPermissions defines granular station-level permissions.
 type StationPermissions struct {
 	// Media
-	CanUploadMedia   bool `json:"can_upload_media"`
-	CanDeleteMedia   bool `json:"can_delete_media"`
-	CanEditMetadata  bool `json:"can_edit_metadata"`
+	CanUploadMedia  bool `json:"can_upload_media"`
+	CanDeleteMedia  bool `json:"can_delete_media"`
+	CanEditMetadata bool `json:"can_edit_metadata"`
 
 	// Playlists
 	CanManagePlaylists   bool `json:"can_manage_playlists"`
@@ -193,8 +192,8 @@ type StationPermissions struct {
 	CanManageClocks   bool `json:"can_manage_clocks"`
 
 	// Live
-	CanGoLive  bool `json:"can_go_live"`
-	CanKickDJ  bool `json:"can_kick_dj"`
+	CanGoLive bool `json:"can_go_live"`
+	CanKickDJ bool `json:"can_kick_dj"`
 
 	// Admin
 	CanManageUsers    bool `json:"can_manage_users"`
@@ -308,11 +307,11 @@ func (su *StationUser) GetEffectivePermissions() StationPermissions {
 
 // StationGroup allows grouping users within a station (e.g., "Morning Show Team").
 type StationGroup struct {
-	ID          string             `gorm:"type:uuid;primaryKey"`
-	StationID   string             `gorm:"type:uuid;index;not null"`
-	Name        string             `gorm:"index"`
-	Description string             `gorm:"type:text"`
-	Permissions StationPermissions `gorm:"type:jsonb"`
+	ID          string               `gorm:"type:uuid;primaryKey"`
+	StationID   string               `gorm:"type:uuid;index;not null"`
+	Name        string               `gorm:"index"`
+	Description string               `gorm:"type:text"`
+	Permissions StationPermissions   `gorm:"type:jsonb"`
 	Members     []StationGroupMember `gorm:"foreignKey:GroupID"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -344,21 +343,21 @@ type Station struct {
 	Featured  bool `gorm:"default:false"` // Featured on homepage player
 
 	// Archive defaults for new media
-	DefaultShowInArchive bool `gorm:"default:true"`  // Default: show new media in public archive
-	DefaultAllowDownload bool `gorm:"default:true"`  // Default: allow downloads for new media
+	DefaultShowInArchive bool `gorm:"default:true"` // Default: show new media in public archive
+	DefaultAllowDownload bool `gorm:"default:true"` // Default: allow downloads for new media
 
 	// Branding - imported from source systems (AzuraCast/LibreTime)
-	Logo         []byte `gorm:"type:bytea"` // Station logo (JPEG/PNG)
-	LogoMime     string `gorm:"type:varchar(32)"`
-	HeaderImage  []byte `gorm:"type:bytea"` // Station header/banner image
-	HeaderMime   string `gorm:"type:varchar(32)"`
-	Shortcode    string `gorm:"type:varchar(32);index"` // Short URL-friendly name
-	Genre        string `gorm:"type:varchar(64)"`
-	Language     string `gorm:"type:varchar(32)"`
-	Website      string `gorm:"type:varchar(255)"`       // Station website URL
+	Logo         []byte            `gorm:"type:bytea"` // Station logo (JPEG/PNG)
+	LogoMime     string            `gorm:"type:varchar(32)"`
+	HeaderImage  []byte            `gorm:"type:bytea"` // Station header/banner image
+	HeaderMime   string            `gorm:"type:varchar(32)"`
+	Shortcode    string            `gorm:"type:varchar(32);index"` // Short URL-friendly name
+	Genre        string            `gorm:"type:varchar(64)"`
+	Language     string            `gorm:"type:varchar(32)"`
+	Website      string            `gorm:"type:varchar(255)"`          // Station website URL
 	SocialLinks  map[string]string `gorm:"type:jsonb;serializer:json"` // Social media links
-	ContactEmail string `gorm:"type:varchar(255)"`
-	ListenURL    string `gorm:"type:varchar(255)"`       // Primary public listen URL
+	ContactEmail string            `gorm:"type:varchar(255)"`
+	ListenURL    string            `gorm:"type:varchar(255)"` // Primary public listen URL
 
 	// Relationships
 	Users  []StationUser  `gorm:"foreignKey:StationID"`
@@ -375,11 +374,11 @@ func (s *Station) IsOwnedBy(userID string) bool {
 
 // Mount describes an output encoder pipeline.
 type Mount struct {
-	ID              string  `gorm:"type:uuid;primaryKey"`
-	StationID       string  `gorm:"type:uuid;index"`
-	Name            string  `gorm:"index"`
+	ID              string `gorm:"type:uuid;primaryKey"`
+	StationID       string `gorm:"type:uuid;index"`
+	Name            string `gorm:"index"`
 	URL             string
-	Format          string  `gorm:"type:varchar(16)"`
+	Format          string `gorm:"type:varchar(16)"`
 	Bitrate         int
 	Channels        int
 	SampleRate      int
@@ -401,58 +400,58 @@ type EncoderPreset struct {
 
 // MediaItem is an audio asset with analysis metadata.
 type MediaItem struct {
-	ID            string `gorm:"type:uuid;primaryKey"`
-	StationID     string `gorm:"type:uuid;index"`
-	Station       *Station `gorm:"foreignKey:StationID"` // Belongs to station (for cross-station queries)
-	Title         string `gorm:"index"`
-	Artist        string `gorm:"index"`
-	Album         string `gorm:"index"`
-	Duration      time.Duration
-	Path          string
-	StorageKey    string
-	ContentHash   string `gorm:"type:varchar(64);index"` // SHA-256 hash for deduplication across stations
-	ImportPath    string        // Original path from import (LibreTime/AzuraCast)
-	Genre         string
-	Mood          string
-	Label         string
-	Language      string
-	Explicit      bool
-	ShowInArchive bool `gorm:"default:true"`  // Whether to show in public archive
-	AllowDownload bool `gorm:"default:true"`  // Whether to allow downloads from archive
-	LoudnessLUFS  float64
-	ReplayGain    float64
-	BPM           float64
-	Year          string        // Changed from int to string for flexibility
-	TrackNumber   int
-	Bitrate       int
-	Samplerate    int
-	ISRC          string `gorm:"type:varchar(20);index"` // International Standard Recording Code
-	Lyrics        string `gorm:"type:text"`              // Song lyrics
-	Composer      string `gorm:"type:varchar(255)"`
-	Conductor     string `gorm:"type:varchar(255)"`
-	Copyright     string `gorm:"type:varchar(255)"`
-	Publisher     string `gorm:"type:varchar(255)"`
+	ID             string   `gorm:"type:uuid;primaryKey"`
+	StationID      string   `gorm:"type:uuid;index"`
+	Station        *Station `gorm:"foreignKey:StationID"` // Belongs to station (for cross-station queries)
+	Title          string   `gorm:"index"`
+	Artist         string   `gorm:"index"`
+	Album          string   `gorm:"index"`
+	Duration       time.Duration
+	Path           string
+	StorageKey     string
+	ContentHash    string `gorm:"type:varchar(64);index"` // SHA-256 hash for deduplication across stations
+	ImportPath     string // Original path from import (LibreTime/AzuraCast)
+	Genre          string
+	Mood           string
+	Label          string
+	Language       string
+	Explicit       bool
+	ShowInArchive  bool `gorm:"default:true"` // Whether to show in public archive
+	AllowDownload  bool `gorm:"default:true"` // Whether to allow downloads from archive
+	LoudnessLUFS   float64
+	ReplayGain     float64
+	BPM            float64
+	Year           string // Changed from int to string for flexibility
+	TrackNumber    int
+	Bitrate        int
+	Samplerate     int
+	ISRC           string `gorm:"type:varchar(20);index"` // International Standard Recording Code
+	Lyrics         string `gorm:"type:text"`              // Song lyrics
+	Composer       string `gorm:"type:varchar(255)"`
+	Conductor      string `gorm:"type:varchar(255)"`
+	Copyright      string `gorm:"type:varchar(255)"`
+	Publisher      string `gorm:"type:varchar(255)"`
 	OriginalArtist string `gorm:"type:varchar(255)"`
-	AlbumArtist   string `gorm:"type:varchar(255)"`
-	DiscNumber    int
-	Comment       string `gorm:"type:text"`
-	CustomFields  map[string]string `gorm:"type:jsonb;serializer:json"` // For custom metadata fields
-	Tags          []MediaTagLink
-	CuePoints     CuePointSet `gorm:"type:jsonb"`
-	Waveform      []byte
-	Artwork       []byte            // Embedded album art (JPEG/PNG)
-	ArtworkMime   string            `gorm:"type:varchar(32)"` // MIME type of artwork
-	AnalysisState AnalysisState `gorm:"type:varchar(32)"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	AlbumArtist    string `gorm:"type:varchar(255)"`
+	DiscNumber     int
+	Comment        string            `gorm:"type:text"`
+	CustomFields   map[string]string `gorm:"type:jsonb;serializer:json"` // For custom metadata fields
+	Tags           []MediaTagLink
+	CuePoints      CuePointSet `gorm:"type:jsonb"`
+	Waveform       []byte
+	Artwork        []byte        // Embedded album art (JPEG/PNG)
+	ArtworkMime    string        `gorm:"type:varchar(32)"` // MIME type of artwork
+	AnalysisState  AnalysisState `gorm:"type:varchar(32)"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // CuePointSet captures intro/outro markers and fades.
 type CuePointSet struct {
 	IntroEnd float64 `json:"intro_end"`
 	OutroIn  float64 `json:"outro_in"`
-	FadeIn   float64 `json:"fade_in,omitempty"`   // Fade in duration in seconds
-	FadeOut  float64 `json:"fade_out,omitempty"`  // Fade out duration in seconds
+	FadeIn   float64 `json:"fade_in,omitempty"`  // Fade in duration in seconds
+	FadeOut  float64 `json:"fade_out,omitempty"` // Fade out duration in seconds
 }
 
 // Value implements driver.Valuer for database serialization.
@@ -556,21 +555,21 @@ const (
 
 // ScheduleEntry materializes a planned item.
 type ScheduleEntry struct {
-	ID         string `gorm:"type:uuid;primaryKey"`
-	StationID  string `gorm:"type:uuid;index:idx_schedule_station_time"`
-	MountID    string `gorm:"type:uuid;index"`
-	StartsAt   time.Time `gorm:"index:idx_schedule_station_time;index:idx_schedule_time_range"`
-	EndsAt     time.Time `gorm:"index:idx_schedule_time_range"`
+	ID         string         `gorm:"type:uuid;primaryKey"`
+	StationID  string         `gorm:"type:uuid;index:idx_schedule_station_time"`
+	MountID    string         `gorm:"type:uuid;index"`
+	StartsAt   time.Time      `gorm:"index:idx_schedule_station_time;index:idx_schedule_time_range"`
+	EndsAt     time.Time      `gorm:"index:idx_schedule_time_range"`
 	SourceType string         `gorm:"type:varchar(32)"`
 	SourceID   string         `gorm:"type:uuid"`
 	Metadata   map[string]any `gorm:"type:jsonb;serializer:json"`
 
 	// Recurrence fields
-	RecurrenceType    RecurrenceType `gorm:"type:varchar(16)"`
-	RecurrenceDays    []int          `gorm:"type:jsonb;serializer:json"` // 0=Sun, 1=Mon, ..., 6=Sat
-	RecurrenceEndDate *time.Time     // When recurrence stops (nil = forever)
-	RecurrenceParentID *string       `gorm:"type:uuid;index"` // Links instance to parent
-	IsInstance        bool           `gorm:"default:false"`   // True if this is a generated instance
+	RecurrenceType     RecurrenceType `gorm:"type:varchar(16)"`
+	RecurrenceDays     []int          `gorm:"type:jsonb;serializer:json"` // 0=Sun, 1=Mon, ..., 6=Sat
+	RecurrenceEndDate  *time.Time     // When recurrence stops (nil = forever)
+	RecurrenceParentID *string        `gorm:"type:uuid;index"` // Links instance to parent
+	IsInstance         bool           `gorm:"default:false"`   // True if this is a generated instance
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

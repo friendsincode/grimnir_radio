@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package playout
 
 import (
@@ -12,7 +11,7 @@ import (
 	"io"
 	"sync"
 
-    "github.com/friendsincode/grimnir_radio/internal/config"
+	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/rs/zerolog"
 )
 

@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package priority
 
 import (
@@ -18,15 +17,15 @@ func TestCanPreempt(t *testing.T) {
 	resolver := NewResolver(nil, zerolog.Nop())
 
 	tests := []struct {
-		name         string
-		current      *models.PrioritySource
-		newPriority  models.PriorityLevel
+		name          string
+		current       *models.PrioritySource
+		newPriority   models.PriorityLevel
 		shouldPreempt bool
 	}{
 		{
-			name:         "no current source, can activate",
-			current:      nil,
-			newPriority:  models.PriorityAutomation,
+			name:          "no current source, can activate",
+			current:       nil,
+			newPriority:   models.PriorityAutomation,
 			shouldPreempt: true,
 		},
 		{
@@ -34,7 +33,7 @@ func TestCanPreempt(t *testing.T) {
 			current: &models.PrioritySource{
 				Priority: models.PriorityAutomation,
 			},
-			newPriority:  models.PriorityEmergency,
+			newPriority:   models.PriorityEmergency,
 			shouldPreempt: true,
 		},
 		{
@@ -42,7 +41,7 @@ func TestCanPreempt(t *testing.T) {
 			current: &models.PrioritySource{
 				Priority: models.PriorityAutomation,
 			},
-			newPriority:  models.PriorityLiveOverride,
+			newPriority:   models.PriorityLiveOverride,
 			shouldPreempt: true,
 		},
 		{
@@ -50,7 +49,7 @@ func TestCanPreempt(t *testing.T) {
 			current: &models.PrioritySource{
 				Priority: models.PriorityLiveScheduled,
 			},
-			newPriority:  models.PriorityAutomation,
+			newPriority:   models.PriorityAutomation,
 			shouldPreempt: false,
 		},
 		{
@@ -58,7 +57,7 @@ func TestCanPreempt(t *testing.T) {
 			current: &models.PrioritySource{
 				Priority: models.PriorityAutomation,
 			},
-			newPriority:  models.PriorityAutomation,
+			newPriority:   models.PriorityAutomation,
 			shouldPreempt: false,
 		},
 		{
@@ -66,7 +65,7 @@ func TestCanPreempt(t *testing.T) {
 			current: &models.PrioritySource{
 				Priority: models.PriorityAutomation,
 			},
-			newPriority:  models.PriorityFallback,
+			newPriority:   models.PriorityFallback,
 			shouldPreempt: false,
 		},
 		{
@@ -74,7 +73,7 @@ func TestCanPreempt(t *testing.T) {
 			current: &models.PrioritySource{
 				Priority: models.PriorityLiveOverride,
 			},
-			newPriority:  models.PriorityEmergency,
+			newPriority:   models.PriorityEmergency,
 			shouldPreempt: true,
 		},
 		{
@@ -82,7 +81,7 @@ func TestCanPreempt(t *testing.T) {
 			current: &models.PrioritySource{
 				Priority: models.PriorityAutomation,
 			},
-			newPriority:  models.PriorityLiveScheduled,
+			newPriority:   models.PriorityLiveScheduled,
 			shouldPreempt: true,
 		},
 	}
@@ -248,7 +247,7 @@ func TestPriorityLevelString(t *testing.T) {
 
 func TestPrioritySourceIsActive(t *testing.T) {
 	ps := &models.PrioritySource{
-		Active: true,
+		Active:        true,
 		DeactivatedAt: nil,
 	}
 
@@ -269,7 +268,7 @@ func TestPrioritySourceIsActive(t *testing.T) {
 
 func TestPrioritySourceIsEmergency(t *testing.T) {
 	tests := []struct {
-		priority   models.PriorityLevel
+		priority    models.PriorityLevel
 		isEmergency bool
 	}{
 		{models.PriorityEmergency, true},

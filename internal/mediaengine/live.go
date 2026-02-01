@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package mediaengine
 
 import (
@@ -13,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rs/zerolog"
 	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
+	"github.com/rs/zerolog"
 )
 
 // LiveInput represents an active live input stream.
@@ -27,10 +26,10 @@ type LiveInput struct {
 	ConnectedAt time.Time
 
 	// GStreamer elements
-	Pipeline    string // GStreamer pipeline string
-	Process     *GStreamerProcess
+	Pipeline string // GStreamer pipeline string
+	Process  *GStreamerProcess
 
-	logger      zerolog.Logger
+	logger zerolog.Logger
 }
 
 // LiveInputManager handles multiple concurrent live inputs.

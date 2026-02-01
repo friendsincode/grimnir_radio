@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package migration
 
 import (
@@ -109,23 +108,23 @@ type AnalysisReport struct {
 
 // StationAnalysis provides detailed analysis for a single station.
 type StationAnalysis struct {
-	ID          int               `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	MediaCount  int               `json:"media_count"`
-	Playlists   []PlaylistSummary `json:"playlists"`
-	Mounts      []MountSummary    `json:"mounts"`
-	Streamers   []StreamerSummary `json:"streamers"`
-	StorageBytes int64            `json:"storage_bytes"`
+	ID           int               `json:"id"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description"`
+	MediaCount   int               `json:"media_count"`
+	Playlists    []PlaylistSummary `json:"playlists"`
+	Mounts       []MountSummary    `json:"mounts"`
+	Streamers    []StreamerSummary `json:"streamers"`
+	StorageBytes int64             `json:"storage_bytes"`
 }
 
 // PlaylistSummary provides a summary of a playlist for reporting.
 type PlaylistSummary struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Source   string `json:"source"`
-	ItemCount int   `json:"item_count"`
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Source    string `json:"source"`
+	ItemCount int    `json:"item_count"`
 }
 
 // MountSummary provides a summary of a mount point for reporting.
@@ -610,7 +609,12 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 			Type:    "station",
 			Name:    station.Name,
 			Skipped: isExisting,
-			Reason:  func() string { if isExisting { return "already exists" }; return "" }(),
+			Reason: func() string {
+				if isExisting {
+					return "already exists"
+				}
+				return ""
+			}(),
 		}
 
 		a.logger.Info().
@@ -784,8 +788,8 @@ type azMediaDownloadResult struct {
 	azMedia     AzuraCastAPIMediaFile
 	data        []byte
 	contentHash string
-	artwork     []byte  // Album art
-	artworkMime string  // Artwork MIME type
+	artwork     []byte // Album art
+	artworkMime string // Artwork MIME type
 	err         error
 	errType     string // "download", "read"
 }
@@ -1260,9 +1264,9 @@ func (a *AzuraCastImporter) importBackup(ctx context.Context, options Options, p
 	}
 
 	result := &Result{
-		Warnings:  []string{},
-		Skipped:   make(map[string]int),
-		Mappings:  make(map[string]Mapping),
+		Warnings: []string{},
+		Skipped:  make(map[string]int),
+		Mappings: make(map[string]Mapping),
 	}
 
 	// Phase 3: Import stations
@@ -1302,13 +1306,13 @@ func (a *AzuraCastImporter) importBackup(ctx context.Context, options Options, p
 	// Phase 5: Import playlists
 	if !options.SkipPlaylists {
 		progressCallback(Progress{
-			Phase:           "importing_playlists",
-			CurrentStep:     "Importing playlists",
-			TotalSteps:      5,
-			CompletedSteps:  4,
-			Percentage:      80,
-			PlaylistsTotal:  backup.PlaylistCount,
-			StartTime:       startTime,
+			Phase:          "importing_playlists",
+			CurrentStep:    "Importing playlists",
+			TotalSteps:     5,
+			CompletedSteps: 4,
+			Percentage:     80,
+			PlaylistsTotal: backup.PlaylistCount,
+			StartTime:      startTime,
 		})
 
 		if err := a.importPlaylists(ctx, backup, result); err != nil {
@@ -1320,15 +1324,15 @@ func (a *AzuraCastImporter) importBackup(ctx context.Context, options Options, p
 
 	// Complete
 	progressCallback(Progress{
-		Phase:           "completed",
-		CurrentStep:     "Migration completed",
-		TotalSteps:      5,
-		CompletedSteps:  5,
-		Percentage:      100,
-		StationsImported: result.StationsCreated,
-		MediaImported:    result.MediaItemsImported,
+		Phase:             "completed",
+		CurrentStep:       "Migration completed",
+		TotalSteps:        5,
+		CompletedSteps:    5,
+		Percentage:        100,
+		StationsImported:  result.StationsCreated,
+		MediaImported:     result.MediaItemsImported,
 		PlaylistsImported: result.PlaylistsCreated,
-		StartTime:        startTime,
+		StartTime:         startTime,
 	})
 
 	result.DurationSeconds = time.Since(startTime).Seconds()
@@ -1543,10 +1547,10 @@ func (a *AzuraCastImporter) importStationsWithOptions(ctx context.Context, backu
 
 		// Track mapping
 		result.Mappings[fmt.Sprintf("station_%d", azStation.ID)] = Mapping{
-			OldID:  fmt.Sprintf("%d", azStation.ID),
-			NewID:  station.ID,
-			Type:   "station",
-			Name:   station.Name,
+			OldID: fmt.Sprintf("%d", azStation.ID),
+			NewID: station.ID,
+			Type:  "station",
+			Name:  station.Name,
 		}
 
 		result.StationsCreated++
@@ -1656,8 +1660,8 @@ func (a *AzuraCastImporter) importMedia(ctx context.Context, tempDir string, bac
 			ID:            mediaID,
 			StationID:     stationID,
 			Title:         title,
-			Path:          "",   // Will be set after upload
-			StorageKey:    "",   // Will be set after upload
+			Path:          "", // Will be set after upload
+			StorageKey:    "", // Will be set after upload
 			ImportPath:    mediaFile.relPath,
 			Duration:      0,    // Will be analyzed later
 			ShowInArchive: true, // Explicitly set for imported media

@@ -630,16 +630,16 @@ func (a *Analyzer) BatchAnalyze(ctx context.Context, filePaths []string, concurr
 
 // DiscovererResult contains parsed discoverer output (for debugging/comparison)
 type DiscovererResult struct {
-	Duration    time.Duration
-	Bitrate     int
-	SampleRate  int
-	Channels    int
-	Codec       string
-	Container   string
-	Tags        map[string]string
-	HasVideo    bool
-	HasArtwork  bool
-	RawOutput   string
+	Duration   time.Duration
+	Bitrate    int
+	SampleRate int
+	Channels   int
+	Codec      string
+	Container  string
+	Tags       map[string]string
+	HasVideo   bool
+	HasArtwork bool
+	RawOutput  string
 }
 
 // RunDiscovererRaw runs gst-discoverer and returns raw parsed results

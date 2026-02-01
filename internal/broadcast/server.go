@@ -29,7 +29,7 @@ type Mount struct {
 	buffer     *ringBuffer
 	logger     zerolog.Logger
 	inputDone  chan struct{}
-	inputCount int // tracks active input feeds
+	inputCount int         // tracks active input feeds
 	bus        *events.Bus // for publishing listener stats
 }
 

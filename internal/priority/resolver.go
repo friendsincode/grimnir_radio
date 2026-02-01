@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package priority
 
 import (
@@ -57,23 +56,23 @@ type TransitionRequest struct {
 
 // TransitionResult contains the outcome of a priority transition.
 type TransitionResult struct {
-	Preempted       bool                   // Was a higher/equal priority source preempted?
-	OldSource       *models.PrioritySource // Previous active source (if any)
-	NewSource       *models.PrioritySource // Newly activated source
-	RequiresFade    bool                   // Should audio fade between sources?
-	TransitionType  TransitionType         // Type of transition that occurred
+	Preempted      bool                   // Was a higher/equal priority source preempted?
+	OldSource      *models.PrioritySource // Previous active source (if any)
+	NewSource      *models.PrioritySource // Newly activated source
+	RequiresFade   bool                   // Should audio fade between sources?
+	TransitionType TransitionType         // Type of transition that occurred
 }
 
 // TransitionType enumerates the kinds of priority transitions.
 type TransitionType string
 
 const (
-	TransitionNone         TransitionType = "none"          // No change needed
-	TransitionPreempt      TransitionType = "preempt"       // Higher priority preempts lower
-	TransitionRelease      TransitionType = "release"       // Source released, return to lower priority
-	TransitionSwitch       TransitionType = "switch"        // Switch within same priority level
-	TransitionEmergency    TransitionType = "emergency"     // Emergency activation (immediate)
-	TransitionFallback     TransitionType = "fallback"      // Fall back to safety content
+	TransitionNone      TransitionType = "none"      // No change needed
+	TransitionPreempt   TransitionType = "preempt"   // Higher priority preempts lower
+	TransitionRelease   TransitionType = "release"   // Source released, return to lower priority
+	TransitionSwitch    TransitionType = "switch"    // Switch within same priority level
+	TransitionEmergency TransitionType = "emergency" // Emergency activation (immediate)
+	TransitionFallback  TransitionType = "fallback"  // Fall back to safety content
 )
 
 // GetCurrentSource returns the highest priority active source for a station.

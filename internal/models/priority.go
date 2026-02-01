@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package models
 
 import (
@@ -35,39 +34,39 @@ const (
 type SourceType string
 
 const (
-	SourceTypeMedia     SourceType = "media"      // Single media file
-	SourceTypeLive      SourceType = "live"       // Live input stream
-	SourceTypeWebstream SourceType = "webstream"  // Remote HTTP stream
-	SourceTypeEmergency SourceType = "emergency"  // EAS or emergency content
-	SourceTypeFallback  SourceType = "fallback"   // Safety playlist
+	SourceTypeMedia     SourceType = "media"     // Single media file
+	SourceTypeLive      SourceType = "live"      // Live input stream
+	SourceTypeWebstream SourceType = "webstream" // Remote HTTP stream
+	SourceTypeEmergency SourceType = "emergency" // EAS or emergency content
+	SourceTypeFallback  SourceType = "fallback"  // Safety playlist
 )
 
 // PrioritySource represents an active audio source with its priority level.
 type PrioritySource struct {
-	ID         string        `gorm:"type:uuid;primaryKey"`
-	StationID  string        `gorm:"type:uuid;index:idx_station_active"`
-	MountID    string        `gorm:"type:uuid;index"`
-	Priority   PriorityLevel `gorm:"type:int;index:idx_station_active"`
-	SourceType SourceType    `gorm:"type:varchar(32)"`
-	SourceID   string        `gorm:"type:uuid"` // ID of media, webstream, etc.
-	Metadata   map[string]any `gorm:"serializer:json"`
-	Active     bool          `gorm:"index:idx_station_active"` // Is this source currently active?
-	ActivatedAt time.Time
+	ID            string         `gorm:"type:uuid;primaryKey"`
+	StationID     string         `gorm:"type:uuid;index:idx_station_active"`
+	MountID       string         `gorm:"type:uuid;index"`
+	Priority      PriorityLevel  `gorm:"type:int;index:idx_station_active"`
+	SourceType    SourceType     `gorm:"type:varchar(32)"`
+	SourceID      string         `gorm:"type:uuid"` // ID of media, webstream, etc.
+	Metadata      map[string]any `gorm:"serializer:json"`
+	Active        bool           `gorm:"index:idx_station_active"` // Is this source currently active?
+	ActivatedAt   time.Time
 	DeactivatedAt *time.Time // NULL if still active
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ExecutorStateEnum defines the possible states of an executor.
 type ExecutorStateEnum string
 
 const (
-	ExecutorStateIdle      ExecutorStateEnum = "idle"       // No content playing
+	ExecutorStateIdle       ExecutorStateEnum = "idle"       // No content playing
 	ExecutorStatePreloading ExecutorStateEnum = "preloading" // Loading next track
-	ExecutorStatePlaying   ExecutorStateEnum = "playing"    // Currently playing content
-	ExecutorStateFading    ExecutorStateEnum = "fading"     // Crossfading between tracks
-	ExecutorStateLive      ExecutorStateEnum = "live"       // Live input active
-	ExecutorStateEmergency ExecutorStateEnum = "emergency"  // Emergency content active
+	ExecutorStatePlaying    ExecutorStateEnum = "playing"    // Currently playing content
+	ExecutorStateFading     ExecutorStateEnum = "fading"     // Crossfading between tracks
+	ExecutorStateLive       ExecutorStateEnum = "live"       // Live input active
+	ExecutorStateEmergency  ExecutorStateEnum = "emergency"  // Emergency content active
 )
 
 // ExecutorState tracks the runtime state of a station's executor.
@@ -81,20 +80,20 @@ type ExecutorState struct {
 	NextSourceID    string            `gorm:"type:uuid"` // ID of preloaded PrioritySource
 
 	// Telemetry data
-	AudioLevelL     float64 `gorm:"type:float"` // Left channel RMS level (-60 to 0 dBFS)
-	AudioLevelR     float64 `gorm:"type:float"` // Right channel RMS level
-	LoudnessLUFS    float64 `gorm:"type:float"` // Current LUFS measurement
-	UnderrunCount   int64   // Buffer underrun events
-	LastHeartbeat   time.Time
+	AudioLevelL   float64 `gorm:"type:float"` // Left channel RMS level (-60 to 0 dBFS)
+	AudioLevelR   float64 `gorm:"type:float"` // Right channel RMS level
+	LoudnessLUFS  float64 `gorm:"type:float"` // Current LUFS measurement
+	UnderrunCount int64   // Buffer underrun events
+	LastHeartbeat time.Time
 
 	// Buffer state
-	BufferDepthMS   int64   `gorm:"type:bigint"` // Milliseconds of buffered audio
+	BufferDepthMS int64 `gorm:"type:bigint"` // Milliseconds of buffered audio
 
 	// Metadata from currently playing item
-	Metadata        map[string]any `gorm:"serializer:json"`
+	Metadata map[string]any `gorm:"serializer:json"`
 
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // TableName overrides for GORM.
@@ -126,8 +125,8 @@ func (ps *PrioritySource) IsEmergency() bool {
 // IsLive checks if this is any type of live source.
 func (ps *PrioritySource) IsLive() bool {
 	return ps.SourceType == SourceTypeLive ||
-	       ps.Priority == PriorityLiveOverride ||
-	       ps.Priority == PriorityLiveScheduled
+		ps.Priority == PriorityLiveOverride ||
+		ps.Priority == PriorityLiveScheduled
 }
 
 // String returns a human-readable priority level name.
@@ -156,7 +155,7 @@ func (es *ExecutorState) IsHealthy() bool {
 // IsPlaying checks if the executor is actively playing content.
 func (es *ExecutorState) IsPlaying() bool {
 	return es.State == ExecutorStatePlaying ||
-	       es.State == ExecutorStateFading ||
-	       es.State == ExecutorStateLive ||
-	       es.State == ExecutorStateEmergency
+		es.State == ExecutorStateFading ||
+		es.State == ExecutorStateLive ||
+		es.State == ExecutorStateEmergency
 }

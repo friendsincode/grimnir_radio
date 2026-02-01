@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package mediaengine
 
 import (
@@ -38,7 +37,7 @@ type Service struct {
 
 	mu       sync.RWMutex
 	stations map[string]*StationEngine // station_id -> engine
-	graphs   map[string]*dsp.Graph    // graph_handle -> graph
+	graphs   map[string]*dsp.Graph     // graph_handle -> graph
 	uptime   time.Time
 }
 

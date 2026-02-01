@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package executor
 
 import (
@@ -31,18 +30,18 @@ type Pool struct {
 	bus          *events.Bus
 	logger       zerolog.Logger
 
-	mu           sync.RWMutex
-	executors    map[string]*Executor // station_id -> executor
-	instances    []string             // sorted list of instance IDs for consistent hashing
-	ring         *consistentHashRing
+	mu        sync.RWMutex
+	executors map[string]*Executor // station_id -> executor
+	instances []string             // sorted list of instance IDs for consistent hashing
+	ring      *consistentHashRing
 }
 
 // consistentHashRing implements consistent hashing for executor distribution.
 type consistentHashRing struct {
-	mu      sync.RWMutex
-	nodes   []uint32       // sorted hash values
-	nodeMap map[uint32]string // hash -> instance ID
-	replicas int // virtual nodes per physical instance
+	mu       sync.RWMutex
+	nodes    []uint32          // sorted hash values
+	nodeMap  map[uint32]string // hash -> instance ID
+	replicas int               // virtual nodes per physical instance
 }
 
 // newConsistentHashRing creates a new consistent hash ring.

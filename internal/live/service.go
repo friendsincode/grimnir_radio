@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package live
 
 import (
@@ -306,11 +305,11 @@ func (s *Service) HandleDisconnect(ctx context.Context, sessionID string) error 
 
 	// Publish disconnect event
 	s.bus.Publish(events.EventDJDisconnect, events.Payload{
-		"session_id": sessionID,
-		"station_id": session.StationID,
-		"mount_id":   session.MountID,
-		"user_id":    session.UserID,
-		"username":   session.Username,
+		"session_id":       sessionID,
+		"station_id":       session.StationID,
+		"mount_id":         session.MountID,
+		"user_id":          session.UserID,
+		"username":         session.Username,
 		"duration_seconds": duration.Seconds(),
 	})
 

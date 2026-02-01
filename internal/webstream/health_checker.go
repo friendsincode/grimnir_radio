@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package webstream
 
 import (
@@ -22,11 +21,11 @@ import (
 
 // HealthChecker performs periodic health checks on a webstream.
 type HealthChecker struct {
-	webstreamID   string
-	db            *gorm.DB
-	bus           *events.Bus
-	logger        zerolog.Logger
-	stopCh        chan struct{}
+	webstreamID      string
+	db               *gorm.DB
+	bus              *events.Bus
+	logger           zerolog.Logger
+	stopCh           chan struct{}
 	consecutiveFails int
 }
 
@@ -268,15 +267,15 @@ func (hc *HealthChecker) triggerFailover(ws *models.Webstream) {
 
 		// Emit failover event
 		hc.bus.Publish(events.EventWebstreamFailover, events.Payload{
-			"webstream_id":  ws.ID,
-			"station_id":    ws.StationID,
-			"name":          ws.Name,
-			"from_url":      oldURL,
-			"to_url":        ws.CurrentURL,
-			"from_index":    oldIndex,
-			"to_index":      ws.CurrentIndex,
-			"auto":          true,
-			"reason":        "health_check_failed",
+			"webstream_id": ws.ID,
+			"station_id":   ws.StationID,
+			"name":         ws.Name,
+			"from_url":     oldURL,
+			"to_url":       ws.CurrentURL,
+			"from_index":   oldIndex,
+			"to_index":     ws.CurrentIndex,
+			"auto":         true,
+			"reason":       "health_check_failed",
 		})
 	}
 }

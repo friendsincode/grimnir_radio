@@ -42,13 +42,13 @@ type Broadcaster struct {
 	rtpCancel context.CancelFunc
 
 	// RTP sequence/timestamp rewriting for continuous stream across track changes
-	seqNum        uint16 // Our continuous sequence number
-	lastInSeq     uint16 // Last incoming sequence number
-	tsOffset      uint32 // Timestamp offset to add
-	lastInTS      uint32 // Last incoming timestamp
-	lastOutTS     uint32 // Last outgoing timestamp
-	ssrc          uint32 // Our fixed SSRC
-	seqInitialized bool  // Whether we've seen the first packet
+	seqNum         uint16 // Our continuous sequence number
+	lastInSeq      uint16 // Last incoming sequence number
+	tsOffset       uint32 // Timestamp offset to add
+	lastInTS       uint32 // Last incoming timestamp
+	lastOutTS      uint32 // Last outgoing timestamp
+	ssrc           uint32 // Our fixed SSRC
+	seqInitialized bool   // Whether we've seen the first packet
 
 	// Stats
 	totalPeers    int64
@@ -63,10 +63,10 @@ type peerConnection struct {
 
 // SignalMessage is the WebSocket signaling message format.
 type SignalMessage struct {
-	Type      string                    `json:"type"`
+	Type      string                     `json:"type"`
 	SDP       *webrtc.SessionDescription `json:"sdp,omitempty"`
 	Candidate *webrtc.ICECandidateInit   `json:"candidate,omitempty"`
-	Error     string                    `json:"error,omitempty"`
+	Error     string                     `json:"error,omitempty"`
 }
 
 // Config holds broadcaster configuration.

@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package executor
 
 import (
@@ -33,18 +32,18 @@ var (
 
 // Executor manages per-station playout execution.
 type Executor struct {
-	stationID     string
-	db            *gorm.DB
-	stateManager  *StateManager
-	prioritySvc   *priority.Service
-	bus           *events.Bus
-	mediaCtrl     *MediaController
-	logger        zerolog.Logger
+	stationID    string
+	db           *gorm.DB
+	stateManager *StateManager
+	prioritySvc  *priority.Service
+	bus          *events.Bus
+	mediaCtrl    *MediaController
+	logger       zerolog.Logger
 
-	mu            sync.Mutex
-	ctx           context.Context
-	cancel        context.CancelFunc
-	running       bool
+	mu      sync.Mutex
+	ctx     context.Context
+	cancel  context.CancelFunc
+	running bool
 }
 
 // New creates a new executor for a station.

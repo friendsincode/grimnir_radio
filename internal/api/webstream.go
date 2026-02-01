@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package api
 
 import (
@@ -19,44 +18,44 @@ import (
 // Webstream API request/response types
 
 type createWebstreamRequest struct {
-	StationID             string                 `json:"station_id"`
-	Name                  string                 `json:"name"`
-	Description           string                 `json:"description"`
-	URLs                  []string               `json:"urls"`
-	HealthCheckEnabled    bool                   `json:"health_check_enabled"`
-	HealthCheckIntervalSec int                   `json:"health_check_interval_sec"`
-	HealthCheckTimeoutSec  int                   `json:"health_check_timeout_sec"`
-	HealthCheckMethod     string                 `json:"health_check_method"`
-	FailoverEnabled       bool                   `json:"failover_enabled"`
-	FailoverGraceMs       int                    `json:"failover_grace_ms"`
-	AutoRecoverEnabled    bool                   `json:"auto_recover_enabled"`
-	PreflightCheck        bool                   `json:"preflight_check"`
-	BufferSizeMS          int                    `json:"buffer_size_ms"`
-	ReconnectDelayMS      int                    `json:"reconnect_delay_ms"`
-	MaxReconnectAttempts  int                    `json:"max_reconnect_attempts"`
-	PassthroughMetadata   bool                   `json:"passthrough_metadata"`
-	OverrideMetadata      bool                   `json:"override_metadata"`
-	CustomMetadata        map[string]any         `json:"custom_metadata"`
+	StationID              string         `json:"station_id"`
+	Name                   string         `json:"name"`
+	Description            string         `json:"description"`
+	URLs                   []string       `json:"urls"`
+	HealthCheckEnabled     bool           `json:"health_check_enabled"`
+	HealthCheckIntervalSec int            `json:"health_check_interval_sec"`
+	HealthCheckTimeoutSec  int            `json:"health_check_timeout_sec"`
+	HealthCheckMethod      string         `json:"health_check_method"`
+	FailoverEnabled        bool           `json:"failover_enabled"`
+	FailoverGraceMs        int            `json:"failover_grace_ms"`
+	AutoRecoverEnabled     bool           `json:"auto_recover_enabled"`
+	PreflightCheck         bool           `json:"preflight_check"`
+	BufferSizeMS           int            `json:"buffer_size_ms"`
+	ReconnectDelayMS       int            `json:"reconnect_delay_ms"`
+	MaxReconnectAttempts   int            `json:"max_reconnect_attempts"`
+	PassthroughMetadata    bool           `json:"passthrough_metadata"`
+	OverrideMetadata       bool           `json:"override_metadata"`
+	CustomMetadata         map[string]any `json:"custom_metadata"`
 }
 
 type updateWebstreamRequest struct {
-	Name                  *string                 `json:"name,omitempty"`
-	Description           *string                 `json:"description,omitempty"`
-	URLs                  []string                `json:"urls,omitempty"`
-	HealthCheckEnabled    *bool                   `json:"health_check_enabled,omitempty"`
-	HealthCheckIntervalSec *int                   `json:"health_check_interval_sec,omitempty"`
-	HealthCheckTimeoutSec  *int                   `json:"health_check_timeout_sec,omitempty"`
-	HealthCheckMethod     *string                 `json:"health_check_method,omitempty"`
-	FailoverEnabled       *bool                   `json:"failover_enabled,omitempty"`
-	FailoverGraceMs       *int                    `json:"failover_grace_ms,omitempty"`
-	AutoRecoverEnabled    *bool                   `json:"auto_recover_enabled,omitempty"`
-	PreflightCheck        *bool                   `json:"preflight_check,omitempty"`
-	BufferSizeMS          *int                    `json:"buffer_size_ms,omitempty"`
-	ReconnectDelayMS      *int                    `json:"reconnect_delay_ms,omitempty"`
-	MaxReconnectAttempts  *int                    `json:"max_reconnect_attempts,omitempty"`
-	PassthroughMetadata   *bool                   `json:"passthrough_metadata,omitempty"`
-	OverrideMetadata      *bool                   `json:"override_metadata,omitempty"`
-	CustomMetadata        map[string]any          `json:"custom_metadata,omitempty"`
+	Name                   *string        `json:"name,omitempty"`
+	Description            *string        `json:"description,omitempty"`
+	URLs                   []string       `json:"urls,omitempty"`
+	HealthCheckEnabled     *bool          `json:"health_check_enabled,omitempty"`
+	HealthCheckIntervalSec *int           `json:"health_check_interval_sec,omitempty"`
+	HealthCheckTimeoutSec  *int           `json:"health_check_timeout_sec,omitempty"`
+	HealthCheckMethod      *string        `json:"health_check_method,omitempty"`
+	FailoverEnabled        *bool          `json:"failover_enabled,omitempty"`
+	FailoverGraceMs        *int           `json:"failover_grace_ms,omitempty"`
+	AutoRecoverEnabled     *bool          `json:"auto_recover_enabled,omitempty"`
+	PreflightCheck         *bool          `json:"preflight_check,omitempty"`
+	BufferSizeMS           *int           `json:"buffer_size_ms,omitempty"`
+	ReconnectDelayMS       *int           `json:"reconnect_delay_ms,omitempty"`
+	MaxReconnectAttempts   *int           `json:"max_reconnect_attempts,omitempty"`
+	PassthroughMetadata    *bool          `json:"passthrough_metadata,omitempty"`
+	OverrideMetadata       *bool          `json:"override_metadata,omitempty"`
+	CustomMetadata         map[string]any `json:"custom_metadata,omitempty"`
 }
 
 type webstreamResponse struct {
@@ -105,24 +104,24 @@ func (a *API) handleCreateWebstream(w http.ResponseWriter, r *http.Request) {
 
 	// Build webstream model
 	ws := &models.Webstream{
-		StationID:             req.StationID,
-		Name:                  req.Name,
-		Description:           req.Description,
-		URLs:                  req.URLs,
-		HealthCheckEnabled:    req.HealthCheckEnabled,
-		HealthCheckInterval:   time.Duration(req.HealthCheckIntervalSec) * time.Second,
-		HealthCheckTimeout:    time.Duration(req.HealthCheckTimeoutSec) * time.Second,
-		HealthCheckMethod:     req.HealthCheckMethod,
-		FailoverEnabled:       req.FailoverEnabled,
-		FailoverGraceMs:       req.FailoverGraceMs,
-		AutoRecoverEnabled:    req.AutoRecoverEnabled,
-		PreflightCheck:        req.PreflightCheck,
-		BufferSizeMS:          req.BufferSizeMS,
-		ReconnectDelayMS:      req.ReconnectDelayMS,
-		MaxReconnectAttempts:  req.MaxReconnectAttempts,
-		PassthroughMetadata:   req.PassthroughMetadata,
-		OverrideMetadata:      req.OverrideMetadata,
-		CustomMetadata:        req.CustomMetadata,
+		StationID:            req.StationID,
+		Name:                 req.Name,
+		Description:          req.Description,
+		URLs:                 req.URLs,
+		HealthCheckEnabled:   req.HealthCheckEnabled,
+		HealthCheckInterval:  time.Duration(req.HealthCheckIntervalSec) * time.Second,
+		HealthCheckTimeout:   time.Duration(req.HealthCheckTimeoutSec) * time.Second,
+		HealthCheckMethod:    req.HealthCheckMethod,
+		FailoverEnabled:      req.FailoverEnabled,
+		FailoverGraceMs:      req.FailoverGraceMs,
+		AutoRecoverEnabled:   req.AutoRecoverEnabled,
+		PreflightCheck:       req.PreflightCheck,
+		BufferSizeMS:         req.BufferSizeMS,
+		ReconnectDelayMS:     req.ReconnectDelayMS,
+		MaxReconnectAttempts: req.MaxReconnectAttempts,
+		PassthroughMetadata:  req.PassthroughMetadata,
+		OverrideMetadata:     req.OverrideMetadata,
+		CustomMetadata:       req.CustomMetadata,
 	}
 
 	if err := a.webstreamSvc.CreateWebstream(r.Context(), ws); err != nil {

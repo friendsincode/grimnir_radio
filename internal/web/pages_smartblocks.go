@@ -869,8 +869,8 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 		maxLoops = 100
 	}
 
-	usedInLoop := make(map[int]bool)    // Track which indices we've used this loop
-	lastAddedID := ""                    // Track last added track ID to prevent consecutive repeats
+	usedInLoop := make(map[int]bool)       // Track which indices we've used this loop
+	lastAddedID := ""                      // Track last added track ID to prevent consecutive repeats
 	recentlyPlayed := make(map[string]int) // Track ID -> how many tracks ago it was played
 
 	for loopCount < maxLoops {

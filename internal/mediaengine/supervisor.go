@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package mediaengine
 
 import (
@@ -24,22 +23,22 @@ type Supervisor struct {
 	logger          zerolog.Logger
 	pipelineManager *PipelineManager
 
-	mu              sync.RWMutex
+	mu                 sync.RWMutex
 	monitoredPipelines map[string]*PipelineHealth
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	ctx                context.Context
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
 }
 
 // PipelineHealth tracks health metrics for a pipeline
 type PipelineHealth struct {
-	StationID       string
-	LastHeartbeat   time.Time
+	StationID        string
+	LastHeartbeat    time.Time
 	ConsecutiveFails int
-	State           pb.PlaybackState
-	UnderrunCount   int64
-	RestartCount    int
-	LastRestart     time.Time
+	State            pb.PlaybackState
+	UnderrunCount    int64
+	RestartCount     int
+	LastRestart      time.Time
 }
 
 const (
@@ -286,13 +285,13 @@ func (s *Supervisor) GetHealth(stationID string) (*PipelineHealth, bool) {
 
 	// Return a copy to avoid race conditions
 	healthCopy := &PipelineHealth{
-		StationID:       health.StationID,
-		LastHeartbeat:   health.LastHeartbeat,
+		StationID:        health.StationID,
+		LastHeartbeat:    health.LastHeartbeat,
 		ConsecutiveFails: health.ConsecutiveFails,
-		State:           health.State,
-		UnderrunCount:   health.UnderrunCount,
-		RestartCount:    health.RestartCount,
-		LastRestart:     health.LastRestart,
+		State:            health.State,
+		UnderrunCount:    health.UnderrunCount,
+		RestartCount:     health.RestartCount,
+		LastRestart:      health.LastRestart,
 	}
 
 	return healthCopy, true
@@ -306,13 +305,13 @@ func (s *Supervisor) GetAllHealth() map[string]*PipelineHealth {
 	result := make(map[string]*PipelineHealth, len(s.monitoredPipelines))
 	for stationID, health := range s.monitoredPipelines {
 		result[stationID] = &PipelineHealth{
-			StationID:       health.StationID,
-			LastHeartbeat:   health.LastHeartbeat,
+			StationID:        health.StationID,
+			LastHeartbeat:    health.LastHeartbeat,
 			ConsecutiveFails: health.ConsecutiveFails,
-			State:           health.State,
-			UnderrunCount:   health.UnderrunCount,
-			RestartCount:    health.RestartCount,
-			LastRestart:     health.LastRestart,
+			State:            health.State,
+			UnderrunCount:    health.UnderrunCount,
+			RestartCount:     health.RestartCount,
+			LastRestart:      health.LastRestart,
 		}
 	}
 

@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package playout
 
 import (
@@ -45,15 +44,15 @@ type playoutState struct {
 
 // Director drives schedule execution and emits now playing events.
 type Director struct {
-	db             *gorm.DB
-	cfg            *config.Config
-	manager        *Manager
-	bus            *events.Bus
-	webstreamSvc   *webstream.Service
-	broadcast      *broadcast.Server
-	smartblockEng  *smartblock.Engine
-	mediaRoot      string
-	logger         zerolog.Logger
+	db            *gorm.DB
+	cfg           *config.Config
+	manager       *Manager
+	bus           *events.Bus
+	webstreamSvc  *webstream.Service
+	broadcast     *broadcast.Server
+	smartblockEng *smartblock.Engine
+	mediaRoot     string
+	logger        zerolog.Logger
 
 	// WebRTC RTP output configuration
 	webrtcEnabled bool

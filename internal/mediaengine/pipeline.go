@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package mediaengine
 
 import (
@@ -22,21 +21,21 @@ import (
 
 // Pipeline represents an active GStreamer pipeline
 type Pipeline struct {
-	ID          string
-	StationID   string
-	MountID     string
-	Graph       *dsp.Graph
-	State       pb.PlaybackState
+	ID           string
+	StationID    string
+	MountID      string
+	Graph        *dsp.Graph
+	State        pb.PlaybackState
 	CurrentTrack *Track
 	NextTrack    *Track
 	OutputConfig *EncoderConfig
 
-	process         *GStreamerProcess
-	crossfadeMgr    *CrossfadeManager
-	mu              sync.RWMutex
-	logger          zerolog.Logger
-	cancelFunc      context.CancelFunc
-	telemetry       *TelemetryCollector
+	process      *GStreamerProcess
+	crossfadeMgr *CrossfadeManager
+	mu           sync.RWMutex
+	logger       zerolog.Logger
+	cancelFunc   context.CancelFunc
+	telemetry    *TelemetryCollector
 }
 
 // Track represents a media source being played

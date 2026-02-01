@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package webstream
 
 import (
@@ -36,28 +35,28 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 func createTestWebstream(t *testing.T, db *gorm.DB, urls []string) *models.Webstream {
 	ws := &models.Webstream{
-		ID:                  uuid.NewString(),
-		StationID:           uuid.NewString(),
-		Name:                "Test Webstream",
-		Description:         "Test webstream for integration testing",
-		URLs:                urls,
-		HealthCheckEnabled:  true,
-		HealthCheckInterval: 30 * time.Second,
-		HealthCheckTimeout:  5 * time.Second,
-		HealthCheckMethod:   "HEAD",
-		FailoverEnabled:     true,
-		FailoverGraceMs:     5000,
-		AutoRecoverEnabled:  true,
-		PreflightCheck:      false, // Disable for testing
-		BufferSizeMS:        2000,
-		ReconnectDelayMS:    1000,
+		ID:                   uuid.NewString(),
+		StationID:            uuid.NewString(),
+		Name:                 "Test Webstream",
+		Description:          "Test webstream for integration testing",
+		URLs:                 urls,
+		HealthCheckEnabled:   true,
+		HealthCheckInterval:  30 * time.Second,
+		HealthCheckTimeout:   5 * time.Second,
+		HealthCheckMethod:    "HEAD",
+		FailoverEnabled:      true,
+		FailoverGraceMs:      5000,
+		AutoRecoverEnabled:   true,
+		PreflightCheck:       false, // Disable for testing
+		BufferSizeMS:         2000,
+		ReconnectDelayMS:     1000,
 		MaxReconnectAttempts: 5,
-		PassthroughMetadata: true,
-		OverrideMetadata:    false,
-		Active:              true,
-		CurrentURL:          urls[0],
-		CurrentIndex:        0,
-		HealthStatus:        "healthy",
+		PassthroughMetadata:  true,
+		OverrideMetadata:     false,
+		Active:               true,
+		CurrentURL:           urls[0],
+		CurrentIndex:         0,
+		HealthStatus:         "healthy",
 	}
 
 	if err := db.Create(ws).Error; err != nil {

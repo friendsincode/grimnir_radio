@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package azuracast
 
 import (
@@ -268,13 +267,13 @@ func (i *Importer) importMounts(ctx context.Context, azuraDB *sql.DB, stationMap
 
 		// Create Grimnir mount
 		mount := &models.Mount{
-			ID:        uuid.New().String(),
-			StationID: stationID,
-			Name:      m.Name,
-			URL:       "/listen/" + m.Name, // Generate URL from name
-			Format:    "mp3", // AzuraCast doesn't store format separately
-			Bitrate:   m.AutodjBitrate,
-			Channels:  2, // Default stereo
+			ID:         uuid.New().String(),
+			StationID:  stationID,
+			Name:       m.Name,
+			URL:        "/listen/" + m.Name, // Generate URL from name
+			Format:     "mp3",               // AzuraCast doesn't store format separately
+			Bitrate:    m.AutodjBitrate,
+			Channels:   2,     // Default stereo
 			SampleRate: 44100, // Default sample rate
 		}
 
@@ -587,9 +586,9 @@ func (i *Importer) importSchedules(ctx context.Context, azuraDB *sql.DB, station
 			RecurrenceType: recurrenceType,
 			RecurrenceDays: recurrenceDays,
 			Metadata: map[string]any{
-				"title":          playlistName,
-				"azuracast_id":   s.ID,
-				"imported_from":  "azuracast",
+				"title":         playlistName,
+				"azuracast_id":  s.ID,
+				"imported_from": "azuracast",
 			},
 		}
 
@@ -666,7 +665,7 @@ func (i *Importer) importUsers(ctx context.Context, azuraDB *sql.DB) error {
 		user := &models.User{
 			ID:           uuid.New().String(),
 			Email:        u.Email,
-			Password:     uuid.New().String(), // Random password, user must reset
+			Password:     uuid.New().String(),     // Random password, user must reset
 			PlatformRole: models.PlatformRoleUser, // Default platform role
 		}
 

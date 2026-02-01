@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package priority
 
 import (
@@ -37,10 +36,10 @@ func NewService(db *gorm.DB, bus *events.Bus, logger zerolog.Logger) *Service {
 
 // InsertEmergencyRequest describes an emergency broadcast request.
 type InsertEmergencyRequest struct {
-	StationID  string
-	MediaID    string
-	MountID    string
-	Metadata   map[string]any
+	StationID string
+	MediaID   string
+	MountID   string
+	Metadata  map[string]any
 }
 
 // InsertEmergency immediately activates emergency content, preempting all other sources.
@@ -103,10 +102,10 @@ func (s *Service) StartOverride(ctx context.Context, req StartOverrideRequest) (
 
 // StartScheduledLiveRequest describes a scheduled live show activation.
 type StartScheduledLiveRequest struct {
-	StationID  string
-	MountID    string
-	SourceID   string
-	Metadata   map[string]any
+	StationID string
+	MountID   string
+	SourceID  string
+	Metadata  map[string]any
 }
 
 // StartScheduledLive activates a scheduled live broadcast.

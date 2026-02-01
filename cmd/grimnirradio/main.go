@@ -4,7 +4,6 @@ Copyright (C) 2026 Friends Incode
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 
-
 package main
 
 import (
@@ -133,4 +132,3 @@ func runServe(cmd *cobra.Command, args []string) error {
 func initDatabase() (*gorm.DB, error) {
 	return db.Connect(cfg)
 }
-
