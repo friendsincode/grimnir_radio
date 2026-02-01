@@ -146,8 +146,8 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	var media []models.MediaItem
 	var total int64
 
-	// Clone base query for filtering
-	query := baseQuery
+	// Clone base query for filtering (must use Session to get a true clone)
+	query := baseQuery.Session(&gorm.Session{})
 
 	// Get filter parameters
 	stationID := r.URL.Query().Get("station")
@@ -218,14 +218,18 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Count total results (use Session clone to avoid mutating query state)
-	query.Session(&gorm.Session{}).Count(&total)
+	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		h.logger.Error().Err(err).Str("search", searchQuery).Msg("archive count query failed")
+	}
 
 	// Fetch paginated results
-	query.Session(&gorm.Session{}).
+	if err := query.Session(&gorm.Session{}).
 		Order(orderClause).
 		Offset((page - 1) * perPage).
 		Limit(perPage).
-		Find(&media)
+		Find(&media).Error; err != nil {
+		h.logger.Error().Err(err).Str("search", searchQuery).Msg("archive search query failed")
+	}
 
 	h.Render(w, r, "pages/public/archive", PageData{
 		Title: "Archive",
