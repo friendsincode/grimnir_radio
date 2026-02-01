@@ -80,36 +80,35 @@ grimnir_radio/
 └── VERSION                    # Version file (0.0.1-alpha)
 ```
 
-### ⏳ PLANNED Packages (New Architecture)
+### ✓ IMPLEMENTED Packages (Post-1.0)
 
 ```
 internal/
-├── planner/                   # ⭐ Renamed from scheduler
-│   └── planner.go             # Pure timeline generator
-├── executor/                  # ⭐ NEW - Per-station execution
+├── executor/                  # Per-station execution
 │   ├── executor.go            # State machine, timeline execution
-│   ├── statemachine.go        # State transitions
-│   └── priority.go            # Priority-based source management
-├── mediaengine/               # ⭐ NEW - gRPC client
-│   ├── client.go              # gRPC client wrapper
-│   ├── commands.go            # LoadGraph, Play, Stop, Fade, etc.
-│   └── telemetry.go           # Telemetry stream consumer
-├── priority/                  # ⭐ NEW - Priority system
-│   ├── priority.go            # 5-tier priority definitions
-│   └── resolver.go            # Conflict resolution
-├── dsp/                       # ⭐ NEW - DSP configuration
-│   ├── graph.go               # Graph builder
-│   └── nodes.go               # Node definitions (loudness, AGC, etc.)
-├── eventbus/                  # ⭐ Replacement for events
+│   ├── state.go               # State definitions and transitions
+│   └── manager.go             # State manager
+├── mediaengine/               # gRPC client + media engine
+│   ├── client/                # gRPC client wrapper
+│   ├── dsp/                   # DSP graph builder and nodes
+│   ├── service.go             # Media engine service
+│   └── pipeline.go            # GStreamer pipeline management
+├── priority/                  # Priority system
+│   ├── service.go             # 5-tier priority service
+│   └── ladder.go              # Priority ladder definitions
+├── eventbus/                  # Event bus adapters
 │   ├── redis.go               # Redis Pub/Sub adapter
 │   └── nats.go                # NATS adapter
-└── migration/                 # ⭐ NEW - Import tools
-    ├── azuracast.go           # AzuraCast backup import
-    └── libretime.go           # LibreTime backup import
+├── webstream/                 # HTTP stream relay
+│   ├── service.go             # Webstream management
+│   └── health_checker.go      # Health monitoring
+└── migration/                 # Import tools
+    ├── azuracast/             # AzuraCast backup import
+    └── libretime/             # LibreTime backup import
 
 cmd/
-└── mediaengine/               # ⭐ NEW - Separate binary
-    └── main.go                # Media engine gRPC server
+├── grimnirradio/              # Control plane binary
+└── mediaengine/               # Media engine binary (gRPC server)
 ```
 
 ---
@@ -147,11 +146,11 @@ go test -race ./...
 make verify             # tidy, fmt, vet, lint, test
 ```
 
-### ⏳ PLANNED (New Architecture)
+### ✓ IMPLEMENTED (Two-Binary Architecture)
 
-**Build multiple binaries:**
+**Build both binaries:**
 ```bash
-make build-all          # Builds grimnirradio + mediaengine
+make build              # Builds grimnirradio + mediaengine
 # OR
 go build ./cmd/grimnirradio
 go build ./cmd/mediaengine
@@ -159,11 +158,11 @@ go build ./cmd/mediaengine
 
 **Run with media engine:**
 ```bash
-# Terminal 1: Start media engine (one per station)
-./mediaengine --grpc-port=9091 --station-id=<uuid>
+# Terminal 1: Start media engine
+./mediaengine
 
-# Terminal 2: Start main API/control plane
-export GRIMNIR_MEDIA_ENGINE_GRPC=localhost:9091
+# Terminal 2: Start control plane
+export GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=localhost:9091
 ./grimnirradio
 ```
 
@@ -191,36 +190,21 @@ GRIMNIR_METRICS_BIND=127.0.0.1:9000        # Metrics endpoint
 **Legacy Compatibility:**
 - `RLM_*` variants accepted as fallback (for backward compatibility)
 
-### ⏳ PLANNED Configuration
+### ✓ IMPLEMENTED Configuration (Post-1.0)
 
 **Event Bus:**
 ```bash
-GRIMNIR_EVENT_BUS_BACKEND=redis            # redis | nats | memory
-GRIMNIR_REDIS_URL=redis://localhost:6379   # Redis connection
-GRIMNIR_NATS_URL=nats://localhost:4222     # NATS connection
+GRIMNIR_REDIS_ADDR=localhost:6379          # Redis address for events/leadership
 ```
 
 **Media Engine:**
 ```bash
-GRIMNIR_MEDIA_ENGINE_GRPC=localhost:9091   # gRPC endpoint
-GRIMNIR_MEDIA_ENGINE_TLS=true              # Use TLS for gRPC
+GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=localhost:9091  # gRPC endpoint
 ```
 
-**Webstream (future):**
-```bash
-GRIMNIR_WEBSTREAM_ALLOWED_SCHEMES=http,https
-GRIMNIR_WEBSTREAM_CONNECT_TIMEOUT_MS=5000
-GRIMNIR_WEBSTREAM_PREFLIGHT_MS=3000
-GRIMNIR_WEBSTREAM_GRACE_MS=5000
-GRIMNIR_WEBSTREAM_FALLBACK_LIMIT=3
-```
+**Webstream:** (configured per-webstream in database)
 
-**Migration Tools (future):**
-```bash
-GRIMNIR_IMPORT_MEDIA_ROOT=./media
-GRIMNIR_IMPORT_BATCH_SIZE=500
-GRIMNIR_IMPORT_DRY_RUN=false
-```
+**Migration Tools:** (configured via API)
 
 ---
 
@@ -361,48 +345,58 @@ GET  /api/v1/analytics/spins        # Play history (admin, manager)
 GET  /api/v1/events                 # WebSocket stream
 ```
 
-### ⏳ PLANNED Endpoints (New Architecture)
+### ✓ IMPLEMENTED Endpoints (Post-1.0)
 
 **Priority Management:**
 ```
 POST   /api/v1/priority/emergency   # Emergency takeover (priority 0)
 POST   /api/v1/priority/override    # Manual override (priority 1)
-GET    /api/v1/priority/sources     # List active sources
-DELETE /api/v1/priority/sources/{id} # Remove source
+GET    /api/v1/priority/active      # List active sources
+GET    /api/v1/priority/current     # Get current priority
+DELETE /api/v1/priority/{id}        # Release source
 ```
 
 **Executor State:**
 ```
-GET /api/v1/executor/states         # List all executor states
+GET /api/v1/executor/states              # List all executor states
 GET /api/v1/executor/states/{stationID}  # Get state for station
+GET /api/v1/executor/telemetry/{stationID} # Real-time telemetry
+GET /api/v1/executor/health              # Health check
 ```
 
-**DSP Graphs:**
+**Webstreams:**
+```
+GET    /api/v1/webstreams           # List webstreams
+POST   /api/v1/webstreams           # Create webstream
+GET    /api/v1/webstreams/{id}      # Get webstream
+PUT    /api/v1/webstreams/{id}      # Update webstream
+DELETE /api/v1/webstreams/{id}      # Delete webstream
+POST   /api/v1/webstreams/{id}/failover # Trigger failover
+POST   /api/v1/webstreams/{id}/reset    # Reset to primary
+```
+
+**Migrations:**
+```
+POST /api/v1/migrations             # Create migration job
+POST /api/v1/migrations/{jobID}/start # Start migration
+GET  /api/v1/migrations/{jobID}     # Status
+GET  /api/v1/migrations             # List all
+```
+
+### ⏳ PLANNED Endpoints
+
+**DSP Graphs:** (graphs exist internally but no HTTP API yet)
 ```
 GET    /api/v1/dsp-graphs           # List DSP configurations
 POST   /api/v1/dsp-graphs           # Create DSP graph
 POST   /api/v1/dsp-graphs/{id}/apply # Apply to station
 ```
 
-**Webstreams:**
-```
-GET  /api/v1/webstreams             # List webstreams
-POST /api/v1/webstreams             # Create webstream
-GET  /api/v1/webstreams/{id}/health # Health check
-```
-
-**Migrations:**
-```
-POST /api/v1/migrations/azuracast   # Import AzuraCast backup
-POST /api/v1/migrations/libretime   # Import LibreTime backup
-GET  /api/v1/migrations/{jobID}     # Status
-```
-
 ---
 
 ## Architecture Overview
 
-### Process Architecture (Target)
+### Process Architecture (Implemented)
 
 ```
 ┌─────────────────────────────────────────┐
@@ -476,9 +470,9 @@ See `internal/models/models.go` for complete definitions.
 - `play_history` - Played tracks (id, station_id, media_id, started_at, ended_at)
 - `analysis_jobs` - Analyzer work queue (id, media_id, status)
 
-### ⏳ PLANNED Tables
+### ✓ IMPLEMENTED Tables (Post-1.0)
 
-**`executor_states`** - Runtime executor state
+**`executor_states`** - Runtime executor state (`internal/models/priority.go`)
 ```sql
 CREATE TABLE executor_states (
   id UUID PRIMARY KEY,
@@ -493,7 +487,7 @@ CREATE TABLE executor_states (
 );
 ```
 
-**`priority_sources`** - Active priority sources
+**`priority_sources`** - Active priority sources (`internal/models/priority.go`)
 ```sql
 CREATE TABLE priority_sources (
   id UUID PRIMARY KEY,
@@ -509,7 +503,7 @@ CREATE TABLE priority_sources (
 );
 ```
 
-**`webstreams`** - External stream definitions
+**`webstreams`** - External stream definitions (`internal/models/webstream.go`)
 ```sql
 CREATE TABLE webstreams (
   id UUID PRIMARY KEY,
@@ -526,7 +520,9 @@ CREATE TABLE webstreams (
 );
 ```
 
-**`dsp_graphs`** - DSP configurations
+### ⏳ PLANNED Tables
+
+**`dsp_graphs`** - DSP configurations (currently runtime-only in `internal/mediaengine/dsp`)
 ```sql
 CREATE TABLE dsp_graphs (
   id UUID PRIMARY KEY,
