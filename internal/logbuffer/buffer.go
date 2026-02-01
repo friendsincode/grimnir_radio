@@ -307,7 +307,11 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 			entry.Component = comp
 			delete(rawEntry, "component")
 		}
-		if ts, ok := rawEntry["time"].(string); ok {
+		// Handle time field - can be Unix timestamp (float64) or RFC3339 string
+		if ts, ok := rawEntry["time"].(float64); ok {
+			entry.Timestamp = time.Unix(int64(ts), 0)
+			delete(rawEntry, "time")
+		} else if ts, ok := rawEntry["time"].(string); ok {
 			if t, err := time.Parse(time.RFC3339, ts); err == nil {
 				entry.Timestamp = t
 			}
