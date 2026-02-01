@@ -272,15 +272,16 @@ func (a *API) Routes(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin)).Post("/track-start", a.handleWebhookTrackStart)
 			})
 
-			// System status routes (admin only)
+			// System status routes (platform admin only)
 			pr.Route("/system", func(r chi.Router) {
-				r.With(a.requireRoles(models.RoleAdmin)).Get("/status", a.handleSystemStatus)
-				r.With(a.requireRoles(models.RoleAdmin)).Post("/test-media-engine", a.handleTestMediaEngine)
-				r.With(a.requireRoles(models.RoleAdmin)).Post("/reanalyze-missing-artwork", a.handleReanalyzeMissingArtwork)
-				r.With(a.requireRoles(models.RoleAdmin)).Get("/logs", a.handleSystemLogs)
-				r.With(a.requireRoles(models.RoleAdmin)).Get("/logs/components", a.handleLogComponents)
-				r.With(a.requireRoles(models.RoleAdmin)).Get("/logs/stats", a.handleLogStats)
-				r.With(a.requireRoles(models.RoleAdmin)).Delete("/logs", a.handleClearLogs)
+				r.Use(a.requirePlatformAdmin())
+				r.Get("/status", a.handleSystemStatus)
+				r.Post("/test-media-engine", a.handleTestMediaEngine)
+				r.Post("/reanalyze-missing-artwork", a.handleReanalyzeMissingArtwork)
+				r.Get("/logs", a.handleSystemLogs)
+				r.Get("/logs/components", a.handleLogComponents)
+				r.Get("/logs/stats", a.handleLogStats)
+				r.Delete("/logs", a.handleClearLogs)
 			})
 
 			// Priority management routes
@@ -1287,6 +1288,25 @@ func (a *API) requireRoles(allowed ...models.RoleName) func(http.Handler) http.H
 				}
 			}
 			writeError(w, http.StatusForbidden, "insufficient_role")
+		})
+	}
+}
+
+func (a *API) requirePlatformAdmin() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := auth.ClaimsFromContext(r.Context())
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			for _, role := range claims.Roles {
+				if role == string(models.PlatformRoleAdmin) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			writeError(w, http.StatusForbidden, "platform_admin_required")
 		})
 	}
 }
