@@ -178,8 +178,6 @@ func (h *Handler) loadTemplates() error {
 		"le":              le,
 		"gt":              gt,
 		"ge":              ge,
-		"and":             and,
-		"or":              or,
 		"not":             not,
 		"default":         defaultVal,
 		"coalesce":        coalesce,
@@ -616,9 +614,7 @@ func toInt(v any) int {
 		return 0
 	}
 }
-func and(a, b bool) bool { return a && b }
-func or(a, b bool) bool  { return a || b }
-func not(a bool) bool    { return !a }
+func not(a bool) bool { return !a }
 
 func defaultVal(def, val any) any {
 	if val == nil || val == "" || val == 0 || val == false {
