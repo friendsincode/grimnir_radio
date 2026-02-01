@@ -22,6 +22,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/analyzer"
+	"github.com/friendsincode/grimnir_radio/internal/audit"
 	"github.com/friendsincode/grimnir_radio/internal/auth"
 	"github.com/friendsincode/grimnir_radio/internal/broadcast"
 	"github.com/friendsincode/grimnir_radio/internal/events"
@@ -50,6 +51,7 @@ type API struct {
 	playout          *playout.Manager
 	prioritySvc      *priority.Service
 	executorStateMgr *executor.StateManager
+	auditSvc         *audit.Service
 	migrationHandler *MigrationHandler
 	broadcast        *broadcast.Server
 	bus              *events.Bus
@@ -58,7 +60,7 @@ type API struct {
 }
 
 // New creates the API router wrapper.
-func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, logger zerolog.Logger) *API {
+func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, auditSvc *audit.Service, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, logger zerolog.Logger) *API {
 	migrationHandler := NewMigrationHandler(db, media, bus, logger)
 
 	return &API{
@@ -71,6 +73,7 @@ func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, 
 		playout:          playout,
 		prioritySvc:      prioritySvc,
 		executorStateMgr: executorStateMgr,
+		auditSvc:         auditSvc,
 		migrationHandler: migrationHandler,
 		logBuffer:        logBuf,
 		broadcast:        broadcastSrv,
@@ -180,6 +183,9 @@ func (a *API) Routes(r chi.Router) {
 						lr.Get("/components", a.handleStationLogComponents)
 						lr.Get("/stats", a.handleStationLogStats)
 					})
+
+					// Station audit logs (admin/manager only)
+					r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/audit", a.handleStationAuditList)
 				})
 			})
 
@@ -276,6 +282,12 @@ func (a *API) Routes(r chi.Router) {
 				r.Delete("/logs", a.handleClearLogs)
 			})
 
+			// Audit log routes (platform admin only)
+			pr.Route("/audit", func(r chi.Router) {
+				r.Use(a.requirePlatformAdmin())
+				r.Get("/", a.handleAuditList)
+			})
+
 			// Priority management routes
 			a.AddPriorityRoutes(pr)
 
@@ -369,6 +381,14 @@ func (a *API) handleStationsCreate(w http.ResponseWriter, r *http.Request) {
 		Str("station_id", station.ID).
 		Str("mount", mountName).
 		Msg("station created with default mount")
+
+	// Publish audit event
+	a.publishAuditEvent(r, events.EventAuditStationCreate, events.Payload{
+		"station_id":    station.ID,
+		"resource_type": "station",
+		"resource_id":   station.ID,
+		"name":          station.Name,
+	})
 
 	writeJSON(w, http.StatusCreated, station)
 }
@@ -776,6 +796,12 @@ func (a *API) handleScheduleRefresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "refresh_failed")
 		return
 	}
+
+	// Publish audit event
+	a.publishAuditEvent(r, events.EventAuditScheduleRefresh, events.Payload{
+		"station_id":    req.StationID,
+		"resource_type": "schedule",
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "refresh_queued"})
 }
@@ -1624,4 +1650,34 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 
 func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, map[string]string{"error": code})
+}
+
+// auditContext extracts user and request info for audit logging.
+func (a *API) auditContext(r *http.Request) events.Payload {
+	payload := events.Payload{
+		"ip_address": r.RemoteAddr,
+		"user_agent": r.UserAgent(),
+	}
+
+	// Extract user info from JWT claims
+	if claims, ok := auth.ClaimsFromContext(r.Context()); ok && claims != nil {
+		payload["user_id"] = claims.UserID
+
+		// Try to get user email from database
+		var user models.User
+		if err := a.db.Select("email").First(&user, "id = ?", claims.UserID).Error; err == nil {
+			payload["user_email"] = user.Email
+		}
+	}
+
+	return payload
+}
+
+// publishAuditEvent publishes an audit event with user and request context.
+func (a *API) publishAuditEvent(r *http.Request, eventType events.EventType, data events.Payload) {
+	payload := a.auditContext(r)
+	for k, v := range data {
+		payload[k] = v
+	}
+	a.bus.Publish(eventType, payload)
 }

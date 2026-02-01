@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/live"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/go-chi/chi/v5"
@@ -173,6 +174,15 @@ func (a *API) handleLiveConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Publish audit event with user context
+	a.publishAuditEvent(r, events.EventDJConnect, events.Payload{
+		"station_id":    session.StationID,
+		"resource_type": "live_session",
+		"resource_id":   session.ID,
+		"mount_id":      session.MountID,
+		"session_user":  session.Username,
+	})
+
 	writeJSON(w, http.StatusOK, liveSessionResponse{
 		ID:          session.ID,
 		StationID:   session.StationID,
@@ -194,6 +204,9 @@ func (a *API) handleLiveDisconnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get session info before disconnecting for audit
+	session, _ := a.live.GetSession(r.Context(), sessionID)
+
 	if err := a.live.HandleDisconnect(r.Context(), sessionID); err != nil {
 		if err == live.ErrSessionNotFound {
 			writeError(w, http.StatusNotFound, "session_not_found")
@@ -203,6 +216,18 @@ func (a *API) handleLiveDisconnect(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "disconnect_failed")
 		return
 	}
+
+	// Publish audit event with user context
+	auditPayload := events.Payload{
+		"resource_type": "live_session",
+		"resource_id":   sessionID,
+	}
+	if session != nil {
+		auditPayload["station_id"] = session.StationID
+		auditPayload["mount_id"] = session.MountID
+		auditPayload["session_user"] = session.Username
+	}
+	a.publishAuditEvent(r, events.EventDJDisconnect, auditPayload)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "disconnected"})
 }
@@ -356,6 +381,16 @@ func (a *API) handleLiveStartHandover(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "handover_failed")
 		return
 	}
+
+	// Publish audit event with user context
+	a.publishAuditEvent(r, events.EventLiveHandover, events.Payload{
+		"station_id":      req.StationID,
+		"resource_type":   "live_session",
+		"resource_id":     req.SessionID,
+		"mount_id":        req.MountID,
+		"priority":        req.Priority,
+		"transition_type": result.TransitionType,
+	})
 
 	// Convert result to response format
 	response := liveHandoverResponse{

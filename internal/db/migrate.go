@@ -20,6 +20,7 @@ func Migrate(database *gorm.DB) error {
 		&models.APIKey{},
 		&models.PlatformGroup{},
 		&models.PlatformGroupMember{},
+		&models.AuditLog{},
 
 		// Station-level models
 		&models.Station{},

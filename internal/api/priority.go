@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
 	"github.com/go-chi/chi/v5"
@@ -63,6 +64,15 @@ func (a *API) handlePriorityEmergency(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "emergency_insertion_failed")
 		return
 	}
+
+	// Publish audit event with user context (the priority service event doesn't include user info)
+	a.publishAuditEvent(r, events.EventPriorityEmergency, events.Payload{
+		"station_id":    req.StationID,
+		"resource_type": "priority_source",
+		"resource_id":   result.NewSource.ID,
+		"media_id":      req.MediaID,
+		"mount_id":      req.MountID,
+	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":          "emergency_activated",
@@ -120,6 +130,16 @@ func (a *API) handlePriorityOverride(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Publish audit event with user context
+	a.publishAuditEvent(r, events.EventPriorityOverride, events.Payload{
+		"station_id":    req.StationID,
+		"resource_type": "priority_source",
+		"resource_id":   result.NewSource.ID,
+		"source_type":   req.SourceType,
+		"source_id":     req.SourceID,
+		"mount_id":      req.MountID,
+	})
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":          "override_activated",
 		"preempted":       result.Preempted,
@@ -154,6 +174,13 @@ func (a *API) handlePriorityRelease(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "release_failed")
 		return
 	}
+
+	// Publish audit event with user context
+	a.publishAuditEvent(r, events.EventPriorityReleased, events.Payload{
+		"station_id":    req.StationID,
+		"resource_type": "priority_source",
+		"resource_id":   sourceID,
+	})
 
 	response := map[string]any{
 		"status":          "released",

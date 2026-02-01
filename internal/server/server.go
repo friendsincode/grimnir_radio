@@ -22,6 +22,7 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/analyzer"
 	"github.com/friendsincode/grimnir_radio/internal/api"
+	"github.com/friendsincode/grimnir_radio/internal/audit"
 	"github.com/friendsincode/grimnir_radio/internal/broadcast"
 	"github.com/friendsincode/grimnir_radio/internal/cache"
 	"github.com/friendsincode/grimnir_radio/internal/clock"
@@ -63,6 +64,7 @@ type Server struct {
 	playout              *playout.Manager
 	director             *playout.Director
 	bus                  *events.Bus
+	auditSvc             *audit.Service
 	webrtcBroadcaster    *webrtc.Broadcaster
 
 	bgCancel context.CancelFunc
@@ -246,9 +248,12 @@ func (s *Server) initDependencies() error {
 	// Live service depends on priority service
 	liveService := live.NewService(database, priorityService, s.bus, s.logger)
 
+	// Audit service for security logging
+	s.auditSvc = audit.NewService(database, s.bus, s.logger)
+
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
-	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, broadcastSrv, s.bus, s.logBuffer, s.logger)
+	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, broadcastSrv, s.bus, s.logBuffer, s.logger)
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
@@ -368,6 +373,15 @@ func (s *Server) startBackgroundWorkers() {
 			if err := s.webrtcBroadcaster.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				s.logger.Error().Err(err).Msg("WebRTC broadcaster failed to start")
 			}
+		}()
+	}
+
+	// Start audit service
+	if s.auditSvc != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			s.auditSvc.Start(ctx)
 		}()
 	}
 
