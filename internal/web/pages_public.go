@@ -125,23 +125,23 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		baseQuery = baseQuery.Where("1=0")
 	}
 
-	// Fetch distinct genres for filter dropdown
+	// Fetch distinct values for filter dropdowns (only if there are public stations)
 	var genres []string
-	h.db.Model(&models.MediaItem{}).
-		Where("show_in_archive = ? AND station_id IN ? AND genre != '' AND genre IS NOT NULL", true, publicStationIDs).
-		Distinct().Pluck("genre", &genres)
-
-	// Fetch distinct years for filter dropdown
 	var years []string
-	h.db.Model(&models.MediaItem{}).
-		Where("show_in_archive = ? AND station_id IN ? AND year != '' AND year IS NOT NULL", true, publicStationIDs).
-		Distinct().Order("year DESC").Pluck("year", &years)
-
-	// Fetch distinct artists for filter dropdown
 	var artists []string
-	h.db.Model(&models.MediaItem{}).
-		Where("show_in_archive = ? AND station_id IN ? AND artist != '' AND artist IS NOT NULL", true, publicStationIDs).
-		Distinct().Order("artist ASC").Pluck("artist", &artists)
+	if len(publicStationIDs) > 0 {
+		h.db.Model(&models.MediaItem{}).
+			Where("show_in_archive = ? AND station_id IN ? AND genre != '' AND genre IS NOT NULL", true, publicStationIDs).
+			Distinct().Pluck("genre", &genres)
+
+		h.db.Model(&models.MediaItem{}).
+			Where("show_in_archive = ? AND station_id IN ? AND year != '' AND year IS NOT NULL", true, publicStationIDs).
+			Distinct().Order("year DESC").Pluck("year", &years)
+
+		h.db.Model(&models.MediaItem{}).
+			Where("show_in_archive = ? AND station_id IN ? AND artist != '' AND artist IS NOT NULL", true, publicStationIDs).
+			Distinct().Order("artist ASC").Pluck("artist", &artists)
+	}
 
 	var media []models.MediaItem
 	var total int64
@@ -515,9 +515,11 @@ func (h *Handler) PublicScheduleEvents(w http.ResponseWriter, r *http.Request) {
 	// Fetch mount names
 	mountNames := make(map[string]string)
 	var mounts []models.Mount
-	h.db.Where("station_id IN ?", publicStationIDs).Find(&mounts)
-	for _, m := range mounts {
-		mountNames[m.ID] = m.Name
+	if len(publicStationIDs) > 0 {
+		h.db.Where("station_id IN ?", publicStationIDs).Find(&mounts)
+		for _, m := range mounts {
+			mountNames[m.ID] = m.Name
+		}
 	}
 
 	// Build lookup maps for source names
