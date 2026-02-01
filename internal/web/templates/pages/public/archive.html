@@ -172,7 +172,7 @@
         <ul class="pagination justify-content-center">
             {{if gt .Data.Page 1}}
             <li class="page-item">
-                <a class="page-link" href="?page={{sub .Data.Page 1}}{{.Data.FilterParams}}">
+                <a class="page-link" href="?page={{sub .Data.Page 1}}{{safeURL .Data.FilterParams}}">
                     <i class="bi bi-chevron-left"></i> Previous
                 </a>
             </li>
@@ -182,7 +182,7 @@
             </li>
             {{if lt (mul .Data.Page .Data.PerPage) .Data.Total}}
             <li class="page-item">
-                <a class="page-link" href="?page={{add .Data.Page 1}}{{.Data.FilterParams}}">
+                <a class="page-link" href="?page={{add .Data.Page 1}}{{safeURL .Data.FilterParams}}">
                     Next <i class="bi bi-chevron-right"></i>
                 </a>
             </li>
