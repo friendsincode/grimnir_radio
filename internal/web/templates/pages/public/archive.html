@@ -119,7 +119,7 @@
         {{range .Data.Media}}
         <div class="col-sm-6 col-md-4 col-lg-3">
             <div class="card media-card h-100">
-                {{if len .Artwork}}
+                {{if .ArtworkMime}}
                 <img src="/archive/{{.ID}}/artwork" class="card-img-top" alt=""
                      style="height: 180px; object-fit: cover; cursor: pointer;"
                      onclick="playArchiveTrack('{{.ID}}', '{{.Title}}', '{{.Artist}}')">

@@ -19,7 +19,7 @@
             <div class="card">
                 <div class="card-body">
                     <div class="d-flex align-items-center gap-4 mb-4">
-                        {{if len $media.Artwork}}
+                        {{if $media.ArtworkMime}}
                         <img src="/archive/{{$media.ID}}/artwork" alt="Album art"
                              class="rounded shadow" style="width: 120px; height: 120px; object-fit: cover;">
                         {{else}}

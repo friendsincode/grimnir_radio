@@ -222,8 +222,9 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error().Err(err).Str("search", searchQuery).Msg("archive count query failed")
 	}
 
-	// Fetch paginated results
+	// Fetch paginated results (exclude large binary fields for performance)
 	if err := query.Session(&gorm.Session{}).
+		Omit("artwork", "waveform").
 		Order(orderClause).
 		Offset((page - 1) * perPage).
 		Limit(perPage).
@@ -258,7 +259,7 @@ func (h *Handler) ArchiveDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var media models.MediaItem
-	if err := h.db.First(&media, "id = ? AND show_in_archive = ?", id, true).Error; err != nil {
+	if err := h.db.Omit("artwork", "waveform").First(&media, "id = ? AND show_in_archive = ?", id, true).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
