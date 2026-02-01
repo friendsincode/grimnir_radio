@@ -1,0 +1,1184 @@
+openapi: 3.0.3
+info:
+  title: Grimnir Radio API
+  description: |
+    REST API for Grimnir Radio - a modern broadcast automation system.
+
+    ## Authentication
+
+    Most endpoints require JWT Bearer token authentication. Obtain a token via the `/auth/login` endpoint.
+
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+
+    ## Rate Limiting
+
+    API requests are rate-limited. Contact the administrator for specific limits.
+
+    ## Errors
+
+    The API uses standard HTTP status codes:
+    - `200` - Success
+    - `201` - Created
+    - `400` - Bad Request
+    - `401` - Unauthorized
+    - `403` - Forbidden
+    - `404` - Not Found
+    - `500` - Internal Server Error
+
+  version: 1.2.26
+  contact:
+    name: Grimnir Radio Support
+    url: https://github.com/friendsincode/grimnir_radio
+  license:
+    name: AGPL-3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+
+servers:
+  - url: https://your-instance.com/api/v1
+    description: Production server
+  - url: http://localhost:8080/api/v1
+    description: Development server
+
+tags:
+  - name: Authentication
+    description: User authentication and token management
+  - name: Stations
+    description: Radio station management
+  - name: Media
+    description: Media library operations
+  - name: Playlists
+    description: Playlist management
+  - name: Smart Blocks
+    description: Dynamic playlist generation
+  - name: Schedule
+    description: Broadcast scheduling
+  - name: Live
+    description: Live DJ sessions
+  - name: Webstreams
+    description: External stream relay
+  - name: Playout
+    description: Playout control
+  - name: Analytics
+    description: Listener and playback analytics
+  - name: System
+    description: System administration (Platform Admin only)
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns API health status
+      tags: [System]
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /auth/login:
+    post:
+      summary: Login
+      description: Authenticate with email and password to receive a JWT token
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  example: your-password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+
+  /auth/refresh:
+    post:
+      summary: Refresh token
+      description: Get a new JWT token using an existing valid token
+      tags: [Authentication]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /public/stations:
+    get:
+      summary: List public stations
+      description: Get all publicly visible stations (no auth required)
+      tags: [Stations]
+      security: []
+      responses:
+        '200':
+          description: List of public stations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Station'
+
+  /stations:
+    get:
+      summary: List stations
+      description: Get all stations the user has access to
+      tags: [Stations]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of stations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Station'
+    post:
+      summary: Create station
+      description: Create a new radio station (Admin/Manager only)
+      tags: [Stations]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StationCreate'
+      responses:
+        '201':
+          description: Station created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Station'
+
+  /stations/{stationID}:
+    get:
+      summary: Get station
+      description: Get details of a specific station
+      tags: [Stations]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/stationID'
+      responses:
+        '200':
+          description: Station details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Station'
+
+  /stations/{stationID}/mounts:
+    get:
+      summary: List mounts
+      description: Get all stream mounts for a station
+      tags: [Stations]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/stationID'
+      responses:
+        '200':
+          description: List of mounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mounts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Mount'
+
+  /stations/{stationID}/logs:
+    get:
+      summary: Get station logs
+      description: Get logs for a specific station
+      tags: [Stations]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/stationID'
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [debug, info, warn, error]
+        - name: component
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 500
+      responses:
+        '200':
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogResponse'
+
+  /media/upload:
+    post:
+      summary: Upload media
+      description: Upload an audio file to the media library
+      tags: [Media]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Audio file (MP3, FLAC, WAV, OGG, M4A)
+                station_id:
+                  type: string
+                  format: uuid
+                  description: Target station ID
+      responses:
+        '201':
+          description: Media uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaItem'
+
+  /media/{mediaID}:
+    get:
+      summary: Get media item
+      description: Get details of a media item
+      tags: [Media]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: mediaID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Media item details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaItem'
+
+  /playlists:
+    get:
+      summary: List playlists
+      description: Get all playlists for the current station
+      tags: [Playlists]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: station_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of playlists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  playlists:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Playlist'
+
+  /smart-blocks:
+    get:
+      summary: List smart blocks
+      description: Get all smart blocks for the current station
+      tags: [Smart Blocks]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: station_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of smart blocks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  smart_blocks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SmartBlock'
+    post:
+      summary: Create smart block
+      description: Create a new smart block (Admin/Manager only)
+      tags: [Smart Blocks]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmartBlockCreate'
+      responses:
+        '201':
+          description: Smart block created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartBlock'
+
+  /smart-blocks/{blockID}/materialize:
+    post:
+      summary: Materialize smart block
+      description: Generate concrete track list from smart block rules
+      tags: [Smart Blocks]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: blockID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  description: Max tracks to generate
+                  default: 10
+      responses:
+        '200':
+          description: Materialized tracks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tracks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaItem'
+
+  /schedule:
+    get:
+      summary: Get schedule
+      description: Get upcoming schedule entries
+      tags: [Schedule]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: station_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+      responses:
+        '200':
+          description: Schedule entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScheduleEntry'
+
+  /schedule/refresh:
+    post:
+      summary: Refresh schedule
+      description: Force regeneration of schedule (Admin/Manager only)
+      tags: [Schedule]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                station_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Schedule refreshed
+
+  /live/tokens:
+    post:
+      summary: Generate live token
+      description: Generate a token for live DJ streaming (Admin/Manager only)
+      tags: [Live]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [station_id, mount_id]
+              properties:
+                station_id:
+                  type: string
+                  format: uuid
+                mount_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Token generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+
+  /live/sessions:
+    get:
+      summary: List live sessions
+      description: Get all active live DJ sessions
+      tags: [Live]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: station_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LiveSession'
+
+  /webstreams:
+    get:
+      summary: List webstreams
+      description: Get all webstream relays for the station
+      tags: [Webstreams]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: station_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of webstreams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webstreams:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Webstream'
+    post:
+      summary: Create webstream
+      description: Create a new webstream relay
+      tags: [Webstreams]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebstreamCreate'
+      responses:
+        '201':
+          description: Webstream created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webstream'
+
+  /playout/skip:
+    post:
+      summary: Skip current track
+      description: Skip to the next scheduled track
+      tags: [Playout]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                station_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Track skipped
+
+  /playout/stop:
+    post:
+      summary: Stop playout
+      description: Stop all playout for a station (Admin/Manager only)
+      tags: [Playout]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                station_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Playout stopped
+
+  /analytics/now-playing:
+    get:
+      summary: Get now playing
+      description: Get currently playing track info (public endpoint)
+      tags: [Analytics]
+      security: []
+      parameters:
+        - name: station_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Now playing info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NowPlaying'
+
+  /analytics/listeners:
+    get:
+      summary: Get listener count
+      description: Get current listener count (public endpoint)
+      tags: [Analytics]
+      security: []
+      parameters:
+        - name: station_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Listener stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  listeners:
+                    type: integer
+                  peak:
+                    type: integer
+
+  /analytics/spins:
+    get:
+      summary: Get spin reports
+      description: Get track play history (Admin/Manager only)
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: station_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Spin report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spins:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Spin'
+
+  /system/status:
+    get:
+      summary: System status
+      description: Get system health status (Platform Admin only)
+      tags: [System]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: System status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+
+  /system/logs:
+    get:
+      summary: Get system logs
+      description: Get all system logs (Platform Admin only)
+      tags: [System]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [debug, info, warn, error]
+        - name: component
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 500
+      responses:
+        '200':
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogResponse'
+    delete:
+      summary: Clear logs
+      description: Clear the log buffer (Platform Admin only)
+      tags: [System]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logs cleared
+
+  /events:
+    get:
+      summary: Server-sent events
+      description: Subscribe to real-time events via SSE
+      tags: [System]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: types
+          in: query
+          description: Comma-separated event types to subscribe to
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    stationID:
+      name: stationID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Station UUID
+
+  schemas:
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT access token
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        platform_role:
+          type: string
+          enum: [user, platform_mod, platform_admin]
+        created_at:
+          type: string
+          format: date-time
+
+    Station:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        timezone:
+          type: string
+        active:
+          type: boolean
+        public:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    StationCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        timezone:
+          type: string
+          default: UTC
+
+    Mount:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        station_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        format:
+          type: string
+          enum: [mp3, ogg, aac]
+        bitrate:
+          type: integer
+        is_default:
+          type: boolean
+
+    MediaItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        station_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        artist:
+          type: string
+        album:
+          type: string
+        genre:
+          type: string
+        duration_ms:
+          type: integer
+        file_size:
+          type: integer
+        mime_type:
+          type: string
+        bpm:
+          type: number
+        loudness:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+
+    Playlist:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        station_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        item_count:
+          type: integer
+        total_duration_ms:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    SmartBlock:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        station_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartBlockRule'
+        limit:
+          type: integer
+        sort_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    SmartBlockCreate:
+      type: object
+      required: [station_id, name, rules]
+      properties:
+        station_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartBlockRule'
+        limit:
+          type: integer
+          default: 10
+        sort_by:
+          type: string
+          enum: [random, newest, oldest, title, artist]
+
+    SmartBlockRule:
+      type: object
+      properties:
+        field:
+          type: string
+          enum: [genre, artist, album, title, bpm, duration, year]
+        operator:
+          type: string
+          enum: [equals, contains, starts_with, ends_with, greater_than, less_than, between]
+        value:
+          type: string
+        value2:
+          type: string
+          description: Second value for 'between' operator
+
+    ScheduleEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        station_id:
+          type: string
+          format: uuid
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        source_type:
+          type: string
+          enum: [playlist, smart_block, media, webstream, live]
+        source_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          type: string
+          enum: [scheduled, playing, completed, skipped]
+
+    LiveSession:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        station_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        mount_id:
+          type: string
+          format: uuid
+        started_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [connecting, live, disconnected]
+
+    Webstream:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        station_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        fallback_url:
+          type: string
+          format: uri
+        format:
+          type: string
+        is_active:
+          type: boolean
+        health_status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+
+    WebstreamCreate:
+      type: object
+      required: [station_id, name, url, format]
+      properties:
+        station_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        fallback_url:
+          type: string
+          format: uri
+        format:
+          type: string
+          enum: [mp3, ogg, aac]
+
+    NowPlaying:
+      type: object
+      properties:
+        station_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        artist:
+          type: string
+        album:
+          type: string
+        artwork_url:
+          type: string
+          format: uri
+        started_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        elapsed_ms:
+          type: integer
+        listeners:
+          type: integer
+
+    Spin:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        media_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        artist:
+          type: string
+        played_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+
+    SystemStatus:
+      type: object
+      properties:
+        database:
+          $ref: '#/components/schemas/ComponentStatus'
+        media_engine:
+          $ref: '#/components/schemas/ComponentStatus'
+        storage:
+          $ref: '#/components/schemas/ComponentStatus'
+        timestamp:
+          type: string
+          format: date-time
+
+    ComponentStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error, unavailable]
+        message:
+          type: string
+
+    LogResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntry'
+        count:
+          type: integer
+        station_names:
+          type: object
+          additionalProperties:
+            type: string
+
+    LogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        message:
+          type: string
+        component:
+          type: string
+        fields:
+          type: object
+          additionalProperties: true

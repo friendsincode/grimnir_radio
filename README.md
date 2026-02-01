@@ -1,6 +1,6 @@
 # Grimnir Radio
 
-**Version:** 1.1.16
+**Version:** 1.2.26
 
 Grimnir Radio is a modern, production-ready broadcast automation system built in Go. It features a multi-process architecture with separated control plane and media engine, live DJ input, HTTP stream relay with automatic failover, horizontal scaling, and comprehensive observability.
 
@@ -85,8 +85,52 @@ See [`docs/ARCHITECTURE_ROADMAP.md`](docs/ARCHITECTURE_ROADMAP.md) for detailed 
 - Binaries: `cmd/grimnirradio` (control plane), `cmd/mediaengine` (media engine)
 - Env vars: prefer `GRIMNIR_*` (falls back to `RLM_*` for compatibility)
 
+## API Documentation
+
+Grimnir Radio provides a comprehensive REST API for integration with external applications.
+
+- **OpenAPI/Swagger Spec**: [`api/openapi.yaml`](api/openapi.yaml)
+- **API Guide**: [`docs/api/README.md`](docs/api/README.md)
+- **Python Client**: [`docs/api/examples/python/grimnir_client.py`](docs/api/examples/python/grimnir_client.py)
+
+### Quick Example (Python)
+
+```python
+from grimnir_client import GrimnirClient
+
+client = GrimnirClient("https://your-instance.com")
+client.login("user@example.com", "password")
+
+# Get stations
+stations = client.get_stations()
+
+# Get now playing
+np = client.get_now_playing(station_id)
+print(f"Now Playing: {np['title']} by {np['artist']}")
+
+# Upload media
+media = client.upload_media(station_id, "/path/to/song.mp3")
+```
+
+### Quick Example (curl)
+
+```bash
+# Login
+TOKEN=$(curl -s -X POST https://your-instance.com/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "pass"}' | jq -r .token)
+
+# Get stations
+curl https://your-instance.com/api/v1/stations \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get now playing (no auth required)
+curl https://your-instance.com/api/v1/analytics/now-playing
+```
+
 ## Docs
 
+- **API Documentation**: `docs/api/README.md`
 - Sales spec: `docs/specs/SALES_SPEC.md`
 - Engineering spec: `docs/specs/ENGINEERING_SPEC.md`
 - Programmer's spec: `docs/specs/PROGRAMMERS_SPEC.md`
