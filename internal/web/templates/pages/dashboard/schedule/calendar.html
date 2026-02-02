@@ -71,6 +71,7 @@
         --calendar-color-live: #ef4444;
         --calendar-color-webstream: #f59e0b;
         --calendar-color-clock: #8b5cf6;
+        --calendar-color-show: #ec4899;
     }
     .fc-event.event-media { background: var(--calendar-color-media) !important; border-color: var(--calendar-color-media) !important; }
     .fc-event.event-playlist { background: var(--calendar-color-playlist) !important; border-color: var(--calendar-color-playlist) !important; }
@@ -78,22 +79,27 @@
     .fc-event.event-live { background: var(--calendar-color-live) !important; border-color: var(--calendar-color-live) !important; }
     .fc-event.event-webstream { background: var(--calendar-color-webstream) !important; border-color: var(--calendar-color-webstream) !important; color: var(--bs-dark) !important; }
     .fc-event.event-clock_template { background: var(--calendar-color-clock) !important; border-color: var(--calendar-color-clock) !important; }
+    /* Show events - uses show's custom color if set */
+    .fc-event.event-show { border-width: 2px !important; }
+    .fc-event.event-show.event-cancelled { opacity: 0.5; text-decoration: line-through; }
+    .fc-event.event-show.event-exception { border-style: dashed !important; }
     /* Badge for purple/clock type */
     .badge.bg-purple { background-color: var(--calendar-color-clock) !important; }
+    .badge.bg-pink { background-color: var(--calendar-color-show) !important; }
 </style>
 <script>
 // Apply calendar color theme
 (function() {
     const colorTheme = '{{index .Data "ColorTheme"}}' || 'default';
     const themes = {
-        'default': { media: '#6366f1', playlist: '#10b981', smartblock: '#06b6d4', live: '#ef4444', webstream: '#f59e0b', clock: '#8b5cf6' },
-        'ocean': { media: '#0ea5e9', playlist: '#14b8a6', smartblock: '#06b6d4', live: '#3b82f6', webstream: '#0891b2', clock: '#22d3ee' },
-        'forest': { media: '#22c55e', playlist: '#10b981', smartblock: '#84cc16', live: '#16a34a', webstream: '#059669', clock: '#4ade80' },
-        'sunset': { media: '#f97316', playlist: '#ef4444', smartblock: '#ec4899', live: '#f43f5e', webstream: '#fb923c', clock: '#e11d48' },
-        'berry': { media: '#a855f7', playlist: '#8b5cf6', smartblock: '#d946ef', live: '#c026d3', webstream: '#9333ea', clock: '#e879f9' },
-        'earth': { media: '#92400e', playlist: '#f59e0b', smartblock: '#78716c', live: '#b45309', webstream: '#d97706', clock: '#a16207' },
-        'neon': { media: '#00ff88', playlist: '#ff0088', smartblock: '#00ffff', live: '#ffff00', webstream: '#ff00ff', clock: '#88ff00' },
-        'pastel': { media: '#93c5fd', playlist: '#a5b4fc', smartblock: '#c4b5fd', live: '#f9a8d4', webstream: '#fca5a5', clock: '#fed7aa' }
+        'default': { media: '#6366f1', playlist: '#10b981', smartblock: '#06b6d4', live: '#ef4444', webstream: '#f59e0b', clock: '#8b5cf6', show: '#ec4899' },
+        'ocean': { media: '#0ea5e9', playlist: '#14b8a6', smartblock: '#06b6d4', live: '#3b82f6', webstream: '#0891b2', clock: '#22d3ee', show: '#06b6d4' },
+        'forest': { media: '#22c55e', playlist: '#10b981', smartblock: '#84cc16', live: '#16a34a', webstream: '#059669', clock: '#4ade80', show: '#15803d' },
+        'sunset': { media: '#f97316', playlist: '#ef4444', smartblock: '#ec4899', live: '#f43f5e', webstream: '#fb923c', clock: '#e11d48', show: '#be185d' },
+        'berry': { media: '#a855f7', playlist: '#8b5cf6', smartblock: '#d946ef', live: '#c026d3', webstream: '#9333ea', clock: '#e879f9', show: '#a21caf' },
+        'earth': { media: '#92400e', playlist: '#f59e0b', smartblock: '#78716c', live: '#b45309', webstream: '#d97706', clock: '#a16207', show: '#854d0e' },
+        'neon': { media: '#00ff88', playlist: '#ff0088', smartblock: '#00ffff', live: '#ffff00', webstream: '#ff00ff', clock: '#88ff00', show: '#ff0088' },
+        'pastel': { media: '#93c5fd', playlist: '#a5b4fc', smartblock: '#c4b5fd', live: '#f9a8d4', webstream: '#fca5a5', clock: '#fed7aa', show: '#fbcfe8' }
     };
     const colors = themes[colorTheme] || themes['default'];
     const root = document.documentElement;
@@ -103,6 +109,7 @@
     root.style.setProperty('--calendar-color-live', colors.live);
     root.style.setProperty('--calendar-color-webstream', colors.webstream);
     root.style.setProperty('--calendar-color-clock', colors.clock);
+    root.style.setProperty('--calendar-color-show', colors.show);
 })();
 </script>
 {{end}}
@@ -168,6 +175,11 @@
     <div class="context-menu-item" data-action="add-live">
         <i class="bi bi-broadcast"></i>
         <span>Schedule Live Session</span>
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" data-action="add-show">
+        <i class="bi bi-calendar-event"></i>
+        <span>Schedule Show</span>
     </div>
 </div>
 
@@ -356,6 +368,11 @@
                                 <i class="bi bi-broadcast me-1"></i>Live
                             </button>
                         </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="show-tab" data-bs-toggle="tab" data-bs-target="#showPane" type="button">
+                                <i class="bi bi-calendar-event me-1"></i>Show
+                            </button>
+                        </li>
                     </ul>
 
                     <div class="tab-content pt-3" id="sourceTypeTabContent">
@@ -420,6 +437,38 @@
                                     <option value="2" selected>Normal (2) - Scheduled slot</option>
                                     <option value="3">Low (3) - Fallback only</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <!-- Show (Recurring Program) -->
+                        <div class="tab-pane fade" id="showPane" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label">Select Existing Show</label>
+                                <select class="form-select" id="showSelect">
+                                    <option value="">Select a show...</option>
+                                </select>
+                            </div>
+                            <div class="text-center my-3">
+                                <span class="text-body-secondary">or</span>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Create New Show</label>
+                                <input type="text" class="form-control mb-2" id="newShowName" placeholder="Show name">
+                                <textarea class="form-control mb-2" id="newShowDescription" rows="2" placeholder="Description (optional)"></textarea>
+                                <div class="row g-2">
+                                    <div class="col">
+                                        <label class="form-label small">Duration (minutes)</label>
+                                        <input type="number" class="form-control" id="newShowDuration" value="60" min="15" max="480">
+                                    </div>
+                                    <div class="col">
+                                        <label class="form-label small">Color</label>
+                                        <input type="color" class="form-control form-control-color" id="newShowColor" value="#ec4899">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="alert alert-info py-2 small">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Shows support RRULE recurrence patterns. Set the repeat options below to define when this show airs.
                             </div>
                         </div>
                     </div>
@@ -796,29 +845,61 @@ document.addEventListener('DOMContentLoaded', function() {
         unselectAuto: false,
         longPressDelay: 500,
 
-        // Custom event class names based on source type
+        // Custom event class names based on source type or show type
         eventClassNames: function(arg) {
-            const type = arg.event.extendedProps.source_type;
+            const props = arg.event.extendedProps;
+            if (props.type === 'show') {
+                let classes = ['event-show'];
+                if (props.status === 'cancelled') classes.push('event-cancelled');
+                if (props.exception_type) classes.push('event-exception');
+                return classes;
+            }
+            const type = props.source_type;
             return ['event-' + (type || 'media')];
         },
 
-        events: function(info, successCallback, failureCallback) {
-            const mountId = mountFilter.value;
-            let url = `/dashboard/schedule/events?start=${info.startStr}&end=${info.endStr}`;
-            if (mountId) {
-                url += `&mount_id=${mountId}`;
+        // Use multiple event sources: schedule entries + shows
+        eventSources: [
+            // Schedule entries
+            {
+                id: 'schedule',
+                events: function(info, successCallback, failureCallback) {
+                    const mountId = mountFilter.value;
+                    let url = `/dashboard/schedule/events?start=${info.startStr}&end=${info.endStr}`;
+                    if (mountId) {
+                        url += `&mount_id=${mountId}`;
+                    }
+                    fetch(url)
+                        .then(response => response.json())
+                        .then(data => successCallback(data))
+                        .catch(error => failureCallback(error));
+                }
+            },
+            // Show instances
+            {
+                id: 'shows',
+                events: function(info, successCallback, failureCallback) {
+                    let url = `/dashboard/schedule/show-events?start=${info.startStr}&end=${info.endStr}`;
+                    fetch(url)
+                        .then(response => response.json())
+                        .then(data => successCallback(data))
+                        .catch(error => {
+                            console.warn('Failed to load show events:', error);
+                            successCallback([]); // Don't fail calendar on show fetch error
+                        });
+                }
             }
+        ],
 
-            fetch(url)
-                .then(response => response.json())
-                .then(data => successCallback(data))
-                .catch(error => failureCallback(error));
-        },
-
-        // Left click on event - open edit modal
+        // Left click on event - open edit modal or show details
         eventClick: function(info) {
             selectedEvent = info.event;
-            openEditModal(info.event);
+            const props = info.event.extendedProps;
+            if (props.type === 'show') {
+                showShowInstanceDetails(info.event);
+            } else {
+                openEditModal(info.event);
+            }
         },
 
         // Right click on event - show context menu
@@ -832,11 +913,21 @@ document.addEventListener('DOMContentLoaded', function() {
         },
 
         eventDrop: function(info) {
-            updateEvent(info.event);
+            const props = info.event.extendedProps;
+            if (props.type === 'show') {
+                updateShowInstance(info.event);
+            } else {
+                updateEvent(info.event);
+            }
         },
 
         eventResize: function(info) {
-            updateEvent(info.event);
+            const props = info.event.extendedProps;
+            if (props.type === 'show') {
+                updateShowInstance(info.event);
+            } else {
+                updateEvent(info.event);
+            }
         },
 
         // Time selection (drag only) - store the range and show context menu
@@ -958,6 +1049,7 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'add-clock':
             case 'add-webstream':
             case 'add-live':
+            case 'add-show':
                 if (selectedTimeRange) {
                     openAddScheduleModal(selectedTimeRange.start, selectedTimeRange.end, action.replace('add-', ''));
                 } else {
@@ -970,10 +1062,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Event context actions
             case 'event-details':
-                if (selectedEvent) showEventDetails(selectedEvent);
+                if (selectedEvent) {
+                    const props = selectedEvent.extendedProps;
+                    if (props.type === 'show') {
+                        showShowInstanceDetails(selectedEvent);
+                    } else {
+                        showEventDetails(selectedEvent);
+                    }
+                }
                 break;
             case 'event-edit':
-                if (selectedEvent) openEditModal(selectedEvent);
+                if (selectedEvent) {
+                    const props = selectedEvent.extendedProps;
+                    if (props.type === 'show') {
+                        showShowInstanceDetails(selectedEvent);
+                    } else {
+                        openEditModal(selectedEvent);
+                    }
+                }
                 break;
             case 'event-duplicate':
                 if (selectedEvent) duplicateEvent(selectedEvent);
@@ -982,7 +1088,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 grimnirUtils.showToast('Drag the event to move it', 'info');
                 break;
             case 'event-delete':
-                if (selectedEvent) deleteEvent(selectedEvent);
+                if (selectedEvent) {
+                    const props = selectedEvent.extendedProps;
+                    if (props.type === 'show') {
+                        cancelShowInstance(selectedEvent);
+                    } else {
+                        deleteEvent(selectedEvent);
+                    }
+                }
                 break;
         }
     }
@@ -1066,7 +1179,8 @@ document.addEventListener('DOMContentLoaded', function() {
             'smartblock': 'smartblock-tab',
             'clock': 'clock-tab',
             'webstream': 'webstream-tab',
-            'live': 'live-tab'
+            'live': 'live-tab',
+            'show': 'show-tab'
         };
         const tabId = tabMap[sourceType] || 'media-tab';
         document.getElementById(tabId)?.click();
@@ -1085,7 +1199,8 @@ document.addEventListener('DOMContentLoaded', function() {
             loadSmartBlocks(),
             loadClockTemplates(),
             loadWebstreams(),
-            loadInitialMedia()
+            loadInitialMedia(),
+            loadShows()
         ]);
 
         addScheduleModal.show();
@@ -1433,6 +1548,82 @@ document.addEventListener('DOMContentLoaded', function() {
                     priority: parseInt(document.getElementById('livePriority').value)
                 };
                 break;
+
+            case 'show-tab':
+                // Handle show scheduling
+                const existingShowId = document.getElementById('showSelect').value;
+                const newShowName = document.getElementById('newShowName').value;
+
+                if (!existingShowId && !newShowName) {
+                    grimnirUtils.showToast('Please select or create a show', 'warning');
+                    return;
+                }
+
+                // Get recurrence settings
+                const showRecurrenceType = document.getElementById('recurrenceType').value;
+                let showRRule = '';
+                if (showRecurrenceType) {
+                    showRRule = buildRRule(showRecurrenceType, startDateTime);
+                }
+
+                if (newShowName) {
+                    // Create new show
+                    const showData = {
+                        name: newShowName,
+                        description: document.getElementById('newShowDescription').value,
+                        default_duration_minutes: parseInt(document.getElementById('newShowDuration').value) || 60,
+                        color: document.getElementById('newShowColor').value,
+                        dtstart: startDateTime.toISOString(),
+                        rrule: showRRule,
+                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                    };
+
+                    try {
+                        const showResp = await fetch('/dashboard/shows/', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(showData)
+                        });
+
+                        if (showResp.ok) {
+                            addScheduleModal.hide();
+                            calendar.refetchEvents();
+                            grimnirUtils.showToast('Show created and scheduled', 'success');
+                        } else {
+                            const err = await showResp.json();
+                            grimnirUtils.showToast(err.error || 'Failed to create show', 'error');
+                        }
+                    } catch (e) {
+                        grimnirUtils.showToast('Failed to create show', 'error');
+                    }
+                    return;
+                } else {
+                    // Materialize instances for existing show
+                    const endRange = new Date(startDateTime);
+                    endRange.setDate(endRange.getDate() + 90); // 90 days
+
+                    try {
+                        const matResp = await fetch(`/dashboard/shows/${existingShowId}/materialize`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                start: startDateTime.toISOString(),
+                                end: endRange.toISOString()
+                            })
+                        });
+
+                        if (matResp.ok) {
+                            addScheduleModal.hide();
+                            calendar.refetchEvents();
+                            grimnirUtils.showToast('Show instances created', 'success');
+                        } else {
+                            grimnirUtils.showToast('Failed to materialize show instances', 'error');
+                        }
+                    } catch (e) {
+                        grimnirUtils.showToast('Failed to schedule show', 'error');
+                    }
+                    return;
+                }
         }
 
         // Get recurrence settings
@@ -1961,7 +2152,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Delete/Backspace - Delete selected event
         if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEvent) {
-            deleteEvent(selectedEvent);
+            const props = selectedEvent.extendedProps;
+            if (props.type === 'show') {
+                cancelShowInstance(selectedEvent);
+            } else {
+                deleteEvent(selectedEvent);
+            }
         }
 
         // Escape - Deselect and close menus
@@ -1972,6 +2168,144 @@ document.addEventListener('DOMContentLoaded', function() {
             selectedTimeRange = null;
         }
     });
+
+    // ===== Show Functions =====
+
+    // Load shows for dropdown
+    async function loadShows() {
+        try {
+            const response = await fetch('/dashboard/shows/?active=true');
+            const data = await response.json();
+            const select = document.getElementById('showSelect');
+            select.innerHTML = '<option value="">Select a show...</option>';
+            (data.shows || []).forEach(show => {
+                select.innerHTML += `<option value="${show.ID}">${show.Name}</option>`;
+            });
+        } catch (e) {
+            console.error('Failed to load shows:', e);
+        }
+    }
+
+    // Build RRULE from recurrence settings
+    function buildRRule(recurrenceType, startDate) {
+        const dayMap = {0: 'SU', 1: 'MO', 2: 'TU', 3: 'WE', 4: 'TH', 5: 'FR', 6: 'SA'};
+        const startDay = dayMap[startDate.getDay()];
+
+        switch (recurrenceType) {
+            case 'daily':
+                return 'FREQ=DAILY';
+            case 'weekdays':
+                return 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR';
+            case 'weekly':
+                return `FREQ=WEEKLY;BYDAY=${startDay}`;
+            case 'custom':
+                const days = [];
+                document.querySelectorAll('#customDaysContainer input:checked').forEach(cb => {
+                    days.push(dayMap[parseInt(cb.value)]);
+                });
+                if (days.length === 0) return '';
+                return `FREQ=WEEKLY;BYDAY=${days.join(',')}`;
+            default:
+                return '';
+        }
+    }
+
+    // Show details for a show instance
+    function showShowInstanceDetails(event) {
+        const props = event.extendedProps;
+
+        document.getElementById('eventModalTitle').textContent = event.title;
+
+        let statusBadge = '';
+        if (props.status === 'cancelled') {
+            statusBadge = '<span class="badge bg-danger ms-2">Cancelled</span>';
+        } else if (props.exception_type) {
+            const exLabels = {
+                'rescheduled': 'Rescheduled',
+                'substitute': 'Substitute Host',
+                'cancelled': 'Cancelled'
+            };
+            statusBadge = `<span class="badge bg-warning text-dark ms-2">${exLabels[props.exception_type] || props.exception_type}</span>`;
+        }
+
+        let body = `
+            <dl class="row mb-0">
+                <dt class="col-4">Type</dt>
+                <dd class="col-8"><span class="badge bg-pink">Show</span>${statusBadge}</dd>
+
+                <dt class="col-4">Start</dt>
+                <dd class="col-8">${event.start.toLocaleString()}</dd>
+
+                <dt class="col-4">End</dt>
+                <dd class="col-8">${event.end.toLocaleString()}</dd>
+
+                <dt class="col-4">Duration</dt>
+                <dd class="col-8">${formatDuration((event.end - event.start) / 1000)}</dd>
+        `;
+
+        if (props.host_name) {
+            body += `<dt class="col-4">Host</dt><dd class="col-8">${props.host_name}</dd>`;
+        }
+
+        if (props.exception_note) {
+            body += `<dt class="col-4">Note</dt><dd class="col-8">${props.exception_note}</dd>`;
+        }
+
+        if (props.is_virtual) {
+            body += `<dt class="col-4 text-body-secondary">Status</dt><dd class="col-8 text-body-secondary"><em>Not yet materialized</em></dd>`;
+        }
+
+        body += '</dl>';
+        document.getElementById('eventModalBody').innerHTML = body;
+        eventModal.show();
+    }
+
+    // Update a show instance (drag/resize)
+    function updateShowInstance(event) {
+        const props = event.extendedProps;
+        const instanceId = props.instance_id;
+
+        fetch(`/dashboard/shows/instances/${instanceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                starts_at: event.start.toISOString(),
+                ends_at: event.end.toISOString()
+            })
+        }).then(response => {
+            if (response.ok) {
+                grimnirUtils.showToast('Show instance updated', 'success');
+            } else {
+                calendar.refetchEvents();
+                grimnirUtils.showToast('Failed to update show instance', 'error');
+            }
+        }).catch(() => {
+            calendar.refetchEvents();
+            grimnirUtils.showToast('Failed to update show instance', 'error');
+        });
+    }
+
+    // Cancel a show instance
+    function cancelShowInstance(event) {
+        const props = event.extendedProps;
+        const instanceId = props.instance_id;
+
+        if (!confirm('Cancel this show instance?')) return;
+
+        fetch(`/dashboard/shows/instances/${instanceId}`, {
+            method: 'DELETE'
+        }).then(response => {
+            if (response.ok) {
+                calendar.refetchEvents();
+                eventModal.hide();
+                grimnirUtils.showToast('Show instance cancelled', 'success');
+            } else {
+                grimnirUtils.showToast('Failed to cancel show instance', 'error');
+            }
+        }).catch(() => {
+            grimnirUtils.showToast('Failed to cancel show instance', 'error');
+        });
+    }
 });
 </script>
 {{end}}

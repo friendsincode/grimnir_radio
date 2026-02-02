@@ -207,6 +207,23 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/clocks.json", h.ScheduleClocksJSON)
 					r.Get("/webstreams.json", h.ScheduleWebstreamsJSON)
 					r.Get("/media.json", h.ScheduleMediaSearchJSON)
+
+					// Show instance events for calendar
+					r.Get("/show-events", h.ShowInstanceEvents)
+				})
+
+				// Shows (Phase 8 - Advanced Scheduling)
+				r.Route("/shows", func(r chi.Router) {
+					r.Use(h.RequireRole("manager"))
+					r.Get("/", h.ShowsJSON)
+					r.Post("/", h.ShowCreate)
+					r.Put("/{id}", h.ShowUpdate)
+					r.Delete("/{id}", h.ShowDelete)
+					r.Post("/{id}/materialize", h.ShowMaterialize)
+
+					// Show instances
+					r.Put("/instances/{id}", h.ShowInstanceUpdate)
+					r.Delete("/instances/{id}", h.ShowInstanceCancel)
 				})
 
 				// Live DJ
