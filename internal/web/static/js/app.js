@@ -13,6 +13,21 @@ function setTheme(theme) {
         themeLink.href = `/static/css/themes/${theme}.css`;
     }
 
+    // Close the theme modal if it's open
+    const themeModal = document.getElementById('themeModal');
+    if (themeModal) {
+        const bsModal = bootstrap.Modal.getInstance(themeModal);
+        if (bsModal) {
+            bsModal.hide();
+        }
+    }
+
+    // Clean up any stale modal backdrops
+    document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('padding-right');
+
     // Update server-side preference via HTMX if available
     if (window.htmx) {
         htmx.ajax('POST', '/api/v1/preferences/theme', {
