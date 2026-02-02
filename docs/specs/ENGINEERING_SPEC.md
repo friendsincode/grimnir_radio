@@ -1073,6 +1073,78 @@ priorities:
 - Configurable widget layout (now playing, schedule, recent tracks)
 - Template system for station operators
 
+**Advanced Scheduling:**
+
+*Data Model:*
+- `shows` table: recurring show definitions with metadata (host, description, artwork)
+- `show_instances` table: materialized show occurrences from recurrence rules
+- `schedule_templates` table: reusable week templates
+- `schedule_versions` table: version history with diff tracking
+- `dj_availability` table: DJ availability windows and time-off requests
+- `schedule_locks` table: lock rules by date range and role
+
+*Schedule Management:*
+- Recurring show definitions with RRULE (RFC 5545) support
+- Exception handling (skip dates, substitute hosts)
+- Show entities with full metadata and artwork
+- Calendar views (day/week/month) with drag-and-drop
+
+*Validation Engine:*
+- Real-time conflict detection (overlaps, gaps)
+- DJ double-booking detection across stations
+- Compliance rule engine (station ID intervals, content restrictions)
+- Daypart constraint validation
+- Pre-flight validation before schedule activation
+
+*Templates & Versioning:*
+- Save/load week templates
+- Schedule version history with rollback
+- Diff view between versions
+- Audit log integration
+
+*DJ Self-Service:*
+- Availability management UI
+- Shift swap requests with approval workflow
+- Time-off request system
+- Role-based schedule locking
+
+*Notifications:*
+- Webhook/email/SMS notification system
+- Configurable reminder intervals
+- Schedule change alerts to affected DJs
+
+*Public Schedule:*
+- Public API endpoints for schedule data
+- Embeddable widget (iframe/JS)
+- iCal/RSS feed generation
+- Social media integration hooks
+
+*Analytics Integration:*
+- Listener count correlation with time slots
+- Show performance metrics
+- ML-ready data export for scheduling suggestions
+
+*Multi-Timezone:*
+- All times stored as UTC internally
+- Per-user timezone preference
+- Public schedule timezone conversion
+- DST transition handling
+
+*Syndication:*
+- Show linking across stations
+- Delayed broadcast scheduling (record → air later)
+- Network feed subscription
+
+*Underwriting:*
+- Sponsor slot definitions
+- Obligation tracking and reporting
+- Integration with schedule validation
+
+*Import/Export:*
+- iCal import/export
+- Google Calendar sync
+- PDF generation for print schedules
+
 **WebDJ:**
 - Browser-based live streaming
 - Voice tracking support
@@ -1256,4 +1328,4 @@ Grimnir Radio is a production-ready, Go-controlled broadcast automation platform
 - Audit logging for sensitive operations
 - Turn-key deployment (Docker, Kubernetes, Nix)
 
-**Future Work:** Customizable landing page editor, WebDJ interface, Emergency Alert System (EAS), advanced scheduling features.
+**Future Work:** Customizable landing page, advanced scheduling (recurring shows, calendar UI, conflict detection, DJ self-service, notifications, syndication), WebDJ interface, Emergency Alert System (EAS).

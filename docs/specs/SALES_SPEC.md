@@ -44,10 +44,10 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - **Audit logging** for sensitive operations
 
 **What's Coming:**
+- **Advanced scheduling**: Recurring shows, calendar UI, conflict detection, DJ self-service, notifications, public schedule widgets, syndication
 - **Customizable landing page**: Easy branding and layout editor for station operators
 - **WebDJ**: Browser-based DJ control panel
 - **Emergency Alert System (EAS)** integration
-- **Advanced scheduling**: Conflict detection, templates
 
 ---
 
@@ -364,6 +364,86 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Custom branding (logo, colors, background)
 - Configurable widgets (now playing, schedule, recent tracks)
 - No coding required for station operators
+
+**Advanced Scheduling**
+
+*Schedule Management:*
+- Recurring shows (e.g., "Live Jazz every Monday 7-9pm")
+- Show entities with metadata (host, description, artwork)
+- Exception handling (skip holidays, substitute hosts)
+
+*Visual Interface:*
+- Calendar view (day/week/month)
+- Drag-and-drop rescheduling
+- Color-coded by show type/host
+
+*Conflict Detection & Validation:*
+- Overlap detection (two things scheduled at same time)
+- Gap detection (dead air warnings)
+- DJ double-booking across stations
+- Compliance checks (station IDs every hour, etc.)
+
+*Templates:*
+- Save week schedules as reusable templates
+- Holiday/special event templates
+- Quick-apply to future weeks
+
+*Rules & Constraints:*
+- Daypart restrictions (certain content only at certain hours)
+- Required breaks/IDs at specific times
+- Min/max show durations
+
+*Schedule History & Versioning:*
+- Track who changed what and when
+- Rollback to previous schedule
+- Audit trail for all schedule changes
+
+*DJ/Host Self-Service:*
+- DJs request time slots
+- Swap shifts with other DJs
+- Mark availability / vacation requests
+- Approval workflow for schedule changes
+
+*Notifications & Reminders:*
+- Email/SMS reminders before shows
+- Alert DJs when schedule changes affect them
+- "You're on in 15 minutes" notifications
+
+*Public Schedule & Sharing:*
+- Public schedule page/widget for listeners
+- Embeddable schedule for external websites
+- RSS feed of upcoming shows
+- Social media auto-post ("Coming up next...")
+
+*Analytics-Driven Scheduling:*
+- Which time slots have best listener counts?
+- Show performance metrics
+- Suggestions based on historical data
+
+*Multi-Timezone:*
+- DJs in different timezones see their local time
+- Listeners see schedule in their timezone
+- Daylight saving transition handling
+
+*Schedule Locking:*
+- Lock schedule X days in advance
+- Prevent last-minute changes
+- Different lock rules per role
+
+*Syndication / Network Programming:*
+- Same show across multiple stations
+- Delayed broadcast (record now, air later)
+- Shared network programming
+
+*Underwriting / Sponsor Slots:*
+- Schedule sponsor messages at specific times
+- Track sponsor obligations
+- Reporting for sponsors
+
+*Import/Export:*
+- Google Calendar / iCal import
+- Export to calendar formats
+- PDF schedule generation
 
 **Smart Block Enhancements**
 - Energy curves (ramp up/down energy over hour)
@@ -814,11 +894,19 @@ Professional radio automation where Go owns the control plane and a dedicated me
 
 ### ⏳ FUTURE PHASES
 
-**Phase 8: WebDJ & Advanced Features**
+**Phase 8: Advanced Scheduling**
+- Recurring shows with calendar UI
+- Conflict detection and validation
+- DJ self-service (availability, shift swaps)
+- Schedule templates and versioning
+- Notifications and reminders
+- Public schedule widgets and feeds
+- Syndication and network programming
+
+**Phase 9: WebDJ & Platform Features**
 - Customizable landing page editor
 - Browser-based DJ control panel
 - Emergency Alert System (EAS) integration
-- Advanced scheduling (conflict detection, templates)
 
 See `docs/ARCHITECTURE_ROADMAP.md` for detailed implementation history.
 
