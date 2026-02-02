@@ -122,10 +122,10 @@ func Load() (*Config, error) {
 		WebRTCEnabled: getEnvBoolAny([]string{"GRIMNIR_WEBRTC_ENABLED", "WEBRTC_ENABLED"}, true),
 		WebRTCRTPPort: getEnvIntAny([]string{"GRIMNIR_WEBRTC_RTP_PORT", "WEBRTC_RTP_PORT"}, 5004),
 		WebRTCSTUNURL: getEnvAny([]string{"GRIMNIR_WEBRTC_STUN_URL", "WEBRTC_STUN_URL"}, "stun:stun.l.google.com:19302"),
-		// Free public TURN server from Open Relay Project (for users behind strict NATs)
-		WebRTCTURNURL:      getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_URL", "WEBRTC_TURN_URL"}, "turn:openrelay.metered.ca:443"),
-		WebRTCTURNUsername: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_USERNAME", "WEBRTC_TURN_USERNAME"}, "openrelayproject"),
-		WebRTCTURNPassword: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_PASSWORD", "WEBRTC_TURN_PASSWORD"}, "openrelayproject"),
+		// TURN server for NAT traversal (coturn at radio.reallibertymedia.com)
+		WebRTCTURNURL:      getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_URL", "WEBRTC_TURN_URL"}, "turn:radio.reallibertymedia.com:3478"),
+		WebRTCTURNUsername: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_USERNAME", "WEBRTC_TURN_USERNAME"}, "grimniruser"),
+		WebRTCTURNPassword: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_PASSWORD", "WEBRTC_TURN_PASSWORD"}, "astrongpassword"),
 
 		// Media Engine configuration
 		MediaEngineGRPCAddr: getEnvAny([]string{"GRIMNIR_MEDIA_ENGINE_GRPC_ADDR", "MEDIA_ENGINE_GRPC_ADDR"}, "mediaengine:9091"),
