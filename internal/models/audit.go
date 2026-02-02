@@ -35,6 +35,11 @@ const (
 	AuditActionWebstreamUpdate   AuditAction = "webstream.update"
 	AuditActionWebstreamDelete   AuditAction = "webstream.delete"
 	AuditActionWebstreamFailover AuditAction = "webstream.failover"
+
+	// Landing page actions
+	AuditActionLandingPagePublish AuditAction = "landingpage.publish"
+	AuditActionLandingPageRestore AuditAction = "landingpage.restore"
+	AuditActionLandingPageUpdate  AuditAction = "landingpage.update"
 )
 
 // AuditLog records sensitive operations for security and compliance.

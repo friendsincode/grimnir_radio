@@ -11,9 +11,11 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/landingpage"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -102,6 +104,20 @@ func (h *Handler) LandingPageEditorSave(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Emit audit event for draft update
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventAuditLandingPageUpdate, events.Payload{
+			"user_id":       user.ID,
+			"user_email":    user.Email,
+			"station_id":    station.ID,
+			"resource_type": "landing_page",
+			"resource_id":   station.ID,
+			"ip_address":    getClientIP(r),
+			"user_agent":    r.UserAgent(),
+			"change_type":   "draft_save",
+		})
+	}
+
 	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
@@ -135,6 +151,20 @@ func (h *Handler) LandingPageEditorPublish(w http.ResponseWriter, r *http.Reques
 		Str("station_id", station.ID).
 		Str("user_id", user.ID).
 		Msg("landing page published")
+
+	// Emit audit event
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventAuditLandingPagePublish, events.Payload{
+			"user_id":       user.ID,
+			"user_email":    user.Email,
+			"station_id":    station.ID,
+			"resource_type": "landing_page",
+			"resource_id":   station.ID,
+			"ip_address":    getClientIP(r),
+			"user_agent":    r.UserAgent(),
+			"summary":       req.Summary,
+		})
+	}
 
 	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "published"})
 }
@@ -287,6 +317,19 @@ func (h *Handler) LandingPageVersionRestore(w http.ResponseWriter, r *http.Reque
 		Str("version_id", versionID).
 		Str("user_id", user.ID).
 		Msg("landing page version restored")
+
+	// Emit audit event
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventAuditLandingPageRestore, events.Payload{
+			"user_id":       user.ID,
+			"user_email":    user.Email,
+			"station_id":    station.ID,
+			"resource_type": "landing_page_version",
+			"resource_id":   versionID,
+			"ip_address":    getClientIP(r),
+			"user_agent":    r.UserAgent(),
+		})
+	}
 
 	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "restored"})
 }
@@ -560,6 +603,20 @@ func (h *Handler) PlatformLandingPageSave(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Emit audit event for platform draft update
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventAuditLandingPageUpdate, events.Payload{
+			"user_id":       user.ID,
+			"user_email":    user.Email,
+			"resource_type": "platform_landing_page",
+			"resource_id":   "platform",
+			"ip_address":    getClientIP(r),
+			"user_agent":    r.UserAgent(),
+			"change_type":   "draft_save",
+			"is_platform":   true,
+		})
+	}
+
 	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
@@ -580,6 +637,24 @@ func (h *Handler) PlatformLandingPagePublish(w http.ResponseWriter, r *http.Requ
 		h.logger.Error().Err(err).Msg("failed to publish platform landing page")
 		writeJSONError(w, http.StatusInternalServerError, "publish_failed")
 		return
+	}
+
+	h.logger.Info().
+		Str("user_id", user.ID).
+		Msg("platform landing page published")
+
+	// Emit audit event
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventAuditLandingPagePublish, events.Payload{
+			"user_id":       user.ID,
+			"user_email":    user.Email,
+			"resource_type": "platform_landing_page",
+			"resource_id":   "platform",
+			"ip_address":    getClientIP(r),
+			"user_agent":    r.UserAgent(),
+			"summary":       req.Summary,
+			"is_platform":   true,
+		})
 	}
 
 	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "published"})
@@ -636,6 +711,26 @@ func (h *Handler) PlatformLandingPagePreview(w http.ResponseWriter, r *http.Requ
 			"IsPlatform": true,
 		},
 	})
+}
+
+// getClientIP extracts the client IP from request, checking proxy headers.
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (can be comma-separated list)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// First IP is the client
+		if idx := strings.Index(xff, ","); idx > 0 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to remote addr
+	return r.RemoteAddr
 }
 
 // PlatformLandingPageAssetUpload uploads an asset for the platform
