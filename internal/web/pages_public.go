@@ -40,10 +40,10 @@ func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 
 	// Prepare stations with their mounts and stream URLs
 	type stationWithStream struct {
-		Station      models.Station
-		StreamURL    string
-		StreamURLLQ  string
-		MountName    string
+		Station     models.Station
+		StreamURL   string
+		StreamURLLQ string
+		MountName   string
 	}
 
 	var stationsWithStreams []stationWithStream

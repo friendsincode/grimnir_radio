@@ -82,7 +82,8 @@ func Migrate(database *gorm.DB) error {
 		&models.LandingPageAsset{},
 		&models.LandingPageVersion{},
 
-		// Migration jobs
+		// Migration jobs and staged imports (Phase 10)
 		&migration.Job{},
+		&models.StagedImport{},
 	)
 }

@@ -196,8 +196,16 @@ func (c *LibreTimeAPIClient) GetShows(ctx context.Context) ([]LTShow, error) {
 }
 
 // GetShowInstances returns all show instances from LibreTime.
-func (c *LibreTimeAPIClient) GetShowInstances(ctx context.Context) ([]LTShowInstance, error) {
-	resp, err := c.doRequest(ctx, "GET", "/api/v2/show-instances")
+func (c *LibreTimeAPIClient) GetShowInstances(ctx context.Context, showID int) ([]LTShowInstance, error) {
+	var path string
+	if showID > 0 {
+		// Filter by show ID
+		path = fmt.Sprintf("/api/v2/show-instances?show=%d", showID)
+	} else {
+		path = "/api/v2/show-instances"
+	}
+
+	resp, err := c.doRequest(ctx, "GET", path)
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +380,7 @@ type LTShow struct {
 	Genre              string `json:"genre"`
 	Color              string `json:"color"`
 	BackgroundColor    string `json:"background_color"`
+	Timezone           string `json:"timezone"`       // Show timezone
 	LinkedShow         *int   `json:"linked_show_id"` // For multi-show/calendar association
 	HasAutoplaylist    bool   `json:"has_autoplaylist"`
 	AutoplaylistID     *int   `json:"autoplaylist_id"`
@@ -384,6 +393,7 @@ type LTShowInstance struct {
 	ShowID      int       `json:"show_id"`
 	Starts      time.Time `json:"starts"`
 	Ends        time.Time `json:"ends"`
+	Timezone    string    `json:"timezone"` // Instance timezone
 	Record      int       `json:"record"`
 	Rebroadcast int       `json:"rebroadcast"`
 	TimeFilled  string    `json:"time_filled"`

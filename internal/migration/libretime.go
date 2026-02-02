@@ -1845,3 +1845,743 @@ func (ltShow) TableName() string {
 func (ltPref) TableName() string {
 	return "cc_pref"
 }
+
+// =============================================================================
+// STAGED IMPORT SUPPORT
+// =============================================================================
+
+// AnalyzeForStaging performs a deep analysis and creates a StagedImport for review.
+func (l *LibreTimeImporter) AnalyzeForStaging(ctx context.Context, jobID string, options Options) (*models.StagedImport, error) {
+	l.logger.Info().Str("job_id", jobID).Msg("analyzing LibreTime for staged import")
+
+	// Create staged import record
+	analyzer := NewStagedAnalyzer(l.db, l.logger)
+	staged, err := analyzer.CreateStagedImport(ctx, jobID, string(SourceTypeLibreTime))
+	if err != nil {
+		return nil, fmt.Errorf("create staged import: %w", err)
+	}
+
+	// Use API mode if configured
+	if isLibreTimeAPIMode(options) {
+		return l.analyzeForStagingAPI(ctx, staged, options, analyzer)
+	}
+
+	return l.analyzeForStagingDB(ctx, staged, options, analyzer)
+}
+
+// analyzeForStagingAPI performs staged analysis via API.
+func (l *LibreTimeImporter) analyzeForStagingAPI(ctx context.Context, staged *models.StagedImport, options Options, analyzer *StagedAnalyzer) (*models.StagedImport, error) {
+	client, err := NewLibreTimeAPIClient(options.LibreTimeAPIURL, options.LibreTimeAPIKey)
+	if err != nil {
+		return nil, fmt.Errorf("create API client: %w", err)
+	}
+
+	// Get and stage media files
+	if !options.SkipMedia {
+		files, err := client.GetFiles(ctx)
+		if err != nil {
+			l.logger.Warn().Err(err).Msg("failed to get files")
+		} else {
+			for _, f := range files {
+				if f.Hidden || !f.FileExists {
+					continue
+				}
+
+				durationMs := 0
+				if f.Length != "" {
+					if dur, err := parseDuration(f.Length); err == nil {
+						durationMs = int(dur.Milliseconds())
+					}
+				}
+
+				staged.StagedMedia = append(staged.StagedMedia, models.StagedMediaItem{
+					SourceID:   fmt.Sprintf("%d", f.ID),
+					Title:      f.Title,
+					Artist:     f.Artist,
+					Album:      f.Album,
+					Genre:      f.Genre,
+					DurationMs: durationMs,
+					FilePath:   f.Filepath,
+					FileSize:   f.Size,
+					Selected:   true,
+				})
+			}
+		}
+	}
+
+	// Get and stage playlists
+	if !options.SkipPlaylists {
+		playlists, err := client.GetPlaylists(ctx)
+		if err != nil {
+			l.logger.Warn().Err(err).Msg("failed to get playlists")
+		} else {
+			for _, pl := range playlists {
+				contents, _ := client.GetPlaylistContents(ctx, pl.ID)
+				var itemIDs []string
+				for _, c := range contents {
+					if c.FileID != nil {
+						itemIDs = append(itemIDs, fmt.Sprintf("%d", *c.FileID))
+					}
+				}
+
+				staged.StagedPlaylists = append(staged.StagedPlaylists, models.StagedPlaylistItem{
+					SourceID:    fmt.Sprintf("%d", pl.ID),
+					Name:        pl.Name,
+					Description: pl.Description,
+					ItemCount:   len(contents),
+					Duration:    pl.Length,
+					ItemIDs:     itemIDs,
+					Selected:    true,
+				})
+			}
+		}
+	}
+
+	// Get and stage smart blocks
+	if !options.SkipSmartblocks {
+		blocks, err := client.GetSmartBlocks(ctx)
+		if err != nil {
+			l.logger.Warn().Err(err).Msg("failed to get smart blocks")
+		} else {
+			for _, block := range blocks {
+				criteria, _ := client.GetSmartBlockCriteria(ctx, block.ID)
+				criteriaSummary := ""
+				if len(criteria) > 0 {
+					criteriaSummary = fmt.Sprintf("%d criteria", len(criteria))
+				}
+
+				staged.StagedSmartBlocks = append(staged.StagedSmartBlocks, models.StagedSmartBlockItem{
+					SourceID:        fmt.Sprintf("%d", block.ID),
+					Name:            block.Name,
+					Description:     block.Description,
+					CriteriaCount:   len(criteria),
+					CriteriaSummary: criteriaSummary,
+					Selected:        true,
+				})
+			}
+		}
+	}
+
+	// Get and stage shows with recurrence detection
+	if !options.SkipSchedules {
+		shows, err := client.GetShows(ctx)
+		if err != nil {
+			l.logger.Warn().Err(err).Msg("failed to get shows")
+		} else {
+			for _, show := range shows {
+				// Get show instances for recurrence detection
+				instances, _ := client.GetShowInstances(ctx, show.ID)
+
+				var showInstances []ShowInstance
+				for _, inst := range instances {
+					showInstances = append(showInstances, ShowInstance{
+						SourceID: fmt.Sprintf("%d", inst.ID),
+						ShowID:   fmt.Sprintf("%d", show.ID),
+						ShowName: show.Name,
+						StartsAt: inst.Starts,
+						EndsAt:   inst.Ends,
+						Timezone: show.Timezone,
+					})
+				}
+
+				// Detect recurrence pattern
+				stagedShow := models.StagedShowItem{
+					SourceID:        fmt.Sprintf("%d", show.ID),
+					Name:            show.Name,
+					Description:     show.Description,
+					Genre:           show.Genre,
+					InstanceCount:   len(instances),
+					DurationMinutes: 60, // Default
+					Timezone:        show.Timezone,
+					Selected:        true,
+				}
+
+				if recurrence := analyzer.DetectRecurrence(showInstances); recurrence != nil {
+					stagedShow.DetectedRRule = recurrence.RRule
+					stagedShow.PatternConfidence = recurrence.Confidence
+					stagedShow.PatternNote = recurrence.Pattern
+					stagedShow.DTStart = recurrence.DTStart
+					stagedShow.DurationMinutes = recurrence.DurationMinutes
+					stagedShow.ExceptionCount = recurrence.ExceptionCount
+
+					if recurrence.Timezone != "" {
+						stagedShow.Timezone = recurrence.Timezone
+					}
+
+					// High confidence = create as Show, low = create as Clock
+					if recurrence.Confidence >= 0.75 {
+						stagedShow.CreateShow = true
+					} else {
+						stagedShow.CreateClock = true
+					}
+				} else {
+					// No pattern detected, create as Clock
+					stagedShow.CreateClock = true
+					if len(instances) > 0 {
+						stagedShow.DTStart = instances[0].Starts
+						duration := instances[0].Ends.Sub(instances[0].Starts)
+						stagedShow.DurationMinutes = int(duration.Minutes())
+					}
+				}
+
+				staged.StagedShows = append(staged.StagedShows, stagedShow)
+			}
+		}
+	}
+
+	// Get and stage webstreams
+	if !options.SkipWebstreams {
+		webstreams, err := client.GetWebstreams(ctx)
+		if err != nil {
+			l.logger.Warn().Err(err).Msg("failed to get webstreams")
+		} else {
+			for _, ws := range webstreams {
+				staged.StagedWebstreams = append(staged.StagedWebstreams, models.StagedWebstreamItem{
+					SourceID:    fmt.Sprintf("%d", ws.ID),
+					Name:        ws.Name,
+					Description: ws.Description,
+					URL:         ws.URL,
+					Selected:    true,
+				})
+			}
+		}
+	}
+
+	// Detect duplicates
+	staged.StagedMedia = analyzer.DetectDuplicates(ctx, staged.StagedMedia, options.TargetStationID)
+
+	// Apply default selections
+	analyzer.ApplyDefaultSelections(staged)
+
+	// Generate warnings and suggestions
+	analyzer.GenerateWarnings(staged)
+	analyzer.GenerateSuggestions(staged)
+
+	// Mark as ready for review
+	now := time.Now()
+	staged.AnalyzedAt = &now
+	staged.Status = models.StagedImportStatusReady
+
+	if err := analyzer.UpdateStagedImport(ctx, staged); err != nil {
+		return nil, fmt.Errorf("update staged import: %w", err)
+	}
+
+	l.logger.Info().
+		Int("media", len(staged.StagedMedia)).
+		Int("playlists", len(staged.StagedPlaylists)).
+		Int("smartblocks", len(staged.StagedSmartBlocks)).
+		Int("shows", len(staged.StagedShows)).
+		Int("webstreams", len(staged.StagedWebstreams)).
+		Msg("staged import analysis complete")
+
+	return staged, nil
+}
+
+// analyzeForStagingDB performs staged analysis via direct database access.
+func (l *LibreTimeImporter) analyzeForStagingDB(ctx context.Context, staged *models.StagedImport, options Options, analyzer *StagedAnalyzer) (*models.StagedImport, error) {
+	// Connect to LibreTime database
+	ltDB, err := l.connectLibreTime(options)
+	if err != nil {
+		return nil, fmt.Errorf("connect to LibreTime: %w", err)
+	}
+	defer func() {
+		sqlDB, _ := ltDB.DB()
+		sqlDB.Close()
+	}()
+
+	// Get and stage media files
+	if !options.SkipMedia {
+		var ltFiles []ltFile
+		if err := ltDB.Table("cc_files").Where("file_exists = ?", true).Where("hidden = ?", false).Find(&ltFiles).Error; err != nil {
+			l.logger.Warn().Err(err).Msg("failed to query media files")
+		} else {
+			for _, f := range ltFiles {
+				durationMs := 0
+				if f.Length.Valid {
+					if dur, err := parseDuration(f.Length.String); err == nil {
+						durationMs = int(dur.Milliseconds())
+					}
+				}
+
+				title := f.TrackTitle.String
+				if title == "" {
+					title = filepath.Base(f.Name)
+				}
+
+				staged.StagedMedia = append(staged.StagedMedia, models.StagedMediaItem{
+					SourceID:   fmt.Sprintf("%d", f.ID),
+					Title:      title,
+					Artist:     f.Artist.String,
+					Album:      f.Album.String,
+					Genre:      f.Genre.String,
+					DurationMs: durationMs,
+					FilePath:   f.Filepath,
+					Selected:   true,
+				})
+			}
+		}
+	}
+
+	// Get and stage playlists
+	if !options.SkipPlaylists {
+		var ltPlaylists []ltPlaylist
+		if err := ltDB.Table("cc_playlist").Find(&ltPlaylists).Error; err != nil {
+			l.logger.Warn().Err(err).Msg("failed to query playlists")
+		} else {
+			for _, pl := range ltPlaylists {
+				var contents []ltPlaylistContent
+				ltDB.Table("cc_playlistcontents").Where("playlist_id = ?", pl.ID).Find(&contents)
+
+				var itemIDs []string
+				for _, c := range contents {
+					itemIDs = append(itemIDs, fmt.Sprintf("%d", c.FileID))
+				}
+
+				staged.StagedPlaylists = append(staged.StagedPlaylists, models.StagedPlaylistItem{
+					SourceID:    fmt.Sprintf("%d", pl.ID),
+					Name:        pl.Name,
+					Description: pl.Description,
+					ItemCount:   len(contents),
+					Duration:    pl.Length,
+					ItemIDs:     itemIDs,
+					Selected:    true,
+				})
+			}
+		}
+	}
+
+	// Get and stage shows with recurrence detection
+	if !options.SkipSchedules {
+		var ltShows []ltShow
+		if err := ltDB.Table("cc_show").Find(&ltShows).Error; err != nil {
+			l.logger.Warn().Err(err).Msg("failed to query shows")
+		} else {
+			for _, show := range ltShows {
+				// Query show instances
+				var instances []struct {
+					ID       int       `gorm:"column:id"`
+					ShowID   int       `gorm:"column:show_id"`
+					Starts   time.Time `gorm:"column:starts"`
+					Ends     time.Time `gorm:"column:ends"`
+					Timezone string    `gorm:"column:timezone"`
+				}
+				ltDB.Table("cc_show_instances").Where("show_id = ?", show.ID).Find(&instances)
+
+				var showInstances []ShowInstance
+				for _, inst := range instances {
+					showInstances = append(showInstances, ShowInstance{
+						SourceID: fmt.Sprintf("%d", inst.ID),
+						ShowID:   fmt.Sprintf("%d", show.ID),
+						ShowName: show.Name,
+						StartsAt: inst.Starts,
+						EndsAt:   inst.Ends,
+						Timezone: inst.Timezone,
+					})
+				}
+
+				durationMinutes := 60
+				if show.Duration != "" {
+					if dur, err := parseDuration(show.Duration); err == nil {
+						durationMinutes = int(dur.Minutes())
+					}
+				}
+
+				stagedShow := models.StagedShowItem{
+					SourceID:        fmt.Sprintf("%d", show.ID),
+					Name:            show.Name,
+					Description:     show.Description.String,
+					Color:           show.Color.String,
+					InstanceCount:   len(instances),
+					DurationMinutes: durationMinutes,
+					Selected:        true,
+				}
+
+				if recurrence := analyzer.DetectRecurrence(showInstances); recurrence != nil {
+					stagedShow.DetectedRRule = recurrence.RRule
+					stagedShow.PatternConfidence = recurrence.Confidence
+					stagedShow.PatternNote = recurrence.Pattern
+					stagedShow.DTStart = recurrence.DTStart
+					stagedShow.DurationMinutes = recurrence.DurationMinutes
+					stagedShow.Timezone = recurrence.Timezone
+					stagedShow.ExceptionCount = recurrence.ExceptionCount
+
+					if recurrence.Confidence >= 0.75 {
+						stagedShow.CreateShow = true
+					} else {
+						stagedShow.CreateClock = true
+					}
+				} else {
+					stagedShow.CreateClock = true
+					if len(instances) > 0 {
+						stagedShow.DTStart = instances[0].Starts
+						stagedShow.Timezone = instances[0].Timezone
+					}
+				}
+
+				staged.StagedShows = append(staged.StagedShows, stagedShow)
+			}
+		}
+	}
+
+	// Detect duplicates
+	staged.StagedMedia = analyzer.DetectDuplicates(ctx, staged.StagedMedia, options.TargetStationID)
+
+	// Apply default selections
+	analyzer.ApplyDefaultSelections(staged)
+
+	// Generate warnings and suggestions
+	analyzer.GenerateWarnings(staged)
+	analyzer.GenerateSuggestions(staged)
+
+	// Mark as ready for review
+	now := time.Now()
+	staged.AnalyzedAt = &now
+	staged.Status = models.StagedImportStatusReady
+
+	if err := analyzer.UpdateStagedImport(ctx, staged); err != nil {
+		return nil, fmt.Errorf("update staged import: %w", err)
+	}
+
+	l.logger.Info().
+		Int("media", len(staged.StagedMedia)).
+		Int("playlists", len(staged.StagedPlaylists)).
+		Int("shows", len(staged.StagedShows)).
+		Msg("staged import analysis complete (database mode)")
+
+	return staged, nil
+}
+
+// CommitStagedImport imports only selected items from a staged import with provenance tracking.
+func (l *LibreTimeImporter) CommitStagedImport(ctx context.Context, staged *models.StagedImport, jobID string, options Options, cb ProgressCallback) (*Result, error) {
+	startTime := time.Now()
+	l.logger.Info().
+		Str("job_id", jobID).
+		Str("staged_id", staged.ID).
+		Int("selected", staged.SelectedCount()).
+		Msg("committing staged import")
+
+	result := &Result{
+		Warnings: []string{},
+		Skipped:  make(map[string]int),
+		Mappings: make(map[string]Mapping),
+	}
+
+	// Track all imported items for the job
+	importedItems := &ImportedItems{}
+
+	// Determine or create station
+	var stationID string
+	if options.TargetStationID != "" {
+		stationID = options.TargetStationID
+	} else {
+		// Create new station
+		station := &models.Station{
+			ID:          uuid.New().String(),
+			Name:        "Imported from LibreTime",
+			Description: "Station imported from LibreTime",
+			Timezone:    "UTC",
+			Active:      true,
+			Public:      false,
+			Approved:    true,
+		}
+
+		if options.ImportingUserID != "" {
+			station.OwnerID = options.ImportingUserID
+		}
+
+		if err := l.db.WithContext(ctx).Create(station).Error; err != nil {
+			return nil, fmt.Errorf("create station: %w", err)
+		}
+
+		// Create station-user association
+		if options.ImportingUserID != "" {
+			stationUser := &models.StationUser{
+				ID:        uuid.New().String(),
+				UserID:    options.ImportingUserID,
+				StationID: station.ID,
+				Role:      models.StationRoleOwner,
+			}
+			l.db.WithContext(ctx).Create(stationUser)
+		}
+
+		stationID = station.ID
+		result.StationsCreated++
+	}
+
+	// Import selected media
+	mediaMapping := make(map[string]string) // source ID -> new ID
+	selectedMediaCount := 0
+	for _, m := range staged.StagedMedia {
+		if m.Selected {
+			selectedMediaCount++
+		}
+	}
+
+	if selectedMediaCount > 0 && isLibreTimeAPIMode(options) {
+		client, _ := NewLibreTimeAPIClient(options.LibreTimeAPIURL, options.LibreTimeAPIKey)
+
+		importedCount := 0
+		for _, m := range staged.StagedMedia {
+			if !m.Selected {
+				result.Skipped["media_deselected"]++
+				continue
+			}
+
+			// Download and import the media file
+			sourceID, _ := parseInt(m.SourceID)
+			reader, _, err := client.DownloadFile(ctx, sourceID)
+			if err != nil {
+				l.logger.Warn().Err(err).Str("source_id", m.SourceID).Msg("failed to download media")
+				result.Skipped["media_download_failed"]++
+				continue
+			}
+
+			// Read into buffer
+			var buf bytes.Buffer
+			if _, err := io.Copy(&buf, reader); err != nil {
+				reader.Close()
+				result.Skipped["media_read_failed"]++
+				continue
+			}
+			reader.Close()
+
+			// Create media item with provenance
+			mediaItem := &models.MediaItem{
+				ID:             uuid.New().String(),
+				StationID:      stationID,
+				Title:          m.Title,
+				Artist:         m.Artist,
+				Album:          m.Album,
+				Genre:          m.Genre,
+				ImportPath:     m.FilePath,
+				ImportJobID:    &jobID,
+				ImportSource:   string(SourceTypeLibreTime),
+				ImportSourceID: m.SourceID,
+			}
+
+			if m.DurationMs > 0 {
+				mediaItem.Duration = time.Duration(m.DurationMs) * time.Millisecond
+			}
+
+			// Store media file
+			storageKey, err := l.mediaService.Store(ctx, stationID, mediaItem.ID, bytes.NewReader(buf.Bytes()))
+			if err != nil {
+				l.logger.Warn().Err(err).Str("title", m.Title).Msg("failed to store media")
+				result.Skipped["media_storage_failed"]++
+				continue
+			}
+
+			mediaItem.StorageKey = storageKey
+			mediaItem.Path = l.mediaService.URL(storageKey)
+
+			if err := l.db.WithContext(ctx).Create(mediaItem).Error; err != nil {
+				l.logger.Warn().Err(err).Str("title", m.Title).Msg("failed to create media item")
+				result.Skipped["media_db_failed"]++
+				continue
+			}
+
+			mediaMapping[m.SourceID] = mediaItem.ID
+			importedItems.MediaIDs = append(importedItems.MediaIDs, mediaItem.ID)
+			result.MediaItemsImported++
+			importedCount++
+
+			// Progress callback
+			cb(Progress{
+				Phase:         "importing_media",
+				CurrentStep:   fmt.Sprintf("Importing media: %d/%d", importedCount, selectedMediaCount),
+				MediaTotal:    selectedMediaCount,
+				MediaImported: importedCount,
+				Percentage:    float64(importedCount) / float64(selectedMediaCount) * 40,
+				StartTime:     startTime,
+			})
+		}
+	}
+
+	// Import selected playlists
+	for _, pl := range staged.StagedPlaylists {
+		if !pl.Selected {
+			result.Skipped["playlist_deselected"]++
+			continue
+		}
+
+		playlist := &models.Playlist{
+			ID:             uuid.New().String(),
+			StationID:      stationID,
+			Name:           pl.Name,
+			Description:    pl.Description,
+			ImportJobID:    &jobID,
+			ImportSource:   string(SourceTypeLibreTime),
+			ImportSourceID: pl.SourceID,
+		}
+
+		if err := l.db.WithContext(ctx).Create(playlist).Error; err != nil {
+			l.logger.Warn().Err(err).Str("name", pl.Name).Msg("failed to create playlist")
+			continue
+		}
+
+		// Create playlist items
+		for i, itemSourceID := range pl.ItemIDs {
+			if newMediaID, ok := mediaMapping[itemSourceID]; ok {
+				playlistItem := &models.PlaylistItem{
+					ID:         uuid.New().String(),
+					PlaylistID: playlist.ID,
+					MediaID:    newMediaID,
+					Position:   i,
+				}
+				l.db.WithContext(ctx).Create(playlistItem)
+			}
+		}
+
+		importedItems.PlaylistIDs = append(importedItems.PlaylistIDs, playlist.ID)
+		result.PlaylistsCreated++
+	}
+
+	// Import selected smart blocks
+	for _, sb := range staged.StagedSmartBlocks {
+		if !sb.Selected {
+			result.Skipped["smartblock_deselected"]++
+			continue
+		}
+
+		smartBlock := &models.SmartBlock{
+			ID:             uuid.New().String(),
+			StationID:      stationID,
+			Name:           sb.Name,
+			Description:    sb.Description,
+			Rules:          sb.RawCriteria,
+			ImportJobID:    &jobID,
+			ImportSource:   string(SourceTypeLibreTime),
+			ImportSourceID: sb.SourceID,
+		}
+
+		if err := l.db.WithContext(ctx).Create(smartBlock).Error; err != nil {
+			l.logger.Warn().Err(err).Str("name", sb.Name).Msg("failed to create smart block")
+			continue
+		}
+
+		importedItems.SmartBlockIDs = append(importedItems.SmartBlockIDs, smartBlock.ID)
+	}
+
+	// Import selected shows (as Show with RRULE or as Clock)
+	for _, sh := range staged.StagedShows {
+		if !sh.Selected {
+			result.Skipped["show_deselected"]++
+			continue
+		}
+
+		// Use custom RRULE if provided, otherwise detected
+		rrule := sh.CustomRRule
+		if rrule == "" {
+			rrule = sh.DetectedRRule
+		}
+
+		if sh.CreateShow && rrule != "" {
+			// Create as Show with RRULE
+			show := &models.Show{
+				ID:                     uuid.New().String(),
+				StationID:              stationID,
+				Name:                   sh.Name,
+				Description:            sh.Description,
+				DefaultDurationMinutes: sh.DurationMinutes,
+				Color:                  sh.Color,
+				RRule:                  rrule,
+				DTStart:                sh.DTStart,
+				Timezone:               sh.Timezone,
+				Active:                 true,
+				ImportJobID:            &jobID,
+				ImportSource:           string(SourceTypeLibreTime),
+				ImportSourceID:         sh.SourceID,
+			}
+
+			if show.Timezone == "" {
+				show.Timezone = "UTC"
+			}
+
+			if err := l.db.WithContext(ctx).Create(show).Error; err != nil {
+				l.logger.Warn().Err(err).Str("name", sh.Name).Msg("failed to create show")
+				continue
+			}
+
+			importedItems.ShowIDs = append(importedItems.ShowIDs, show.ID)
+			result.SchedulesCreated++
+		} else {
+			// Create as Clock (template only)
+			clock := &models.Clock{
+				ID:             uuid.New().String(),
+				StationID:      stationID,
+				Name:           sh.Name,
+				Description:    sh.Description,
+				Duration:       sh.DurationMinutes * 60,
+				ImportJobID:    &jobID,
+				ImportSource:   string(SourceTypeLibreTime),
+				ImportSourceID: sh.SourceID,
+			}
+
+			if err := l.db.WithContext(ctx).Create(clock).Error; err != nil {
+				l.logger.Warn().Err(err).Str("name", sh.Name).Msg("failed to create clock")
+				continue
+			}
+
+			importedItems.ClockIDs = append(importedItems.ClockIDs, clock.ID)
+			result.SchedulesCreated++
+		}
+	}
+
+	// Import selected webstreams
+	for _, ws := range staged.StagedWebstreams {
+		if !ws.Selected {
+			result.Skipped["webstream_deselected"]++
+			continue
+		}
+
+		webstream := &models.Webstream{
+			ID:             uuid.New().String(),
+			StationID:      stationID,
+			Name:           ws.Name,
+			Description:    ws.Description,
+			URLs:           []string{ws.URL},
+			Active:         true,
+			ImportJobID:    &jobID,
+			ImportSource:   string(SourceTypeLibreTime),
+			ImportSourceID: ws.SourceID,
+		}
+
+		if err := l.db.WithContext(ctx).Create(webstream).Error; err != nil {
+			l.logger.Warn().Err(err).Str("name", ws.Name).Msg("failed to create webstream")
+			continue
+		}
+
+		importedItems.WebstreamIDs = append(importedItems.WebstreamIDs, webstream.ID)
+	}
+
+	// Update staged import status
+	now := time.Now()
+	staged.Status = models.StagedImportStatusCommitted
+	staged.CommittedAt = &now
+	l.db.WithContext(ctx).Save(staged)
+
+	// Store imported items on the job
+	var job Job
+	if err := l.db.WithContext(ctx).First(&job, "id = ?", jobID).Error; err == nil {
+		job.ImportedItems = importedItems
+		l.db.WithContext(ctx).Save(&job)
+	}
+
+	result.DurationSeconds = time.Since(startTime).Seconds()
+
+	l.logger.Info().
+		Int("media", result.MediaItemsImported).
+		Int("playlists", result.PlaylistsCreated).
+		Int("schedules", result.SchedulesCreated).
+		Float64("duration", result.DurationSeconds).
+		Msg("staged import committed")
+
+	return result, nil
+}
+
+// parseInt parses a string to int, returning 0 on error.
+func parseInt(s string) (int, error) {
+	var i int
+	_, err := fmt.Sscanf(s, "%d", &i)
+	return i, err
+}

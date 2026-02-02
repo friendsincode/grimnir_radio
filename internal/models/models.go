@@ -400,17 +400,22 @@ type EncoderPreset struct {
 
 // MediaItem is an audio asset with analysis metadata.
 type MediaItem struct {
-	ID             string   `gorm:"type:uuid;primaryKey"`
-	StationID      string   `gorm:"type:uuid;index"`
-	Station        *Station `gorm:"foreignKey:StationID"` // Belongs to station (for cross-station queries)
-	Title          string   `gorm:"index"`
-	Artist         string   `gorm:"index"`
-	Album          string   `gorm:"index"`
-	Duration       time.Duration
-	Path           string
-	StorageKey     string
-	ContentHash    string `gorm:"type:varchar(64);index"` // SHA-256 hash for deduplication across stations
-	ImportPath     string // Original path from import (LibreTime/AzuraCast)
+	ID          string   `gorm:"type:uuid;primaryKey"`
+	StationID   string   `gorm:"type:uuid;index"`
+	Station     *Station `gorm:"foreignKey:StationID"` // Belongs to station (for cross-station queries)
+	Title       string   `gorm:"index"`
+	Artist      string   `gorm:"index"`
+	Album       string   `gorm:"index"`
+	Duration    time.Duration
+	Path        string
+	StorageKey  string
+	ContentHash string `gorm:"type:varchar(64);index"` // SHA-256 hash for deduplication across stations
+	ImportPath  string // Original path from import (LibreTime/AzuraCast)
+
+	// Import provenance (nullable for manually created items)
+	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
+	ImportSource   string  `gorm:"type:varchar(50)"`  // "libretime", "azuracast"
+	ImportSourceID string  `gorm:"type:varchar(255)"` // Original ID in source system
 	Genre          string
 	Mood           string
 	Label          string
@@ -508,8 +513,14 @@ type SmartBlock struct {
 	Description string         `gorm:"type:text"`
 	Rules       map[string]any `gorm:"type:jsonb;serializer:json"`
 	Sequence    map[string]any `gorm:"type:jsonb;serializer:json"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+
+	// Import provenance (nullable for manually created items)
+	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
+	ImportSource   string  `gorm:"type:varchar(50)"`  // "libretime", "azuracast"
+	ImportSourceID string  `gorm:"type:varchar(255)"` // Original ID in source system
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // ClockSlotType enumerates slot types.
@@ -570,6 +581,11 @@ type ScheduleEntry struct {
 	RecurrenceEndDate  *time.Time     // When recurrence stops (nil = forever)
 	RecurrenceParentID *string        `gorm:"type:uuid;index"` // Links instance to parent
 	IsInstance         bool           `gorm:"default:false"`   // True if this is a generated instance
+
+	// Import provenance (nullable for manually created items)
+	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
+	ImportSource   string  `gorm:"type:varchar(50)"`  // "libretime", "azuracast"
+	ImportSourceID string  `gorm:"type:varchar(255)"` // Original ID in source system
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -633,8 +649,14 @@ type Playlist struct {
 	CoverImage     []byte         `gorm:"type:bytea"`
 	CoverImageMime string         `gorm:"type:varchar(32)"`
 	Items          []PlaylistItem `gorm:"foreignKey:PlaylistID"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+
+	// Import provenance (nullable for manually created items)
+	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
+	ImportSource   string  `gorm:"type:varchar(50)"`  // "libretime", "azuracast"
+	ImportSourceID string  `gorm:"type:varchar(255)"` // Original ID in source system
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // PlaylistItem represents an item in a playlist.
@@ -658,6 +680,12 @@ type Clock struct {
 	Name        string `gorm:"index"`
 	Description string `gorm:"type:text"`
 	Duration    int    `gorm:"type:integer"` // Duration in seconds
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+
+	// Import provenance (nullable for manually created items)
+	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
+	ImportSource   string  `gorm:"type:varchar(50)"`  // "libretime", "azuracast"
+	ImportSourceID string  `gorm:"type:varchar(255)"` // Original ID in source system
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

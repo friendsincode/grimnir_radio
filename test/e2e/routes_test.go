@@ -26,6 +26,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/web"
 )
@@ -499,10 +500,16 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&models.PlaylistItem{},
 		&models.SmartBlock{},
 		&models.Clock{},
+		&models.ClockHour{},
 		&models.ScheduleEntry{},
 		&models.LiveSession{},
 		&models.Webstream{},
 		&models.PlayHistory{},
+		&models.Show{},
+		&models.ShowInstance{},
+		&models.StagedImport{},
+		&models.APIKey{},
+		&migration.Job{},
 	)
 	if err != nil {
 		t.Fatalf("failed to migrate: %v", err)

@@ -46,6 +46,11 @@ type Show struct {
 	Active   bool           `gorm:"not null;default:true"`
 	Metadata map[string]any `gorm:"type:jsonb;serializer:json"`
 
+	// Import provenance (nullable for manually created items)
+	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
+	ImportSource   string  `gorm:"type:varchar(50)"`  // "libretime", "azuracast"
+	ImportSourceID string  `gorm:"type:varchar(255)"` // Original ID in source system
+
 	// Relationships
 	Station   *Station       `gorm:"foreignKey:StationID"`
 	Host      *User          `gorm:"foreignKey:HostUserID"`

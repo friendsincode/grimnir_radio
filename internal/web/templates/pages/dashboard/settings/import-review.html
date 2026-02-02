@@ -1,0 +1,393 @@
+{{ define "content" }}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">Import Review</h1>
+            <p class="text-muted mb-0">
+                Review and select items to import from
+                {{ if .Data.Job }}{{ .Data.Job.SourceType }}{{ else }}source{{ end }}
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary"
+                    hx-post="/dashboard/settings/migrations/review/{{ .Data.Staged.ID }}/reject"
+                    hx-confirm="Are you sure you want to reject this import? All staged data will be discarded.">
+                <i class="bi bi-x-circle me-1"></i> Reject
+            </button>
+            <button type="button" class="btn btn-primary"
+                    hx-post="/dashboard/settings/migrations/review/{{ .Data.Staged.ID }}/commit"
+                    hx-confirm="Start importing {{ .Data.SelectedCount }} selected items?">
+                <i class="bi bi-check-circle me-1"></i> Import Selected
+            </button>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-3">
+                    <div class="h4 mb-0">{{ .Data.MediaCount }}</div>
+                    <small class="text-muted">Media Files</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-3">
+                    <div class="h4 mb-0">{{ .Data.PlaylistCount }}</div>
+                    <small class="text-muted">Playlists</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-3">
+                    <div class="h4 mb-0">{{ .Data.ShowCount }}</div>
+                    <small class="text-muted">Shows</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-3">
+                    <div class="h4 mb-0">{{ .Data.SmartBlockCount }}</div>
+                    <small class="text-muted">Smart Blocks</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-3">
+                    <div class="h4 mb-0">{{ .Data.WebstreamCount }}</div>
+                    <small class="text-muted">Webstreams</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center {{ if gt .Data.DuplicateCount 0 }}border-warning{{ end }}">
+                <div class="card-body py-3">
+                    <div class="h4 mb-0 {{ if gt .Data.DuplicateCount 0 }}text-warning{{ end }}">{{ .Data.DuplicateCount }}</div>
+                    <small class="text-muted">Duplicates</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Warnings -->
+    {{ if .Data.Staged.Warnings }}
+    <div class="alert alert-warning mb-4">
+        <h6 class="alert-heading"><i class="bi bi-exclamation-triangle me-2"></i>Warnings</h6>
+        <ul class="mb-0">
+            {{ range .Data.Staged.Warnings }}
+            <li><strong>{{ .Code }}:</strong> {{ .Message }}{{ if .Details }} <small class="text-muted">- {{ .Details }}</small>{{ end }}</li>
+            {{ end }}
+        </ul>
+    </div>
+    {{ end }}
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs" id="importTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="media-tab" data-bs-toggle="tab" data-bs-target="#media" type="button" role="tab">
+                Media <span class="badge bg-secondary">{{ .Data.MediaCount }}</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="shows-tab" data-bs-toggle="tab" data-bs-target="#shows" type="button" role="tab">
+                Shows <span class="badge bg-secondary">{{ .Data.ShowCount }}</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="playlists-tab" data-bs-toggle="tab" data-bs-target="#playlists" type="button" role="tab">
+                Playlists <span class="badge bg-secondary">{{ .Data.PlaylistCount }}</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="smartblocks-tab" data-bs-toggle="tab" data-bs-target="#smartblocks" type="button" role="tab">
+                Smart Blocks <span class="badge bg-secondary">{{ .Data.SmartBlockCount }}</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="webstreams-tab" data-bs-toggle="tab" data-bs-target="#webstreams" type="button" role="tab">
+                Webstreams <span class="badge bg-secondary">{{ .Data.WebstreamCount }}</span>
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content border border-top-0 rounded-bottom p-3 bg-body" id="importTabsContent">
+        <!-- Media Tab -->
+        <div class="tab-pane fade show active" id="media" role="tabpanel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="selectAllMedia(true)">
+                        Select All
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAllMedia(false)">
+                        Deselect All
+                    </button>
+                    {{ if gt .Data.DuplicateCount 0 }}
+                    <button type="button" class="btn btn-sm btn-outline-warning" onclick="deselectDuplicates()">
+                        Deselect Duplicates
+                    </button>
+                    {{ end }}
+                </div>
+                <span id="mediaSelectionCount" class="badge bg-primary">{{ .Data.MediaCount }} selected</span>
+            </div>
+            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-sm table-hover">
+                    <thead class="sticky-top bg-body">
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Title</th>
+                            <th>Artist</th>
+                            <th>Album</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Data.Staged.StagedMedia }}
+                        <tr class="{{ if .IsDuplicate }}table-warning{{ end }}">
+                            <td>
+                                <input type="checkbox" class="form-check-input media-checkbox"
+                                       name="media_ids" value="{{ .SourceID }}"
+                                       {{ if .Selected }}checked{{ end }}
+                                       data-is-duplicate="{{ .IsDuplicate }}">
+                            </td>
+                            <td>{{ .Title }}</td>
+                            <td>{{ .Artist }}</td>
+                            <td>{{ .Album }}</td>
+                            <td>{{ formatDurationMs .DurationMs }}</td>
+                            <td>
+                                {{ if .IsDuplicate }}
+                                <span class="badge bg-warning text-dark">
+                                    <i class="bi bi-copy me-1"></i>Duplicate
+                                </span>
+                                {{ else }}
+                                <span class="badge bg-success">New</span>
+                                {{ end }}
+                            </td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Shows Tab -->
+        <div class="tab-pane fade" id="shows" role="tabpanel">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Name</th>
+                            <th>Detected Pattern</th>
+                            <th>Confidence</th>
+                            <th>Import As</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Data.Staged.StagedShows }}
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input show-checkbox"
+                                       name="show_ids" value="{{ .SourceID }}"
+                                       {{ if .Selected }}checked{{ end }}>
+                            </td>
+                            <td>
+                                <strong>{{ .Name }}</strong>
+                                {{ if .Description }}
+                                <br><small class="text-muted">{{ truncate .Description 50 }}</small>
+                                {{ end }}
+                            </td>
+                            <td>
+                                {{ if .PatternNote }}
+                                <i class="bi bi-calendar-event me-1"></i>{{ .PatternNote }}
+                                {{ else }}
+                                <span class="text-muted">No pattern detected</span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                {{ if .DetectedRRule }}
+                                {{ $pct := printf "%.0f" (mul .PatternConfidence 100) }}
+                                <div class="progress" style="width: 80px; height: 20px;">
+                                    <div class="progress-bar {{ if ge .PatternConfidence 0.75 }}bg-success{{ else if ge .PatternConfidence 0.5 }}bg-warning{{ else }}bg-danger{{ end }}"
+                                         style="width: {{ $pct }}%">{{ $pct }}%</div>
+                                </div>
+                                {{ else }}
+                                <span class="text-muted">-</span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <input type="radio" class="btn-check" name="show_type_{{ .SourceID }}"
+                                           id="show_{{ .SourceID }}" value="show"
+                                           {{ if .CreateShow }}checked{{ end }}
+                                           {{ if not .DetectedRRule }}disabled{{ end }}>
+                                    <label class="btn btn-outline-primary" for="show_{{ .SourceID }}"
+                                           {{ if not .DetectedRRule }}title="No schedule pattern detected"{{ end }}>
+                                        <i class="bi bi-calendar-week me-1"></i>Show
+                                    </label>
+                                    <input type="radio" class="btn-check" name="show_type_{{ .SourceID }}"
+                                           id="clock_{{ .SourceID }}" value="clock"
+                                           {{ if .CreateClock }}checked{{ end }}>
+                                    <label class="btn btn-outline-secondary" for="clock_{{ .SourceID }}">
+                                        <i class="bi bi-clock me-1"></i>Clock
+                                    </label>
+                                </div>
+                            </td>
+                        </tr>
+                        {{ if .DetectedRRule }}
+                        <tr class="table-light">
+                            <td></td>
+                            <td colspan="4">
+                                <small class="text-muted">
+                                    <strong>RRULE:</strong>
+                                    <input type="text" class="form-control form-control-sm d-inline-block"
+                                           style="width: auto; font-family: monospace;"
+                                           name="custom_rrule_{{ .SourceID }}"
+                                           value="{{ if .CustomRRule }}{{ .CustomRRule }}{{ else }}{{ .DetectedRRule }}{{ end }}"
+                                           placeholder="Edit RRULE">
+                                    {{ if gt .ExceptionCount 0 }}
+                                    <span class="badge bg-info ms-2">{{ .ExceptionCount }} exceptions</span>
+                                    {{ end }}
+                                </small>
+                            </td>
+                        </tr>
+                        {{ end }}
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Playlists Tab -->
+        <div class="tab-pane fade" id="playlists" role="tabpanel">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Name</th>
+                            <th>Items</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Data.Staged.StagedPlaylists }}
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       name="playlist_ids" value="{{ .SourceID }}"
+                                       {{ if .Selected }}checked{{ end }}>
+                            </td>
+                            <td>
+                                <strong>{{ .Name }}</strong>
+                                {{ if .Description }}
+                                <br><small class="text-muted">{{ truncate .Description 50 }}</small>
+                                {{ end }}
+                            </td>
+                            <td>{{ .ItemCount }} items</td>
+                            <td>{{ .Duration }}</td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Smart Blocks Tab -->
+        <div class="tab-pane fade" id="smartblocks" role="tabpanel">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Name</th>
+                            <th>Criteria</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Data.Staged.StagedSmartBlocks }}
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       name="smartblock_ids" value="{{ .SourceID }}"
+                                       {{ if .Selected }}checked{{ end }}>
+                            </td>
+                            <td>
+                                <strong>{{ .Name }}</strong>
+                                {{ if .Description }}
+                                <br><small class="text-muted">{{ truncate .Description 50 }}</small>
+                                {{ end }}
+                            </td>
+                            <td>{{ .CriteriaSummary }}</td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Webstreams Tab -->
+        <div class="tab-pane fade" id="webstreams" role="tabpanel">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Name</th>
+                            <th>URL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Data.Staged.StagedWebstreams }}
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       name="webstream_ids" value="{{ .SourceID }}"
+                                       {{ if .Selected }}checked{{ end }}>
+                            </td>
+                            <td>
+                                <strong>{{ .Name }}</strong>
+                                {{ if .Description }}
+                                <br><small class="text-muted">{{ truncate .Description 50 }}</small>
+                                {{ end }}
+                            </td>
+                            <td><a href="{{ .URL }}" target="_blank">{{ truncate .URL 50 }}</a></td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function selectAllMedia(select) {
+    document.querySelectorAll('.media-checkbox').forEach(cb => {
+        cb.checked = select;
+    });
+    updateMediaCount();
+}
+
+function deselectDuplicates() {
+    document.querySelectorAll('.media-checkbox[data-is-duplicate="true"]').forEach(cb => {
+        cb.checked = false;
+    });
+    updateMediaCount();
+}
+
+function updateMediaCount() {
+    const count = document.querySelectorAll('.media-checkbox:checked').length;
+    document.getElementById('mediaSelectionCount').textContent = count + ' selected';
+}
+
+document.querySelectorAll('.media-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateMediaCount);
+});
+</script>
+{{ end }}
