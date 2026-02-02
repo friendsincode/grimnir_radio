@@ -15,13 +15,16 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         :root {
-            --primary-color: {{if .Data.Theme}}{{.Data.Theme.Colors.Primary}}{{else}}#3B82F6{{end}};
-            --secondary-color: {{if .Data.Theme}}{{.Data.Theme.Colors.Secondary}}{{else}}#10B981{{end}};
-            --bg-color: {{if .Data.Theme}}{{.Data.Theme.Colors.Background}}{{else}}#FFFFFF{{end}};
-            --surface-color: {{if .Data.Theme}}{{.Data.Theme.Colors.Surface}}{{else}}#F9FAFB{{end}};
-            --text-color: {{if .Data.Theme}}{{.Data.Theme.Colors.Text}}{{else}}#1F2937{{end}};
-            --text-muted-color: {{if .Data.Theme}}{{.Data.Theme.Colors.TextMuted}}{{else}}#6B7280{{end}};
-            --border-color: {{if .Data.Theme}}{{.Data.Theme.Colors.Border}}{{else}}#E5E7EB{{end}};
+            /* Config colors override theme colors */
+            --primary-color: {{if .Data.Config.colors.primary}}{{.Data.Config.colors.primary}}{{else if .Data.Theme}}{{.Data.Theme.Colors.Primary}}{{else}}#3B82F6{{end}};
+            --secondary-color: {{if .Data.Config.colors.secondary}}{{.Data.Config.colors.secondary}}{{else if .Data.Theme}}{{.Data.Theme.Colors.Secondary}}{{else}}#10B981{{end}};
+            --bg-color: {{if .Data.Config.colors.background}}{{.Data.Config.colors.background}}{{else if .Data.Theme}}{{.Data.Theme.Colors.Background}}{{else}}#FFFFFF{{end}};
+            --surface-color: {{if .Data.Config.colors.surface}}{{.Data.Config.colors.surface}}{{else if .Data.Theme}}{{.Data.Theme.Colors.Surface}}{{else}}#F9FAFB{{end}};
+            --text-color: {{if .Data.Config.colors.text}}{{.Data.Config.colors.text}}{{else if .Data.Theme}}{{.Data.Theme.Colors.Text}}{{else}}#1F2937{{end}};
+            --text-muted-color: {{if .Data.Config.colors.textMuted}}{{.Data.Config.colors.textMuted}}{{else if .Data.Theme}}{{.Data.Theme.Colors.TextMuted}}{{else}}#6B7280{{end}};
+            --border-color: {{if .Data.Config.colors.border}}{{.Data.Config.colors.border}}{{else if .Data.Theme}}{{.Data.Theme.Colors.Border}}{{else}}#E5E7EB{{end}};
+            --card-bg: {{if .Data.Config.colors.cardBackground}}{{.Data.Config.colors.cardBackground}}{{else}}var(--surface-color){{end}};
+            --card-text: {{if .Data.Config.colors.cardText}}{{.Data.Config.colors.cardText}}{{else}}var(--text-color){{end}};
         }
         body {
             background: var(--bg-color);
@@ -46,9 +49,19 @@
         .hero-section.height-medium { padding: 4rem 0; }
         .hero-section.height-large { padding: 6rem 0; }
         .station-card {
-            background: var(--surface-color);
+            background: var(--card-bg);
             border: 1px solid var(--border-color);
             transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .station-card .card-body {
+            color: var(--card-text);
+        }
+        .station-card .card-title {
+            color: var(--card-text);
+        }
+        .station-card .card-text {
+            color: var(--card-text);
+            opacity: 0.8;
         }
         .station-card:hover {
             transform: translateY(-4px);
@@ -76,9 +89,12 @@
         .text-muted {
             color: var(--text-muted-color) !important;
         }
+        .section-title {
+            color: var(--text-color);
+        }
         footer {
-            background: var(--text-color);
-            color: var(--bg-color);
+            background: {{if .Data.Config.colors.footerBackground}}{{.Data.Config.colors.footerBackground}}{{else}}var(--text-color){{end}};
+            color: {{if .Data.Config.colors.footerText}}{{.Data.Config.colors.footerText}}{{else}}var(--bg-color){{end}};
             margin-top: auto;
         }
         .platform-logo {
