@@ -52,6 +52,8 @@ func Migrate(database *gorm.DB) error {
 		&models.Show{},
 		&models.ShowInstance{},
 		&models.ScheduleRule{},
+		&models.ScheduleTemplate{},
+		&models.ScheduleVersion{},
 
 		// Migration jobs
 		&migration.Job{},
