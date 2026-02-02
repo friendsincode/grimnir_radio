@@ -633,8 +633,8 @@ function webdjConsole() {
         },
 
         getAuthToken() {
-            // Get token from cookie or page data
-            return document.querySelector('meta[name="ws-token"]')?.content || '';
+            // Get token from window global set by dashboard layout
+            return window.GRIMNIR_WS_TOKEN || '';
         },
 
         getStationId() {
