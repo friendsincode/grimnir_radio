@@ -472,10 +472,27 @@
     let isDirty = false;
     let autoSaveTimeout = null;
 
+    // Theme colors lookup - populated from server
+    const themeColors = {
+        {{range .Data.Themes}}
+        "{{.ID}}": {
+            primary: "{{.Colors.Primary}}",
+            secondary: "{{.Colors.Secondary}}",
+            background: "{{.Colors.Background}}",
+            surface: "{{.Colors.Surface}}",
+            text: "{{.Colors.Text}}",
+            textMuted: "{{.Colors.TextMuted}}",
+            border: "{{.Colors.Border}}",
+            accent: "{{.Colors.Accent}}"
+        },
+        {{end}}
+    };
+
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         initDragAndDrop();
         populateSettingsForm();
+        populateColorPickers();
         setupAutoSave();
     });
 
@@ -560,6 +577,19 @@
         document.getElementById('seoTitle').value = config.seo?.title || '';
         document.getElementById('seoDescription').value = config.seo?.description || '';
         document.getElementById('seoNoIndex').checked = config.seo?.noIndex === true;
+    }
+
+    // Populate color pickers from config or theme defaults
+    function populateColorPickers() {
+        const currentTheme = config.theme || 'default';
+        const themeDefaults = themeColors[currentTheme] || themeColors['default'];
+
+        // Use custom colors from config if present, otherwise use theme defaults
+        const colors = config.colors || {};
+
+        document.getElementById('colorPrimary').value = colors.primary || themeDefaults?.primary || '#3B82F6';
+        document.getElementById('colorSecondary').value = colors.secondary || themeDefaults?.secondary || '#10B981';
+        document.getElementById('colorBackground').value = colors.background || themeDefaults?.background || '#FFFFFF';
     }
 
     // Mark as dirty
@@ -657,6 +687,18 @@
         });
 
         config.theme = themeId;
+
+        // Update color pickers with theme colors (reset custom colors)
+        const themeDefaults = themeColors[themeId];
+        if (themeDefaults) {
+            document.getElementById('colorPrimary').value = themeDefaults.primary;
+            document.getElementById('colorSecondary').value = themeDefaults.secondary;
+            document.getElementById('colorBackground').value = themeDefaults.background;
+
+            // Clear custom colors so theme defaults apply
+            delete config.colors;
+        }
+
         markDirty();
 
         try {
@@ -665,18 +707,24 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ theme: themeId })
             });
+            // Save draft so preview reflects theme change
+            await saveDraft(true);
             refreshPreview();
         } catch (error) {
             console.error('Theme update error:', error);
         }
     };
 
-    // Update color
+    // Update color - debounced to avoid too many saves
+    let colorUpdateTimeout = null;
     window.updateColor = function(type, value) {
         if (!config.colors) config.colors = {};
         config.colors[type] = value;
         markDirty();
-        refreshPreview();
+
+        // Debounce the preview refresh for color changes
+        if (colorUpdateTimeout) clearTimeout(colorUpdateTimeout);
+        colorUpdateTimeout = setTimeout(() => refreshPreview(), 500);
     };
 
     // Update custom CSS
@@ -702,10 +750,17 @@
         }
     };
 
-    // Refresh preview
-    window.refreshPreview = function() {
+    // Refresh preview - saves draft first so preview reflects unsaved changes
+    window.refreshPreview = async function() {
+        // Save draft silently so preview shows current config
+        if (isDirty) {
+            await saveDraft(true);
+        }
         const frame = document.getElementById('previewFrame');
-        frame.src = frame.src;
+        // Add timestamp to force reload
+        const url = new URL(frame.src, window.location.origin);
+        url.searchParams.set('_t', Date.now());
+        frame.src = url.toString();
     };
 
     // Deselect widget

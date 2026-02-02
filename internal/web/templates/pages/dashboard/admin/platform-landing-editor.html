@@ -47,23 +47,50 @@
         <!-- Settings Panel -->
         <div class="col-md-4">
             <div class="card">
-                <div class="card-header">
-                    <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                <div class="card-header p-0">
+                    <ul class="nav nav-tabs nav-tabs-sm card-header-tabs" role="tablist">
                         <li class="nav-item">
-                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#headerTab">Header</button>
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#headerTab"><i class="bi bi-layout-wtf me-1"></i>Header</button>
                         </li>
                         <li class="nav-item">
-                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#heroTab">Hero</button>
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#heroTab"><i class="bi bi-image me-1"></i>Hero</button>
                         </li>
                         <li class="nav-item">
-                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#seoTab">SEO</button>
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#contentTab"><i class="bi bi-grid me-1"></i>Content</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#seoTab"><i class="bi bi-search me-1"></i>SEO</button>
                         </li>
                     </ul>
                 </div>
-                <div class="card-body">
+                <div class="card-body" style="max-height: 400px; overflow-y: auto;">
                     <div class="tab-content">
                         <!-- Header Tab -->
                         <div class="tab-pane fade show active" id="headerTab">
+                            <div class="mb-3">
+                                <label class="form-label">Platform Logo</label>
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <div id="logoPreview" class="border rounded d-flex align-items-center justify-content-center" style="width: 80px; height: 80px; background: #f8f9fa;">
+                                        {{if .Data.LandingPage.LogoURL}}
+                                        <img src="{{.Data.LandingPage.LogoURL}}" alt="Logo" style="max-width: 100%; max-height: 100%;">
+                                        {{else}}
+                                        <i class="bi bi-image text-muted fs-4"></i>
+                                        {{end}}
+                                    </div>
+                                    <div>
+                                        <input type="file" id="logoUpload" accept="image/*" class="d-none" onchange="uploadLogo(this)">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.getElementById('logoUpload').click()">
+                                            <i class="bi bi-upload me-1"></i>Upload
+                                        </button>
+                                        {{if .Data.LandingPage.LogoURL}}
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeLogo()">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                        {{end}}
+                                    </div>
+                                </div>
+                                <small class="text-muted">Recommended: PNG or SVG, 200x200px</small>
+                            </div>
                             <div class="mb-3">
                                 <label class="form-label">Platform Name</label>
                                 <input type="text" class="form-control form-control-sm" id="platformName" onchange="updateConfig()">
@@ -72,9 +99,17 @@
                                 <label class="form-label">Tagline</label>
                                 <input type="text" class="form-control form-control-sm" id="tagline" onchange="updateConfig()">
                             </div>
-                            <div class="form-check mb-3">
+                            <div class="form-check mb-2">
                                 <input class="form-check-input" type="checkbox" id="showLogo" onchange="updateConfig()">
                                 <label class="form-check-label" for="showLogo">Show Logo</label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="showPlatformName" onchange="updateConfig()">
+                                <label class="form-check-label" for="showPlatformName">Show Platform Name</label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="showTagline" onchange="updateConfig()">
+                                <label class="form-check-label" for="showTagline">Show Tagline</label>
                             </div>
                         </div>
 
@@ -100,6 +135,43 @@
                                     <option value="large">Large</option>
                                 </select>
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label">Hero Background</label>
+                                <input type="file" id="heroBgUpload" accept="image/*" class="form-control form-control-sm" onchange="uploadHeroBackground(this)">
+                                <small class="text-muted">Leave empty for gradient background</small>
+                            </div>
+                        </div>
+
+                        <!-- Content Tab -->
+                        <div class="tab-pane fade" id="contentTab">
+                            <h6 class="text-muted small mb-2">Stations Grid</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Grid Columns</label>
+                                <select class="form-select form-select-sm" id="gridColumns" onchange="updateConfig()">
+                                    <option value="2">2 Columns</option>
+                                    <option value="3">3 Columns</option>
+                                    <option value="4">4 Columns</option>
+                                </select>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="showDescription" onchange="updateConfig()">
+                                <label class="form-check-label" for="showDescription">Show Station Descriptions</label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="showListeners" onchange="updateConfig()">
+                                <label class="form-check-label" for="showListeners">Show Listener Count</label>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="showStationLogo" onchange="updateConfig()">
+                                <label class="form-check-label" for="showStationLogo">Show Station Logos</label>
+                            </div>
+
+                            <hr>
+                            <h6 class="text-muted small mb-2">Station Order</h6>
+                            <p class="small text-muted">Drag to reorder stations</p>
+                            <div id="stationOrderList" class="list-group list-group-flush">
+                                <!-- Populated by JavaScript -->
+                            </div>
                         </div>
 
                         <!-- SEO Tab -->
@@ -112,6 +184,10 @@
                                 <label class="form-label">Meta Description</label>
                                 <textarea class="form-control form-control-sm" id="seoDescription" rows="3" onchange="updateConfig()"></textarea>
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label">Footer Copyright</label>
+                                <input type="text" class="form-control form-control-sm" id="copyrightText" placeholder="Leave empty for default" onchange="updateConfig()">
+                            </div>
                             <div class="form-check mb-3">
                                 <input class="form-check-input" type="checkbox" id="seoNoIndex" onchange="updateConfig()">
                                 <label class="form-check-label" for="seoNoIndex">No Index (hide from search engines)</label>
@@ -123,20 +199,19 @@
 
             <!-- Theme Selection -->
             <div class="card mt-3">
-                <div class="card-header">
+                <div class="card-header py-2">
                     <i class="bi bi-palette me-1"></i>Theme
                 </div>
-                <div class="card-body">
+                <div class="card-body py-2">
                     <div class="row g-2">
                         {{range .Data.Themes}}
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="theme-option p-2 border rounded text-center" data-theme="{{.ID}}" onclick="selectTheme('{{.ID}}')" style="cursor: pointer;">
                                 <div class="d-flex justify-content-center gap-1 mb-1">
-                                    <span class="rounded-circle" style="width: 16px; height: 16px; background: {{.Colors.Primary}};"></span>
-                                    <span class="rounded-circle" style="width: 16px; height: 16px; background: {{.Colors.Secondary}};"></span>
-                                    <span class="rounded-circle" style="width: 16px; height: 16px; background: {{.Colors.Background}}; border: 1px solid #ccc;"></span>
+                                    <span class="rounded-circle" style="width: 12px; height: 12px; background: {{.Colors.Primary}};"></span>
+                                    <span class="rounded-circle" style="width: 12px; height: 12px; background: {{.Colors.Secondary}};"></span>
                                 </div>
-                                <small>{{.Name}}</small>
+                                <small class="d-block" style="font-size: 0.7rem;">{{.Name}}</small>
                             </div>
                         </div>
                         {{end}}
@@ -148,14 +223,27 @@
         <!-- Preview Panel -->
         <div class="col-md-8">
             <div class="card h-100">
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
                     <span><i class="bi bi-eye me-1"></i>Preview</span>
-                    <a href="/dashboard/admin/landing-page/preview" target="_blank" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-box-arrow-up-right"></i>
-                    </a>
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary active" onclick="setPreviewMode('desktop')">
+                            <i class="bi bi-display"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setPreviewMode('tablet')">
+                            <i class="bi bi-tablet"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setPreviewMode('mobile')">
+                            <i class="bi bi-phone"></i>
+                        </button>
+                        <a href="/dashboard/admin/landing-page/preview" target="_blank" class="btn btn-outline-secondary">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </a>
+                    </div>
                 </div>
-                <div class="card-body p-0">
-                    <iframe id="previewFrame" src="/dashboard/admin/landing-page/preview" style="width: 100%; height: 600px; border: none;"></iframe>
+                <div class="card-body p-0 bg-secondary-subtle">
+                    <div class="preview-container d-flex justify-content-center p-3" style="height: 600px;">
+                        <iframe id="previewFrame" src="/dashboard/admin/landing-page/preview" class="preview-frame"></iframe>
+                    </div>
                 </div>
             </div>
         </div>
@@ -171,17 +259,70 @@
         </div>
     </div>
 </div>
+
+<style>
+.nav-tabs-sm .nav-link {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.75rem;
+}
+.theme-option.active {
+    border-color: var(--bs-primary) !important;
+    background: var(--bs-primary-bg-subtle);
+}
+.preview-container {
+    overflow: auto;
+}
+.preview-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: white;
+    border-radius: 0.25rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: width 0.3s;
+}
+.preview-frame.tablet {
+    width: 768px;
+}
+.preview-frame.mobile {
+    width: 375px;
+}
+.station-order-item {
+    cursor: move;
+    padding: 0.5rem;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.25rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.8125rem;
+}
+.station-order-item:hover {
+    background: var(--bs-tertiary-bg);
+}
+.station-order-item.dragging {
+    opacity: 0.5;
+}
+</style>
 {{end}}
 
 {{define "scripts"}}
 <script>
 let config = JSON.parse(document.getElementById('landingEditor').dataset.config || '{}');
 let isDirty = false;
+let updateTimeout = null;
+
+// Station data from server
+const stationsData = [
+    {{range .Data.Stations}}
+    { id: "{{.ID}}", name: "{{.Name}}", sortOrder: {{.SortOrder}} },
+    {{end}}
+];
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     loadConfigToForm();
     highlightCurrentTheme();
+    initStationOrder();
 });
 
 function loadConfigToForm() {
@@ -189,6 +330,8 @@ function loadConfigToForm() {
     document.getElementById('platformName').value = config.header?.platformName || 'Grimnir Radio';
     document.getElementById('tagline').value = config.header?.tagline || '';
     document.getElementById('showLogo').checked = config.header?.showLogo !== false;
+    document.getElementById('showPlatformName').checked = config.header?.showPlatformName !== false;
+    document.getElementById('showTagline').checked = config.header?.showTagline !== false;
 
     // Hero
     document.getElementById('heroEnabled').checked = config.hero?.enabled !== false;
@@ -196,9 +339,16 @@ function loadConfigToForm() {
     document.getElementById('heroDescription').value = config.hero?.description || '';
     document.getElementById('heroHeight').value = config.hero?.height || 'large';
 
+    // Content
+    document.getElementById('gridColumns').value = config.content?.columns || '3';
+    document.getElementById('showDescription').checked = config.content?.showDescription !== false;
+    document.getElementById('showListeners').checked = config.content?.showListeners === true;
+    document.getElementById('showStationLogo').checked = config.content?.showStationLogo !== false;
+
     // SEO
     document.getElementById('seoTitle').value = config.seo?.title || '';
     document.getElementById('seoDescription').value = config.seo?.description || '';
+    document.getElementById('copyrightText').value = config.footer?.copyrightText || '';
     document.getElementById('seoNoIndex').checked = config.seo?.noIndex === true;
 }
 
@@ -207,6 +357,8 @@ function updateConfig() {
     config.header.platformName = document.getElementById('platformName').value;
     config.header.tagline = document.getElementById('tagline').value;
     config.header.showLogo = document.getElementById('showLogo').checked;
+    config.header.showPlatformName = document.getElementById('showPlatformName').checked;
+    config.header.showTagline = document.getElementById('showTagline').checked;
 
     config.hero = config.hero || {};
     config.hero.enabled = document.getElementById('heroEnabled').checked;
@@ -214,36 +366,235 @@ function updateConfig() {
     config.hero.description = document.getElementById('heroDescription').value;
     config.hero.height = document.getElementById('heroHeight').value;
 
+    config.content = config.content || {};
+    config.content.columns = parseInt(document.getElementById('gridColumns').value) || 3;
+    config.content.showDescription = document.getElementById('showDescription').checked;
+    config.content.showListeners = document.getElementById('showListeners').checked;
+    config.content.showStationLogo = document.getElementById('showStationLogo').checked;
+
     config.seo = config.seo || {};
     config.seo.title = document.getElementById('seoTitle').value;
     config.seo.description = document.getElementById('seoDescription').value;
     config.seo.noIndex = document.getElementById('seoNoIndex').checked;
 
+    config.footer = config.footer || {};
+    config.footer.copyrightText = document.getElementById('copyrightText').value;
+
     isDirty = true;
-    refreshPreview();
+
+    // Debounce preview refresh
+    if (updateTimeout) clearTimeout(updateTimeout);
+    updateTimeout = setTimeout(() => refreshPreview(), 500);
 }
 
-function selectTheme(themeId) {
+async function selectTheme(themeId) {
     config.theme = themeId;
     highlightCurrentTheme();
     isDirty = true;
-    refreshPreview();
+    await refreshPreview();
 }
 
 function highlightCurrentTheme() {
     document.querySelectorAll('.theme-option').forEach(el => {
-        el.classList.remove('border-primary', 'bg-primary-subtle');
-        if (el.dataset.theme === config.theme) {
-            el.classList.add('border-primary', 'bg-primary-subtle');
-        }
+        el.classList.toggle('active', el.dataset.theme === config.theme);
     });
 }
 
-function refreshPreview() {
+async function refreshPreview() {
+    if (isDirty) {
+        await saveDraft(true);
+    }
     const iframe = document.getElementById('previewFrame');
-    iframe.contentWindow.postMessage({ type: 'configUpdate', config: config }, '*');
+    const url = new URL(iframe.src, window.location.origin);
+    url.searchParams.set('_t', Date.now());
+    iframe.src = url.toString();
 }
 
+function setPreviewMode(mode) {
+    const frame = document.getElementById('previewFrame');
+    const buttons = document.querySelectorAll('.btn-group .btn');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    event.target.closest('.btn').classList.add('active');
+
+    frame.classList.remove('desktop', 'tablet', 'mobile');
+    if (mode !== 'desktop') {
+        frame.classList.add(mode);
+    }
+}
+
+// Station ordering
+function initStationOrder() {
+    const container = document.getElementById('stationOrderList');
+    if (!container) return;
+
+    // Get custom order from config or use default
+    const customOrder = config.content?.stationOrder || [];
+
+    // Sort stations: custom ordered first, then by sort_order
+    const orderedStations = [...stationsData].sort((a, b) => {
+        const aIndex = customOrder.indexOf(a.id);
+        const bIndex = customOrder.indexOf(b.id);
+        if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+        if (aIndex !== -1) return -1;
+        if (bIndex !== -1) return 1;
+        return a.sortOrder - b.sortOrder;
+    });
+
+    container.innerHTML = orderedStations.map((station, i) => `
+        <div class="station-order-item" draggable="true" data-station-id="${station.id}">
+            <i class="bi bi-grip-vertical me-2 text-muted"></i>
+            <span>${station.name}</span>
+        </div>
+    `).join('');
+
+    // Setup drag and drop
+    const items = container.querySelectorAll('.station-order-item');
+    items.forEach(item => {
+        item.addEventListener('dragstart', handleDragStart);
+        item.addEventListener('dragend', handleDragEnd);
+        item.addEventListener('dragover', handleDragOver);
+        item.addEventListener('drop', handleDrop);
+    });
+}
+
+let draggedItem = null;
+
+function handleDragStart(e) {
+    draggedItem = this;
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDragEnd(e) {
+    this.classList.remove('dragging');
+    draggedItem = null;
+    saveStationOrder();
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    const container = document.getElementById('stationOrderList');
+    const afterElement = getDragAfterElement(container, e.clientY);
+
+    if (afterElement == null) {
+        container.appendChild(draggedItem);
+    } else {
+        container.insertBefore(draggedItem, afterElement);
+    }
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+}
+
+function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.station-order-item:not(.dragging)')];
+
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+function saveStationOrder() {
+    const items = document.querySelectorAll('#stationOrderList .station-order-item');
+    const order = Array.from(items).map(item => item.dataset.stationId);
+
+    config.content = config.content || {};
+    config.content.stationOrder = order;
+    isDirty = true;
+
+    // Debounce refresh
+    if (updateTimeout) clearTimeout(updateTimeout);
+    updateTimeout = setTimeout(() => refreshPreview(), 500);
+}
+
+// Logo upload
+async function uploadLogo(input) {
+    if (!input.files || !input.files[0]) return;
+
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    formData.append('type', 'logo');
+
+    try {
+        const response = await fetch('/dashboard/admin/landing-page/assets', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            const asset = await response.json();
+            config.header = config.header || {};
+            config.header.logoUrl = asset.url;
+
+            // Update preview
+            const preview = document.getElementById('logoPreview');
+            preview.innerHTML = `<img src="${asset.url}" alt="Logo" style="max-width: 100%; max-height: 100%;">`;
+
+            isDirty = true;
+            showToast('Logo uploaded', 'success');
+            refreshPreview();
+        } else {
+            showToast('Failed to upload logo', 'danger');
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        showToast('Failed to upload logo', 'danger');
+    }
+}
+
+function removeLogo() {
+    if (!confirm('Remove the platform logo?')) return;
+
+    config.header = config.header || {};
+    delete config.header.logoUrl;
+
+    const preview = document.getElementById('logoPreview');
+    preview.innerHTML = '<i class="bi bi-image text-muted fs-4"></i>';
+
+    isDirty = true;
+    refreshPreview();
+}
+
+async function uploadHeroBackground(input) {
+    if (!input.files || !input.files[0]) return;
+
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    formData.append('type', 'hero');
+
+    try {
+        const response = await fetch('/dashboard/admin/landing-page/assets', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            const asset = await response.json();
+            config.hero = config.hero || {};
+            config.hero.backgroundUrl = asset.url;
+
+            isDirty = true;
+            showToast('Background uploaded', 'success');
+            refreshPreview();
+        } else {
+            showToast('Failed to upload background', 'danger');
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        showToast('Failed to upload background', 'danger');
+    }
+}
+
+// Save/Publish/Discard
 window.saveDraft = async function(silent = false) {
     try {
         const response = await fetch('/dashboard/admin/landing-page/save', {
