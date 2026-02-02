@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.10.0 — 2026-02-02
+
+### New Features
+- **Platform Landing Page**: Separate editable landing page for the platform at `/`
+  - Platform admins can customize via `/dashboard/admin/landing-page/editor`
+  - Supports themes, hero section, SEO settings
+  - Shows grid of all public stations
+
+- **Station Landing Pages**: Individual station pages at `/s/{shortcode}`
+  - Each station gets its own public landing page
+  - Shows station info, player, schedule link
+  - Uses station's shortcode for URL
+
+### Changes
+- **Landing Page Model**: StationID is now nullable (NULL = platform page)
+- **Dashboard Navigation**: Added "Platform Landing Page" link in admin sidebar
+
+---
+
 ## 1.9.4 — 2026-02-02
 
 ### Bug Fixes

@@ -21,34 +21,65 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
-// Landing renders the public landing page
+// Landing renders the public platform landing page
 func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
-	// Get the first public, approved, active station and its mount for the player
-	var station models.Station
-	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).First(&station)
-
-	var mount models.Mount
-	if station.ID != "" {
-		h.db.Where("station_id = ?", station.ID).First(&mount)
+	// Get platform landing page config
+	var config map[string]any
+	if h.landingPageSvc != nil {
+		page, err := h.landingPageSvc.GetOrCreatePlatform(r.Context())
+		if err == nil && page != nil {
+			config = page.PublishedConfig
+		}
 	}
 
-	// Build stream URLs using the Go broadcast server
-	streamURL := ""
-	streamURLLQ := ""
-	if station.ID != "" && mount.ID != "" {
-		// Use the built-in broadcast server at /live/{mount}
-		streamURL = "/live/" + mount.Name
-		streamURLLQ = "/live/" + mount.Name + "-lq"
+	// Get all public, approved, active stations for the stations grid
+	var stations []models.Station
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).
+		Order("sort_order, name").
+		Find(&stations)
+
+	// Prepare stations with their mounts and stream URLs
+	type stationWithStream struct {
+		Station      models.Station
+		StreamURL    string
+		StreamURLLQ  string
+		MountName    string
+	}
+
+	var stationsWithStreams []stationWithStream
+	for _, s := range stations {
+		var mount models.Mount
+		h.db.Where("station_id = ?", s.ID).First(&mount)
+
+		sw := stationWithStream{Station: s}
+		if mount.ID != "" {
+			sw.StreamURL = "/live/" + mount.Name
+			sw.StreamURLLQ = "/live/" + mount.Name + "-lq"
+			sw.MountName = mount.Name
+		}
+		stationsWithStreams = append(stationsWithStreams, sw)
+	}
+
+	// Get featured station for hero player (if any)
+	var featuredStation *stationWithStream
+	for i, s := range stationsWithStreams {
+		if s.Station.Featured {
+			featuredStation = &stationsWithStreams[i]
+			break
+		}
+	}
+	// Fallback to first station if none featured
+	if featuredStation == nil && len(stationsWithStreams) > 0 {
+		featuredStation = &stationsWithStreams[0]
 	}
 
 	h.Render(w, r, "pages/public/landing", PageData{
 		Title: "Welcome",
 		Data: map[string]any{
-			"StationID":   station.ID,
-			"StationName": station.Name,
-			"MountName":   mount.Name,
-			"StreamURL":   streamURL,
-			"StreamURLLQ": streamURLLQ,
+			"Config":          config,
+			"Stations":        stationsWithStreams,
+			"FeaturedStation": featuredStation,
+			"IsPlatform":      true,
 		},
 	})
 }
@@ -93,6 +124,58 @@ func (h *Handler) Listen(w http.ResponseWriter, r *http.Request) {
 	h.Render(w, r, "pages/public/listen", PageData{
 		Title: "Listen Live",
 		Data:  data,
+	})
+}
+
+// StationLanding renders the public landing page for a specific station by shortcode
+func (h *Handler) StationLanding(w http.ResponseWriter, r *http.Request) {
+	shortcode := chi.URLParam(r, "shortcode")
+	if shortcode == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Find station by shortcode
+	var station models.Station
+	err := h.db.Where("shortcode = ? AND active = ? AND public = ? AND approved = ?",
+		shortcode, true, true, true).First(&station).Error
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Get station's mount for the player
+	var mount models.Mount
+	h.db.Where("station_id = ?", station.ID).First(&mount)
+
+	// Build stream URLs
+	streamURL := ""
+	streamURLLQ := ""
+	if mount.ID != "" {
+		streamURL = "/live/" + mount.Name
+		streamURLLQ = "/live/" + mount.Name + "-lq"
+	}
+
+	// Get station's landing page config
+	var config map[string]any
+	if h.landingPageSvc != nil {
+		page, err := h.landingPageSvc.Get(r.Context(), station.ID)
+		if err == nil && page != nil {
+			config = page.PublishedConfig
+		}
+	}
+
+	h.Render(w, r, "pages/public/station-landing", PageData{
+		Title: station.Name,
+		Data: map[string]any{
+			"Station":     station,
+			"StationID":   station.ID,
+			"StationName": station.Name,
+			"MountName":   mount.Name,
+			"StreamURL":   streamURL,
+			"StreamURLLQ": streamURLLQ,
+			"Config":      config,
+		},
 	})
 }
 

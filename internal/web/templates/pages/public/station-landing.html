@@ -1,0 +1,225 @@
+{{define "pages/public/station-landing"}}
+{{template "layouts/public" .}}
+{{end}}
+
+{{define "main"}}
+<div class="container py-5">
+    <!-- Hero Section -->
+    <div class="row align-items-center py-5">
+        <div class="col-lg-6">
+            <h1 class="display-4 fw-bold mb-3">{{.Data.StationName}}</h1>
+            {{if .Data.Station.Description}}
+            <p class="lead text-body-secondary mb-4">{{.Data.Station.Description}}</p>
+            {{end}}
+            <div class="d-flex gap-3">
+                {{if .Data.StreamURL}}
+                <button class="btn btn-primary btn-lg" onclick="togglePlay()">
+                    <i class="bi bi-play-fill me-2" id="playIcon"></i>Listen Now
+                </button>
+                {{end}}
+                <a href="/schedule?station={{.Data.StationID}}" class="btn btn-outline-secondary btn-lg">
+                    <i class="bi bi-calendar3 me-2"></i>Schedule
+                </a>
+            </div>
+        </div>
+        <div class="col-lg-6 d-none d-lg-block text-center">
+            {{if .Data.Station.Logo}}
+            <img src="/api/v1/stations/{{.Data.StationID}}/logo" alt="{{.Data.StationName}}" class="img-fluid" style="max-height: 300px;">
+            {{else}}
+            <i class="bi bi-broadcast-pin text-primary" style="font-size: 15rem; opacity: 0.1;"></i>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Now Playing Card -->
+    {{if .Data.StreamURL}}
+    <div class="row justify-content-center py-4">
+        <div class="col-lg-8">
+            <div class="card bg-body-tertiary">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center gap-4">
+                        <div class="bg-primary rounded-3 p-3" id="playerIcon">
+                            <i class="bi bi-music-note-beamed text-white fs-1"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <p class="text-body-secondary small mb-1">NOW PLAYING</p>
+                            <h3 class="mb-1" id="nowPlayingTitle">{{.Data.StationName}}</h3>
+                            <p class="text-body-secondary mb-0" id="nowPlayingArtist">Click play to listen</p>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-outline-secondary btn-sm" id="qualityHQ" onclick="setQuality('hq')" title="High Quality">HQ</button>
+                                <button class="btn btn-secondary btn-sm" id="qualityLQ" onclick="setQuality('lq')" title="Low Quality">LQ</button>
+                            </div>
+                            <button class="btn btn-primary btn-lg rounded-circle" id="playBtn" onclick="togglePlay()" title="Play/Pause">
+                                <i class="bi bi-play-fill" id="playIconSmall"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Station Info Cards -->
+    <div class="row g-4 py-5">
+        {{if .Data.Station.Genre}}
+        <div class="col-md-4">
+            <div class="card h-100 bg-body-tertiary border-0">
+                <div class="card-body text-center p-4">
+                    <i class="bi bi-music-note-list fs-1 text-primary mb-3"></i>
+                    <h5>Genre</h5>
+                    <p class="text-body-secondary mb-0">{{.Data.Station.Genre}}</p>
+                </div>
+            </div>
+        </div>
+        {{end}}
+        {{if .Data.Station.Website}}
+        <div class="col-md-4">
+            <div class="card h-100 bg-body-tertiary border-0">
+                <div class="card-body text-center p-4">
+                    <i class="bi bi-globe fs-1 text-primary mb-3"></i>
+                    <h5>Website</h5>
+                    <a href="{{.Data.Station.Website}}" target="_blank" class="text-body-secondary">Visit Website</a>
+                </div>
+            </div>
+        </div>
+        {{end}}
+        <div class="col-md-4">
+            <div class="card h-100 bg-body-tertiary border-0">
+                <div class="card-body text-center p-4">
+                    <i class="bi bi-calendar-event fs-1 text-primary mb-3"></i>
+                    <h5>Schedule</h5>
+                    <a href="/schedule?station={{.Data.StationID}}" class="text-body-secondary">View Full Schedule</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Back to Platform -->
+    <div class="text-center py-4">
+        <a href="/" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-2"></i>Back to All Stations
+        </a>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+const stationId = '{{.Data.StationID}}';
+const stationName = '{{.Data.StationName}}';
+const streamUrlHQ = '{{.Data.StreamURL}}';
+const streamUrlLQ = '{{.Data.StreamURLLQ}}';
+let currentQuality = localStorage.getItem('streamQuality') || 'hq';
+
+function getStreamUrl() {
+    return currentQuality === 'lq' ? streamUrlLQ : streamUrlHQ;
+}
+
+function setQuality(q) {
+    currentQuality = q;
+    localStorage.setItem('streamQuality', q);
+    updateQualityButtons();
+
+    if (window.globalPlayer?.currentTrack?.url && !window.globalPlayer?.audio?.paused) {
+        const wasPlaying = !window.globalPlayer.audio.paused;
+        if (wasPlaying) {
+            const streamUrl = getStreamUrl();
+            const switchUrl = streamUrl + (streamUrl.includes('?') ? '&' : '?') + 'nobuffer=1';
+            window.globalPlayer.playLive(switchUrl, stationName || 'Live Stream', stationId);
+        }
+    }
+}
+
+function updateQualityButtons() {
+    const hqBtn = document.getElementById('qualityHQ');
+    const lqBtn = document.getElementById('qualityLQ');
+    if (!hqBtn || !lqBtn) return;
+    if (currentQuality === 'hq') {
+        hqBtn.className = 'btn btn-secondary btn-sm';
+        lqBtn.className = 'btn btn-outline-secondary btn-sm';
+    } else {
+        hqBtn.className = 'btn btn-outline-secondary btn-sm';
+        lqBtn.className = 'btn btn-secondary btn-sm';
+    }
+}
+
+function isOurStream(url) {
+    if (!url) return false;
+    const baseUrl = url.split('?')[0];
+    return baseUrl === streamUrlHQ || baseUrl === streamUrlLQ;
+}
+
+function togglePlay() {
+    const streamUrl = getStreamUrl();
+    if (!streamUrl || !window.globalPlayer) return;
+
+    const player = window.globalPlayer;
+    if (player.currentTrack && isOurStream(player.currentTrack.url) && !player.audio.paused) {
+        player.audio.pause();
+        updatePlayIcons('play');
+        document.getElementById('nowPlayingArtist').textContent = 'Paused';
+    } else {
+        player.playLive(streamUrl, stationName || 'Live Stream', stationId);
+        updatePlayIcons('pause');
+        document.getElementById('nowPlayingArtist').textContent = 'Connecting...';
+    }
+}
+
+function updatePlayIcons(state) {
+    const icons = ['playIcon', 'playIconSmall'];
+    icons.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.className = state === 'pause' ? 'bi bi-pause-fill' : 'bi bi-play-fill';
+        }
+    });
+}
+
+function syncPlayerUI() {
+    if (!window.globalPlayer) return;
+    const player = window.globalPlayer;
+
+    if (player.currentTrack && isOurStream(player.currentTrack.url)) {
+        if (player.audio.paused) {
+            updatePlayIcons('play');
+        } else {
+            updatePlayIcons('pause');
+        }
+    } else {
+        updatePlayIcons('play');
+        const artistEl = document.getElementById('nowPlayingArtist');
+        if (artistEl) artistEl.textContent = 'Click play to listen';
+    }
+}
+
+setInterval(syncPlayerUI, 500);
+
+async function updateNowPlaying() {
+    if (!stationId) return;
+    try {
+        const response = await fetch(`/api/v1/analytics/now-playing?station_id=${stationId}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.title && data.status === 'playing') {
+                document.getElementById('nowPlayingTitle').textContent = data.title;
+                if (isOurStream(window.globalPlayer?.currentTrack?.url) && !window.globalPlayer?.audio?.paused) {
+                    document.getElementById('nowPlayingArtist').textContent = data.artist || 'Streaming live...';
+                }
+            }
+        }
+    } catch (e) {
+        console.log('Could not fetch now playing');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateQualityButtons();
+    updateNowPlaying();
+    setInterval(updateNowPlaying, 15000);
+    syncPlayerUI();
+});
+</script>
+{{end}}

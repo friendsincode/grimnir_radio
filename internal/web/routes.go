@@ -52,6 +52,9 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/schedule/events", h.PublicScheduleEvents)
 			r.Get("/station/{id}", h.StationInfo)
 
+			// Station landing pages by shortcode
+			r.Get("/s/{shortcode}", h.StationLanding)
+
 			// Embeddable widgets (Phase 8G)
 			r.Get("/embed/schedule", h.EmbedSchedule)
 			r.Get("/embed/now-playing", h.EmbedNowPlaying)
@@ -361,6 +364,16 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// Audit logs
 				r.Get("/audit", h.AdminAudit)
+
+				// Platform landing page editor
+				r.Route("/landing-page", func(r chi.Router) {
+					r.Get("/editor", h.PlatformLandingPageEditor)
+					r.Post("/save", h.PlatformLandingPageSave)
+					r.Post("/publish", h.PlatformLandingPagePublish)
+					r.Post("/discard", h.PlatformLandingPageDiscard)
+					r.Get("/preview", h.PlatformLandingPagePreview)
+					r.Post("/assets", h.PlatformLandingPageAssetUpload)
+				})
 			})
 		})
 	})
