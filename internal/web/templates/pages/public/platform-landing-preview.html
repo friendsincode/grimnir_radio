@@ -172,8 +172,8 @@
     {{if .widgets}}
     <section class="py-4">
         <div class="container">
-            {{range .widgets}}
-            {{$widget := .}}
+            <div class="row g-4">
+            {{range $idx, $widget := .widgets}}
             {{$wtype := index $widget "type"}}
             {{$wconfig := index $widget "config"}}
 
@@ -181,118 +181,116 @@
             {{if $wconfig.align}}{{$walign = $wconfig.align}}{{end}}
             {{$wcolWidth := "12"}}
             {{if $wconfig.colWidth}}{{$wcolWidth = $wconfig.colWidth}}{{end}}
-            {{$alignClass := ""}}
-            {{if eq $walign "center"}}{{$alignClass = "mx-auto"}}{{else if eq $walign "right"}}{{$alignClass = "ms-auto"}}{{end}}
+            {{$wheight := ""}}
+            {{if $wconfig.height}}{{$wheight = $wconfig.height}}{{end}}
+            {{$newRow := true}}
+            {{if and (ne $idx 0) (eq $wconfig.newRow false)}}{{$newRow = false}}{{end}}
             {{$textAlignClass := ""}}
             {{if eq $walign "center"}}{{$textAlignClass = "text-center"}}{{else if eq $walign "right"}}{{$textAlignClass = "text-end"}}{{end}}
+            {{$heightStyle := ""}}
+            {{if $wheight}}{{$heightStyle = printf "height: %s; overflow: auto;" $wheight}}{{end}}
+
+            {{/* Row break when newRow is true (except for first widget) */}}
+            {{if and $newRow (ne $idx 0)}}
+            <div class="w-100 mb-2"></div>
+            {{end}}
 
             {{if eq $wtype "stations-grid"}}
             <!-- Stations Grid Widget -->
-            <div class="widget-stations mb-4">
-                <h2 class="text-center mb-4 section-title">Our Stations</h2>
-                <div class="row g-4">
-                    {{range $.Data.OrderedStations}}
-                    <div class="col-md-{{if eq $columns 2}}6{{else if eq $columns 4}}3{{else}}4{{end}}">
-                        <div class="card station-card h-100">
-                            <div class="card-body text-center">
-                                {{if $showLogo}}
-                                    {{if .Logo}}
-                                    <img src="/api/v1/stations/{{.ID}}/logo" alt="{{.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
-                                    {{else}}
-                                    <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
+            <div class="col-md-{{$wcolWidth}}">
+                <div class="widget-stations">
+                    {{if $wconfig.title}}<h2 class="text-center mb-4 section-title">{{$wconfig.title}}</h2>{{else}}<h2 class="text-center mb-4 section-title">Our Stations</h2>{{end}}
+                    <div class="row g-4 justify-content-center">
+                        {{range $.Data.OrderedStations}}
+                        <div class="col-md-{{if eq $columns 2}}6{{else if eq $columns 4}}3{{else}}4{{end}}">
+                            <div class="card station-card h-100">
+                                <div class="card-body text-center">
+                                    {{if $showLogo}}
+                                        {{if .Logo}}
+                                        <img src="/api/v1/stations/{{.ID}}/logo" alt="{{.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
+                                        {{else}}
+                                        <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
+                                        {{end}}
                                     {{end}}
-                                {{end}}
-                                <h5 class="card-title">{{.Name}}</h5>
-                                {{if and $showDesc .Description}}
-                                <p class="card-text small">{{.Description}}</p>
-                                {{end}}
-                                {{if .Shortcode}}
-                                <a href="/s/{{.Shortcode}}" class="btn btn-outline-primary btn-sm">
-                                    <i class="bi bi-play-circle me-1"></i>Listen
-                                </a>
-                                {{end}}
+                                    <h5 class="card-title">{{.Name}}</h5>
+                                    {{if and $showDesc .Description}}
+                                    <p class="card-text small">{{.Description}}</p>
+                                    {{end}}
+                                    {{if .Shortcode}}
+                                    <a href="/s/{{.Shortcode}}" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-play-circle me-1"></i>Listen
+                                    </a>
+                                    {{end}}
+                                </div>
                             </div>
                         </div>
+                        {{else}}
+                        <div class="col-12 text-center text-muted">
+                            <p>No stations available yet.</p>
+                        </div>
+                        {{end}}
                     </div>
-                    {{else}}
-                    <div class="col-12 text-center text-muted">
-                        <p>No stations available yet.</p>
-                    </div>
-                    {{end}}
                 </div>
             </div>
 
             {{else if eq $wtype "text"}}
-            <div class="row mb-4">
-                <div class="col-md-{{$wcolWidth}} {{$alignClass}}">
-                    <div class="widget-text {{$textAlignClass}}">
-                        {{with $wconfig}}
-                        {{if .title}}<h3 class="mb-3 section-title">{{.title}}</h3>{{end}}
-                        <div class="text-content">{{if .content}}{{safeHTML .content}}{{end}}</div>
-                        {{end}}
-                    </div>
+            <div class="col-md-{{$wcolWidth}}">
+                <div class="widget-text {{$textAlignClass}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                    {{with $wconfig}}
+                    {{if .title}}<h3 class="mb-3 section-title">{{.title}}</h3>{{end}}
+                    <div class="text-content">{{if .content}}{{safeHTML .content}}{{end}}</div>
+                    {{end}}
                 </div>
             </div>
 
             {{else if eq $wtype "custom-html"}}
-            <div class="row mb-4">
-                <div class="col-md-{{$wcolWidth}} {{$alignClass}}">
-                    <div class="widget-custom-html {{$textAlignClass}}">
-                        {{with $wconfig}}{{if .code}}{{safeHTML .code}}{{end}}{{end}}
-                    </div>
+            <div class="col-md-{{$wcolWidth}}">
+                <div class="widget-custom-html {{$textAlignClass}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                    {{with $wconfig}}{{if .code}}{{safeHTML .code}}{{end}}{{end}}
                 </div>
             </div>
 
             {{else if eq $wtype "divider"}}
-            <div class="row mb-4">
-                <div class="col-md-{{$wcolWidth}} {{$alignClass}}">
-                    <hr style="border-color: var(--border-color);">
-                </div>
+            <div class="col-md-{{$wcolWidth}}">
+                <hr style="border-color: var(--border-color);">
             </div>
 
             {{else if eq $wtype "spacer"}}
-            <div class="row mb-4">
-                <div class="col-md-{{$wcolWidth}} {{$alignClass}}">
-                    {{with $wconfig}}<div style="height: {{if .height}}{{.height}}{{else}}40{{end}}px;"></div>{{end}}
-                </div>
+            <div class="col-md-{{$wcolWidth}}">
+                {{with $wconfig}}<div style="height: {{if .height}}{{.height}}{{else}}40{{end}}px;"></div>{{end}}
             </div>
 
             {{else if eq $wtype "cta"}}
-            <div class="row mb-4">
-                <div class="col-md-{{$wcolWidth}} {{$alignClass}}">
-                    <div class="text-center py-4 px-3 rounded" style="background: var(--primary-color); color: white;">
-                        {{with $wconfig}}
-                        {{if .headline}}<h2 class="mb-2">{{.headline}}</h2>{{end}}
-                        {{if .subtext}}<p class="mb-3">{{.subtext}}</p>{{end}}
-                        {{if .buttonUrl}}<a href="{{.buttonUrl}}" class="btn btn-light">{{if .buttonText}}{{.buttonText}}{{else}}Learn More{{end}}</a>{{end}}
-                        {{end}}
-                    </div>
+            <div class="col-md-{{$wcolWidth}}">
+                <div class="text-center py-4 px-3 rounded" style="background: var(--primary-color); color: white;" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                    {{with $wconfig}}
+                    {{if .headline}}<h2 class="mb-2">{{.headline}}</h2>{{end}}
+                    {{if .subtext}}<p class="mb-3">{{.subtext}}</p>{{end}}
+                    {{if .buttonUrl}}<a href="{{.buttonUrl}}" class="btn btn-light">{{if .buttonText}}{{.buttonText}}{{else}}Learn More{{end}}</a>{{end}}
+                    {{end}}
                 </div>
             </div>
 
             {{else if eq $wtype "image"}}
-            <div class="row mb-4">
-                <div class="col-md-{{$wcolWidth}} {{$alignClass}}">
-                    <div class="{{$textAlignClass}}">
-                        {{with $wconfig}}
-                        {{if .src}}<img src="{{.src}}" alt="{{.alt}}" class="img-fluid rounded">{{end}}
-                        {{if .caption}}<p class="text-muted small mt-2">{{.caption}}</p>{{end}}
-                        {{end}}
-                    </div>
+            <div class="col-md-{{$wcolWidth}}">
+                <div class="{{$textAlignClass}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                    {{with $wconfig}}
+                    {{if .src}}<img src="{{.src}}" alt="{{.alt}}" class="img-fluid rounded">{{end}}
+                    {{if .caption}}<p class="text-muted small mt-2">{{.caption}}</p>{{end}}
+                    {{end}}
                 </div>
             </div>
 
             {{else if eq $wtype "video"}}
-            <div class="row mb-4">
-                <div class="col-md-{{$wcolWidth}} {{$alignClass}}">
-                    <div class="ratio ratio-16x9">
-                        {{with $wconfig}}{{if .url}}<iframe src="{{.url}}" allowfullscreen></iframe>{{end}}{{end}}
-                    </div>
+            <div class="col-md-{{$wcolWidth}}">
+                <div class="ratio ratio-16x9" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                    {{with $wconfig}}{{if .url}}<iframe src="{{.url}}" allowfullscreen></iframe>{{end}}{{end}}
                 </div>
             </div>
 
             {{end}}
             {{end}}
+            </div>
         </div>
     </section>
     {{else}}
