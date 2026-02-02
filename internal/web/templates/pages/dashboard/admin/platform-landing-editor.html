@@ -664,54 +664,82 @@ function selectWidgetForEdit(widgetId) {
 
 function renderWidgetConfigForm(widget, def) {
     const container = document.getElementById('widgetConfigForm');
-    if (!def || !def.configSpec || def.configSpec.length === 0) {
-        container.innerHTML = '<p class="text-muted small">No configurable options</p>';
-        return;
+    let html = '';
+
+    // Widget-specific config fields
+    if (def && def.configSpec && def.configSpec.length > 0) {
+        def.configSpec.forEach(field => {
+            const value = widget.config[field.key] ?? field.default ?? '';
+
+            html += `<div class="mb-2">`;
+            html += `<label class="form-label small">${field.label}</label>`;
+
+            switch (field.type) {
+                case 'boolean':
+                    html += `<div class="form-check form-switch">
+                        <input type="checkbox" class="form-check-input" id="widget_${field.key}"
+                            ${value ? 'checked' : ''}
+                            onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.checked)">
+                    </div>`;
+                    break;
+                case 'number':
+                    html += `<input type="number" class="form-control form-control-sm" id="widget_${field.key}"
+                        value="${value}"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', parseInt(this.value))">`;
+                    break;
+                case 'textarea':
+                    html += `<textarea class="form-control form-control-sm" id="widget_${field.key}" rows="4"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">${escapeHtml(value)}</textarea>`;
+                    break;
+                case 'code':
+                    html += `<textarea class="form-control form-control-sm font-monospace" id="widget_${field.key}" rows="8"
+                        placeholder="Enter HTML, including iframes..."
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">${escapeHtml(value)}</textarea>`;
+                    html += `<small class="text-muted">Supports HTML including iframes, scripts, and embeds</small>`;
+                    break;
+                case 'color':
+                    html += `<input type="color" class="form-control form-control-color w-100" id="widget_${field.key}"
+                        value="${value || '#000000'}"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">`;
+                    break;
+                default: // text
+                    html += `<input type="text" class="form-control form-control-sm" id="widget_${field.key}"
+                        value="${escapeHtml(value)}"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">`;
+            }
+
+            html += `</div>`;
+        });
     }
 
-    let html = '';
-    def.configSpec.forEach(field => {
-        const value = widget.config[field.key] ?? field.default ?? '';
+    // Layout options (common to all widgets)
+    html += `<hr class="my-2">`;
+    html += `<p class="small fw-bold mb-2">Layout</p>`;
 
-        html += `<div class="mb-2">`;
-        html += `<label class="form-label small">${field.label}</label>`;
+    // Alignment
+    const align = widget.config.align || 'left';
+    html += `<div class="mb-2">
+        <label class="form-label small">Alignment</label>
+        <select class="form-select form-select-sm" onchange="updateWidgetConfig('${widget.id}', 'align', this.value)">
+            <option value="left" ${align === 'left' ? 'selected' : ''}>Left</option>
+            <option value="center" ${align === 'center' ? 'selected' : ''}>Center</option>
+            <option value="right" ${align === 'right' ? 'selected' : ''}>Right</option>
+        </select>
+    </div>`;
 
-        switch (field.type) {
-            case 'boolean':
-                html += `<div class="form-check form-switch">
-                    <input type="checkbox" class="form-check-input" id="widget_${field.key}"
-                        ${value ? 'checked' : ''}
-                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.checked)">
-                </div>`;
-                break;
-            case 'number':
-                html += `<input type="number" class="form-control form-control-sm" id="widget_${field.key}"
-                    value="${value}"
-                    onchange="updateWidgetConfig('${widget.id}', '${field.key}', parseInt(this.value))">`;
-                break;
-            case 'textarea':
-                html += `<textarea class="form-control form-control-sm" id="widget_${field.key}" rows="4"
-                    onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">${escapeHtml(value)}</textarea>`;
-                break;
-            case 'code':
-                html += `<textarea class="form-control form-control-sm font-monospace" id="widget_${field.key}" rows="8"
-                    placeholder="Enter HTML, including iframes..."
-                    onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">${escapeHtml(value)}</textarea>`;
-                html += `<small class="text-muted">Supports HTML including iframes, scripts, and embeds</small>`;
-                break;
-            case 'color':
-                html += `<input type="color" class="form-control form-control-color w-100" id="widget_${field.key}"
-                    value="${value || '#000000'}"
-                    onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">`;
-                break;
-            default: // text
-                html += `<input type="text" class="form-control form-control-sm" id="widget_${field.key}"
-                    value="${escapeHtml(value)}"
-                    onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">`;
-        }
-
-        html += `</div>`;
-    });
+    // Column width
+    const colWidth = widget.config.colWidth || '12';
+    html += `<div class="mb-2">
+        <label class="form-label small">Width (columns 1-12)</label>
+        <select class="form-select form-select-sm" onchange="updateWidgetConfig('${widget.id}', 'colWidth', this.value)">
+            <option value="12" ${colWidth === '12' ? 'selected' : ''}>Full width (12)</option>
+            <option value="10" ${colWidth === '10' ? 'selected' : ''}>10 columns</option>
+            <option value="8" ${colWidth === '8' ? 'selected' : ''}>8 columns</option>
+            <option value="6" ${colWidth === '6' ? 'selected' : ''}>Half width (6)</option>
+            <option value="4" ${colWidth === '4' ? 'selected' : ''}>4 columns</option>
+            <option value="3" ${colWidth === '3' ? 'selected' : ''}>3 columns</option>
+        </select>
+    </div>`;
 
     container.innerHTML = html;
 }
