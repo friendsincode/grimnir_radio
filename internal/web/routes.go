@@ -62,6 +62,7 @@ func (h *Handler) Routes(r chi.Router) {
 
 			// Landing page assets (public)
 			r.Get("/landing-assets/{assetID}", h.LandingPageAssetServe)
+			r.Get("/landing-assets/by-type/{assetType}", h.LandingPageAssetByType)
 
 			// Auth pages
 			r.Get("/login", h.LoginPage)

@@ -557,7 +557,7 @@ var pageTemplates = map[string]string{
 <body class="theme-{{.theme.ID}}">
 	<header class="landing-header">
 		{{with .config.header}}
-		{{if .showLogo}}<img src="/api/v1/landing-page/assets/logo?station_id={{$.station.ID}}" alt="{{$.station.Name}}" class="station-logo" onerror="this.style.display='none'">{{end}}
+		{{if .showLogo}}<img src="/landing-assets/by-type/logo?station_id={{$.station.ID}}" alt="{{$.station.Name}}" class="station-logo" onerror="this.style.display='none'">{{end}}
 		{{if .showStationName}}<h1 class="station-name">{{$.station.Name}}</h1>{{end}}
 		{{if .tagline}}<p class="station-tagline">{{.tagline}}</p>{{end}}
 		{{end}}
