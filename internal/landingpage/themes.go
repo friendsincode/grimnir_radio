@@ -37,10 +37,33 @@ type ThemeTypography struct {
 }
 
 // BuiltInThemes contains all available themes.
+// daw-dark is first and serves as the default theme.
 var BuiltInThemes = []Theme{
 	{
+		ID:          "daw-dark",
+		Name:        "DAW Dark",
+		Description: "Professional dark theme matching the dashboard aesthetic (default)",
+		Preview:     "/static/images/themes/daw-dark.png",
+		Colors: ThemeColors{
+			Primary:    "#FF6B35",
+			Secondary:  "#4CAF50",
+			Background: "#1E1E1E",
+			Surface:    "#252525",
+			Text:       "#C8C8C8",
+			TextMuted:  "#888888",
+			Border:     "#3A3A3A",
+			Accent:     "#FF6B35",
+		},
+		Typography: ThemeTypography{
+			HeadingFont: "Inter",
+			BodyFont:    "Inter",
+			BaseSize:    "16px",
+		},
+		Defaults: defaultThemeConfig("daw-dark"),
+	},
+	{
 		ID:          "default",
-		Name:        "Default",
+		Name:        "Classic Light",
 		Description: "Clean, professional look with balanced colors",
 		Preview:     "/static/images/themes/default.png",
 		Colors: ThemeColors{
@@ -192,6 +215,28 @@ var BuiltInThemes = []Theme{
 		},
 		Defaults: defaultThemeConfig("community"),
 	},
+	{
+		ID:          "sm-theme",
+		Name:        "SM Theme",
+		Description: "Green terminal style retro theme",
+		Preview:     "/static/images/themes/sm-theme.png",
+		Colors: ThemeColors{
+			Primary:    "#00FF00",
+			Secondary:  "#00CC00",
+			Background: "#0A0A0A",
+			Surface:    "#121212",
+			Text:       "#00FF00",
+			TextMuted:  "#00AA00",
+			Border:     "#003300",
+			Accent:     "#33FF33",
+		},
+		Typography: ThemeTypography{
+			HeadingFont: "JetBrains Mono",
+			BodyFont:    "JetBrains Mono",
+			BaseSize:    "15px",
+		},
+		Defaults: defaultThemeConfig("sm-theme"),
+	},
 }
 
 // GetTheme returns a theme by ID.
@@ -218,7 +263,7 @@ func GetThemeDefaults(id string) map[string]any {
 func GetPlatformThemeDefaults() map[string]any {
 	return map[string]any{
 		"version": 1,
-		"theme":   "default",
+		"theme":   "daw-dark",
 		"header": map[string]any{
 			"showLogo":         true,
 			"showPlatformName": true,
