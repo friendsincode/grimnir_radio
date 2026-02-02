@@ -1,5 +1,174 @@
 # Changelog
 
+## 1.7.0 — 2026-02-01
+
+### Phase 8: Advanced Scheduling (Complete)
+
+This release completes the entire Phase 8 Advanced Scheduling feature set.
+
+#### Phase 8A: Foundation
+- **Shows and Instances**: Recurring show support with RRULE patterns
+- **Show CRUD API**: Create, update, delete shows with recurrence rules
+- **Instance Materialization**: Auto-generate show instances for date ranges
+- **Exception Handling**: Cancel, reschedule, or substitute individual instances
+
+#### Phase 8B: Calendar UI
+- **Visual Calendar**: Day, week, and month views
+- **Drag-and-Drop**: Reschedule shows by dragging
+- **Resize**: Change show duration by resizing
+- **Color Coding**: Shows colored by type or host
+
+#### Phase 8C: Validation & Conflict Detection
+- **Overlap Detection**: Immediate flagging of scheduling conflicts
+- **Gap Detection**: Highlight unscheduled time slots
+- **DJ Double-Booking**: Detect same DJ on multiple stations
+- **Configurable Rules**: Station-specific compliance rules
+
+#### Phase 8D: Templates & Versioning
+- **Schedule Templates**: Save current week as reusable template
+- **Template Application**: Apply templates to future weeks
+- **Version History**: Automatic versioning on schedule changes
+- **Diff View**: Compare versions to see changes
+- **Rollback**: Restore to any previous version
+
+#### Phase 8E: DJ Self-Service
+- **Availability Management**: DJs set weekly availability windows
+- **Schedule Requests**: Submit time-off, shift swap, new show requests
+- **Approval Workflow**: Managers approve/reject with notes
+- **Schedule Locks**: Lock schedule N days out to prevent changes
+
+#### Phase 8F: Notifications
+- **Notification Preferences**: Per-user, per-type, per-channel settings
+- **Show Reminders**: "Your show starts in 30 minutes"
+- **Schedule Changes**: Notify when assignments change
+- **Request Status**: Updates on approval/rejection
+- **In-App + Email**: Multiple delivery channels
+
+#### Phase 8G: Public Schedule
+- **Public API**: No-auth schedule endpoints for listeners
+- **Embeddable Widgets**: iframe and JS snippets for external sites
+- **Now Playing Widget**: Current and upcoming shows
+- **Customizable Themes**: Light/dark, custom colors
+
+#### Phase 8H: Analytics, Syndication, Underwriting
+- **Schedule Analytics**: Show performance, time slot analysis, best slots
+- **Scheduling Suggestions**: Data-driven recommendations
+- **Network Syndication**: Share shows across stations
+- **Station Subscriptions**: Subscribe to network shows with local scheduling
+- **Sponsor Management**: Track sponsors and contact info
+- **Underwriting Obligations**: Spots per week, preferred dayparts
+- **Underwriting Spots**: Schedule and track spot fulfillment
+- **iCal Export**: Export schedule in standard calendar format
+
+### New API Endpoints
+
+**Shows & Instances:**
+- `POST /api/v1/shows` - Create show with recurrence
+- `GET /api/v1/shows` - List shows
+- `GET /api/v1/shows/{id}` - Get show details
+- `PUT /api/v1/shows/{id}` - Update show
+- `DELETE /api/v1/shows/{id}` - Delete show
+- `GET /api/v1/show-instances` - List instances
+- `PUT /api/v1/show-instances/{id}` - Modify instance
+- `DELETE /api/v1/show-instances/{id}` - Cancel instance
+
+**Schedule Management:**
+- `GET /api/v1/schedule/validate` - Validate date range
+- `POST /api/v1/schedule-rules` - Create validation rule
+- `GET /api/v1/schedule-rules` - List rules
+- `POST /api/v1/schedule-templates` - Save template
+- `POST /api/v1/schedule-templates/{id}/apply` - Apply template
+- `GET /api/v1/schedule/versions` - List versions
+- `POST /api/v1/schedule/versions/{id}/restore` - Restore version
+
+**DJ Self-Service:**
+- `GET /api/v1/dj/availability` - Get availability
+- `PUT /api/v1/dj/availability` - Update availability
+- `POST /api/v1/schedule-requests` - Submit request
+- `PUT /api/v1/schedule-requests/{id}/approve` - Approve
+- `PUT /api/v1/schedule-requests/{id}/reject` - Reject
+
+**Notifications:**
+- `GET /api/v1/notifications/preferences` - Get preferences
+- `PUT /api/v1/notifications/preferences` - Update preferences
+- `GET /api/v1/notifications` - List notifications
+
+**Public Schedule:**
+- `GET /api/v1/public/schedule` - Public schedule JSON
+- `GET /api/v1/public/now-playing` - Current + next show
+- `GET /embed/schedule` - Embeddable widget
+- `GET /embed/now-playing` - Now playing widget
+
+**Analytics:**
+- `GET /api/v1/schedule-analytics/shows` - Show performance
+- `GET /api/v1/schedule-analytics/time-slots` - Time slot performance
+- `GET /api/v1/schedule-analytics/best-slots` - Best performing slots
+- `GET /api/v1/schedule-analytics/suggestions` - Scheduling suggestions
+
+**Syndication:**
+- `POST /api/v1/networks` - Create network
+- `GET /api/v1/networks` - List networks
+- `POST /api/v1/network-shows` - Create network show
+- `POST /api/v1/network-subscriptions` - Subscribe to network show
+
+**Underwriting:**
+- `POST /api/v1/sponsors` - Create sponsor
+- `GET /api/v1/sponsors` - List sponsors
+- `POST /api/v1/underwriting-obligations` - Create obligation
+- `POST /api/v1/underwriting-spots` - Schedule spot
+- `GET /api/v1/underwriting/fulfillment` - Fulfillment report
+
+**Export:**
+- `GET /api/v1/schedule/export` - Export schedule as iCal
+
+### Database Changes
+
+Adds 21 new tables via GORM AutoMigrate (no modifications to existing tables):
+- `shows`, `show_instances`
+- `schedule_rules`, `schedule_templates`, `schedule_versions`
+- `dj_availability`, `schedule_requests`, `schedule_locks`
+- `notification_preferences`, `notifications`
+- `webhook_targets`, `webhook_logs`
+- `schedule_analytics`
+- `networks`, `network_shows`, `network_subscriptions`
+- `sponsors`, `underwriting_obligations`, `underwriting_spots`
+
+### Files Added
+
+- `internal/models/show.go` - Show and ShowInstance models
+- `internal/models/schedule_rule.go` - Schedule rules
+- `internal/models/schedule_template.go` - Templates and versions
+- `internal/models/dj_availability.go` - DJ self-service models
+- `internal/models/notification.go` - Notification models
+- `internal/models/webhook.go` - Webhook models
+- `internal/models/analytics.go` - Analytics models
+- `internal/models/syndication.go` - Network/syndication models
+- `internal/models/underwriting.go` - Sponsor/underwriting models
+- `internal/api/shows.go` - Show API handlers
+- `internal/api/schedule_rules.go` - Rule API handlers
+- `internal/api/schedule_templates.go` - Template API handlers
+- `internal/api/schedule_versions.go` - Version API handlers
+- `internal/api/dj_self_service.go` - DJ self-service handlers
+- `internal/api/notifications.go` - Notification handlers
+- `internal/api/webhooks.go` - Webhook handlers
+- `internal/api/public_schedule.go` - Public schedule handlers
+- `internal/api/analytics.go` - Analytics handlers
+- `internal/api/syndication.go` - Syndication handlers
+- `internal/api/underwriting.go` - Underwriting handlers
+- `internal/api/schedule_export.go` - Export handlers
+- `internal/analytics/schedule_analytics.go` - Analytics service
+- `internal/syndication/service.go` - Syndication service
+- `internal/underwriting/service.go` - Underwriting service
+- `internal/schedule/export.go` - Export service
+- `internal/notifications/service.go` - Notification service
+- `internal/webhooks/service.go` - Webhook service
+- `internal/scheduling/validator.go` - Validation engine
+- `internal/web/pages_shows.go` - Show management UI
+- `internal/web/pages_dj.go` - DJ self-service UI
+- `internal/web/pages_embed.go` - Embeddable widgets
+
+---
+
 ## 1.3.0 — 2026-02-01
 
 ### Breaking Changes

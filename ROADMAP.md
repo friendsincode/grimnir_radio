@@ -1,17 +1,36 @@
 # Grimnir Radio Roadmap
 
-## Version 1.0.0 (Current)
-- Core radio automation functionality
-- Media library management
-- Playlist and smart block creation
-- Schedule management with clock templates
-- Live DJ support with handover
-- Multi-station support
-- Basic analytics
+## Version 1.7.0 (Current)
+
+### Core Features (Complete)
+- ✅ Core radio automation functionality
+- ✅ Media library management
+- ✅ Playlist and smart block creation
+- ✅ Schedule management with clock templates
+- ✅ Live DJ support with handover
+- ✅ Multi-station support
+- ✅ Basic analytics
+- ✅ 5-tier priority system
+- ✅ GStreamer media engine with DSP
+- ✅ Multi-instance scaling
+- ✅ Full observability (Prometheus, OpenTelemetry)
+
+### Phase 8: Advanced Scheduling (Complete)
+- ✅ Shows with RRULE recurrence patterns
+- ✅ Visual calendar UI with drag-and-drop
+- ✅ Schedule validation and conflict detection
+- ✅ Schedule templates and versioning
+- ✅ DJ self-service (availability, requests)
+- ✅ Notification system (in-app, email)
+- ✅ Public schedule API and embeddable widgets
+- ✅ Schedule analytics and suggestions
+- ✅ Network syndication
+- ✅ Underwriting/sponsor management
+- ✅ iCal export
 
 ---
 
-## Version 1.1.0 (Planned)
+## Version 1.8.0 (Planned)
 
 ### Audio Fingerprinting & Duplicate Detection
 **Priority:** High
@@ -44,16 +63,15 @@ Implement audio fingerprinting to detect true duplicate audio files regardless o
 
 ---
 
-### Other 1.1.0 Features
+### Other 1.8.0 Features
 - [ ] Bulk media import from folder
 - [ ] Improved waveform visualization with zoom
-- [ ] Playlist scheduling rules (day-parting)
 - [ ] Enhanced analytics with export to CSV
-- [ ] Webhook notifications for events
+- [ ] Audit logging for sensitive operations
 
 ---
 
-## Version 1.2.0 (Future)
+## Version 2.0.0 (Future)
 
 - [ ] Multi-tenant support (separate organizations)
 - [ ] Advanced audio processing (normalization presets)
@@ -61,30 +79,10 @@ Implement audio fingerprinting to detect true duplicate audio files regardless o
 - [ ] Integration with external music databases (MusicBrainz)
 - [ ] Podcast/show management module
 - [ ] Archive recording and on-demand playback
-
----
-
-## Version 2.0.0 (Future)
-
-### MediaEngine Migration
-**Priority:** High
-**Status:** Planned
-**Details:** [v2-migration.md](docs/v2-migration.md)
-
-Move GStreamer audio processing from grimnir container to dedicated mediaengine container via gRPC. This separation improves reliability (GStreamer crashes won't kill the API) and enables independent scaling.
-
-#### Key Changes:
-- [ ] Add MediaEngine gRPC client to grimnir
-- [ ] Update Director to use gRPC instead of exec.Command
-- [ ] Remove GStreamer from main Dockerfile
-- [ ] Delete unused playout/manager.go and playout/pipeline.go
-
-### Other 2.0.0 Features
 - [ ] DSP graph UI (visual audio processing)
-- [ ] Crossfade with cue points
-- [ ] Multi-engine scaling (multiple mediaengine instances)
-- [ ] Live input routing UI
-- [ ] Exhaustive open source dependency audit (all packages with license type and links)
+- [ ] WebDJ interface
+- [ ] Emergency Alert System (EAS) integration
+- [ ] Exhaustive open source dependency audit
 
 ---
 

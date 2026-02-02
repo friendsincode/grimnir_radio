@@ -1,6 +1,6 @@
 # Grimnir Radio API Reference
 
-**Version:** 1.3.0
+**Version:** 1.7.0
 
 **Base URL:** `https://your-instance.com/api/v1`
 

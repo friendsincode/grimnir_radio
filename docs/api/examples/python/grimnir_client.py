@@ -566,6 +566,371 @@ class GrimnirClient:
         )
 
     # =========================================================================
+    # Shows (Phase 8)
+    # =========================================================================
+
+    def get_shows(self, station_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all shows for a station.
+
+        Args:
+            station_id: Station UUID
+
+        Returns:
+            List of show objects
+        """
+        response = self._request("GET", "/shows", params={"station_id": station_id})
+        return response.get("shows", [])
+
+    def create_show(
+        self,
+        station_id: str,
+        name: str,
+        rrule: str,
+        dtstart: str,
+        duration_minutes: int = 60,
+        description: str = "",
+        color: str = "#3B82F6",
+    ) -> Dict[str, Any]:
+        """
+        Create a recurring show.
+
+        Args:
+            station_id: Station UUID
+            name: Show name
+            rrule: RFC 5545 recurrence rule (e.g., "FREQ=WEEKLY;BYDAY=MO")
+            dtstart: Start datetime ISO format
+            duration_minutes: Show duration
+            description: Optional description
+            color: Hex color for calendar
+
+        Returns:
+            Created show object
+
+        Example:
+            >>> show = client.create_show(
+            ...     station_id=station_id,
+            ...     name="Morning Jazz",
+            ...     rrule="FREQ=WEEKLY;BYDAY=MO,WE,FR",
+            ...     dtstart="2026-02-01T08:00:00Z",
+            ...     duration_minutes=120,
+            ... )
+        """
+        return self._request(
+            "POST",
+            "/shows",
+            data={
+                "station_id": station_id,
+                "name": name,
+                "rrule": rrule,
+                "dtstart": dtstart,
+                "default_duration_minutes": duration_minutes,
+                "description": description,
+                "color": color,
+            },
+        )
+
+    def get_show_instances(
+        self,
+        station_id: str,
+        start: str,
+        end: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get show instances for a date range.
+
+        Args:
+            station_id: Station UUID
+            start: Start date ISO format
+            end: End date ISO format
+
+        Returns:
+            List of show instance objects
+        """
+        response = self._request(
+            "GET",
+            "/show-instances",
+            params={"station_id": station_id, "start": start, "end": end},
+        )
+        return response.get("instances", [])
+
+    # =========================================================================
+    # Schedule Analytics (Phase 8)
+    # =========================================================================
+
+    def get_show_performance(
+        self,
+        station_id: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get show performance analytics.
+
+        Args:
+            station_id: Station UUID
+            start: Start date (default: 30 days ago)
+            end: End date (default: today)
+
+        Returns:
+            Performance metrics by show
+        """
+        params = {"station_id": station_id}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        return self._request("GET", "/schedule-analytics/shows", params=params)
+
+    def get_best_time_slots(
+        self, station_id: str, limit: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Get best performing time slots.
+
+        Args:
+            station_id: Station UUID
+            limit: Number of slots to return
+
+        Returns:
+            Best time slots with metrics
+        """
+        return self._request(
+            "GET",
+            "/schedule-analytics/best-slots",
+            params={"station_id": station_id, "limit": limit},
+        )
+
+    def get_scheduling_suggestions(self, station_id: str) -> Dict[str, Any]:
+        """
+        Get data-driven scheduling suggestions.
+
+        Args:
+            station_id: Station UUID
+
+        Returns:
+            Scheduling suggestions
+        """
+        return self._request(
+            "GET",
+            "/schedule-analytics/suggestions",
+            params={"station_id": station_id},
+        )
+
+    # =========================================================================
+    # Public Schedule (Phase 8)
+    # =========================================================================
+
+    def get_public_schedule(
+        self,
+        station_id: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get public schedule (no auth required).
+
+        Args:
+            station_id: Station UUID
+            start: Start date
+            end: End date
+
+        Returns:
+            Public schedule data
+        """
+        params = {"station_id": station_id}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        return self._request("GET", "/public/schedule", params=params)
+
+    def get_public_now_playing(self, station_id: str) -> Dict[str, Any]:
+        """
+        Get current and next show (no auth required).
+
+        Args:
+            station_id: Station UUID
+
+        Returns:
+            Now playing with current and next show
+        """
+        return self._request(
+            "GET",
+            "/public/now-playing",
+            params={"station_id": station_id},
+        )
+
+    # =========================================================================
+    # Syndication (Phase 8)
+    # =========================================================================
+
+    def get_networks(self, owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get syndication networks.
+
+        Args:
+            owner_id: Optional owner filter
+
+        Returns:
+            List of network objects
+        """
+        params = {}
+        if owner_id:
+            params["owner_id"] = owner_id
+        response = self._request("GET", "/networks", params=params)
+        return response.get("networks", [])
+
+    def get_network_shows(
+        self, network_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get network shows available for syndication.
+
+        Args:
+            network_id: Optional network filter
+
+        Returns:
+            List of network show objects
+        """
+        params = {}
+        if network_id:
+            params["network_id"] = network_id
+        response = self._request("GET", "/network-shows", params=params)
+        return response.get("shows", [])
+
+    def subscribe_to_network_show(
+        self,
+        station_id: str,
+        network_show_id: str,
+        local_time: str,
+        local_days: str,
+        timezone: str = "UTC",
+    ) -> Dict[str, Any]:
+        """
+        Subscribe station to a network show.
+
+        Args:
+            station_id: Station UUID
+            network_show_id: Network show UUID
+            local_time: Local broadcast time (HH:MM)
+            local_days: Days to broadcast (e.g., "MO,WE,FR")
+            timezone: Station timezone
+
+        Returns:
+            Subscription object
+        """
+        return self._request(
+            "POST",
+            "/network-subscriptions",
+            data={
+                "station_id": station_id,
+                "network_show_id": network_show_id,
+                "local_time": local_time,
+                "local_days": local_days,
+                "timezone": timezone,
+            },
+        )
+
+    # =========================================================================
+    # Underwriting (Phase 8)
+    # =========================================================================
+
+    def get_sponsors(self, station_id: str) -> List[Dict[str, Any]]:
+        """
+        Get sponsors for a station.
+
+        Args:
+            station_id: Station UUID
+
+        Returns:
+            List of sponsor objects
+        """
+        response = self._request(
+            "GET", "/sponsors", params={"station_id": station_id}
+        )
+        return response.get("sponsors", [])
+
+    def create_sponsor(
+        self,
+        station_id: str,
+        name: str,
+        contact_info: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a sponsor.
+
+        Args:
+            station_id: Station UUID
+            name: Sponsor name
+            contact_info: Optional contact details
+
+        Returns:
+            Created sponsor object
+        """
+        data = {"station_id": station_id, "name": name}
+        if contact_info:
+            data["contact_info"] = contact_info
+        return self._request("POST", "/sponsors", data=data)
+
+    def get_underwriting_fulfillment(
+        self,
+        station_id: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get underwriting fulfillment report.
+
+        Args:
+            station_id: Station UUID
+            start: Start date
+            end: End date
+
+        Returns:
+            Fulfillment report with obligations and spots
+        """
+        params = {"station_id": station_id}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        return self._request("GET", "/underwriting/fulfillment", params=params)
+
+    # =========================================================================
+    # Schedule Export (Phase 8)
+    # =========================================================================
+
+    def export_schedule_ical(
+        self,
+        station_id: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> str:
+        """
+        Export schedule as iCal format.
+
+        Args:
+            station_id: Station UUID
+            start: Start date
+            end: End date
+
+        Returns:
+            iCal string (text/calendar)
+        """
+        params = {"station_id": station_id, "format": "ical"}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        # This returns text, not JSON
+        url = f"{self.api_url}/schedule/export"
+        response = self.session.get(
+            url, params=params, headers=self._headers(), timeout=self.timeout
+        )
+        return response.text
+
+    # =========================================================================
     # System (Platform Admin only)
     # =========================================================================
 

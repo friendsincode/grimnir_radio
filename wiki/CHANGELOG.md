@@ -4,6 +4,36 @@
 
 ---
 
+## 1.7.0 — 2026-02-01
+
+### Phase 8: Advanced Scheduling (Complete)
+
+This release completes the entire Phase 8 Advanced Scheduling feature set.
+
+#### Features
+
+- **Shows & Instances**: Recurring shows with RRULE patterns, instance materialization
+- **Calendar UI**: Visual day/week/month views with drag-and-drop scheduling
+- **Validation**: Conflict detection, gap detection, DJ double-booking prevention
+- **Templates**: Save/apply schedule templates, version history with rollback
+- **DJ Self-Service**: Availability management, schedule requests, approval workflow
+- **Notifications**: Show reminders, schedule change alerts, request status updates
+- **Public Schedule**: No-auth API, embeddable widgets, now-playing display
+- **Analytics**: Show performance, time slot analysis, scheduling suggestions
+- **Syndication**: Network shows, station subscriptions, delayed broadcast
+- **Underwriting**: Sponsor management, obligation tracking, spot scheduling
+- **Export**: iCal/ICS format for calendar integration
+
+#### New API Endpoints
+
+See the full [API Reference](API-Reference) for details on 50+ new endpoints.
+
+#### Database Changes
+
+Adds 21 new tables via AutoMigrate (backward compatible).
+
+---
+
 ## 1.3.0 — 2026-02-01
 
 ### Breaking Changes
