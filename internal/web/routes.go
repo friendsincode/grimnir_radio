@@ -226,6 +226,13 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Delete("/instances/{id}", h.ShowInstanceCancel)
 				})
 
+				// DJ Self-Service (Phase 8E)
+				r.Route("/dj", func(r chi.Router) {
+					r.Get("/availability", h.DJAvailability)
+					r.Get("/availability.json", h.DJAvailabilityJSON)
+					r.Get("/requests", h.DJRequests)
+				})
+
 				// Live DJ
 				r.Route("/live", func(r chi.Router) {
 					r.Get("/", h.LiveDashboard)

@@ -55,6 +55,11 @@ func Migrate(database *gorm.DB) error {
 		&models.ScheduleTemplate{},
 		&models.ScheduleVersion{},
 
+		// DJ self-service (Phase 8E)
+		&models.DJAvailability{},
+		&models.ScheduleRequest{},
+		&models.ScheduleLock{},
+
 		// Migration jobs
 		&migration.Job{},
 	)
