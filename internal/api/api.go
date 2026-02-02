@@ -300,6 +300,10 @@ func (a *API) Routes(r chi.Router) {
 			// Schedule rules and validation
 			a.AddScheduleRuleRoutes(pr)
 
+			// Schedule templates and versions
+			a.AddScheduleTemplateRoutes(pr)
+			a.AddScheduleVersionRoutes(pr)
+
 			// Migration routes (admin only)
 			pr.Group(func(mr chi.Router) {
 				mr.Use(a.requireRoles(models.RoleAdmin))
