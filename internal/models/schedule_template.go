@@ -10,10 +10,10 @@ import "time"
 
 // ScheduleTemplate stores a reusable schedule pattern (typically a week).
 type ScheduleTemplate struct {
-	ID          string         `gorm:"type:uuid;primaryKey" json:"id"`
-	StationID   string         `gorm:"type:uuid;index:idx_schedule_templates_station;not null" json:"station_id"`
-	Name        string         `gorm:"type:varchar(255);not null" json:"name"`
-	Description string         `gorm:"type:text" json:"description,omitempty"`
+	ID           string         `gorm:"type:uuid;primaryKey" json:"id"`
+	StationID    string         `gorm:"type:uuid;index:idx_schedule_templates_station;not null" json:"station_id"`
+	Name         string         `gorm:"type:varchar(255);not null" json:"name"`
+	Description  string         `gorm:"type:text" json:"description,omitempty"`
 	TemplateData map[string]any `gorm:"type:jsonb;serializer:json;not null" json:"template_data"` // Serialized week of shows/entries
 
 	// Creator
@@ -35,15 +35,15 @@ func (ScheduleTemplate) TableName() string {
 // TemplateEntry represents a single entry in a schedule template.
 // This is stored within TemplateData.
 type TemplateEntry struct {
-	DayOfWeek      int            `json:"day_of_week"`       // 0=Sunday, 6=Saturday
-	StartTime      string         `json:"start_time"`        // HH:MM format
-	DurationMinutes int           `json:"duration_minutes"`
-	SourceType     string         `json:"source_type"`       // media, playlist, smart_block, etc.
-	SourceID       string         `json:"source_id,omitempty"`
-	ShowID         string         `json:"show_id,omitempty"` // If from a show
-	ShowName       string         `json:"show_name,omitempty"`
-	Title          string         `json:"title"`             // Display title
-	Metadata       map[string]any `json:"metadata,omitempty"`
+	DayOfWeek       int            `json:"day_of_week"` // 0=Sunday, 6=Saturday
+	StartTime       string         `json:"start_time"`  // HH:MM format
+	DurationMinutes int            `json:"duration_minutes"`
+	SourceType      string         `json:"source_type"` // media, playlist, smart_block, etc.
+	SourceID        string         `json:"source_id,omitempty"`
+	ShowID          string         `json:"show_id,omitempty"` // If from a show
+	ShowName        string         `json:"show_name,omitempty"`
+	Title           string         `json:"title"` // Display title
+	Metadata        map[string]any `json:"metadata,omitempty"`
 }
 
 // ScheduleVersion stores a snapshot of the schedule for history/rollback.
@@ -72,14 +72,14 @@ func (ScheduleVersion) TableName() string {
 
 // VersionSnapshotEntry represents a single entry in a version snapshot.
 type VersionSnapshotEntry struct {
-	ID             string         `json:"id"`
-	StartsAt       time.Time      `json:"starts_at"`
-	EndsAt         time.Time      `json:"ends_at"`
-	SourceType     string         `json:"source_type"`
-	SourceID       string         `json:"source_id,omitempty"`
-	MountID        string         `json:"mount_id,omitempty"`
-	Title          string         `json:"title"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
+	ID         string         `json:"id"`
+	StartsAt   time.Time      `json:"starts_at"`
+	EndsAt     time.Time      `json:"ends_at"`
+	SourceType string         `json:"source_type"`
+	SourceID   string         `json:"source_id,omitempty"`
+	MountID    string         `json:"mount_id,omitempty"`
+	Title      string         `json:"title"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 // VersionDiff represents the difference between two versions.
@@ -93,8 +93,8 @@ type VersionDiff struct {
 
 // VersionDiffEntry represents a modified entry between versions.
 type VersionDiffEntry struct {
-	ID       string                 `json:"id"`
-	Before   VersionSnapshotEntry   `json:"before"`
-	After    VersionSnapshotEntry   `json:"after"`
-	Changes  map[string]any         `json:"changes"` // Field names that changed
+	ID      string               `json:"id"`
+	Before  VersionSnapshotEntry `json:"before"`
+	After   VersionSnapshotEntry `json:"after"`
+	Changes map[string]any       `json:"changes"` // Field names that changed
 }

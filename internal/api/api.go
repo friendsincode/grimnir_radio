@@ -53,6 +53,7 @@ type API struct {
 	executorStateMgr *executor.StateManager
 	auditSvc         *audit.Service
 	notificationAPI  *NotificationAPI
+	webhookAPI       *WebhookAPI
 	migrationHandler *MigrationHandler
 	broadcast        *broadcast.Server
 	bus              *events.Bus
@@ -86,6 +87,11 @@ func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, 
 // SetNotificationAPI sets the notification API handler.
 func (a *API) SetNotificationAPI(notifAPI *NotificationAPI) {
 	a.notificationAPI = notifAPI
+}
+
+// SetWebhookAPI sets the webhook API handler.
+func (a *API) SetWebhookAPI(webhookAPI *WebhookAPI) {
+	a.webhookAPI = webhookAPI
 }
 
 type mountRequest struct {
@@ -169,6 +175,9 @@ func (a *API) Routes(r chi.Router) {
 		r.Get("/analytics/now-playing", a.handleAnalyticsNowPlaying)
 		r.Get("/analytics/listeners", a.handleAnalyticsListeners)
 		r.Get("/public/stations", a.handlePublicStations)
+
+		// Public schedule endpoints (Phase 8G)
+		a.AddPublicScheduleRoutes(r)
 
 		r.Group(func(pr chi.Router) {
 			pr.Use(a.authMiddleware())
@@ -316,6 +325,11 @@ func (a *API) Routes(r chi.Router) {
 			// Notifications
 			if a.notificationAPI != nil {
 				a.notificationAPI.RegisterRoutes(pr)
+			}
+
+			// Webhooks (station manager+)
+			if a.webhookAPI != nil {
+				a.webhookAPI.RegisterRoutes(pr)
 			}
 
 			// Migration routes (admin only)

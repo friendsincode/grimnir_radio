@@ -28,27 +28,27 @@ const (
 
 // Show represents a recurring show definition with RRULE support.
 type Show struct {
-	ID                     string `gorm:"type:uuid;primaryKey"`
-	StationID              string `gorm:"type:uuid;index:idx_shows_station;not null"`
-	Name                   string `gorm:"type:varchar(255);not null"`
-	Description            string `gorm:"type:text"`
-	ArtworkPath            string `gorm:"type:varchar(512)"`
+	ID                     string  `gorm:"type:uuid;primaryKey"`
+	StationID              string  `gorm:"type:uuid;index:idx_shows_station;not null"`
+	Name                   string  `gorm:"type:varchar(255);not null"`
+	Description            string  `gorm:"type:text"`
+	ArtworkPath            string  `gorm:"type:varchar(512)"`
 	HostUserID             *string `gorm:"type:uuid;index:idx_shows_host"`
 	DefaultDurationMinutes int     `gorm:"not null;default:60"`
 	Color                  string  `gorm:"type:varchar(7)"` // hex color for calendar (e.g., "#FF5733")
 
 	// Recurrence (RFC 5545 RRULE)
-	RRule    string     `gorm:"type:text"`                             // e.g., "FREQ=WEEKLY;BYDAY=MO;BYHOUR=19"
-	DTStart  time.Time  `gorm:"not null"`                              // First occurrence
-	DTEnd    *time.Time `gorm:"index:idx_shows_dtend"`                 // End of recurrence (NULL = forever)
+	RRule    string     `gorm:"type:text"`                               // e.g., "FREQ=WEEKLY;BYDAY=MO;BYHOUR=19"
+	DTStart  time.Time  `gorm:"not null"`                                // First occurrence
+	DTEnd    *time.Time `gorm:"index:idx_shows_dtend"`                   // End of recurrence (NULL = forever)
 	Timezone string     `gorm:"type:varchar(64);not null;default:'UTC'"` // IANA timezone name
 
 	Active   bool           `gorm:"not null;default:true"`
 	Metadata map[string]any `gorm:"type:jsonb;serializer:json"`
 
 	// Relationships
-	Station   *Station `gorm:"foreignKey:StationID"`
-	Host      *User    `gorm:"foreignKey:HostUserID"`
+	Station   *Station       `gorm:"foreignKey:StationID"`
+	Host      *User          `gorm:"foreignKey:HostUserID"`
 	Instances []ShowInstance `gorm:"foreignKey:ShowID"`
 
 	CreatedAt time.Time
@@ -62,9 +62,9 @@ func (Show) TableName() string {
 
 // ShowInstance represents a materialized instance of a recurring show.
 type ShowInstance struct {
-	ID        string `gorm:"type:uuid;primaryKey"`
-	ShowID    string `gorm:"type:uuid;index:idx_show_instances_show;not null"`
-	StationID string `gorm:"type:uuid;index:idx_show_instances_station_time;not null"`
+	ID        string    `gorm:"type:uuid;primaryKey"`
+	ShowID    string    `gorm:"type:uuid;index:idx_show_instances_show;not null"`
+	StationID string    `gorm:"type:uuid;index:idx_show_instances_station_time;not null"`
 	StartsAt  time.Time `gorm:"index:idx_show_instances_station_time;not null"`
 	EndsAt    time.Time `gorm:"not null"`
 

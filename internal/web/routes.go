@@ -52,6 +52,11 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/schedule/events", h.PublicScheduleEvents)
 			r.Get("/station/{id}", h.StationInfo)
 
+			// Embeddable widgets (Phase 8G)
+			r.Get("/embed/schedule", h.EmbedSchedule)
+			r.Get("/embed/now-playing", h.EmbedNowPlaying)
+			r.Get("/embed/schedule.js", h.EmbedScheduleJS)
+
 			// Auth pages
 			r.Get("/login", h.LoginPage)
 			r.Post("/login", h.LoginSubmit)

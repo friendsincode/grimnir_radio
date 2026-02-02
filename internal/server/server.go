@@ -42,6 +42,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/smartblock"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/friendsincode/grimnir_radio/internal/web"
+	"github.com/friendsincode/grimnir_radio/internal/webhooks"
 	"github.com/friendsincode/grimnir_radio/internal/webrtc"
 	"github.com/friendsincode/grimnir_radio/internal/webstream"
 )
@@ -67,6 +68,7 @@ type Server struct {
 	bus                  *events.Bus
 	auditSvc             *audit.Service
 	notificationSvc      *notifications.Service
+	webhookSvc           *webhooks.Service
 	webrtcBroadcaster    *webrtc.Broadcaster
 
 	bgCancel context.CancelFunc
@@ -257,6 +259,9 @@ func (s *Server) initDependencies() error {
 	notifCfg := notifications.ConfigFromEnv()
 	s.notificationSvc = notifications.NewService(database, s.bus, notifCfg, s.logger)
 
+	// Webhook service for show transition notifications
+	s.webhookSvc = webhooks.NewService(database, s.bus, s.logger)
+
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
 	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, broadcastSrv, s.bus, s.logBuffer, s.logger)
@@ -264,6 +269,10 @@ func (s *Server) initDependencies() error {
 	// Set notification API
 	notificationAPI := api.NewNotificationAPI(s.notificationSvc)
 	s.api.SetNotificationAPI(notificationAPI)
+
+	// Set webhook API
+	webhookAPI := api.NewWebhookAPI(s.api, s.webhookSvc)
+	s.api.SetWebhookAPI(webhookAPI)
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
@@ -401,6 +410,15 @@ func (s *Server) startBackgroundWorkers() {
 		go func() {
 			defer s.bgWG.Done()
 			s.notificationSvc.Start(ctx)
+		}()
+	}
+
+	// Start webhook service
+	if s.webhookSvc != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			s.webhookSvc.Start(ctx)
 		}()
 	}
 

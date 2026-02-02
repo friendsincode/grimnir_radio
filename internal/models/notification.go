@@ -12,22 +12,22 @@ import "time"
 type NotificationType string
 
 const (
-	NotificationTypeShowReminder     NotificationType = "show_reminder"     // Reminder before show starts
-	NotificationTypeScheduleChange   NotificationType = "schedule_change"   // Schedule was modified
-	NotificationTypeRequestStatus    NotificationType = "request_status"    // Request approved/rejected
-	NotificationTypeNewAssignment    NotificationType = "new_assignment"    // Assigned to cover a show
+	NotificationTypeShowReminder      NotificationType = "show_reminder"      // Reminder before show starts
+	NotificationTypeScheduleChange    NotificationType = "schedule_change"    // Schedule was modified
+	NotificationTypeRequestStatus     NotificationType = "request_status"     // Request approved/rejected
+	NotificationTypeNewAssignment     NotificationType = "new_assignment"     // Assigned to cover a show
 	NotificationTypeSchedulePublished NotificationType = "schedule_published" // New schedule available
-	NotificationTypeShowCancelled    NotificationType = "show_cancelled"    // Show was cancelled
+	NotificationTypeShowCancelled     NotificationType = "show_cancelled"     // Show was cancelled
 )
 
 // NotificationChannel defines the delivery channel.
 type NotificationChannel string
 
 const (
-	NotificationChannelEmail   NotificationChannel = "email"
-	NotificationChannelSMS     NotificationChannel = "sms"
-	NotificationChannelPush    NotificationChannel = "push"
-	NotificationChannelInApp   NotificationChannel = "in_app"
+	NotificationChannelEmail NotificationChannel = "email"
+	NotificationChannelSMS   NotificationChannel = "sms"
+	NotificationChannelPush  NotificationChannel = "push"
+	NotificationChannelInApp NotificationChannel = "in_app"
 )
 
 // NotificationStatus defines the delivery status.

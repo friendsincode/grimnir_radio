@@ -64,6 +64,10 @@ func Migrate(database *gorm.DB) error {
 		&models.NotificationPreference{},
 		&models.Notification{},
 
+		// Webhooks (Phase 8G)
+		&models.WebhookTarget{},
+		&models.WebhookLog{},
+
 		// Migration jobs
 		&migration.Job{},
 	)

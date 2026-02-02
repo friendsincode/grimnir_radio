@@ -23,19 +23,19 @@ import (
 
 // scheduleRuleCreateRequest is the request body for creating a schedule rule.
 type scheduleRuleCreateRequest struct {
-	StationID string            `json:"station_id"`
-	Name      string            `json:"name"`
-	RuleType  models.RuleType   `json:"rule_type"`
-	Config    map[string]any    `json:"config"`
+	StationID string              `json:"station_id"`
+	Name      string              `json:"name"`
+	RuleType  models.RuleType     `json:"rule_type"`
+	Config    map[string]any      `json:"config"`
 	Severity  models.RuleSeverity `json:"severity"`
 }
 
 // scheduleRuleUpdateRequest is the request body for updating a schedule rule.
 type scheduleRuleUpdateRequest struct {
-	Name     *string             `json:"name"`
-	Config   map[string]any      `json:"config"`
+	Name     *string              `json:"name"`
+	Config   map[string]any       `json:"config"`
 	Severity *models.RuleSeverity `json:"severity"`
-	Active   *bool               `json:"active"`
+	Active   *bool                `json:"active"`
 }
 
 // AddScheduleRuleRoutes registers schedule rule routes.

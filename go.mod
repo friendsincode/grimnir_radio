@@ -21,6 +21,7 @@ require (
 	github.com/redis/go-redis/v9 v9.4.0
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.8.1
+	github.com/teambition/rrule-go v1.8.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0
 	go.opentelemetry.io/otel v1.24.0
@@ -94,7 +95,6 @@ require (
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/teambition/rrule-go v1.8.2 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/ysmood/fetchup v0.2.3 // indirect
 	github.com/ysmood/goob v0.4.0 // indirect
