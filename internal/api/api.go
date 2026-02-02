@@ -304,6 +304,9 @@ func (a *API) Routes(r chi.Router) {
 			a.AddScheduleTemplateRoutes(pr)
 			a.AddScheduleVersionRoutes(pr)
 
+			// DJ self-service
+			a.AddDJSelfServiceRoutes(pr)
+
 			// Migration routes (admin only)
 			pr.Group(func(mr chi.Router) {
 				mr.Use(a.requireRoles(models.RoleAdmin))

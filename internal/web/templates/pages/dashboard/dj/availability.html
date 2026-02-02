@@ -1,0 +1,316 @@
+{{define "pages/dashboard/dj/availability"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">My Availability</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-calendar-check me-2"></i>My Availability</h4>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAvailabilityModal">
+        <i class="bi bi-plus-lg me-1"></i>Add Availability
+    </button>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">Weekly Schedule</h6>
+            </div>
+            <div class="card-body">
+                <p class="text-body-secondary small mb-3">
+                    Set your regular weekly availability. Green blocks indicate when you're available,
+                    red blocks indicate when you're unavailable.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-bordered mb-0" id="availabilityTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 100px;">Day</th>
+                                <th>Availability</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{$availability := index .Data "Availability"}}
+                            {{range $day := iterate 7}}
+                            <tr>
+                                <td class="fw-medium">
+                                    {{if eq $day 0}}Sunday{{end}}
+                                    {{if eq $day 1}}Monday{{end}}
+                                    {{if eq $day 2}}Tuesday{{end}}
+                                    {{if eq $day 3}}Wednesday{{end}}
+                                    {{if eq $day 4}}Thursday{{end}}
+                                    {{if eq $day 5}}Friday{{end}}
+                                    {{if eq $day 6}}Saturday{{end}}
+                                </td>
+                                <td>
+                                    <div class="d-flex flex-wrap gap-2" id="day-{{$day}}-slots">
+                                        {{range $availability}}
+                                        {{if and .DayOfWeek (eq (deref .DayOfWeek) $day)}}
+                                        <span class="badge {{if .Available}}bg-success{{else}}bg-danger{{end}} availability-slot"
+                                              data-id="{{.ID}}"
+                                              style="cursor: pointer;"
+                                              title="{{if .Note}}{{.Note}}{{end}}">
+                                            {{.StartTime}} - {{.EndTime}}
+                                            {{if not .Available}}<i class="bi bi-x-circle ms-1"></i>{{end}}
+                                        </span>
+                                        {{end}}
+                                        {{end}}
+                                        <span class="text-body-secondary small no-slots-msg">
+                                            No availability set
+                                        </span>
+                                    </div>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Specific Dates -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="mb-0">Specific Date Overrides</h6>
+            </div>
+            <div class="card-body">
+                <p class="text-body-secondary small mb-3">
+                    Override your regular availability for specific dates (e.g., time off, special events).
+                </p>
+                <div id="specificDates">
+                    {{$availability := index .Data "Availability"}}
+                    {{$hasSpecific := false}}
+                    {{range $availability}}
+                    {{if .SpecificDate}}
+                    {{$hasSpecific = true}}
+                    <div class="d-flex justify-content-between align-items-center p-2 border-bottom specific-date-row" data-id="{{.ID}}">
+                        <div>
+                            <strong>{{.SpecificDate.Format "Mon, Jan 2, 2006"}}</strong>
+                            <span class="badge {{if .Available}}bg-success{{else}}bg-danger{{end}} ms-2">
+                                {{.StartTime}} - {{.EndTime}}
+                                {{if .Available}}Available{{else}}Unavailable{{end}}
+                            </span>
+                            {{if .Note}}<br><small class="text-body-secondary">{{.Note}}</small>{{end}}
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger delete-availability" data-id="{{.ID}}">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                    {{end}}
+                    {{end}}
+                    {{if not $hasSpecific}}
+                    <p class="text-body-secondary mb-0" id="noSpecificDates">No specific date overrides set.</p>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Quick Guide</h6>
+            </div>
+            <div class="card-body">
+                <ul class="small mb-0">
+                    <li class="mb-2"><strong>Available</strong> (green) - You can be scheduled during these times</li>
+                    <li class="mb-2"><strong>Unavailable</strong> (red) - You cannot be scheduled during these times</li>
+                    <li class="mb-2"><strong>Weekly</strong> - Repeats every week</li>
+                    <li class="mb-2"><strong>Specific date</strong> - Overrides weekly for that date only</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-link-45deg me-2"></i>Quick Actions</h6>
+            </div>
+            <div class="card-body">
+                <a href="/dashboard/dj/requests" class="btn btn-outline-primary w-100 mb-2">
+                    <i class="bi bi-send me-1"></i>Schedule Requests
+                </a>
+                <a href="/dashboard/schedule" class="btn btn-outline-secondary w-100">
+                    <i class="bi bi-calendar3 me-1"></i>View Schedule
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Availability Modal -->
+<div class="modal fade" id="addAvailabilityModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add Availability</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addAvailabilityForm">
+                    <div class="mb-3">
+                        <label class="form-label">Type</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="availType" id="typeWeekly" value="weekly" checked>
+                            <label class="btn btn-outline-primary" for="typeWeekly">Weekly</label>
+                            <input type="radio" class="btn-check" name="availType" id="typeSpecific" value="specific">
+                            <label class="btn btn-outline-primary" for="typeSpecific">Specific Date</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3" id="dayOfWeekGroup">
+                        <label class="form-label">Day of Week</label>
+                        <select class="form-select" id="availDayOfWeek">
+                            <option value="0">Sunday</option>
+                            <option value="1">Monday</option>
+                            <option value="2">Tuesday</option>
+                            <option value="3">Wednesday</option>
+                            <option value="4">Thursday</option>
+                            <option value="5">Friday</option>
+                            <option value="6">Saturday</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3 d-none" id="specificDateGroup">
+                        <label class="form-label">Date</label>
+                        <input type="date" class="form-control" id="availSpecificDate">
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="form-label">Start Time</label>
+                            <input type="time" class="form-control" id="availStartTime" value="09:00">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">End Time</label>
+                            <input type="time" class="form-control" id="availEndTime" value="17:00">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="availStatus" id="statusAvailable" value="true" checked>
+                            <label class="btn btn-outline-success" for="statusAvailable">Available</label>
+                            <input type="radio" class="btn-check" name="availStatus" id="statusUnavailable" value="false">
+                            <label class="btn btn-outline-danger" for="statusUnavailable">Unavailable</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Note (optional)</label>
+                        <input type="text" class="form-control" id="availNote" placeholder="e.g., Vacation, Regular shift">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveAvailability">
+                    <i class="bi bi-check-lg me-1"></i>Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const stationID = '{{index .Data "StationID"}}';
+    const addModal = new bootstrap.Modal(document.getElementById('addAvailabilityModal'));
+
+    // Toggle between weekly and specific date
+    document.querySelectorAll('input[name="availType"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            document.getElementById('dayOfWeekGroup').classList.toggle('d-none', this.value === 'specific');
+            document.getElementById('specificDateGroup').classList.toggle('d-none', this.value === 'weekly');
+        });
+    });
+
+    // Save availability
+    document.getElementById('saveAvailability').addEventListener('click', async function() {
+        const type = document.querySelector('input[name="availType"]:checked').value;
+        const available = document.querySelector('input[name="availStatus"]:checked').value === 'true';
+
+        const data = {
+            station_id: stationID,
+            start_time: document.getElementById('availStartTime').value,
+            end_time: document.getElementById('availEndTime').value,
+            available: available,
+            note: document.getElementById('availNote').value
+        };
+
+        if (type === 'weekly') {
+            data.day_of_week = parseInt(document.getElementById('availDayOfWeek').value);
+        } else {
+            data.specific_date = document.getElementById('availSpecificDate').value;
+        }
+
+        try {
+            const response = await fetch('/api/v1/dj/availability', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                addModal.hide();
+                location.reload();
+            } else {
+                const err = await response.json();
+                grimnirUtils.showToast(err.error || 'Failed to save', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to save availability', 'error');
+        }
+    });
+
+    // Delete availability
+    document.querySelectorAll('.delete-availability, .availability-slot').forEach(el => {
+        el.addEventListener('click', async function(e) {
+            const id = this.dataset.id;
+            if (!id) return;
+
+            // For slots, require confirm; for delete buttons, proceed
+            if (this.classList.contains('availability-slot')) {
+                if (!confirm('Delete this availability slot?')) return;
+            } else if (!confirm('Delete this availability?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/dj/availability/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    location.reload();
+                } else {
+                    grimnirUtils.showToast('Failed to delete', 'error');
+                }
+            } catch (e) {
+                grimnirUtils.showToast('Failed to delete', 'error');
+            }
+        });
+    });
+
+    // Hide "no slots" messages if there are slots
+    document.querySelectorAll('#availabilityTable tbody tr').forEach(row => {
+        const slots = row.querySelectorAll('.availability-slot');
+        const noMsg = row.querySelector('.no-slots-msg');
+        if (slots.length > 0 && noMsg) {
+            noMsg.style.display = 'none';
+        }
+    });
+});
+</script>
+{{end}}
