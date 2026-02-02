@@ -43,6 +43,10 @@ const (
 	EventMediaDeleted      EventType = "cache.media_deleted"
 	EventAnalysisComplete  EventType = "cache.analysis_complete"
 
+	// Show transition events
+	EventShowStart EventType = "show.start"
+	EventShowEnd   EventType = "show.end"
+
 	// Audit events (for operations that need explicit audit logging)
 	EventAuditAPIKeyCreate    EventType = "audit.apikey.create"
 	EventAuditAPIKeyRevoke    EventType = "audit.apikey.revoke"

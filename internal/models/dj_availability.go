@@ -46,10 +46,10 @@ func (DJAvailability) TableName() string {
 type RequestType string
 
 const (
-	RequestTypeNewShow  RequestType = "new_show"  // Request a new show slot
-	RequestTypeSwap     RequestType = "swap"      // Swap shift with another DJ
-	RequestTypeCancel   RequestType = "cancel"    // Cancel a show instance
-	RequestTypeTimeOff  RequestType = "time_off"  // Request time off
+	RequestTypeNewShow    RequestType = "new_show"   // Request a new show slot
+	RequestTypeSwap       RequestType = "swap"       // Swap shift with another DJ
+	RequestTypeCancel     RequestType = "cancel"     // Cancel a show instance
+	RequestTypeTimeOff    RequestType = "time_off"   // Request time off
 	RequestTypeReschedule RequestType = "reschedule" // Move show to different time
 )
 
@@ -57,16 +57,16 @@ const (
 type RequestStatus string
 
 const (
-	RequestStatusPending  RequestStatus = "pending"
-	RequestStatusApproved RequestStatus = "approved"
-	RequestStatusRejected RequestStatus = "rejected"
+	RequestStatusPending   RequestStatus = "pending"
+	RequestStatusApproved  RequestStatus = "approved"
+	RequestStatusRejected  RequestStatus = "rejected"
 	RequestStatusCancelled RequestStatus = "cancelled" // Cancelled by requester
 )
 
 // ScheduleRequest represents a DJ's request to change the schedule.
 type ScheduleRequest struct {
-	ID        string      `gorm:"type:uuid;primaryKey" json:"id"`
-	StationID string      `gorm:"type:uuid;index:idx_schedule_requests_station;not null" json:"station_id"`
+	ID          string      `gorm:"type:uuid;primaryKey" json:"id"`
+	StationID   string      `gorm:"type:uuid;index:idx_schedule_requests_station;not null" json:"station_id"`
 	RequestType RequestType `gorm:"type:varchar(32);not null" json:"request_type"`
 
 	// Who is making the request

@@ -25,7 +25,7 @@ func TestRRuleParsing(t *testing.T) {
 			name:      "weekly monday",
 			rrule:     "FREQ=WEEKLY;BYDAY=MO",
 			dtstart:   time.Date(2026, 1, 5, 19, 0, 0, 0, time.UTC), // Monday
-			wantCount: 2, // Jan 5 and Jan 12 (inclusive)
+			wantCount: 2,                                            // Jan 5 and Jan 12 (inclusive)
 			wantErr:   false,
 		},
 		{
@@ -39,7 +39,7 @@ func TestRRuleParsing(t *testing.T) {
 			name:      "weekly multiple days",
 			rrule:     "FREQ=WEEKLY;BYDAY=MO,WE,FR",
 			dtstart:   time.Date(2026, 1, 5, 19, 0, 0, 0, time.UTC), // Monday
-			wantCount: 4, // Mon 5, Wed 7, Fri 9, Mon 12 (inclusive)
+			wantCount: 4,                                            // Mon 5, Wed 7, Fri 9, Mon 12 (inclusive)
 			wantErr:   false,
 		},
 		{
