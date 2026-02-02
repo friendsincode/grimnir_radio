@@ -346,6 +346,14 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Post("/migrations/history/{id}/rollback", h.ImportHistoryRollback)
 				r.Post("/migrations/history/{id}/redo", h.ImportHistoryRedo)
 				r.Get("/migrations/history/{id}/items", h.ImportHistoryItems)
+
+				// Orphan media management
+				r.Get("/orphans", h.OrphansPage)
+				r.Post("/orphans/scan", h.OrphansScan)
+				r.Post("/orphans/{id}/adopt", h.OrphansAdopt)
+				r.Delete("/orphans/{id}", h.OrphansDelete)
+				r.Post("/orphans/bulk-adopt", h.OrphansBulkAdopt)
+				r.Post("/orphans/bulk-delete", h.OrphansBulkDelete)
 			})
 
 			// Platform Admin routes (platform_admin only)

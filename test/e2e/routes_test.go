@@ -510,6 +510,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&models.StagedImport{},
 		&models.APIKey{},
 		&migration.Job{},
+		&models.OrphanMedia{},
 	)
 	if err != nil {
 		t.Fatalf("failed to migrate: %v", err)
