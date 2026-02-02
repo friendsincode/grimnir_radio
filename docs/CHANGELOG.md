@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.4 — 2026-02-02
+
+### Bug Fixes
+- **API Auth**: Fixed API authentication to accept JWT Bearer tokens from dashboard JavaScript
+  - Previously only X-API-Key headers were accepted
+  - Now accepts both X-API-Key and Authorization Bearer tokens
+  - Fixes 401 errors on notifications, audit, and other API calls from dashboard
+
+---
+
 ## 1.9.3 — 2026-02-02
 
 ### Bug Fixes

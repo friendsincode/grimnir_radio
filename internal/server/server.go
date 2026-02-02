@@ -275,7 +275,7 @@ func (s *Server) initDependencies() error {
 
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
-	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, broadcastSrv, s.bus, s.logBuffer, s.logger)
+	s.api = api.New(s.db, []byte(s.cfg.JWTSigningKey), s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, broadcastSrv, s.bus, s.logBuffer, s.logger)
 
 	// Set notification API
 	notificationAPI := api.NewNotificationAPI(s.notificationSvc)
