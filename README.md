@@ -1,6 +1,6 @@
 # Grimnir Radio
 
-**Version:** 1.3.1
+**Version:** 1.7.0
 
 Grimnir Radio is a modern, production-ready broadcast automation system built in Go. It features a multi-process architecture with separated control plane and media engine, live DJ input, HTTP stream relay with automatic failover, horizontal scaling, and comprehensive observability.
 
@@ -66,7 +66,7 @@ See [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md) for manual 
 
 ## Production Status
 
-**All planned phases complete (1.0 release):**
+**All planned phases complete through 1.7.0:**
 
 - ✅ **Phase 0**: Foundation Fixes
 - ✅ **Phase 4A**: Executor & Priority System (5-tier priority ladder)
@@ -75,6 +75,7 @@ See [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md) for manual 
 - ✅ **Phase 5**: Observability & Multi-Instance (Prometheus, consistent hashing)
 - ✅ **Phase 6**: Production Readiness (Docker, K8s, load testing, migrations)
 - ✅ **Phase 7**: Nix Integration (reproducible builds, three deployment flavors)
+- ✅ **Phase 8**: Advanced Scheduling (shows, calendar, DJ self-service, syndication)
 
 See [`docs/ARCHITECTURE_ROADMAP.md`](docs/ARCHITECTURE_ROADMAP.md) for detailed implementation history.
 
@@ -217,11 +218,22 @@ Key files:
 - Full observability (Prometheus metrics, OpenTelemetry tracing, alerts)
 - Turn-key Docker Compose deployment with Icecast2
 - Migration tools (AzuraCast, LibreTime import) with media file transfer
+- **Advanced Scheduling** (Phase 8):
+  - Shows with RRULE recurrence and instance materialization
+  - Visual calendar UI with drag-and-drop scheduling
+  - Schedule validation and conflict detection
+  - Schedule templates and versioning with rollback
+  - DJ self-service (availability, requests, locks)
+  - Notification system (in-app, email)
+  - Public schedule API with embeddable widgets
+  - Schedule analytics and performance metrics
+  - Network syndication with subscriptions
+  - Underwriting/sponsor management
+  - iCal/ICS export for calendar integration
 
 ### Planned 📋
 - Emergency Alert System (EAS) integration
 - WebDJ interface
-- Advanced scheduling features (conflict detection, templates)
 
 ## Shout-Outs
 

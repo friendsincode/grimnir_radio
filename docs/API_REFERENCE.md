@@ -1,10 +1,10 @@
 # Grimnir Radio API Reference
 
-Version: 0.0.1-alpha
+Version: 1.7.0
 
 Base URL: `http://localhost:8080/api/v1`
 
-This document describes both **IMPLEMENTED** and **⏳ PLANNED** API endpoints. Implemented endpoints are available in the current release. Planned endpoints are part of the future multi-process architecture (API Gateway, Planner, Executor Pool, Media Engine) and are clearly marked with ⏳. See `docs/ARCHITECTURE_ROADMAP.md` for implementation timeline.
+This document describes all implemented API endpoints. For the full OpenAPI specification, see `api/openapi.yaml`.
 
 ## Table of Contents
 

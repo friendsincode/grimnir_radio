@@ -1,9 +1,11 @@
 # Advanced Scheduling Roadmap
 
 **Parent Phase:** Phase 8 (from main roadmap)
-**Status:** Planning
+**Status:** ✅ Complete (v1.7.0)
 
 This document breaks down the Advanced Scheduling feature into implementable milestones.
+
+> **Note:** All phases (8A-8H) have been implemented and released in version 1.7.0.
 
 ---
 
