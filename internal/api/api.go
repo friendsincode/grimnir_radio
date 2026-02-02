@@ -297,6 +297,9 @@ func (a *API) Routes(r chi.Router) {
 			// Shows and scheduling routes
 			a.AddShowRoutes(pr)
 
+			// Schedule rules and validation
+			a.AddScheduleRuleRoutes(pr)
+
 			// Migration routes (admin only)
 			pr.Group(func(mr chi.Router) {
 				mr.Use(a.requireRoles(models.RoleAdmin))

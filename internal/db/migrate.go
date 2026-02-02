@@ -51,6 +51,7 @@ func Migrate(database *gorm.DB) error {
 		// Shows and scheduling (Phase 8)
 		&models.Show{},
 		&models.ShowInstance{},
+		&models.ScheduleRule{},
 
 		// Migration jobs
 		&migration.Job{},
