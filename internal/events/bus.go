@@ -44,13 +44,13 @@ const (
 	EventAnalysisComplete  EventType = "cache.analysis_complete"
 
 	// Audit events (for operations that need explicit audit logging)
-	EventAuditAPIKeyCreate     EventType = "audit.apikey.create"
-	EventAuditAPIKeyRevoke     EventType = "audit.apikey.revoke"
-	EventAuditWebstreamCreate  EventType = "audit.webstream.create"
-	EventAuditWebstreamUpdate  EventType = "audit.webstream.update"
-	EventAuditWebstreamDelete  EventType = "audit.webstream.delete"
-	EventAuditScheduleRefresh  EventType = "audit.schedule.refresh"
-	EventAuditStationCreate    EventType = "audit.station.create"
+	EventAuditAPIKeyCreate    EventType = "audit.apikey.create"
+	EventAuditAPIKeyRevoke    EventType = "audit.apikey.revoke"
+	EventAuditWebstreamCreate EventType = "audit.webstream.create"
+	EventAuditWebstreamUpdate EventType = "audit.webstream.update"
+	EventAuditWebstreamDelete EventType = "audit.webstream.delete"
+	EventAuditScheduleRefresh EventType = "audit.schedule.refresh"
+	EventAuditStationCreate   EventType = "audit.station.create"
 )
 
 // Payload generic event payload.

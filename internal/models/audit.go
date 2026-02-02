@@ -45,8 +45,8 @@ type AuditLog struct {
 	UserEmail    string         `gorm:"type:varchar(255)"`                 // Denormalized for readability
 	StationID    *string        `gorm:"type:uuid;index:idx_audit_station"` // NULL if platform-wide
 	Action       AuditAction    `gorm:"type:varchar(64);index:idx_audit_action;not null"`
-	ResourceType string         `gorm:"type:varchar(64)"`  // "user", "apikey", "station", etc.
-	ResourceID   string         `gorm:"type:uuid"`         // ID of the affected resource
+	ResourceType string         `gorm:"type:varchar(64)"`           // "user", "apikey", "station", etc.
+	ResourceID   string         `gorm:"type:uuid"`                  // ID of the affected resource
 	Details      map[string]any `gorm:"type:jsonb;serializer:json"` // Action-specific details
 	IPAddress    string         `gorm:"type:varchar(45)"`           // IPv4 or IPv6
 	UserAgent    string         `gorm:"type:varchar(512)"`
