@@ -365,6 +365,12 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Configurable widgets (now playing, schedule, recent tracks)
 - No coding required for station operators
 
+**White-Label Support**
+- Replace "Grimnir Radio" branding with custom platform name
+- Custom logos throughout dashboard, login, emails
+- Reseller/hosting provider friendly
+- Complete brand removal option
+
 **Advanced Scheduling**
 
 *Schedule Management:*

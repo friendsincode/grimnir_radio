@@ -575,17 +575,840 @@ When a widget is selected:
 
 ### Phase 9F: Advanced Features
 
-**Goal:** Version history, mobile preview, SEO
+**Goal:** Version history, mobile preview, SEO, performance optimization
 
-**Tasks:**
-- [ ] Version history and rollback
-- [ ] Mobile/tablet preview modes
-- [ ] SEO configuration
-- [ ] Custom CSS support
-- [ ] Custom head content (analytics)
-- [ ] Page loading optimization
+---
 
-**Deliverable:** Production-ready landing page editor
+#### 9F.1: Version History and Rollback
+
+**Data Model:**
+```sql
+-- Already defined, but expanded:
+CREATE TABLE landing_page_versions (
+  id UUID PRIMARY KEY,
+  landing_page_id UUID NOT NULL REFERENCES landing_pages(id),
+  version_number INT NOT NULL,
+  config JSONB NOT NULL,
+  config_hash VARCHAR(64) NOT NULL,  -- SHA256 for dedup
+  change_type VARCHAR(32) NOT NULL,  -- 'publish', 'auto_save', 'restore'
+  change_summary TEXT,               -- auto-generated or user-provided
+  thumbnail_path VARCHAR(512),       -- screenshot of this version
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP NOT NULL,
+
+  UNIQUE(landing_page_id, version_number)
+);
+CREATE INDEX idx_lpv_landing_page ON landing_page_versions(landing_page_id, created_at DESC);
+```
+
+**Version Creation Rules:**
+- New version on every **publish** (always)
+- New version on **auto-save** only if config changed (compare hash)
+- New version on **restore** (creates new version from old config)
+- Keep last 50 versions per station (configurable)
+- Versions older than 90 days auto-pruned (except published versions)
+
+**API Endpoints:**
+```
+GET  /api/v1/landing-page/versions                    # List versions (paginated)
+     ?limit=20&offset=0
+
+GET  /api/v1/landing-page/versions/{id}               # Get version details
+     Response: {version_number, config, change_type, created_by, created_at}
+
+GET  /api/v1/landing-page/versions/{id}/preview       # Get preview URL for version
+     Response: {preview_url: "/preview/landing-page?version=...&token=..."}
+
+POST /api/v1/landing-page/versions/{id}/restore       # Restore this version
+     Response: {restored: true, new_version_number: N}
+
+GET  /api/v1/landing-page/versions/diff?from={id}&to={id}  # Diff two versions
+     Response: {changes: [{path: "hero.height", from: "large", to: "medium"}, ...]}
+```
+
+**UI Components:**
+
+**Version History Panel:**
+```
+┌─────────────────────────────────────────────────┐
+│  Version History                          [×]   │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│  ┌─────────────────────────────────────────┐   │
+│  │ v12 • Published • 2 hours ago           │   │
+│  │ By: admin@station.com                   │   │
+│  │ "Updated hero background"               │   │
+│  │ [Preview] [Restore] [Compare]           │   │
+│  └─────────────────────────────────────────┘   │
+│                                                 │
+│  ┌─────────────────────────────────────────┐   │
+│  │ v11 • Auto-save • 3 hours ago           │   │
+│  │ By: admin@station.com                   │   │
+│  │ [Preview] [Restore] [Compare]           │   │
+│  └─────────────────────────────────────────┘   │
+│                                                 │
+│  ┌─────────────────────────────────────────┐   │
+│  │ v10 • Published • Yesterday      [LIVE] │   │
+│  │ By: manager@station.com                 │   │
+│  │ "Launched new design"                   │   │
+│  │ [Preview] [Compare]                     │   │
+│  └─────────────────────────────────────────┘   │
+│                                                 │
+│  [Load More...]                                 │
+│                                                 │
+└─────────────────────────────────────────────────┘
+```
+
+**Diff Viewer:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Compare: v10 → v12                                   [×]   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Changes (5):                                               │
+│                                                             │
+│  ● hero.backgroundImage                                     │
+│    - asset://hero-old-123                                   │
+│    + asset://hero-new-456                                   │
+│                                                             │
+│  ● hero.height                                              │
+│    - "medium"                                               │
+│    + "large"                                                │
+│                                                             │
+│  ● content.widgets[2].config.title                          │
+│    - "About Us"                                             │
+│    + "Our Story"                                            │
+│                                                             │
+│  ● colors.primary                                           │
+│    - "#3B82F6"                                              │
+│    + "#10B981"                                              │
+│                                                             │
+│  ● footer.copyrightText                                     │
+│    - "© 2025 Station"                                       │
+│    + "© 2026 Station"                                       │
+│                                                             │
+│  [Side-by-Side Preview]                                     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Tasks:**
+- [ ] Version creation on publish
+- [ ] Auto-save with hash comparison
+- [ ] Version list API with pagination
+- [ ] Restore version API
+- [ ] JSON diff algorithm
+- [ ] Version history UI panel
+- [ ] Diff viewer UI
+- [ ] Side-by-side preview
+- [ ] Thumbnail generation (optional - use Playwright/Puppeteer)
+- [ ] Version pruning background job
+
+---
+
+#### 9F.2: Mobile/Tablet Preview Modes
+
+**Viewport Presets:**
+| Device | Width | Height | Scale |
+|--------|-------|--------|-------|
+| Desktop | 1440px | 900px | 100% |
+| Laptop | 1280px | 800px | 100% |
+| Tablet Landscape | 1024px | 768px | 100% |
+| Tablet Portrait | 768px | 1024px | 100% |
+| Mobile Large | 428px | 926px | 100% |
+| Mobile Medium | 390px | 844px | 100% |
+| Mobile Small | 375px | 667px | 100% |
+
+**Preview Frame UI:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  [Desktop] [Laptop] [Tablet ▼] [Mobile ▼]    [↻ Rotate] [100%▼] │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│         ┌─────────────────────────────┐                         │
+│         │ ┌─────────────────────────┐ │                         │
+│         │ │                         │ │  ← Device frame         │
+│         │ │                         │ │                         │
+│         │ │      Preview iframe     │ │                         │
+│         │ │                         │ │                         │
+│         │ │                         │ │                         │
+│         │ │                         │ │                         │
+│         │ │                         │ │                         │
+│         │ └─────────────────────────┘ │                         │
+│         │          ○                  │  ← Home button (visual) │
+│         └─────────────────────────────┘                         │
+│                                                                  │
+│                    390 × 844 • Mobile Medium                     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Responsive Design System:**
+```css
+/* Widget container breakpoints */
+.widget-container {
+  --columns: 3;
+}
+
+@media (max-width: 1024px) {
+  .widget-container {
+    --columns: 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .widget-container {
+    --columns: 1;
+  }
+}
+
+/* Hero section responsive */
+.hero--full { height: 100vh; }
+.hero--large { height: 70vh; }
+.hero--medium { height: 50vh; }
+.hero--small { height: 30vh; }
+
+@media (max-width: 768px) {
+  .hero--full { height: 80vh; }
+  .hero--large { height: 60vh; }
+  .hero--medium { height: 50vh; }
+  .hero--small { height: 40vh; }
+}
+
+/* Player widget responsive */
+.player--expanded {
+  /* Desktop: horizontal layout */
+}
+
+@media (max-width: 768px) {
+  .player--expanded {
+    /* Mobile: vertical/stacked layout */
+  }
+}
+```
+
+**Mobile-Specific Configuration:**
+```json
+{
+  "responsive": {
+    "mobile": {
+      "hero": {
+        "height": "medium",
+        "showPlayer": true,
+        "playerVariant": "minimal"
+      },
+      "header": {
+        "logoSize": "small",
+        "showTagline": false
+      },
+      "content": {
+        "widgetOrder": ["widget-1", "widget-3", "widget-2"],
+        "hiddenWidgets": ["widget-4"]
+      }
+    },
+    "tablet": {
+      "content": {
+        "columns": 2
+      }
+    }
+  }
+}
+```
+
+**Implementation Tasks:**
+- [ ] Viewport selector UI
+- [ ] Preview iframe resizing
+- [ ] Device frame overlays (optional visual chrome)
+- [ ] Rotate button (portrait/landscape)
+- [ ] Zoom control for small viewports
+- [ ] Responsive CSS for all widgets
+- [ ] Mobile-specific config overrides
+- [ ] Widget reordering per breakpoint
+- [ ] Widget hide/show per breakpoint
+- [ ] Touch interaction testing mode
+
+---
+
+#### 9F.3: SEO Configuration
+
+**SEO Settings in Config:**
+```json
+{
+  "seo": {
+    "title": "WXYZ Radio - Your Community Voice",
+    "titleTemplate": "%s | WXYZ Radio",
+    "description": "Listen live to WXYZ Radio, serving the community since 1985. Music, news, and local voices 24/7.",
+    "keywords": ["radio", "community radio", "local music", "WXYZ"],
+
+    "openGraph": {
+      "type": "website",
+      "image": "asset://og-image-123",
+      "imageWidth": 1200,
+      "imageHeight": 630,
+      "siteName": "WXYZ Radio"
+    },
+
+    "twitter": {
+      "card": "summary_large_image",
+      "site": "@wxyzradio",
+      "image": "asset://twitter-card-123"
+    },
+
+    "favicon": {
+      "ico": "asset://favicon-ico-123",
+      "png32": "asset://favicon-32-123",
+      "png16": "asset://favicon-16-123",
+      "appleTouchIcon": "asset://apple-touch-123"
+    },
+
+    "structuredData": {
+      "enabled": true,
+      "type": "RadioStation",
+      "customData": {}
+    },
+
+    "robots": {
+      "index": true,
+      "follow": true,
+      "noarchive": false
+    },
+
+    "canonical": "https://wxyzradio.com"
+  }
+}
+```
+
+**Generated HTML Head:**
+```html
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Basic SEO -->
+  <title>WXYZ Radio - Your Community Voice</title>
+  <meta name="description" content="Listen live to WXYZ Radio...">
+  <meta name="keywords" content="radio, community radio, local music, WXYZ">
+  <link rel="canonical" href="https://wxyzradio.com">
+  <meta name="robots" content="index, follow">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="WXYZ Radio - Your Community Voice">
+  <meta property="og:description" content="Listen live to WXYZ Radio...">
+  <meta property="og:image" content="https://cdn.../og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:site_name" content="WXYZ Radio">
+  <meta property="og:url" content="https://wxyzradio.com">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@wxyzradio">
+  <meta name="twitter:title" content="WXYZ Radio - Your Community Voice">
+  <meta name="twitter:description" content="Listen live to WXYZ Radio...">
+  <meta name="twitter:image" content="https://cdn.../twitter-card.jpg">
+
+  <!-- Favicons -->
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "RadioStation",
+    "name": "WXYZ Radio",
+    "description": "Listen live to WXYZ Radio...",
+    "url": "https://wxyzradio.com",
+    "logo": "https://cdn.../logo.png",
+    "sameAs": [
+      "https://twitter.com/wxyzradio",
+      "https://facebook.com/wxyzradio"
+    ]
+  }
+  </script>
+</head>
+```
+
+**SEO Editor Panel:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  SEO Settings                                               │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Page Title                                                 │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ WXYZ Radio - Your Community Voice                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  56/60 characters                                           │
+│                                                             │
+│  Meta Description                                           │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Listen live to WXYZ Radio, serving the community    │   │
+│  │ since 1985. Music, news, and local voices 24/7.     │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  142/160 characters                                         │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Social Preview                                             │
+│                                                             │
+│  ┌──────────────────────────────────────┐                  │
+│  │ Google                               │                  │
+│  │ ┌────────────────────────────────┐   │                  │
+│  │ │ WXYZ Radio - Your Community... │   │                  │
+│  │ │ wxyzradio.com                  │   │                  │
+│  │ │ Listen live to WXYZ Radio...   │   │                  │
+│  │ └────────────────────────────────┘   │                  │
+│  └──────────────────────────────────────┘                  │
+│                                                             │
+│  ┌──────────────────────────────────────┐                  │
+│  │ Facebook / Twitter                   │                  │
+│  │ ┌────────────────────────────────┐   │                  │
+│  │ │ [OG Image Preview            ] │   │                  │
+│  │ │ WXYZ Radio - Your Community... │   │                  │
+│  │ │ Listen live to WXYZ Radio...   │   │                  │
+│  │ └────────────────────────────────┘   │                  │
+│  └──────────────────────────────────────┘                  │
+│                                                             │
+│  [Upload OG Image] (1200×630 recommended)                   │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Favicon                                                    │
+│  ┌────┐                                                    │
+│  │ 🎵 │  [Upload New Favicon]                              │
+│  └────┘                                                    │
+│  Auto-generates all sizes from uploaded image               │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Advanced                                                   │
+│  ☑ Allow search engine indexing                            │
+│  ☑ Allow search engines to follow links                    │
+│  ☐ Prevent archiving                                       │
+│                                                             │
+│  Canonical URL (optional)                                   │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ https://wxyzradio.com                               │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Tasks:**
+- [ ] SEO config schema
+- [ ] Meta tag renderer
+- [ ] Open Graph tag renderer
+- [ ] Twitter Card tag renderer
+- [ ] Structured data (JSON-LD) generator
+- [ ] Favicon auto-generation (from single upload)
+- [ ] SEO editor panel UI
+- [ ] Google preview mockup
+- [ ] Social card preview mockup
+- [ ] Character count indicators
+- [ ] Robots meta tag control
+
+---
+
+#### 9F.4: Custom CSS Support
+
+**CSS Configuration:**
+```json
+{
+  "customization": {
+    "css": {
+      "enabled": true,
+      "code": ".hero { border-radius: 12px; }\n.player-widget { box-shadow: 0 4px 6px rgba(0,0,0,0.1); }",
+      "validated": true,
+      "lastValidated": "2026-01-15T10:30:00Z"
+    }
+  }
+}
+```
+
+**CSS Editor Panel:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Custom CSS                                    [?] Help     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ⚠️  Custom CSS is for advanced users. Invalid CSS may      │
+│     break your page layout.                                 │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 1  /* Custom styles for WXYZ Radio */               │   │
+│  │ 2                                                   │   │
+│  │ 3  .hero {                                          │   │
+│  │ 4    border-radius: 12px;                           │   │
+│  │ 5    overflow: hidden;                              │   │
+│  │ 6  }                                                │   │
+│  │ 7                                                   │   │
+│  │ 8  .player-widget {                                 │   │
+│  │ 9    box-shadow: 0 4px 6px rgba(0,0,0,0.1);        │   │
+│  │10  }                                                │   │
+│  │11                                                   │   │
+│  │12  .widget-title {                                  │   │
+│  │13    font-weight: 700;                              │   │
+│  │14    text-transform: uppercase;                     │   │
+│  │15    letter-spacing: 0.05em;                        │   │
+│  │16  }                                                │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ✅ CSS is valid                          [Apply to Preview]│
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  CSS Class Reference:                                       │
+│                                                             │
+│  Layout:                                                    │
+│  • .landing-page - Page container                          │
+│  • .header - Header section                                │
+│  • .hero - Hero section                                    │
+│  • .content-area - Main content grid                       │
+│  • .footer - Footer section                                │
+│                                                             │
+│  Widgets:                                                   │
+│  • .widget - Any widget container                          │
+│  • .widget-title - Widget heading                          │
+│  • .player-widget - Player widget                          │
+│  • .schedule-widget - Schedule widget                      │
+│  • .recent-tracks-widget - Recent tracks                   │
+│  • .text-block - Text content block                        │
+│                                                             │
+│  [View Full Reference →]                                    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**CSS Validation:**
+- Parse CSS server-side before saving
+- Block dangerous properties: `position: fixed`, `z-index > 9999`, `pointer-events: none` on body
+- Block `@import` (security)
+- Warn on `!important` overuse
+- Scope all CSS to `.landing-page` container (prevent editor breakage)
+
+**Implementation Tasks:**
+- [ ] CSS editor with syntax highlighting (CodeMirror/Monaco)
+- [ ] Server-side CSS validation
+- [ ] Dangerous property blocking
+- [ ] Auto-scoping CSS to landing page container
+- [ ] CSS class reference documentation
+- [ ] Live preview of CSS changes
+- [ ] CSS minification for production
+
+---
+
+#### 9F.5: Custom Head Content (Analytics & Scripts)
+
+**Head Content Configuration:**
+```json
+{
+  "customization": {
+    "headContent": {
+      "enabled": true,
+      "scripts": [
+        {
+          "id": "google-analytics",
+          "name": "Google Analytics",
+          "type": "analytics",
+          "code": "<!-- Google tag (gtag.js) -->\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-XXXXXXX\"></script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag('js', new Date());\n  gtag('config', 'G-XXXXXXX');\n</script>",
+          "position": "head",
+          "enabled": true
+        },
+        {
+          "id": "facebook-pixel",
+          "name": "Facebook Pixel",
+          "type": "analytics",
+          "code": "<!-- Facebook Pixel Code -->...",
+          "position": "head",
+          "enabled": true
+        },
+        {
+          "id": "custom-chat",
+          "name": "Live Chat Widget",
+          "type": "widget",
+          "code": "<script src=\"https://chat.example.com/widget.js\"></script>",
+          "position": "body_end",
+          "enabled": false
+        }
+      ]
+    }
+  }
+}
+```
+
+**Script Positions:**
+- `head` - Inside `<head>` tag
+- `body_start` - After opening `<body>`
+- `body_end` - Before closing `</body>`
+
+**Preset Integrations:**
+| Service | Type | Setup |
+|---------|------|-------|
+| Google Analytics 4 | Analytics | Enter Measurement ID (G-XXXXX) |
+| Google Tag Manager | Tag Manager | Enter Container ID (GTM-XXXXX) |
+| Facebook Pixel | Analytics | Enter Pixel ID |
+| Plausible | Analytics | Enter Domain |
+| Fathom | Analytics | Enter Site ID |
+| Hotjar | Heatmaps | Enter Site ID |
+| Crisp Chat | Chat | Enter Website ID |
+| Tawk.to | Chat | Enter Property ID |
+
+**Custom Scripts Editor:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Scripts & Analytics                                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Quick Add Integration:                                     │
+│  [Google Analytics ▼] [Add]                                 │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Active Scripts:                                            │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ ☑ Google Analytics 4                    [Edit] [×]  │   │
+│  │   Position: <head>                                  │   │
+│  │   ID: G-ABC123XYZ                                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ ☐ Facebook Pixel (disabled)             [Edit] [×]  │   │
+│  │   Position: <head>                                  │   │
+│  │   ID: 1234567890                                    │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Custom Script:                                             │
+│                                                             │
+│  Name: _______________                                      │
+│  Position: [<head> ▼]                                       │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ <script>                                            │   │
+│  │   // Your custom script here                        │   │
+│  │ </script>                                           │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  [Add Script]                                               │
+│                                                             │
+│  ⚠️  Only add scripts from trusted sources. Malicious      │
+│     scripts can compromise your site and visitors.          │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Security Considerations:**
+- Only admin role can add custom scripts
+- Log all script changes to audit log
+- Option to require approval for script changes
+- CSP headers to restrict script sources (if strict mode enabled)
+- Script content stored encrypted at rest
+
+**Implementation Tasks:**
+- [ ] Script configuration schema
+- [ ] Preset integration templates
+- [ ] Script position injection in renderer
+- [ ] Custom script editor UI
+- [ ] Enable/disable toggle per script
+- [ ] Admin-only access control
+- [ ] Audit logging for script changes
+- [ ] Script validation (basic HTML parsing)
+
+---
+
+#### 9F.6: Page Loading Optimization
+
+**Performance Targets:**
+- First Contentful Paint (FCP): < 1.5s
+- Largest Contentful Paint (LCP): < 2.5s
+- Cumulative Layout Shift (CLS): < 0.1
+- Time to Interactive (TTI): < 3.5s
+- Google PageSpeed Score: > 80
+
+**Optimization Strategies:**
+
+**1. Image Optimization:**
+```go
+// On upload, generate multiple sizes
+type ImageVariants struct {
+    Original   string // original upload
+    Large      string // 1920px max width
+    Medium     string // 1280px max width
+    Small      string // 640px max width
+    Thumbnail  string // 320px max width
+    WebP       bool   // generate WebP versions of all
+    AVIF       bool   // generate AVIF versions (if supported)
+}
+```
+
+**Responsive Images in HTML:**
+```html
+<picture>
+  <source
+    type="image/avif"
+    srcset="/assets/hero-small.avif 640w,
+            /assets/hero-medium.avif 1280w,
+            /assets/hero-large.avif 1920w"
+    sizes="100vw">
+  <source
+    type="image/webp"
+    srcset="/assets/hero-small.webp 640w,
+            /assets/hero-medium.webp 1280w,
+            /assets/hero-large.webp 1920w"
+    sizes="100vw">
+  <img
+    src="/assets/hero-medium.jpg"
+    srcset="/assets/hero-small.jpg 640w,
+            /assets/hero-medium.jpg 1280w,
+            /assets/hero-large.jpg 1920w"
+    sizes="100vw"
+    alt="Hero background"
+    loading="lazy"
+    decoding="async">
+</picture>
+```
+
+**2. CSS/JS Optimization:**
+- Inline critical CSS in `<head>`
+- Defer non-critical CSS
+- Async load JavaScript
+- Bundle and minify all assets
+- Tree-shake unused CSS
+
+**3. Lazy Loading:**
+```html
+<!-- Below-fold widgets -->
+<div class="widget" data-lazy="true">
+  <noscript>
+    <!-- Full content for no-JS -->
+  </noscript>
+  <!-- Placeholder skeleton -->
+  <div class="widget-skeleton"></div>
+</div>
+
+<script>
+// Intersection Observer to load widgets when visible
+</script>
+```
+
+**4. Caching Strategy:**
+```
+# Static assets (images, CSS, JS)
+Cache-Control: public, max-age=31536000, immutable
+
+# HTML pages
+Cache-Control: public, max-age=300, stale-while-revalidate=86400
+
+# API responses (now playing, schedule)
+Cache-Control: public, max-age=10, stale-while-revalidate=30
+```
+
+**5. Preloading:**
+```html
+<!-- Preload critical assets -->
+<link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/css/critical.css" as="style">
+<link rel="preconnect" href="https://cdn.example.com">
+<link rel="dns-prefetch" href="https://stream.example.com">
+```
+
+**6. Server-Side Rendering:**
+- Render full HTML on server (no client-side hydration for static content)
+- Stream HTML response where possible
+- Edge caching with CDN
+
+**Performance Dashboard:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Performance                                                │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  PageSpeed Score                                            │
+│                                                             │
+│  Desktop: ████████████████████░░░░ 85                       │
+│  Mobile:  ██████████████████░░░░░░ 78                       │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Core Web Vitals                                            │
+│                                                             │
+│  LCP (Largest Contentful Paint)                             │
+│  ●  2.1s  [Good: < 2.5s]                                    │
+│                                                             │
+│  FID (First Input Delay)                                    │
+│  ●  45ms  [Good: < 100ms]                                   │
+│                                                             │
+│  CLS (Cumulative Layout Shift)                              │
+│  ●  0.05  [Good: < 0.1]                                     │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Recommendations:                                           │
+│                                                             │
+│  ⚠️  Hero image could be smaller (2.4MB → optimize)         │
+│  ⚠️  3 render-blocking resources detected                   │
+│  ✅  Text compression enabled                               │
+│  ✅  Browser caching configured                             │
+│                                                             │
+│  [Run Full Audit]  [View Details]                           │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Tasks:**
+- [ ] Image processing pipeline (resize, WebP, AVIF)
+- [ ] Responsive image HTML generation
+- [ ] Critical CSS extraction
+- [ ] CSS/JS bundling and minification
+- [ ] Lazy loading for below-fold widgets
+- [ ] Cache headers configuration
+- [ ] Preload/preconnect hints
+- [ ] Performance monitoring integration
+- [ ] PageSpeed API integration (optional)
+- [ ] Performance dashboard UI
+- [ ] Optimization recommendations engine
+
+---
+
+#### 9F Implementation Summary
+
+| Task | Priority | Complexity |
+|------|----------|------------|
+| Version history | High | Medium |
+| Version rollback | High | Low |
+| Diff viewer | Medium | Medium |
+| Mobile preview | High | Low |
+| Viewport presets | High | Low |
+| Responsive config | Medium | Medium |
+| SEO meta tags | High | Low |
+| OG/Twitter cards | High | Low |
+| Structured data | Medium | Low |
+| Favicon generator | Low | Medium |
+| SEO editor UI | High | Medium |
+| Custom CSS editor | Medium | Medium |
+| CSS validation | Medium | Medium |
+| Custom scripts | Medium | Medium |
+| Script presets | Low | Low |
+| Image optimization | High | High |
+| Lazy loading | Medium | Medium |
+| Cache headers | High | Low |
+| Performance dashboard | Low | Medium |
+
+**Recommended Order:**
+1. Mobile preview (quick win, high value)
+2. SEO configuration (essential for launch)
+3. Version history + rollback (safety net)
+4. Image optimization (performance)
+5. Custom CSS
+6. Custom scripts
+7. Performance dashboard
+8. Diff viewer (nice to have)
 
 ---
 
@@ -707,6 +1530,150 @@ Full-screen player only.
   }
 }
 ```
+
+---
+
+---
+
+## White-Labeling Support
+
+**Goal:** Allow complete removal/replacement of "Grimnir Radio" branding so operators can present the platform as their own.
+
+### Platform Branding Configuration
+
+**System-wide settings (admin only):**
+```json
+{
+  "platform": {
+    "name": "MyRadio Platform",
+    "tagline": "Professional Radio Automation",
+    "logo": "asset://platform-logo-123",
+    "logoMark": "asset://platform-mark-123",
+    "favicon": "asset://platform-favicon-123",
+    "supportEmail": "support@myradio.com",
+    "supportUrl": "https://myradio.com/support",
+    "documentationUrl": "https://docs.myradio.com",
+    "copyrightHolder": "MyRadio Inc.",
+    "hideGrimnirBranding": true
+  }
+}
+```
+
+### Affected Areas
+
+| Area | Default | White-labeled |
+|------|---------|---------------|
+| Login page title | "Grimnir Radio" | Custom platform name |
+| Login page logo | Grimnir logo | Custom logo |
+| Dashboard header | "Grimnir Radio" | Custom name |
+| Dashboard favicon | Grimnir icon | Custom favicon |
+| Email sender name | "Grimnir Radio" | Custom name |
+| Email footer | "Powered by Grimnir Radio" | Hidden or custom |
+| API docs | "Grimnir Radio API" | Custom name |
+| Error pages | Grimnir branding | Custom branding |
+| "About" links | grimnir_radio repo | Custom or hidden |
+
+### Implementation
+
+**Environment Variables:**
+```bash
+GRIMNIR_PLATFORM_NAME="MyRadio Platform"
+GRIMNIR_PLATFORM_LOGO_URL="/assets/custom-logo.png"
+GRIMNIR_HIDE_GRIMNIR_BRANDING=true
+GRIMNIR_SUPPORT_EMAIL="support@myradio.com"
+```
+
+**Template Variables:**
+```go
+type PlatformBranding struct {
+    Name            string
+    Tagline         string
+    LogoURL         string
+    LogoMarkURL     string
+    FaviconURL      string
+    SupportEmail    string
+    SupportURL      string
+    DocsURL         string
+    CopyrightHolder string
+    ShowPoweredBy   bool  // "Powered by Grimnir Radio" in footer
+}
+
+// Available in all templates as .Platform
+```
+
+**Database Table:**
+```sql
+CREATE TABLE platform_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  key VARCHAR(64) NOT NULL UNIQUE,
+  value JSONB NOT NULL,
+  updated_by UUID REFERENCES users(id),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+```
+
+### White-Label Admin UI
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Platform Branding (Admin Only)                             │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Platform Name                                              │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ MyRadio Platform                                    │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  Tagline                                                    │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Professional Radio Automation                       │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  Logo (displayed in header)                                 │
+│  ┌────────────────┐                                        │
+│  │  [MyRadio]     │  [Upload New]                          │
+│  └────────────────┘                                        │
+│                                                             │
+│  Logo Mark (square, for favicon/mobile)                     │
+│  ┌────┐                                                    │
+│  │ M  │  [Upload New]                                      │
+│  └────┘                                                    │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Support & Links                                            │
+│                                                             │
+│  Support Email: support@myradio.com                         │
+│  Support URL:   https://myradio.com/support                 │
+│  Docs URL:      https://docs.myradio.com                    │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  Footer                                                     │
+│                                                             │
+│  Copyright Holder: MyRadio Inc.                             │
+│                                                             │
+│  ☐ Show "Powered by Grimnir Radio" in footer               │
+│                                                             │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  [Save Changes]                                             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Implementation Tasks
+
+- [ ] Platform branding database table
+- [ ] Environment variable fallbacks
+- [ ] Template variable injection
+- [ ] Login page branding
+- [ ] Dashboard header branding
+- [ ] Email template branding
+- [ ] API documentation branding
+- [ ] Error page branding
+- [ ] Admin UI for branding settings
+- [ ] Asset upload for logos/favicon
 
 ---
 
