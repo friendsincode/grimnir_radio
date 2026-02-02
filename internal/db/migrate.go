@@ -68,6 +68,15 @@ func Migrate(database *gorm.DB) error {
 		&models.WebhookTarget{},
 		&models.WebhookLog{},
 
+		// Analytics, Syndication, Underwriting (Phase 8H)
+		&models.ScheduleAnalytics{},
+		&models.Network{},
+		&models.NetworkShow{},
+		&models.NetworkSubscription{},
+		&models.Sponsor{},
+		&models.UnderwritingObligation{},
+		&models.UnderwritingSpot{},
+
 		// Migration jobs
 		&migration.Job{},
 	)

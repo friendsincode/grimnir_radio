@@ -42,23 +42,27 @@ import (
 
 // API exposes HTTP handlers.
 type API struct {
-	db               *gorm.DB
-	scheduler        *scheduler.Service
-	analyzer         *analyzer.Service
-	media            *media.Service
-	live             *live.Service
-	webstreamSvc     *webstream.Service
-	playout          *playout.Manager
-	prioritySvc      *priority.Service
-	executorStateMgr *executor.StateManager
-	auditSvc         *audit.Service
-	notificationAPI  *NotificationAPI
-	webhookAPI       *WebhookAPI
-	migrationHandler *MigrationHandler
-	broadcast        *broadcast.Server
-	bus              *events.Bus
-	logBuffer        *logbuffer.Buffer
-	logger           zerolog.Logger
+	db                   *gorm.DB
+	scheduler            *scheduler.Service
+	analyzer             *analyzer.Service
+	media                *media.Service
+	live                 *live.Service
+	webstreamSvc         *webstream.Service
+	playout              *playout.Manager
+	prioritySvc          *priority.Service
+	executorStateMgr     *executor.StateManager
+	auditSvc             *audit.Service
+	notificationAPI      *NotificationAPI
+	webhookAPI           *WebhookAPI
+	scheduleAnalyticsAPI *ScheduleAnalyticsAPI
+	syndicationAPI       *SyndicationAPI
+	underwritingAPI      *UnderwritingAPI
+	scheduleExportAPI    *ScheduleExportAPI
+	migrationHandler     *MigrationHandler
+	broadcast            *broadcast.Server
+	bus                  *events.Bus
+	logBuffer            *logbuffer.Buffer
+	logger               zerolog.Logger
 }
 
 // New creates the API router wrapper.
@@ -92,6 +96,26 @@ func (a *API) SetNotificationAPI(notifAPI *NotificationAPI) {
 // SetWebhookAPI sets the webhook API handler.
 func (a *API) SetWebhookAPI(webhookAPI *WebhookAPI) {
 	a.webhookAPI = webhookAPI
+}
+
+// SetScheduleAnalyticsAPI sets the schedule analytics API handler.
+func (a *API) SetScheduleAnalyticsAPI(api *ScheduleAnalyticsAPI) {
+	a.scheduleAnalyticsAPI = api
+}
+
+// SetSyndicationAPI sets the syndication API handler.
+func (a *API) SetSyndicationAPI(api *SyndicationAPI) {
+	a.syndicationAPI = api
+}
+
+// SetUnderwritingAPI sets the underwriting API handler.
+func (a *API) SetUnderwritingAPI(api *UnderwritingAPI) {
+	a.underwritingAPI = api
+}
+
+// SetScheduleExportAPI sets the schedule export API handler.
+func (a *API) SetScheduleExportAPI(api *ScheduleExportAPI) {
+	a.scheduleExportAPI = api
 }
 
 type mountRequest struct {
@@ -330,6 +354,39 @@ func (a *API) Routes(r chi.Router) {
 			// Webhooks (station manager+)
 			if a.webhookAPI != nil {
 				a.webhookAPI.RegisterRoutes(pr)
+			}
+
+			// Phase 8H: Advanced Features
+			// Schedule Analytics (admin/manager)
+			if a.scheduleAnalyticsAPI != nil {
+				pr.Group(func(ar chi.Router) {
+					ar.Use(a.requireRoles(models.RoleAdmin, models.RoleManager))
+					a.scheduleAnalyticsAPI.RegisterRoutes(ar)
+				})
+			}
+
+			// Syndication (admin/manager)
+			if a.syndicationAPI != nil {
+				pr.Group(func(sr chi.Router) {
+					sr.Use(a.requireRoles(models.RoleAdmin, models.RoleManager))
+					a.syndicationAPI.RegisterRoutes(sr)
+				})
+			}
+
+			// Underwriting (admin/manager)
+			if a.underwritingAPI != nil {
+				pr.Group(func(ur chi.Router) {
+					ur.Use(a.requireRoles(models.RoleAdmin, models.RoleManager))
+					a.underwritingAPI.RegisterRoutes(ur)
+				})
+			}
+
+			// Schedule Import/Export (admin/manager)
+			if a.scheduleExportAPI != nil {
+				pr.Group(func(er chi.Router) {
+					er.Use(a.requireRoles(models.RoleAdmin, models.RoleManager))
+					a.scheduleExportAPI.RegisterRoutes(er)
+				})
 			}
 
 			// Migration routes (admin only)
