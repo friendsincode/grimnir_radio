@@ -15,7 +15,8 @@
 {{end}}
 
 {{define "main"}}
-<div id="webdj-app" x-data="webdjConsole()" x-init="init()">
+<!-- Station ID for JavaScript -->
+<div id="webdj-app" x-data="webdjConsole()" x-init="init()" data-station-id="{{.Station.ID}}">
     <!-- Session Start Screen -->
     <div x-show="!sessionId" class="row justify-content-center">
         <div class="col-lg-6">
