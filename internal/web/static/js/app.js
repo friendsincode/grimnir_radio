@@ -29,10 +29,11 @@ function setTheme(theme) {
     document.body.style.removeProperty('padding-right');
 
     // Save to server for cross-device sync (if logged in)
-    if (window.htmx) {
+    if (window.htmx && window.GRIMNIR_WS_TOKEN) {
         htmx.ajax('POST', '/api/v1/preferences/theme', {
             values: { theme: theme },
-            swap: 'none'
+            swap: 'none',
+            headers: { 'Authorization': 'Bearer ' + window.GRIMNIR_WS_TOKEN }
         }).catch(() => {
             // Ignore errors - theme is saved locally anyway
         });
