@@ -36,6 +36,17 @@ func (lp *LandingPage) HasDraft() bool {
 	return lp.DraftConfig != nil && len(lp.DraftConfig) > 0
 }
 
+// LogoURL returns the URL for the landing page logo asset.
+func (lp *LandingPage) LogoURL() string {
+	if lp.IsPlatformPage() {
+		return "/landing-assets/by-type/logo?platform=true"
+	}
+	if lp.StationID != nil {
+		return "/landing-assets/by-type/logo?station_id=" + *lp.StationID
+	}
+	return ""
+}
+
 // LandingPageAsset stores uploaded assets (images, logos) for landing pages.
 // When StationID is NULL, this is a platform-level asset.
 type LandingPageAsset struct {

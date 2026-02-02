@@ -618,6 +618,26 @@ func (s *Service) GetAsset(ctx context.Context, assetID string) (*models.Landing
 	return &asset, nil
 }
 
+// GetAssetByType retrieves an asset by type for a station or platform.
+// If stationID is nil, returns the platform-level asset of that type.
+func (s *Service) GetAssetByType(ctx context.Context, stationID *string, assetType string) (*models.LandingPageAsset, error) {
+	var asset models.LandingPageAsset
+	query := s.db.WithContext(ctx).Where("asset_type = ?", assetType)
+	if stationID == nil {
+		query = query.Where("station_id IS NULL")
+	} else {
+		query = query.Where("station_id = ?", *stationID)
+	}
+	err := query.Order("created_at DESC").First(&asset).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAssetNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get asset by type: %w", err)
+	}
+	return &asset, nil
+}
+
 // GetAssetPath returns the full path to an asset file.
 func (s *Service) GetAssetPath(asset *models.LandingPageAsset) string {
 	return filepath.Join(s.mediaRoot, asset.FilePath)

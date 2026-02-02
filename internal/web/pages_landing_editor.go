@@ -425,6 +425,34 @@ func (h *Handler) LandingPageAssetServe(w http.ResponseWriter, r *http.Request) 
 	http.ServeFile(w, r, path)
 }
 
+// LandingPageAssetByType serves an asset by type (logo, background, etc.)
+func (h *Handler) LandingPageAssetByType(w http.ResponseWriter, r *http.Request) {
+	assetType := chi.URLParam(r, "assetType")
+	if assetType == "" {
+		http.Error(w, "Asset type required", http.StatusBadRequest)
+		return
+	}
+
+	stationID := r.URL.Query().Get("station_id")
+	isPlatform := r.URL.Query().Get("platform") == "true"
+
+	var stationIDPtr *string
+	if !isPlatform && stationID != "" {
+		stationIDPtr = &stationID
+	}
+
+	asset, err := h.landingPageSvc.GetAssetByType(r.Context(), stationIDPtr, assetType)
+	if err != nil {
+		// Return a transparent 1x1 pixel for missing images instead of 404
+		w.Header().Set("Content-Type", "image/gif")
+		w.Write([]byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b})
+		return
+	}
+
+	path := h.landingPageSvc.GetAssetPath(asset)
+	http.ServeFile(w, r, path)
+}
+
 // LandingPageThemeUpdate updates the theme
 func (h *Handler) LandingPageThemeUpdate(w http.ResponseWriter, r *http.Request) {
 	user := h.GetUser(r)
