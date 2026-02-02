@@ -123,6 +123,7 @@ type User struct {
 	Suspended          bool                  `gorm:"default:false"`                   // Platform-level suspension
 	SuspendedReason    string                `gorm:"type:text"`
 	CalendarColorTheme string                `gorm:"type:varchar(32);default:'default'"` // Calendar color theme preset
+	Theme              string                `gorm:"type:varchar(32);default:'daw-dark'"` // Dashboard UI theme
 	Stations           []StationUser         `gorm:"foreignKey:UserID"`
 	PlatformGroups     []PlatformGroupMember `gorm:"foreignKey:UserID"`
 	CreatedAt          time.Time

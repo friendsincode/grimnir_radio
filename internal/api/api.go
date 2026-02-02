@@ -357,6 +357,11 @@ func (a *API) Routes(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/spins", a.handleAnalyticsSpins)
 			})
 
+			// User preferences
+			pr.Route("/preferences", func(r chi.Router) {
+				r.Post("/theme", a.handleSetThemePreference)
+			})
+
 			// System status routes (platform admin only)
 			pr.Route("/system", func(r chi.Router) {
 				r.Use(a.requirePlatformAdmin())
@@ -586,6 +591,48 @@ func (a *API) handleStationLogo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(station.Logo)
+}
+
+// handleSetThemePreference saves the user's theme preference.
+func (a *API) handleSetThemePreference(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// Parse theme from form or JSON
+	theme := r.FormValue("theme")
+	if theme == "" {
+		var req struct {
+			Theme string `json:"theme"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			theme = req.Theme
+		}
+	}
+
+	// Validate theme
+	validThemes := map[string]bool{
+		"daw-dark": true, "clean-light": true, "broadcast": true,
+		"classic": true, "sm-theme": true,
+	}
+	if !validThemes[theme] {
+		writeError(w, http.StatusBadRequest, "invalid_theme")
+		return
+	}
+
+	// Update user's theme preference
+	result := a.db.WithContext(r.Context()).Model(&models.User{}).
+		Where("id = ?", claims.UserID).
+		Update("theme", theme)
+	if result.Error != nil {
+		a.logger.Error().Err(result.Error).Msg("failed to update theme preference")
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {

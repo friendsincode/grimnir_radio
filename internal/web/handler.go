@@ -37,6 +37,7 @@ const (
 	ThemeCleanLight Theme = "clean-light"
 	ThemeBroadcast  Theme = "broadcast"
 	ThemeClassic    Theme = "classic"
+	ThemeSM         Theme = "sm-theme"
 )
 
 // Handler provides web UI endpoints with server-rendered templates.
@@ -298,6 +299,12 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 	// Get user from context if authenticated
 	if user, ok := r.Context().Value(ctxKeyUser).(*models.User); ok {
 		data.User = user
+
+		// Use user's theme preference if set
+		if user.Theme != "" {
+			data.Theme = Theme(user.Theme)
+		}
+
 		// Generate short-lived WS token for JavaScript access
 		data.WSToken = h.GenerateWSToken(user)
 		if data.WSToken == "" {
