@@ -27,16 +27,6 @@ function setTheme(theme) {
     document.body.classList.remove('modal-open');
     document.body.style.removeProperty('overflow');
     document.body.style.removeProperty('padding-right');
-
-    // Update server-side preference via HTMX if available
-    if (window.htmx) {
-        htmx.ajax('POST', '/api/v1/preferences/theme', {
-            values: { theme: theme },
-            swap: 'none'
-        }).catch(() => {
-            // Ignore errors - theme is saved locally anyway
-        });
-    }
 }
 
 // Initialize theme from localStorage
