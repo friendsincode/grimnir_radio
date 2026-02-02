@@ -44,6 +44,7 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - **Audit logging** for sensitive operations
 
 **What's Coming:**
+- **Customizable landing page**: Easy branding and layout editor for station operators
 - **WebDJ**: Browser-based DJ control panel
 - **Emergency Alert System (EAS)** integration
 - **Advanced scheduling**: Conflict detection, templates
@@ -357,6 +358,12 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Systemd service files
 
 ### ⏳ PLANNED
+
+**Customizable Landing Page**
+- User-friendly landing page editor
+- Custom branding (logo, colors, background)
+- Configurable widgets (now playing, schedule, recent tracks)
+- No coding required for station operators
 
 **Smart Block Enhancements**
 - Energy curves (ramp up/down energy over hour)
@@ -808,6 +815,7 @@ Professional radio automation where Go owns the control plane and a dedicated me
 ### ⏳ FUTURE PHASES
 
 **Phase 8: WebDJ & Advanced Features**
+- Customizable landing page editor
 - Browser-based DJ control panel
 - Emergency Alert System (EAS) integration
 - Advanced scheduling (conflict detection, templates)

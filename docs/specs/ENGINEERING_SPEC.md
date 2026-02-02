@@ -1067,6 +1067,12 @@ priorities:
 
 ### ⏳ PLANNED
 
+**Customizable Landing Page:**
+- Landing page editor in admin dashboard
+- Custom branding (logo, colors, background images)
+- Configurable widget layout (now playing, schedule, recent tracks)
+- Template system for station operators
+
 **WebDJ:**
 - Browser-based live streaming
 - Voice tracking support
@@ -1250,4 +1256,4 @@ Grimnir Radio is a production-ready, Go-controlled broadcast automation platform
 - Audit logging for sensitive operations
 - Turn-key deployment (Docker, Kubernetes, Nix)
 
-**Future Work:** WebDJ interface, Emergency Alert System (EAS), advanced scheduling features.
+**Future Work:** Customizable landing page editor, WebDJ interface, Emergency Alert System (EAS), advanced scheduling features.
