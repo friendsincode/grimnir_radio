@@ -1,0 +1,208 @@
+{{define "pages/embed/now-playing"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            {{if eq (index .Data "Theme") "dark"}}
+            background: #1a1a2e;
+            color: #e4e4e7;
+            {{else}}
+            background: #ffffff;
+            color: #27272a;
+            {{end}}
+        }
+
+        .now-playing-widget {
+            padding: 12px;
+        }
+
+        .show-card {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-radius: 8px;
+            {{if eq (index .Data "Theme") "dark"}}
+            background: #27272a;
+            {{else}}
+            background: #f4f4f5;
+            {{end}}
+        }
+
+        .show-card.current {
+            {{if eq (index .Data "Theme") "dark"}}
+            background: #1e3a5f;
+            {{else}}
+            background: #dbeafe;
+            {{end}}
+        }
+
+        .show-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .show-indicator.live {
+            background: #22c55e;
+            animation: pulse 2s infinite;
+        }
+
+        .show-indicator.next {
+            {{if eq (index .Data "Theme") "dark"}}
+            background: #6b7280;
+            {{else}}
+            background: #9ca3af;
+            {{end}}
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .show-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .show-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+            {{if eq (index .Data "Theme") "dark"}}
+            color: #9ca3af;
+            {{else}}
+            color: #6b7280;
+            {{end}}
+        }
+
+        .show-label.live {
+            color: #22c55e;
+        }
+
+        .show-name {
+            font-weight: 600;
+            font-size: 15px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .show-time {
+            font-size: 12px;
+            {{if eq (index .Data "Theme") "dark"}}
+            color: #9ca3af;
+            {{else}}
+            color: #6b7280;
+            {{end}}
+        }
+
+        .no-show {
+            text-align: center;
+            padding: 16px;
+            {{if eq (index .Data "Theme") "dark"}}
+            color: #6b7280;
+            {{else}}
+            color: #9ca3af;
+            {{end}}
+        }
+
+        .next-show {
+            margin-top: 8px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="now-playing-widget">
+        <div id="nowPlayingContainer" class="loading">
+            Loading...
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const stationId = '{{index .Data "StationID"}}';
+        const showNext = {{index .Data "ShowNext"}};
+        const container = document.getElementById('nowPlayingContainer');
+
+        async function loadNowPlaying() {
+            try {
+                const response = await fetch('/api/v1/public/schedule/now?station_id=' + stationId);
+                if (!response.ok) throw new Error('Failed to load');
+                const data = await response.json();
+                renderNowPlaying(data);
+            } catch (e) {
+                container.innerHTML = '<div class="no-show">Unable to load</div>';
+            }
+        }
+
+        function renderNowPlaying(data) {
+            let html = '';
+
+            if (data.current) {
+                html += '<div class="show-card current">';
+                html += '<div class="show-indicator live"></div>';
+                html += '<div class="show-info">';
+                html += '<div class="show-label live">Now Playing</div>';
+                html += '<div class="show-name">' + escapeHtml(data.current.show.name) + '</div>';
+                html += '<div class="show-time">Until ' + formatTime(new Date(data.current.ends_at)) + '</div>';
+                html += '</div></div>';
+            } else {
+                html += '<div class="no-show">No show currently on air</div>';
+            }
+
+            if (showNext && data.next) {
+                html += '<div class="show-card next-show">';
+                html += '<div class="show-indicator next"></div>';
+                html += '<div class="show-info">';
+                html += '<div class="show-label">Up Next</div>';
+                html += '<div class="show-name">' + escapeHtml(data.next.show.name) + '</div>';
+                html += '<div class="show-time">' + formatTime(new Date(data.next.starts_at)) + '</div>';
+                html += '</div></div>';
+            }
+
+            container.innerHTML = html || '<div class="no-show">No shows scheduled</div>';
+        }
+
+        function formatTime(date) {
+            return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        loadNowPlaying();
+
+        // Refresh every 30 seconds
+        setInterval(loadNowPlaying, 30 * 1000);
+    })();
+    </script>
+</body>
+</html>
+{{end}}

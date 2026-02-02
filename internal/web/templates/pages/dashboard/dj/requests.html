@@ -1,0 +1,514 @@
+{{define "pages/dashboard/dj/requests"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Schedule Requests</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-send me-2"></i>Schedule Requests</h4>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newRequestModal">
+        <i class="bi bi-plus-lg me-1"></i>New Request
+    </button>
+</div>
+
+{{$isManager := index .Data "IsManager"}}
+
+<div class="row">
+    <div class="col-lg-8">
+        <!-- Pending Requests (Managers see all, DJs see own) -->
+        {{if $isManager}}
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-hourglass-split me-2"></i>Pending Approval</h6>
+                <span class="badge bg-warning" id="pendingCount">0</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush" id="pendingRequests">
+                    {{$requests := index .Data "Requests"}}
+                    {{$hasPending := false}}
+                    {{range $requests}}
+                    {{if eq (string .Status) "pending"}}
+                    {{$hasPending = true}}
+                    <div class="list-group-item request-item" data-id="{{.ID}}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="badge bg-info me-1">{{.RequestType}}</span>
+                                <strong>{{if .Requester}}{{.Requester.Email}}{{else}}Unknown{{end}}</strong>
+                                <br>
+                                <small class="text-body-secondary">
+                                    {{if .TargetInstance}}
+                                    Show: {{if .TargetInstance.Show}}{{.TargetInstance.Show.Name}}{{end}}
+                                    on {{.TargetInstance.StartsAt.Format "Jan 2, 3:04 PM"}}
+                                    {{end}}
+                                    {{if .SwapWithUser}}
+                                    <br>Swap with: {{.SwapWithUser.Email}}
+                                    {{end}}
+                                </small>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-success approve-btn" data-id="{{.ID}}" title="Approve">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                                <button class="btn btn-danger reject-btn" data-id="{{.ID}}" title="Reject">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <small class="text-body-secondary">Submitted: {{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</small>
+                    </div>
+                    {{end}}
+                    {{end}}
+                    {{if not $hasPending}}
+                    <div class="list-group-item text-body-secondary">No pending requests</div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- All Requests -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">{{if $isManager}}All Requests{{else}}My Requests{{end}}</h6>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Details</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{$requests := index .Data "Requests"}}
+                            {{range $requests}}
+                            <tr>
+                                <td>
+                                    <span class="badge
+                                        {{if eq (string .RequestType) "new_show"}}bg-primary{{end}}
+                                        {{if eq (string .RequestType) "swap"}}bg-info{{end}}
+                                        {{if eq (string .RequestType) "cancel"}}bg-danger{{end}}
+                                        {{if eq (string .RequestType) "time_off"}}bg-warning text-dark{{end}}
+                                        {{if eq (string .RequestType) "reschedule"}}bg-secondary{{end}}
+                                    ">{{.RequestType}}</span>
+                                </td>
+                                <td>
+                                    {{if .TargetInstance}}
+                                    {{if .TargetInstance.Show}}{{.TargetInstance.Show.Name}}{{end}}
+                                    <br><small class="text-body-secondary">{{.TargetInstance.StartsAt.Format "Jan 2, 3:04 PM"}}</small>
+                                    {{else}}
+                                    <span class="text-body-secondary">-</span>
+                                    {{end}}
+                                </td>
+                                <td>
+                                    <span class="badge
+                                        {{if eq (string .Status) "pending"}}bg-warning text-dark{{end}}
+                                        {{if eq (string .Status) "approved"}}bg-success{{end}}
+                                        {{if eq (string .Status) "rejected"}}bg-danger{{end}}
+                                        {{if eq (string .Status) "cancelled"}}bg-secondary{{end}}
+                                    ">{{.Status}}</span>
+                                    {{if .ReviewNote}}
+                                    <br><small class="text-body-secondary">{{.ReviewNote}}</small>
+                                    {{end}}
+                                </td>
+                                <td>
+                                    <small>{{.CreatedAt.Format "Jan 2"}}</small>
+                                    {{if and (eq (string .Status) "pending") (not $isManager)}}
+                                    <br>
+                                    <button class="btn btn-sm btn-outline-secondary cancel-request-btn" data-id="{{.ID}}">
+                                        Cancel
+                                    </button>
+                                    {{end}}
+                                </td>
+                            </tr>
+                            {{else}}
+                            <tr>
+                                <td colspan="4" class="text-center text-body-secondary">No requests yet</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Request Types</h6>
+            </div>
+            <div class="card-body">
+                <dl class="small mb-0">
+                    <dt>New Show</dt>
+                    <dd class="text-body-secondary">Request a new show slot</dd>
+                    <dt>Swap</dt>
+                    <dd class="text-body-secondary">Swap your shift with another DJ</dd>
+                    <dt>Cancel</dt>
+                    <dd class="text-body-secondary">Cancel one of your scheduled shows</dd>
+                    <dt>Time Off</dt>
+                    <dd class="text-body-secondary">Request time off from scheduled shows</dd>
+                    <dt>Reschedule</dt>
+                    <dd class="text-body-secondary">Move a show to a different time</dd>
+                </dl>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-link-45deg me-2"></i>Quick Actions</h6>
+            </div>
+            <div class="card-body">
+                <a href="/dashboard/dj/availability" class="btn btn-outline-primary w-100 mb-2">
+                    <i class="bi bi-calendar-check me-1"></i>My Availability
+                </a>
+                <a href="/dashboard/schedule" class="btn btn-outline-secondary w-100">
+                    <i class="bi bi-calendar3 me-1"></i>View Schedule
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New Request Modal -->
+<div class="modal fade" id="newRequestModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-send me-2"></i>New Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="newRequestForm">
+                    <div class="mb-3">
+                        <label class="form-label">Request Type</label>
+                        <select class="form-select" id="requestType">
+                            <option value="">Select type...</option>
+                            <option value="time_off">Time Off</option>
+                            <option value="cancel">Cancel Show</option>
+                            <option value="swap">Swap Shift</option>
+                            <option value="reschedule">Reschedule</option>
+                            <option value="new_show">Request New Show</option>
+                        </select>
+                    </div>
+
+                    <!-- Show instance selector (for cancel, swap, reschedule) -->
+                    <div class="mb-3 d-none" id="showInstanceGroup">
+                        <label class="form-label">Select Show Instance</label>
+                        <select class="form-select" id="targetInstance">
+                            <option value="">Select show...</option>
+                        </select>
+                    </div>
+
+                    <!-- Swap with user (for swap) -->
+                    <div class="mb-3 d-none" id="swapWithGroup">
+                        <label class="form-label">Swap With</label>
+                        <select class="form-select" id="swapWithUser">
+                            <option value="">Select DJ...</option>
+                            {{range index .Data "StationUsers"}}
+                            {{if .User}}
+                            <option value="{{.UserID}}">{{.User.Email}}</option>
+                            {{end}}
+                            {{end}}
+                        </select>
+                    </div>
+
+                    <!-- Proposed times (for reschedule, new_show) -->
+                    <div class="mb-3 d-none" id="proposedTimesGroup">
+                        <label class="form-label">Proposed Date/Time</label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <input type="date" class="form-control" id="proposedDate">
+                            </div>
+                            <div class="col-3">
+                                <input type="time" class="form-control" id="proposedStartTime">
+                            </div>
+                            <div class="col-3">
+                                <input type="time" class="form-control" id="proposedEndTime">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Time off range -->
+                    <div class="mb-3 d-none" id="timeOffGroup">
+                        <label class="form-label">Time Off Period</label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label small">Start Date</label>
+                                <input type="date" class="form-control" id="timeOffStart">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">End Date</label>
+                                <input type="date" class="form-control" id="timeOffEnd">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Notes (optional)</label>
+                        <textarea class="form-control" id="requestNotes" rows="2" placeholder="Additional details..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitRequest">
+                    <i class="bi bi-send me-1"></i>Submit Request
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Review Modal -->
+<div class="modal fade" id="reviewModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="reviewModalTitle">Review Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Note (optional)</label>
+                    <textarea class="form-control" id="reviewNote" rows="2" placeholder="Add a note for the requester..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmApprove">Approve</button>
+                <button type="button" class="btn btn-danger d-none" id="confirmReject">Reject</button>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const stationID = '{{index .Data "StationID"}}';
+    const newRequestModal = new bootstrap.Modal(document.getElementById('newRequestModal'));
+    const reviewModal = new bootstrap.Modal(document.getElementById('reviewModal'));
+
+    let currentRequestId = null;
+    let currentAction = null;
+
+    // Count pending requests
+    const pendingCount = document.querySelectorAll('#pendingRequests .request-item').length;
+    const badge = document.getElementById('pendingCount');
+    if (badge) badge.textContent = pendingCount;
+
+    // Request type change
+    document.getElementById('requestType').addEventListener('change', function() {
+        const type = this.value;
+
+        // Hide all conditional groups
+        document.getElementById('showInstanceGroup').classList.add('d-none');
+        document.getElementById('swapWithGroup').classList.add('d-none');
+        document.getElementById('proposedTimesGroup').classList.add('d-none');
+        document.getElementById('timeOffGroup').classList.add('d-none');
+
+        // Show relevant groups based on type
+        if (['cancel', 'swap', 'reschedule'].includes(type)) {
+            document.getElementById('showInstanceGroup').classList.remove('d-none');
+            loadShowInstances();
+        }
+        if (type === 'swap') {
+            document.getElementById('swapWithGroup').classList.remove('d-none');
+        }
+        if (['reschedule', 'new_show'].includes(type)) {
+            document.getElementById('proposedTimesGroup').classList.remove('d-none');
+        }
+        if (type === 'time_off') {
+            document.getElementById('timeOffGroup').classList.remove('d-none');
+        }
+    });
+
+    // Load show instances for the selector
+    async function loadShowInstances() {
+        const select = document.getElementById('targetInstance');
+        select.innerHTML = '<option value="">Loading...</option>';
+
+        try {
+            // Get upcoming show instances for this user
+            const response = await fetch(`/dashboard/schedule/show-events?start=${new Date().toISOString()}&end=${new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()}`);
+            const events = await response.json();
+
+            select.innerHTML = '<option value="">Select show...</option>';
+            events.forEach(ev => {
+                if (ev.extendedProps?.instance_id) {
+                    const date = new Date(ev.start).toLocaleDateString();
+                    const time = new Date(ev.start).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                    select.innerHTML += `<option value="${ev.extendedProps.instance_id}">${ev.title} - ${date} ${time}</option>`;
+                }
+            });
+        } catch (e) {
+            select.innerHTML = '<option value="">Failed to load</option>';
+        }
+    }
+
+    // Submit request
+    document.getElementById('submitRequest').addEventListener('click', async function() {
+        const type = document.getElementById('requestType').value;
+        if (!type) {
+            grimnirUtils.showToast('Please select a request type', 'error');
+            return;
+        }
+
+        const data = {
+            station_id: stationID,
+            request_type: type,
+            proposed_data: {}
+        };
+
+        // Add type-specific data
+        if (['cancel', 'swap', 'reschedule'].includes(type)) {
+            const instanceId = document.getElementById('targetInstance').value;
+            if (instanceId) data.target_instance_id = instanceId;
+        }
+
+        if (type === 'swap') {
+            const swapWith = document.getElementById('swapWithUser').value;
+            if (swapWith) data.swap_with_user_id = swapWith;
+        }
+
+        if (['reschedule', 'new_show'].includes(type)) {
+            data.proposed_data.date = document.getElementById('proposedDate').value;
+            data.proposed_data.starts_at = document.getElementById('proposedDate').value + 'T' + document.getElementById('proposedStartTime').value + ':00';
+            data.proposed_data.ends_at = document.getElementById('proposedDate').value + 'T' + document.getElementById('proposedEndTime').value + ':00';
+        }
+
+        if (type === 'time_off') {
+            data.proposed_data.start_date = document.getElementById('timeOffStart').value;
+            data.proposed_data.end_date = document.getElementById('timeOffEnd').value;
+        }
+
+        const notes = document.getElementById('requestNotes').value;
+        if (notes) data.proposed_data.notes = notes;
+
+        try {
+            const response = await fetch('/api/v1/schedule-requests', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                newRequestModal.hide();
+                grimnirUtils.showToast('Request submitted', 'success');
+                location.reload();
+            } else {
+                const err = await response.json();
+                grimnirUtils.showToast(err.error || 'Failed to submit', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to submit request', 'error');
+        }
+    });
+
+    // Approve button
+    document.querySelectorAll('.approve-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            currentRequestId = this.dataset.id;
+            currentAction = 'approve';
+            document.getElementById('reviewModalTitle').textContent = 'Approve Request';
+            document.getElementById('confirmApprove').classList.remove('d-none');
+            document.getElementById('confirmReject').classList.add('d-none');
+            reviewModal.show();
+        });
+    });
+
+    // Reject button
+    document.querySelectorAll('.reject-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            currentRequestId = this.dataset.id;
+            currentAction = 'reject';
+            document.getElementById('reviewModalTitle').textContent = 'Reject Request';
+            document.getElementById('confirmApprove').classList.add('d-none');
+            document.getElementById('confirmReject').classList.remove('d-none');
+            reviewModal.show();
+        });
+    });
+
+    // Confirm approve
+    document.getElementById('confirmApprove').addEventListener('click', async function() {
+        if (!currentRequestId) return;
+
+        try {
+            const response = await fetch(`/api/v1/schedule-requests/${currentRequestId}/approve`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ note: document.getElementById('reviewNote').value })
+            });
+
+            if (response.ok) {
+                reviewModal.hide();
+                grimnirUtils.showToast('Request approved', 'success');
+                location.reload();
+            } else {
+                grimnirUtils.showToast('Failed to approve', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to approve', 'error');
+        }
+    });
+
+    // Confirm reject
+    document.getElementById('confirmReject').addEventListener('click', async function() {
+        if (!currentRequestId) return;
+
+        try {
+            const response = await fetch(`/api/v1/schedule-requests/${currentRequestId}/reject`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ note: document.getElementById('reviewNote').value })
+            });
+
+            if (response.ok) {
+                reviewModal.hide();
+                grimnirUtils.showToast('Request rejected', 'success');
+                location.reload();
+            } else {
+                grimnirUtils.showToast('Failed to reject', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to reject', 'error');
+        }
+    });
+
+    // Cancel own request
+    document.querySelectorAll('.cancel-request-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            if (!confirm('Cancel this request?')) return;
+
+            try {
+                const response = await fetch(`/api/v1/schedule-requests/${this.dataset.id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    grimnirUtils.showToast('Request cancelled', 'success');
+                    location.reload();
+                } else {
+                    grimnirUtils.showToast('Failed to cancel', 'error');
+                }
+            } catch (e) {
+                grimnirUtils.showToast('Failed to cancel', 'error');
+            }
+        });
+    });
+});
+</script>
+{{end}}

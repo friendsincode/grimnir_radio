@@ -48,6 +48,35 @@ func Migrate(database *gorm.DB) error {
 		&models.PlaylistItem{},
 		&models.Clock{},
 
+		// Shows and scheduling (Phase 8)
+		&models.Show{},
+		&models.ShowInstance{},
+		&models.ScheduleRule{},
+		&models.ScheduleTemplate{},
+		&models.ScheduleVersion{},
+
+		// DJ self-service (Phase 8E)
+		&models.DJAvailability{},
+		&models.ScheduleRequest{},
+		&models.ScheduleLock{},
+
+		// Notifications (Phase 8F)
+		&models.NotificationPreference{},
+		&models.Notification{},
+
+		// Webhooks (Phase 8G)
+		&models.WebhookTarget{},
+		&models.WebhookLog{},
+
+		// Analytics, Syndication, Underwriting (Phase 8H)
+		&models.ScheduleAnalytics{},
+		&models.Network{},
+		&models.NetworkShow{},
+		&models.NetworkSubscription{},
+		&models.Sponsor{},
+		&models.UnderwritingObligation{},
+		&models.UnderwritingSpot{},
+
 		// Migration jobs
 		&migration.Job{},
 	)

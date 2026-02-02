@@ -52,6 +52,11 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/schedule/events", h.PublicScheduleEvents)
 			r.Get("/station/{id}", h.StationInfo)
 
+			// Embeddable widgets (Phase 8G)
+			r.Get("/embed/schedule", h.EmbedSchedule)
+			r.Get("/embed/now-playing", h.EmbedNowPlaying)
+			r.Get("/embed/schedule.js", h.EmbedScheduleJS)
+
 			// Auth pages
 			r.Get("/login", h.LoginPage)
 			r.Post("/login", h.LoginSubmit)
@@ -207,6 +212,30 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/clocks.json", h.ScheduleClocksJSON)
 					r.Get("/webstreams.json", h.ScheduleWebstreamsJSON)
 					r.Get("/media.json", h.ScheduleMediaSearchJSON)
+
+					// Show instance events for calendar
+					r.Get("/show-events", h.ShowInstanceEvents)
+				})
+
+				// Shows (Phase 8 - Advanced Scheduling)
+				r.Route("/shows", func(r chi.Router) {
+					r.Use(h.RequireRole("manager"))
+					r.Get("/", h.ShowsJSON)
+					r.Post("/", h.ShowCreate)
+					r.Put("/{id}", h.ShowUpdate)
+					r.Delete("/{id}", h.ShowDelete)
+					r.Post("/{id}/materialize", h.ShowMaterialize)
+
+					// Show instances
+					r.Put("/instances/{id}", h.ShowInstanceUpdate)
+					r.Delete("/instances/{id}", h.ShowInstanceCancel)
+				})
+
+				// DJ Self-Service (Phase 8E)
+				r.Route("/dj", func(r chi.Router) {
+					r.Get("/availability", h.DJAvailability)
+					r.Get("/availability.json", h.DJAvailabilityJSON)
+					r.Get("/requests", h.DJRequests)
 				})
 
 				// Live DJ

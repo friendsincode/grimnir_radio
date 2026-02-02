@@ -40,6 +40,7 @@ func (h *Handler) ScheduleCalendar(w http.ResponseWriter, r *http.Request) {
 		Title:    "Schedule",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
+			"StationID":  station.ID,
 			"Mounts":     mounts,
 			"ColorTheme": colorTheme,
 		},
