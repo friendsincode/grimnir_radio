@@ -64,6 +64,9 @@
                         <li class="nav-item">
                             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#seoTab"><i class="bi bi-search me-1"></i>SEO</button>
                         </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#colorsTab"><i class="bi bi-palette me-1"></i>Colors</button>
+                        </li>
                     </ul>
                 </div>
                 <div class="card-body" style="max-height: 400px; overflow-y: auto;">
@@ -229,6 +232,85 @@
                             <div class="form-check mb-3">
                                 <input class="form-check-input" type="checkbox" id="seoNoIndex" onchange="updateConfig()">
                                 <label class="form-check-label" for="seoNoIndex">No Index (hide from search engines)</label>
+                            </div>
+                        </div>
+
+                        <!-- Colors Tab -->
+                        <div class="tab-pane fade" id="colorsTab">
+                            <p class="small text-muted mb-3">Override theme colors. Leave empty to use theme defaults.</p>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label small">Primary Color</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorPrimary" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorPrimaryText" placeholder="#00ff00" onchange="syncColorInput('Primary')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('Primary')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Secondary Color</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorSecondary" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorSecondaryText" placeholder="#10b981" onchange="syncColorInput('Secondary')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('Secondary')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Background</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorBackground" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorBackgroundText" placeholder="#0a0a0a" onchange="syncColorInput('Background')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('Background')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Surface (Cards)</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorSurface" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorSurfaceText" placeholder="#121212" onchange="syncColorInput('Surface')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('Surface')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Text Color</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorText" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorTextText" placeholder="#ffffff" onchange="syncColorInput('Text')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('Text')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Muted Text</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorTextMuted" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorTextMutedText" placeholder="#888888" onchange="syncColorInput('TextMuted')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('TextMuted')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Card Background</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorCardBackground" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorCardBackgroundText" placeholder="#1a1a1a" onchange="syncColorInput('CardBackground')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('CardBackground')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Card Text</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorCardText" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorCardTextText" placeholder="#ffffff" onchange="syncColorInput('CardText')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('CardText')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Border Color</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="color" class="form-control form-control-color" id="colorBorder" onchange="updateConfig()">
+                                        <input type="text" class="form-control form-control-sm" id="colorBorderText" placeholder="#333333" onchange="syncColorInput('Border')">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearColor('Border')" title="Clear"><i class="bi bi-x"></i></button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -427,6 +509,44 @@ function loadConfigToForm() {
     document.getElementById('seoDescription').value = config.seo?.description || '';
     document.getElementById('copyrightText').value = config.footer?.copyrightText || '';
     document.getElementById('seoNoIndex').checked = config.seo?.noIndex === true;
+
+    // Colors
+    loadColorField('Primary', config.colors?.primary);
+    loadColorField('Secondary', config.colors?.secondary);
+    loadColorField('Background', config.colors?.background);
+    loadColorField('Surface', config.colors?.surface);
+    loadColorField('Text', config.colors?.text);
+    loadColorField('TextMuted', config.colors?.textMuted);
+    loadColorField('CardBackground', config.colors?.cardBackground);
+    loadColorField('CardText', config.colors?.cardText);
+    loadColorField('Border', config.colors?.border);
+}
+
+function loadColorField(name, value) {
+    const picker = document.getElementById('color' + name);
+    const text = document.getElementById('color' + name + 'Text');
+    if (value) {
+        picker.value = value;
+        text.value = value;
+    } else {
+        picker.value = '#000000';
+        text.value = '';
+    }
+}
+
+function syncColorInput(name) {
+    const text = document.getElementById('color' + name + 'Text');
+    const picker = document.getElementById('color' + name);
+    if (text.value && text.value.match(/^#[0-9a-fA-F]{6}$/)) {
+        picker.value = text.value;
+    }
+    updateConfig();
+}
+
+function clearColor(name) {
+    document.getElementById('color' + name).value = '#000000';
+    document.getElementById('color' + name + 'Text').value = '';
+    updateConfig();
 }
 
 function updateConfig() {
@@ -456,6 +576,29 @@ function updateConfig() {
 
     config.footer = config.footer || {};
     config.footer.copyrightText = document.getElementById('copyrightText').value;
+
+    // Colors - only save non-empty values
+    config.colors = {};
+    const colorFields = ['Primary', 'Secondary', 'Background', 'Surface', 'Text', 'TextMuted', 'CardBackground', 'CardText', 'Border'];
+    colorFields.forEach(name => {
+        const textInput = document.getElementById('color' + name + 'Text');
+        const pickerInput = document.getElementById('color' + name);
+        // Use text input if it has a value, otherwise check if picker was changed
+        let value = textInput.value.trim();
+        if (!value && pickerInput.value !== '#000000') {
+            value = pickerInput.value;
+            textInput.value = value; // Sync text input
+        }
+        if (value) {
+            // Convert camelCase to config keys
+            const key = name.charAt(0).toLowerCase() + name.slice(1);
+            config.colors[key] = value;
+        }
+    });
+    // Remove empty colors object
+    if (Object.keys(config.colors).length === 0) {
+        delete config.colors;
+    }
 
     isDirty = true;
 
