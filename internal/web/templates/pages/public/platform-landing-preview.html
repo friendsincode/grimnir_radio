@@ -187,6 +187,58 @@
         </div>
     </section>
 
+    <!-- Custom Widgets -->
+    {{with .Data.Config.content}}
+    {{if .widgets}}
+    <section class="py-4">
+        <div class="container">
+            {{range .widgets}}
+            {{$widget := .}}
+            {{$wtype := index $widget "type"}}
+            {{$wconfig := index $widget "config"}}
+            <div class="widget mb-4">
+                {{if eq $wtype "text"}}
+                <div class="widget-text">
+                    {{with $wconfig}}
+                    {{if .title}}<h3 class="mb-3">{{.title}}</h3>{{end}}
+                    <div class="text-content">{{if .content}}{{safeHTML .content}}{{end}}</div>
+                    {{end}}
+                </div>
+                {{else if eq $wtype "custom-html"}}
+                <div class="widget-custom-html">
+                    {{with $wconfig}}{{if .code}}{{safeHTML .code}}{{end}}{{end}}
+                </div>
+                {{else if eq $wtype "divider"}}
+                <hr style="border-color: var(--border-color);">
+                {{else if eq $wtype "spacer"}}
+                {{with $wconfig}}<div style="height: {{if .height}}{{.height}}{{else}}40{{end}}px;"></div>{{end}}
+                {{else if eq $wtype "cta"}}
+                <div class="text-center py-4 px-3 rounded" style="background: var(--primary-color); color: white;">
+                    {{with $wconfig}}
+                    {{if .headline}}<h2 class="mb-2">{{.headline}}</h2>{{end}}
+                    {{if .subtext}}<p class="mb-3">{{.subtext}}</p>{{end}}
+                    {{if .buttonUrl}}<a href="{{.buttonUrl}}" class="btn btn-light">{{if .buttonText}}{{.buttonText}}{{else}}Learn More{{end}}</a>{{end}}
+                    {{end}}
+                </div>
+                {{else if eq $wtype "image"}}
+                <div class="text-center">
+                    {{with $wconfig}}
+                    {{if .src}}<img src="{{.src}}" alt="{{.alt}}" class="img-fluid rounded">{{end}}
+                    {{if .caption}}<p class="text-muted small mt-2">{{.caption}}</p>{{end}}
+                    {{end}}
+                </div>
+                {{else if eq $wtype "video"}}
+                <div class="ratio ratio-16x9">
+                    {{with $wconfig}}{{if .url}}<iframe src="{{.url}}" allowfullscreen></iframe>{{end}}{{end}}
+                </div>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+    </section>
+    {{end}}
+    {{end}}
+
     <!-- Footer -->
     <footer class="py-4">
         <div class="container text-center">
