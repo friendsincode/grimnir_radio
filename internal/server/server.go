@@ -34,6 +34,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/live"
 	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/media"
+	"github.com/friendsincode/grimnir_radio/internal/notifications"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
 	"github.com/friendsincode/grimnir_radio/internal/scheduler"
@@ -65,6 +66,7 @@ type Server struct {
 	director             *playout.Director
 	bus                  *events.Bus
 	auditSvc             *audit.Service
+	notificationSvc      *notifications.Service
 	webrtcBroadcaster    *webrtc.Broadcaster
 
 	bgCancel context.CancelFunc
@@ -251,9 +253,17 @@ func (s *Server) initDependencies() error {
 	// Audit service for security logging
 	s.auditSvc = audit.NewService(database, s.bus, s.logger)
 
+	// Notification service for alerts and reminders
+	notifCfg := notifications.ConfigFromEnv()
+	s.notificationSvc = notifications.NewService(database, s.bus, notifCfg, s.logger)
+
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
 	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, broadcastSrv, s.bus, s.logBuffer, s.logger)
+
+	// Set notification API
+	notificationAPI := api.NewNotificationAPI(s.notificationSvc)
+	s.api.SetNotificationAPI(notificationAPI)
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
@@ -382,6 +392,15 @@ func (s *Server) startBackgroundWorkers() {
 		go func() {
 			defer s.bgWG.Done()
 			s.auditSvc.Start(ctx)
+		}()
+	}
+
+	// Start notification service
+	if s.notificationSvc != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			s.notificationSvc.Start(ctx)
 		}()
 	}
 
