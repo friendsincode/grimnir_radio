@@ -47,6 +47,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/friendsincode/grimnir_radio/internal/underwriting"
 	"github.com/friendsincode/grimnir_radio/internal/web"
+	"github.com/friendsincode/grimnir_radio/internal/webdj"
 	"github.com/friendsincode/grimnir_radio/internal/webhooks"
 	"github.com/friendsincode/grimnir_radio/internal/webrtc"
 	"github.com/friendsincode/grimnir_radio/internal/webstream"
@@ -302,6 +303,14 @@ func (s *Server) initDependencies() error {
 	landingPageSvc := landingpage.NewService(database, mediaService, s.cfg.MediaRoot, s.logger)
 	landingPageAPI := api.NewLandingPageAPI(s.api, landingPageSvc)
 	s.api.SetLandingPageAPI(landingPageAPI)
+
+	// WebDJ Console
+	webdjSvc := webdj.NewService(database, liveService, mediaService, s.bus, s.logger)
+	waveformSvc := webdj.NewWaveformService(database, mediaService, s.cfg.MediaRoot, s.logger)
+	webdjAPI := api.NewWebDJAPI(database, webdjSvc, waveformSvc)
+	s.api.SetWebDJAPI(webdjAPI)
+	webdjWS := api.NewWebDJWebSocket(webdjSvc, s.logger)
+	s.api.SetWebDJWebSocket(webdjWS)
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{

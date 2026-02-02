@@ -61,6 +61,8 @@ type API struct {
 	scheduleExportAPI    *ScheduleExportAPI
 	landingPageAPI       *LandingPageAPI
 	migrationHandler     *MigrationHandler
+	webdjAPI             *WebDJAPI
+	webdjWS              *WebDJWebSocket
 	broadcast            *broadcast.Server
 	bus                  *events.Bus
 	logBuffer            *logbuffer.Buffer
@@ -124,6 +126,16 @@ func (a *API) SetScheduleExportAPI(api *ScheduleExportAPI) {
 // SetLandingPageAPI sets the landing page API handler.
 func (a *API) SetLandingPageAPI(api *LandingPageAPI) {
 	a.landingPageAPI = api
+}
+
+// SetWebDJAPI sets the WebDJ API handler.
+func (a *API) SetWebDJAPI(api *WebDJAPI) {
+	a.webdjAPI = api
+}
+
+// SetWebDJWebSocket sets the WebDJ WebSocket handler.
+func (a *API) SetWebDJWebSocket(ws *WebDJWebSocket) {
+	a.webdjWS = ws
 }
 
 type mountRequest struct {
@@ -284,6 +296,37 @@ func (a *API) Routes(r chi.Router) {
 
 				// Legacy handover endpoint (deprecated, kept for compatibility)
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/handover", a.handleLiveHandover)
+			})
+
+			// WebDJ Console API
+			pr.Route("/webdj", func(r chi.Router) {
+				// Session management
+				r.Post("/sessions", a.handleWebDJStartSession)
+				r.Get("/sessions", a.handleWebDJListSessions)
+				r.Get("/sessions/{id}", a.handleWebDJGetSession)
+				r.Delete("/sessions/{id}", a.handleWebDJEndSession)
+
+				// WebSocket (handled separately)
+				r.Get("/sessions/{id}/ws", a.handleWebDJWebSocket)
+
+				// Deck controls
+				r.Post("/sessions/{id}/decks/{deck}/load", a.handleWebDJLoadTrack)
+				r.Post("/sessions/{id}/decks/{deck}/play", a.handleWebDJPlay)
+				r.Post("/sessions/{id}/decks/{deck}/pause", a.handleWebDJPause)
+				r.Post("/sessions/{id}/decks/{deck}/seek", a.handleWebDJSeek)
+				r.Post("/sessions/{id}/decks/{deck}/cue", a.handleWebDJSetCue)
+				r.Delete("/sessions/{id}/decks/{deck}/cue/{cue_id}", a.handleWebDJDeleteCue)
+				r.Delete("/sessions/{id}/decks/{deck}", a.handleWebDJEject)
+				r.Post("/sessions/{id}/decks/{deck}/volume", a.handleWebDJSetVolume)
+				r.Post("/sessions/{id}/decks/{deck}/eq", a.handleWebDJSetEQ)
+				r.Post("/sessions/{id}/decks/{deck}/pitch", a.handleWebDJSetPitch)
+
+				// Mixer controls
+				r.Post("/sessions/{id}/mixer/crossfader", a.handleWebDJSetCrossfader)
+				r.Post("/sessions/{id}/mixer/master-volume", a.handleWebDJSetMasterVolume)
+
+				// Library (waveform)
+				r.Get("/library/{id}/waveform", a.handleWebDJGetWaveform)
 			})
 			pr.Route("/webstreams", func(r chi.Router) {
 				// List and create webstreams (admin/manager)
@@ -1784,4 +1827,150 @@ func (a *API) publishAuditEvent(r *http.Request, eventType events.EventType, dat
 		payload[k] = v
 	}
 	a.bus.Publish(eventType, payload)
+}
+
+// WebDJ API handler delegates
+
+func (a *API) handleWebDJStartSession(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleStartSession(w, r)
+}
+
+func (a *API) handleWebDJListSessions(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleListSessions(w, r)
+}
+
+func (a *API) handleWebDJGetSession(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleGetSession(w, r)
+}
+
+func (a *API) handleWebDJEndSession(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleEndSession(w, r)
+}
+
+func (a *API) handleWebDJWebSocket(w http.ResponseWriter, r *http.Request) {
+	if a.webdjWS == nil {
+		http.Error(w, "webdj_not_available", http.StatusServiceUnavailable)
+		return
+	}
+	a.webdjWS.HandleWebSocket(w, r)
+}
+
+func (a *API) handleWebDJLoadTrack(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleLoadTrack(w, r)
+}
+
+func (a *API) handleWebDJPlay(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handlePlay(w, r)
+}
+
+func (a *API) handleWebDJPause(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handlePause(w, r)
+}
+
+func (a *API) handleWebDJSeek(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleSeek(w, r)
+}
+
+func (a *API) handleWebDJSetCue(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleSetCue(w, r)
+}
+
+func (a *API) handleWebDJDeleteCue(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleDeleteCue(w, r)
+}
+
+func (a *API) handleWebDJEject(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleEject(w, r)
+}
+
+func (a *API) handleWebDJSetVolume(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleSetVolume(w, r)
+}
+
+func (a *API) handleWebDJSetEQ(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleSetEQ(w, r)
+}
+
+func (a *API) handleWebDJSetPitch(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleSetPitch(w, r)
+}
+
+func (a *API) handleWebDJSetCrossfader(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleSetCrossfader(w, r)
+}
+
+func (a *API) handleWebDJSetMasterVolume(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleSetMasterVolume(w, r)
+}
+
+func (a *API) handleWebDJGetWaveform(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleGetWaveform(w, r)
 }

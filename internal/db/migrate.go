@@ -88,5 +88,9 @@ func Migrate(database *gorm.DB) error {
 
 		// Orphan media tracking
 		&models.OrphanMedia{},
+
+		// WebDJ console
+		&models.WebDJSession{},
+		&models.WaveformCache{},
 	)
 }
