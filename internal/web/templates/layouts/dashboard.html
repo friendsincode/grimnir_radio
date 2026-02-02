@@ -123,6 +123,13 @@
                     </a>
                 </li>
 
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/webdj"}}active bg-primary text-white{{end}}" href="/dashboard/webdj" data-bs-toggle="tooltip" data-bs-placement="right" title="WebDJ Console">
+                        <i class="bi bi-disc"></i>
+                        <span class="sidebar-text ms-2">WebDJ Console</span>
+                    </a>
+                </li>
+
                 {{if roleAtLeast .User "manager"}}
                 <li class="nav-item">
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/webstreams"}}active bg-primary text-white{{end}}" href="/dashboard/webstreams" data-bs-toggle="tooltip" data-bs-placement="right" title="Webstreams">

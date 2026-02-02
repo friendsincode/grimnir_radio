@@ -67,8 +67,8 @@ function webdjConsole() {
         positionTimer: null,
 
         init() {
-            // Get station ID from page data
-            this.stationId = document.querySelector('[data-station-id]')?.dataset.stationId || '';
+            // Get station ID from the webdj-app element
+            this.stationId = document.getElementById('webdj-app')?.dataset.stationId || '';
 
             // Initialize waveform canvases
             this.$nextTick(() => {
