@@ -111,7 +111,7 @@
                                 </div>
 
                                 <h6 class="text-muted small mb-2">Advanced</h6>
-                                <div class="widget-list">
+                                <div class="widget-list mb-3">
                                     {{range .Data.WidgetList}}
                                     {{if eq .Category "advanced"}}
                                     <div class="widget-item" draggable="true" data-widget-type="{{.Type}}">
@@ -119,6 +119,16 @@
                                     </div>
                                     {{end}}
                                     {{end}}
+                                </div>
+
+                                <hr class="my-2">
+
+                                <h6 class="text-muted small mb-2">
+                                    <i class="bi bi-layers me-1"></i>Added Widgets
+                                    <small class="text-muted">(click to edit)</small>
+                                </h6>
+                                <div class="widget-list" id="addedWidgetsList">
+                                    <!-- Populated by JavaScript -->
                                 </div>
                             </div>
                         </div>
@@ -494,7 +504,33 @@
         populateSettingsForm();
         populateColorPickers();
         setupAutoSave();
+        updateAddedWidgetsList();
     });
+
+    // Update list of added widgets in sidebar
+    function updateAddedWidgetsList() {
+        const container = document.getElementById('addedWidgetsList');
+        const widgets = config.content?.widgets || [];
+
+        if (widgets.length === 0) {
+            container.innerHTML = '<p class="text-muted small fst-italic">Drag widgets here to add</p>';
+            return;
+        }
+
+        let html = '';
+        widgets.forEach((widget, index) => {
+            const def = widgetDefs[widget.type];
+            const name = def?.name || widget.type;
+            const isSelected = selectedWidget === widget.id;
+
+            html += `<div class="widget-item ${isSelected ? 'active' : ''}" onclick="selectWidget('${widget.id}')" style="cursor: pointer;">
+                <span class="badge bg-secondary me-2">${index + 1}</span>
+                ${name}
+            </div>`;
+        });
+
+        container.innerHTML = html;
+    }
 
     // Drag and Drop
     function initDragAndDrop() {
@@ -527,6 +563,20 @@
         });
     }
 
+    // Widget definitions for config form rendering
+    const widgetDefs = {
+        {{range .Data.WidgetList}}
+        "{{.Type}}": {
+            name: "{{.Name}}",
+            configSpec: [
+                {{range .ConfigSpec}}
+                { key: "{{.Key}}", label: "{{.Label}}", type: "{{.Type}}", default: {{if .Default}}{{jsonMarshal .Default}}{{else}}null{{end}} },
+                {{end}}
+            ]
+        },
+        {{end}}
+    };
+
     // Add widget
     function addWidget(type) {
         const id = 'w' + Date.now();
@@ -536,12 +586,132 @@
             config: {}
         };
 
+        // Apply defaults
+        const def = widgetDefs[type];
+        if (def && def.configSpec) {
+            def.configSpec.forEach(field => {
+                if (field.default !== null && field.default !== undefined) {
+                    widget.config[field.key] = field.default;
+                }
+            });
+        }
+
         if (!config.content) config.content = { widgets: [] };
         if (!config.content.widgets) config.content.widgets = [];
         config.content.widgets.push(widget);
 
         markDirty();
         refreshPreview();
+        updateAddedWidgetsList();
+
+        // Auto-select new widget for configuration
+        selectWidget(id);
+    }
+
+    // Select widget for editing
+    window.selectWidget = function(widgetId) {
+        selectedWidget = widgetId;
+        const widgets = config.content?.widgets || [];
+        const widget = widgets.find(w => w.id === widgetId);
+        if (!widget) return;
+
+        const def = widgetDefs[widget.type];
+        document.getElementById('selectedWidgetName').textContent = def?.name || widget.type;
+        document.getElementById('widgetProperties').classList.remove('d-none');
+        updateAddedWidgetsList(); // Update selection state in list
+
+        renderWidgetConfigForm(widget, def);
+    };
+
+    // Render widget configuration form
+    function renderWidgetConfigForm(widget, def) {
+        const container = document.getElementById('widgetConfigForm');
+        if (!def || !def.configSpec || def.configSpec.length === 0) {
+            container.innerHTML = '<p class="text-muted small">No configurable options</p>';
+            return;
+        }
+
+        let html = '';
+        def.configSpec.forEach(field => {
+            const value = widget.config[field.key] ?? field.default ?? '';
+
+            html += `<div class="mb-2">`;
+            html += `<label class="form-label small">${field.label}</label>`;
+
+            switch (field.type) {
+                case 'boolean':
+                    html += `<div class="form-check form-switch">
+                        <input type="checkbox" class="form-check-input" id="widget_${field.key}"
+                            ${value ? 'checked' : ''}
+                            onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.checked)">
+                    </div>`;
+                    break;
+                case 'number':
+                    html += `<input type="number" class="form-control form-control-sm" id="widget_${field.key}"
+                        value="${value}"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', parseInt(this.value))">`;
+                    break;
+                case 'select':
+                    html += `<select class="form-select form-select-sm" id="widget_${field.key}"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">`;
+                    // Options would be populated from configSpec if available
+                    html += `<option value="${value}">${value}</option>`;
+                    html += `</select>`;
+                    break;
+                case 'textarea':
+                    html += `<textarea class="form-control form-control-sm" id="widget_${field.key}" rows="4"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">${escapeHtml(value)}</textarea>`;
+                    break;
+                case 'code':
+                    html += `<textarea class="form-control form-control-sm font-monospace" id="widget_${field.key}" rows="10"
+                        placeholder="Enter HTML, including iframes..."
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">${escapeHtml(value)}</textarea>`;
+                    html += `<small class="text-muted">Supports HTML including iframes, scripts, and embeds</small>`;
+                    break;
+                case 'color':
+                    html += `<input type="color" class="form-control form-control-color w-100" id="widget_${field.key}"
+                        value="${value || '#000000'}"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">`;
+                    break;
+                case 'image':
+                    html += `<input type="text" class="form-control form-control-sm" id="widget_${field.key}"
+                        value="${escapeHtml(value)}" placeholder="Image URL"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">`;
+                    break;
+                default: // text
+                    html += `<input type="text" class="form-control form-control-sm" id="widget_${field.key}"
+                        value="${escapeHtml(value)}"
+                        onchange="updateWidgetConfig('${widget.id}', '${field.key}', this.value)">`;
+            }
+
+            html += `</div>`;
+        });
+
+        container.innerHTML = html;
+    }
+
+    // Update widget config
+    window.updateWidgetConfig = function(widgetId, key, value) {
+        const widgets = config.content?.widgets || [];
+        const widget = widgets.find(w => w.id === widgetId);
+        if (!widget) return;
+
+        if (!widget.config) widget.config = {};
+        widget.config[key] = value;
+
+        markDirty();
+        refreshPreview();
+    };
+
+    // HTML escape helper
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     // Update config
@@ -767,6 +937,7 @@
     window.deselectWidget = function() {
         selectedWidget = null;
         document.getElementById('widgetProperties').classList.add('d-none');
+        updateAddedWidgetsList();
     };
 
     // Delete selected widget
@@ -781,6 +952,7 @@
             markDirty();
             refreshPreview();
             deselectWidget();
+            updateAddedWidgetsList();
         }
     };
 
