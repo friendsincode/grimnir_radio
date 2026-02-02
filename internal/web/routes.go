@@ -274,6 +274,17 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Delete("/handover", h.LiveReleaseHandover)
 				})
 
+				// WebDJ Console
+				r.Route("/webdj", func(r chi.Router) {
+					r.Get("/", h.WebDJConsole)
+					r.Get("/library/search", h.WebDJLibrarySearch)
+					r.Get("/library/genres", h.WebDJGenres)
+					r.Get("/library/playlists", h.WebDJPlaylists)
+					r.Get("/library/playlists/{id}/items", h.WebDJPlaylistItems)
+					r.Get("/media/{id}/artwork", h.WebDJMediaArtwork)
+					r.Get("/media/{id}/stream", h.WebDJMediaStream)
+				})
+
 				// Webstreams
 				r.Route("/webstreams", func(r chi.Router) {
 					r.Use(h.RequireRole("manager"))
