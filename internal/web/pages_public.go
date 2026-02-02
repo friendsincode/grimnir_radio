@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/landingpage"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -25,10 +26,23 @@ import (
 func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 	// Get platform landing page config
 	var config map[string]any
+	var theme *landingpage.Theme
+
 	if h.landingPageSvc != nil {
 		page, err := h.landingPageSvc.GetOrCreatePlatform(r.Context())
 		if err == nil && page != nil {
+			// Use PUBLISHED config (not draft) for public view
 			config = page.PublishedConfig
+
+			// Get theme from published config
+			themeID := "daw-dark"
+			if tid, ok := config["theme"].(string); ok && tid != "" {
+				themeID = tid
+			}
+			theme = h.landingPageSvc.GetTheme(themeID)
+			if theme == nil {
+				theme = h.landingPageSvc.GetTheme("daw-dark")
+			}
 		}
 	}
 
@@ -37,6 +51,9 @@ func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).
 		Order("sort_order, name").
 		Find(&stations)
+
+	// Order stations based on config
+	orderedStations := orderStationsByConfig(stations, config)
 
 	// Prepare stations with their mounts and stream URLs
 	type stationWithStream struct {
@@ -47,7 +64,7 @@ func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var stationsWithStreams []stationWithStream
-	for _, s := range stations {
+	for _, s := range orderedStations {
 		var mount models.Mount
 		h.db.Where("station_id = ?", s.ID).First(&mount)
 
@@ -73,13 +90,17 @@ func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 		featuredStation = &stationsWithStreams[0]
 	}
 
-	h.Render(w, r, "pages/public/landing", PageData{
+	// Render using the platform landing preview template (same as editor preview)
+	h.Render(w, r, "pages/public/platform-landing-preview", PageData{
 		Title: "Welcome",
 		Data: map[string]any{
 			"Config":          config,
-			"Stations":        stationsWithStreams,
+			"Theme":           theme,
+			"Stations":        stations,
+			"OrderedStations": orderedStations,
 			"FeaturedStation": featuredStation,
 			"IsPlatform":      true,
+			"IsPreview":       false,
 		},
 	})
 }

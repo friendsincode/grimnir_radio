@@ -214,9 +214,14 @@ func (h *Handler) LandingPageEditorPreview(w http.ResponseWriter, r *http.Reques
 		config = page.DraftConfig
 	}
 
-	theme := h.landingPageSvc.GetTheme(page.Theme)
+	// Get theme from config (not from model field)
+	themeID := "daw-dark" // default
+	if tid, ok := config["theme"].(string); ok && tid != "" {
+		themeID = tid
+	}
+	theme := h.landingPageSvc.GetTheme(themeID)
 	if theme == nil {
-		theme = h.landingPageSvc.GetTheme("default")
+		theme = h.landingPageSvc.GetTheme("daw-dark")
 	}
 
 	// Create renderer and render preview
@@ -731,10 +736,14 @@ func (h *Handler) PlatformLandingPagePreview(w http.ResponseWriter, r *http.Requ
 		config = page.DraftConfig
 	}
 
-	// Get theme for styling
-	theme := h.landingPageSvc.GetTheme(page.Theme)
+	// Get theme from config (not from model field)
+	themeID := "daw-dark" // default
+	if tid, ok := config["theme"].(string); ok && tid != "" {
+		themeID = tid
+	}
+	theme := h.landingPageSvc.GetTheme(themeID)
 	if theme == nil {
-		theme = h.landingPageSvc.GetTheme("default")
+		theme = h.landingPageSvc.GetTheme("daw-dark")
 	}
 
 	// Get all public stations for the stations grid widget
