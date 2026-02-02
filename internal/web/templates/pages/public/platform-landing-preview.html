@@ -246,39 +246,47 @@
 
             {{else if eq $wtype "player"}}
             <!-- Radio Player Widget -->
-            <div class="col-md-{{$wcolWidth}}">
-                <div class="widget-player card {{$textAlignClass}}" style="background: var(--card-bg); border-color: var(--border-color); {{$heightStyle}}">
+            <div class="col-md-{{$wcolWidth}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                <div class="widget-player card h-100" style="background: var(--card-bg); border-color: var(--border-color);">
                     <div class="card-body">
                         {{with $wconfig}}
-                        {{if .title}}<h5 class="card-title mb-3">{{.title}}</h5>{{else}}<h5 class="card-title mb-3">Listen Live</h5>{{end}}
+                        {{if .title}}<h5 class="card-title mb-3 text-center">{{.title}}</h5>{{else}}<h5 class="card-title mb-3 text-center"><i class="bi bi-broadcast me-2"></i>Listen Live</h5>{{end}}
                         {{end}}
                         {{if $.Data.OrderedStations}}
-                        {{with index $.Data.OrderedStations 0}}
-                        <div class="player-container text-center">
-                            {{if $wconfig.showArtwork}}
-                            <div class="player-artwork mb-3">
-                                {{if .Logo}}
-                                <img src="/api/v1/stations/{{.ID}}/logo" alt="{{.Name}}" class="rounded" style="max-height: 120px; max-width: 100%;" onerror="this.style.display='none'">
-                                {{else}}
-                                <i class="bi bi-broadcast fs-1 text-primary"></i>
-                                {{end}}
+                        <div class="player-widget-container">
+                            <!-- Station Selector -->
+                            <div class="mb-3">
+                                <select class="form-select" id="widgetStationSelect" onchange="widgetSelectStation(this.value)">
+                                    {{range $.Data.OrderedStations}}
+                                    <option value="{{.ID}}" data-shortcode="{{.Shortcode}}" data-name="{{.Name}}" data-logo="{{if .Logo}}1{{end}}">{{.Name}}</option>
+                                    {{end}}
+                                </select>
                             </div>
-                            {{end}}
-                            <h6 class="mb-2">{{.Name}}</h6>
-                            {{if $wconfig.showNowPlaying}}
-                            <p class="text-muted small mb-3" id="nowPlaying-{{.ID}}">Loading...</p>
-                            {{end}}
-                            <div class="d-flex justify-content-center align-items-center gap-3">
-                                <audio id="player-{{.ID}}" class="d-none"></audio>
-                                <button class="btn btn-primary btn-lg rounded-circle" onclick="togglePlay('{{.ID}}', '{{.Shortcode}}')" id="playBtn-{{.ID}}" style="width: 60px; height: 60px;">
-                                    <i class="bi bi-play-fill fs-4"></i>
-                                </button>
+                            <!-- Player Display -->
+                            <div class="text-center">
+                                {{if $wconfig.showArtwork}}
+                                <div class="player-artwork mb-3" id="widgetPlayerArtwork">
+                                    <i class="bi bi-broadcast fs-1 text-primary"></i>
+                                </div>
+                                {{end}}
+                                <div id="widgetStationName" class="fw-bold mb-1">Select a station</div>
+                                {{if $wconfig.showNowPlaying}}
+                                <p class="text-muted small mb-3" id="widgetNowPlaying">-</p>
+                                {{end}}
+                                <div class="d-flex justify-content-center align-items-center gap-3 mb-3">
+                                    <button class="btn btn-primary btn-lg rounded-circle" onclick="widgetTogglePlay()" id="widgetPlayBtn" style="width: 60px; height: 60px;">
+                                        <i class="bi bi-play-fill fs-4" id="widgetPlayIcon"></i>
+                                    </button>
+                                </div>
                                 {{if $wconfig.showVolumeSlider}}
-                                <input type="range" class="form-range" style="width: 100px;" min="0" max="100" value="80" onchange="setVolume('{{.ID}}', this.value)">
+                                <div class="d-flex justify-content-center align-items-center gap-2">
+                                    <i class="bi bi-volume-down text-muted"></i>
+                                    <input type="range" class="form-range" style="width: 150px;" min="0" max="100" value="80" id="widgetVolumeSlider" onchange="widgetSetVolume(this.value)">
+                                    <i class="bi bi-volume-up text-muted"></i>
+                                </div>
                                 {{end}}
                             </div>
                         </div>
-                        {{end}}
                         {{else}}
                         <p class="text-muted text-center">No stations available</p>
                         {{end}}
@@ -399,80 +407,125 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // Radio Player Functions
-    const players = {};
+    // Widget Player State
+    const widgetPlayer = {
+        audio: new Audio(),
+        playing: false,
+        currentStation: null,
+        nowPlayingInterval: null
+    };
 
-    function togglePlay(stationId, shortcode) {
-        const audio = document.getElementById('player-' + stationId);
-        const btn = document.getElementById('playBtn-' + stationId);
-        if (!audio || !btn) return;
-
-        if (!players[stationId]) {
-            // Initialize player with stream URL
-            audio.src = '/s/' + shortcode + '/stream';
-            players[stationId] = { playing: false };
+    // Initialize widget player on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        const select = document.getElementById('widgetStationSelect');
+        if (select && select.options.length > 0) {
+            widgetSelectStation(select.value);
         }
 
-        if (players[stationId].playing) {
-            audio.pause();
-            btn.innerHTML = '<i class="bi bi-play-fill fs-4"></i>';
-            players[stationId].playing = false;
+        // Set initial volume
+        widgetPlayer.audio.volume = 0.8;
+
+        // Audio event listeners
+        widgetPlayer.audio.addEventListener('play', () => {
+            document.getElementById('widgetPlayIcon')?.classList.replace('bi-play-fill', 'bi-pause-fill');
+        });
+        widgetPlayer.audio.addEventListener('pause', () => {
+            document.getElementById('widgetPlayIcon')?.classList.replace('bi-pause-fill', 'bi-play-fill');
+        });
+        widgetPlayer.audio.addEventListener('error', (e) => {
+            console.error('Audio error:', e);
+            const np = document.getElementById('widgetNowPlaying');
+            if (np) np.textContent = 'Stream unavailable';
+        });
+    });
+
+    function widgetSelectStation(stationId) {
+        const select = document.getElementById('widgetStationSelect');
+        if (!select) return;
+
+        const option = select.querySelector(`option[value="${stationId}"]`);
+        if (!option) return;
+
+        const shortcode = option.dataset.shortcode;
+        const name = option.dataset.name;
+        const hasLogo = option.dataset.logo === '1';
+
+        widgetPlayer.currentStation = { id: stationId, shortcode, name, hasLogo };
+
+        // Update display
+        const nameEl = document.getElementById('widgetStationName');
+        if (nameEl) nameEl.textContent = name;
+
+        const artworkEl = document.getElementById('widgetPlayerArtwork');
+        if (artworkEl) {
+            if (hasLogo) {
+                artworkEl.innerHTML = `<img src="/api/v1/stations/${stationId}/logo" alt="${name}" class="rounded" style="max-height: 80px; max-width: 100%;" onerror="this.outerHTML='<i class=\\'bi bi-broadcast fs-1 text-primary\\'></i>'">`;
+            } else {
+                artworkEl.innerHTML = '<i class="bi bi-broadcast fs-1 text-primary"></i>';
+            }
+        }
+
+        const npEl = document.getElementById('widgetNowPlaying');
+        if (npEl) npEl.textContent = 'Click play to listen';
+
+        // If currently playing, switch to new station
+        if (widgetPlayer.playing) {
+            widgetPlayer.audio.src = '/s/' + shortcode + '/stream';
+            widgetPlayer.audio.play().catch(e => console.error('Play error:', e));
+            widgetStartNowPlaying();
+        }
+    }
+
+    function widgetTogglePlay() {
+        if (!widgetPlayer.currentStation) return;
+
+        if (widgetPlayer.playing) {
+            widgetPlayer.audio.pause();
+            widgetPlayer.playing = false;
+            widgetStopNowPlaying();
         } else {
-            // Stop other players
-            Object.keys(players).forEach(id => {
-                if (id !== stationId && players[id].playing) {
-                    const otherAudio = document.getElementById('player-' + id);
-                    const otherBtn = document.getElementById('playBtn-' + id);
-                    if (otherAudio) otherAudio.pause();
-                    if (otherBtn) otherBtn.innerHTML = '<i class="bi bi-play-fill fs-4"></i>';
-                    players[id].playing = false;
-                }
-            });
-
-            audio.play().catch(e => console.error('Play error:', e));
-            btn.innerHTML = '<i class="bi bi-pause-fill fs-4"></i>';
-            players[stationId].playing = true;
-
-            // Start now playing updates
-            updateNowPlaying(stationId, shortcode);
+            widgetPlayer.audio.src = '/s/' + widgetPlayer.currentStation.shortcode + '/stream';
+            widgetPlayer.audio.play().catch(e => console.error('Play error:', e));
+            widgetPlayer.playing = true;
+            widgetStartNowPlaying();
         }
     }
 
-    function setVolume(stationId, value) {
-        const audio = document.getElementById('player-' + stationId);
-        if (audio) audio.volume = value / 100;
+    function widgetSetVolume(value) {
+        widgetPlayer.audio.volume = value / 100;
     }
 
-    function updateNowPlaying(stationId, shortcode) {
-        const el = document.getElementById('nowPlaying-' + stationId);
-        if (!el) return;
+    function widgetStartNowPlaying() {
+        widgetUpdateNowPlaying();
+        widgetPlayer.nowPlayingInterval = setInterval(widgetUpdateNowPlaying, 30000);
+    }
 
-        fetch('/api/v1/stations/' + stationId + '/now-playing')
-            .then(r => r.json())
+    function widgetStopNowPlaying() {
+        if (widgetPlayer.nowPlayingInterval) {
+            clearInterval(widgetPlayer.nowPlayingInterval);
+            widgetPlayer.nowPlayingInterval = null;
+        }
+    }
+
+    function widgetUpdateNowPlaying() {
+        if (!widgetPlayer.currentStation) return;
+
+        const npEl = document.getElementById('widgetNowPlaying');
+        if (!npEl) return;
+
+        fetch('/api/v1/stations/' + widgetPlayer.currentStation.id + '/now-playing')
+            .then(r => r.ok ? r.json() : Promise.reject())
             .then(data => {
                 if (data.title) {
-                    el.textContent = data.artist ? data.artist + ' - ' + data.title : data.title;
+                    npEl.textContent = data.artist ? data.artist + ' - ' + data.title : data.title;
                 } else {
-                    el.textContent = 'Live Stream';
+                    npEl.textContent = 'Live Stream';
                 }
             })
             .catch(() => {
-                el.textContent = 'Live Stream';
+                npEl.textContent = 'Live Stream';
             });
-
-        // Update every 30 seconds if playing
-        if (players[stationId]?.playing) {
-            setTimeout(() => updateNowPlaying(stationId, shortcode), 30000);
-        }
     }
-
-    // Initialize now playing for all player widgets
-    document.addEventListener('DOMContentLoaded', () => {
-        document.querySelectorAll('[id^="nowPlaying-"]').forEach(el => {
-            const stationId = el.id.replace('nowPlaying-', '');
-            el.textContent = 'Click play to listen';
-        });
-    });
     </script>
 </body>
 </html>
