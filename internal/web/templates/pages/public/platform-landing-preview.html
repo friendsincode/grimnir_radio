@@ -276,8 +276,8 @@
             </div>
 
             {{else if eq $wtype "text"}}
-            <div class="col-md-{{$wcolWidth}}">
-                <div class="widget-text {{$textAlignClass}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+            <div class="col-md-{{$wcolWidth}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                <div class="widget-text {{$textAlignClass}}" style="height: 100%;">
                     {{with $wconfig}}
                     {{if .title}}<h3 class="mb-3 section-title">{{.title}}</h3>{{end}}
                     <div class="text-content">{{if .content}}{{safeHTML .content}}{{end}}</div>
@@ -286,8 +286,8 @@
             </div>
 
             {{else if eq $wtype "custom-html"}}
-            <div class="col-md-{{$wcolWidth}}">
-                <div class="widget-custom-html {{$textAlignClass}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+            <div class="col-md-{{$wcolWidth}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                <div class="widget-custom-html {{$textAlignClass}}" style="height: 100%;">
                     {{with $wconfig}}{{if .code}}{{safeHTML .code}}{{end}}{{end}}
                 </div>
             </div>
@@ -303,8 +303,8 @@
             </div>
 
             {{else if eq $wtype "cta"}}
-            <div class="col-md-{{$wcolWidth}}">
-                <div class="text-center py-4 px-3 rounded" style="background: var(--primary-color); color: white;" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+            <div class="col-md-{{$wcolWidth}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                <div class="text-center py-4 px-3 rounded" style="background: var(--primary-color); color: white; height: 100%;">
                     {{with $wconfig}}
                     {{if .headline}}<h2 class="mb-2">{{.headline}}</h2>{{end}}
                     {{if .subtext}}<p class="mb-3">{{.subtext}}</p>{{end}}
@@ -314,8 +314,8 @@
             </div>
 
             {{else if eq $wtype "image"}}
-            <div class="col-md-{{$wcolWidth}}">
-                <div class="{{$textAlignClass}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+            <div class="col-md-{{$wcolWidth}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                <div class="{{$textAlignClass}}" style="height: 100%;">
                     {{with $wconfig}}
                     {{if .src}}<img src="{{.src}}" alt="{{.alt}}" class="img-fluid rounded">{{end}}
                     {{if .caption}}<p class="text-muted small mt-2">{{.caption}}</p>{{end}}
@@ -324,8 +324,8 @@
             </div>
 
             {{else if eq $wtype "video"}}
-            <div class="col-md-{{$wcolWidth}}">
-                <div class="ratio ratio-16x9" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+            <div class="col-md-{{$wcolWidth}}" {{if $heightStyle}}style="{{$heightStyle}}"{{end}}>
+                <div class="ratio ratio-16x9" style="height: 100%;">
                     {{with $wconfig}}{{if .url}}<iframe src="{{.url}}" allowfullscreen></iframe>{{end}}{{end}}
                 </div>
             </div>
