@@ -63,6 +63,9 @@ func (s *Service) Start(ctx context.Context) {
 	auditWebstreamDelete := s.bus.Subscribe(events.EventAuditWebstreamDelete)
 	auditScheduleRefresh := s.bus.Subscribe(events.EventAuditScheduleRefresh)
 	auditStationCreate := s.bus.Subscribe(events.EventAuditStationCreate)
+	auditLandingPagePublish := s.bus.Subscribe(events.EventAuditLandingPagePublish)
+	auditLandingPageRestore := s.bus.Subscribe(events.EventAuditLandingPageRestore)
+	auditLandingPageUpdate := s.bus.Subscribe(events.EventAuditLandingPageUpdate)
 
 	defer func() {
 		s.bus.Unsubscribe(events.EventPriorityEmergency, priorityEmergency)
@@ -81,6 +84,9 @@ func (s *Service) Start(ctx context.Context) {
 		s.bus.Unsubscribe(events.EventAuditWebstreamDelete, auditWebstreamDelete)
 		s.bus.Unsubscribe(events.EventAuditScheduleRefresh, auditScheduleRefresh)
 		s.bus.Unsubscribe(events.EventAuditStationCreate, auditStationCreate)
+		s.bus.Unsubscribe(events.EventAuditLandingPagePublish, auditLandingPagePublish)
+		s.bus.Unsubscribe(events.EventAuditLandingPageRestore, auditLandingPageRestore)
+		s.bus.Unsubscribe(events.EventAuditLandingPageUpdate, auditLandingPageUpdate)
 	}()
 
 	s.logger.Info().Msg("audit service started")
@@ -138,6 +144,15 @@ func (s *Service) Start(ctx context.Context) {
 
 		case payload := <-auditStationCreate:
 			s.logAuditEntry(ctx, models.AuditActionStationCreate, payload)
+
+		case payload := <-auditLandingPagePublish:
+			s.logAuditEntry(ctx, models.AuditActionLandingPagePublish, payload)
+
+		case payload := <-auditLandingPageRestore:
+			s.logAuditEntry(ctx, models.AuditActionLandingPageRestore, payload)
+
+		case payload := <-auditLandingPageUpdate:
+			s.logAuditEntry(ctx, models.AuditActionLandingPageUpdate, payload)
 		}
 	}
 }

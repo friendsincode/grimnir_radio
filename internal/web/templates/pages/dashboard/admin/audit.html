@@ -43,6 +43,9 @@
                     <option value="webstream.failover">Webstream Failover</option>
                     <option value="api_key.create">API Key Created</option>
                     <option value="api_key.revoke">API Key Revoked</option>
+                    <option value="landingpage.publish">Landing Page Published</option>
+                    <option value="landingpage.update">Landing Page Updated</option>
+                    <option value="landingpage.restore">Landing Page Restored</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -177,7 +180,10 @@ function getActionBadge(action) {
         'webstream.delete': 'bg-danger',
         'webstream.failover': 'bg-warning text-dark',
         'api_key.create': 'bg-success',
-        'api_key.revoke': 'bg-danger'
+        'api_key.revoke': 'bg-danger',
+        'landingpage.publish': 'bg-success',
+        'landingpage.update': 'bg-info',
+        'landingpage.restore': 'bg-warning text-dark'
     };
     return badges[action] || 'bg-secondary';
 }
@@ -229,9 +235,12 @@ function refreshLogs() {
     });
 }
 
+let auditEntries = [];
+
 function renderLogs(entries) {
+    auditEntries = entries || [];
     const tbody = document.getElementById('auditTable');
-    if (!entries || entries.length === 0) {
+    if (!auditEntries || auditEntries.length === 0) {
         tbody.innerHTML = `
             <tr><td colspan="7" class="text-center text-body-secondary py-4">
                 <i class="bi bi-inbox me-2"></i>No audit entries found
@@ -239,22 +248,30 @@ function renderLogs(entries) {
         return;
     }
 
-    tbody.innerHTML = entries.map(entry => `
-        <tr style="cursor: pointer;" onclick="showDetail('${entry.id}', ${JSON.stringify(entry).replace(/'/g, "\\'")})">
+    tbody.innerHTML = auditEntries.map((entry, idx) => `
+        <tr style="cursor: pointer;" onclick="showDetail(${idx})">
             <td class="font-monospace small">${new Date(entry.timestamp).toLocaleString()}</td>
             <td><span class="badge ${getActionBadge(entry.action)}">${formatAction(entry.action)}</span></td>
-            <td>${entry.user_email || '<span class="text-body-secondary">-</span>'}</td>
+            <td>${escapeHtml(entry.user_email) || '<span class="text-body-secondary">-</span>'}</td>
             <td>${entry.station_id ? '<span class="font-monospace small">' + entry.station_id.substring(0, 8) + '...</span>' : '<span class="text-body-secondary">-</span>'}</td>
-            <td>${entry.resource_type ? entry.resource_type + (entry.resource_id ? ' <span class="font-monospace small">' + entry.resource_id.substring(0, 8) + '...</span>' : '') : '<span class="text-body-secondary">-</span>'}</td>
+            <td>${entry.resource_type ? escapeHtml(entry.resource_type) + (entry.resource_id ? ' <span class="font-monospace small">' + entry.resource_id.substring(0, 8) + '...</span>' : '') : '<span class="text-body-secondary">-</span>'}</td>
             <td class="small">${Object.keys(entry.details || {}).length > 0 ? '<i class="bi bi-file-text text-info"></i>' : '-'}</td>
-            <td class="font-monospace small">${entry.ip_address || '-'}</td>
+            <td class="font-monospace small">${escapeHtml(entry.ip_address) || '-'}</td>
         </tr>
     `).join('');
 }
 
-function showDetail(id, entry) {
-    document.getElementById('detailContent').textContent = JSON.stringify(entry, null, 2);
-    detailModal.show();
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function showDetail(idx) {
+    const entry = auditEntries[idx];
+    if (entry) {
+        document.getElementById('detailContent').textContent = JSON.stringify(entry, null, 2);
+        detailModal.show();
+    }
 }
 
 function renderPagination(total) {

@@ -48,13 +48,16 @@ const (
 	EventShowEnd   EventType = "show.end"
 
 	// Audit events (for operations that need explicit audit logging)
-	EventAuditAPIKeyCreate    EventType = "audit.apikey.create"
-	EventAuditAPIKeyRevoke    EventType = "audit.apikey.revoke"
-	EventAuditWebstreamCreate EventType = "audit.webstream.create"
-	EventAuditWebstreamUpdate EventType = "audit.webstream.update"
-	EventAuditWebstreamDelete EventType = "audit.webstream.delete"
-	EventAuditScheduleRefresh EventType = "audit.schedule.refresh"
-	EventAuditStationCreate   EventType = "audit.station.create"
+	EventAuditAPIKeyCreate         EventType = "audit.apikey.create"
+	EventAuditAPIKeyRevoke         EventType = "audit.apikey.revoke"
+	EventAuditWebstreamCreate      EventType = "audit.webstream.create"
+	EventAuditWebstreamUpdate      EventType = "audit.webstream.update"
+	EventAuditWebstreamDelete      EventType = "audit.webstream.delete"
+	EventAuditScheduleRefresh      EventType = "audit.schedule.refresh"
+	EventAuditStationCreate        EventType = "audit.station.create"
+	EventAuditLandingPagePublish   EventType = "audit.landingpage.publish"
+	EventAuditLandingPageRestore   EventType = "audit.landingpage.restore"
+	EventAuditLandingPageUpdate    EventType = "audit.landingpage.update"
 )
 
 // Payload generic event payload.
