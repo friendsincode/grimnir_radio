@@ -71,6 +71,11 @@ type StagedMediaItem struct {
 	IsDuplicate   bool   `json:"is_duplicate"`              // True if already exists
 	DuplicateOfID string `json:"duplicate_of_id,omitempty"` // ID of existing duplicate
 	Selected      bool   `json:"selected"`                  // User selection
+
+	// Orphan matching (set during analysis)
+	OrphanMatch bool   `json:"orphan_match"`          // True if matched to existing orphan file
+	OrphanID    string `json:"orphan_id,omitempty"`   // ID of matched orphan
+	OrphanPath  string `json:"orphan_path,omitempty"` // Path of orphan file (for display)
 }
 
 // StagedMediaItems is a slice type with GORM scanner/valuer support.
@@ -426,6 +431,17 @@ func (s *StagedImport) DuplicateCount() int {
 	count := 0
 	for _, m := range s.StagedMedia {
 		if m.IsDuplicate {
+			count++
+		}
+	}
+	return count
+}
+
+// OrphanMatchCount returns the number of media items that match existing orphan files.
+func (s *StagedImport) OrphanMatchCount() int {
+	count := 0
+	for _, m := range s.StagedMedia {
+		if m.OrphanMatch {
 			count++
 		}
 	}

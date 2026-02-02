@@ -32,9 +32,10 @@ import (
 
 // LibreTimeImporter implements the Importer interface for LibreTime databases.
 type LibreTimeImporter struct {
-	db           *gorm.DB
-	mediaService *media.Service
-	logger       zerolog.Logger
+	db            *gorm.DB
+	mediaService  *media.Service
+	orphanScanner *media.OrphanScanner
+	logger        zerolog.Logger
 }
 
 // NewLibreTimeImporter creates a new LibreTime importer.
@@ -44,6 +45,11 @@ func NewLibreTimeImporter(db *gorm.DB, mediaService *media.Service, logger zerol
 		mediaService: mediaService,
 		logger:       logger.With().Str("importer", "libretime").Logger(),
 	}
+}
+
+// SetOrphanScanner sets the orphan scanner for orphan matching during import.
+func (l *LibreTimeImporter) SetOrphanScanner(scanner *media.OrphanScanner) {
+	l.orphanScanner = scanner
 }
 
 // isLibreTimeAPIMode returns true if we should use API import instead of database import.
@@ -2050,6 +2056,11 @@ func (l *LibreTimeImporter) analyzeForStagingAPI(ctx context.Context, staged *mo
 	// Detect duplicates
 	staged.StagedMedia = analyzer.DetectDuplicates(ctx, staged.StagedMedia, options.TargetStationID)
 
+	// Check for orphan matches (files on disk but not in DB)
+	if l.orphanScanner != nil {
+		staged.StagedMedia = l.matchOrphans(ctx, staged.StagedMedia)
+	}
+
 	// Apply default selections
 	analyzer.ApplyDefaultSelections(staged)
 
@@ -2072,6 +2083,7 @@ func (l *LibreTimeImporter) analyzeForStagingAPI(ctx context.Context, staged *mo
 		Int("smartblocks", len(staged.StagedSmartBlocks)).
 		Int("shows", len(staged.StagedShows)).
 		Int("webstreams", len(staged.StagedWebstreams)).
+		Int("orphan_matches", staged.OrphanMatchCount()).
 		Msg("staged import analysis complete")
 
 	return staged, nil
@@ -2226,6 +2238,11 @@ func (l *LibreTimeImporter) analyzeForStagingDB(ctx context.Context, staged *mod
 	// Detect duplicates
 	staged.StagedMedia = analyzer.DetectDuplicates(ctx, staged.StagedMedia, options.TargetStationID)
 
+	// Check for orphan matches (files on disk but not in DB)
+	if l.orphanScanner != nil {
+		staged.StagedMedia = l.matchOrphans(ctx, staged.StagedMedia)
+	}
+
 	// Apply default selections
 	analyzer.ApplyDefaultSelections(staged)
 
@@ -2246,9 +2263,62 @@ func (l *LibreTimeImporter) analyzeForStagingDB(ctx context.Context, staged *mod
 		Int("media", len(staged.StagedMedia)).
 		Int("playlists", len(staged.StagedPlaylists)).
 		Int("shows", len(staged.StagedShows)).
+		Int("orphan_matches", staged.OrphanMatchCount()).
 		Msg("staged import analysis complete (database mode)")
 
 	return staged, nil
+}
+
+// matchOrphans checks staged media items against the orphan pool and marks matches.
+// Orphan matching is done by content hash - if a staged item's hash matches an orphan,
+// we can adopt the orphan instead of downloading the file again.
+func (l *LibreTimeImporter) matchOrphans(ctx context.Context, stagedMedia models.StagedMediaItems) models.StagedMediaItems {
+	if l.orphanScanner == nil {
+		return stagedMedia
+	}
+
+	// Build hash map of all orphans for efficient lookup
+	orphanMap, err := l.orphanScanner.BuildOrphanHashMap(ctx)
+	if err != nil {
+		l.logger.Warn().Err(err).Msg("failed to build orphan hash map, skipping orphan matching")
+		return stagedMedia
+	}
+
+	if len(orphanMap) == 0 {
+		return stagedMedia
+	}
+
+	matchCount := 0
+	for i := range stagedMedia {
+		// Skip items that are already duplicates (they exist in DB)
+		if stagedMedia[i].IsDuplicate {
+			continue
+		}
+
+		// If the staged item has a content hash, check for orphan match
+		if stagedMedia[i].ContentHash != "" {
+			if orphan, found := orphanMap[stagedMedia[i].ContentHash]; found {
+				stagedMedia[i].OrphanMatch = true
+				stagedMedia[i].OrphanID = orphan.ID
+				stagedMedia[i].OrphanPath = orphan.FilePath
+				matchCount++
+
+				l.logger.Debug().
+					Str("source_id", stagedMedia[i].SourceID).
+					Str("title", stagedMedia[i].Title).
+					Str("orphan_path", orphan.FilePath).
+					Msg("matched staged media to orphan")
+			}
+		}
+	}
+
+	if matchCount > 0 {
+		l.logger.Info().
+			Int("orphan_matches", matchCount).
+			Msg("found orphan matches for staged media")
+	}
+
+	return stagedMedia
 }
 
 // CommitStagedImport imports only selected items from a staged import with provenance tracking.
@@ -2321,10 +2391,59 @@ func (l *LibreTimeImporter) CommitStagedImport(ctx context.Context, staged *mode
 		client, _ := NewLibreTimeAPIClient(options.LibreTimeAPIURL, options.LibreTimeAPIKey)
 
 		importedCount := 0
+		adoptedCount := 0
 		for _, m := range staged.StagedMedia {
 			if !m.Selected {
 				result.Skipped["media_deselected"]++
 				continue
+			}
+
+			// Check if this item matches an orphan (existing file on disk)
+			if m.OrphanMatch && m.OrphanID != "" && l.orphanScanner != nil {
+				orphan, err := l.orphanScanner.GetOrphanByID(ctx, m.OrphanID)
+				if err == nil && orphan != nil {
+					// Adopt the orphan instead of downloading
+					mediaItem, err := l.orphanScanner.AdoptOrphanForImport(ctx, orphan, stationID, jobID, m.SourceID)
+					if err != nil {
+						l.logger.Warn().Err(err).Str("orphan_id", m.OrphanID).Msg("failed to adopt orphan")
+						// Fall through to download
+					} else {
+						// Update with metadata from source
+						mediaItem.Title = m.Title
+						mediaItem.Artist = m.Artist
+						mediaItem.Album = m.Album
+						mediaItem.Genre = m.Genre
+						mediaItem.ImportPath = m.FilePath
+						if m.DurationMs > 0 {
+							mediaItem.Duration = time.Duration(m.DurationMs) * time.Millisecond
+						}
+						if err := l.db.WithContext(ctx).Save(mediaItem).Error; err != nil {
+							l.logger.Warn().Err(err).Str("media_id", mediaItem.ID).Msg("failed to update adopted media metadata")
+						}
+
+						mediaMapping[m.SourceID] = mediaItem.ID
+						importedItems.MediaIDs = append(importedItems.MediaIDs, mediaItem.ID)
+						result.MediaItemsImported++
+						importedCount++
+						adoptedCount++
+
+						l.logger.Info().
+							Str("title", m.Title).
+							Str("orphan_path", m.OrphanPath).
+							Msg("adopted orphan file instead of downloading")
+
+						// Progress callback
+						cb(Progress{
+							Phase:         "importing_media",
+							CurrentStep:   fmt.Sprintf("Adopting existing file: %d/%d", importedCount, selectedMediaCount),
+							MediaTotal:    selectedMediaCount,
+							MediaImported: importedCount,
+							Percentage:    float64(importedCount) / float64(selectedMediaCount) * 40,
+							StartTime:     startTime,
+						})
+						continue
+					}
+				}
 			}
 
 			// Download and import the media file
@@ -2394,6 +2513,14 @@ func (l *LibreTimeImporter) CommitStagedImport(ctx context.Context, staged *mode
 				Percentage:    float64(importedCount) / float64(selectedMediaCount) * 40,
 				StartTime:     startTime,
 			})
+		}
+
+		if adoptedCount > 0 {
+			l.logger.Info().
+				Int("adopted", adoptedCount).
+				Int("downloaded", importedCount-adoptedCount).
+				Msg("media import complete with orphan adoption")
+			result.Skipped["media_adopted_from_orphans"] = adoptedCount
 		}
 	}
 

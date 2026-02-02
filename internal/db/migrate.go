@@ -85,5 +85,8 @@ func Migrate(database *gorm.DB) error {
 		// Migration jobs and staged imports (Phase 10)
 		&migration.Job{},
 		&models.StagedImport{},
+
+		// Orphan media tracking
+		&models.OrphanMedia{},
 	)
 }

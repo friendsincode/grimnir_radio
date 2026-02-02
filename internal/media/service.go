@@ -13,9 +13,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"github.com/friendsincode/grimnir_radio/internal/config"
+	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/rs/zerolog"
+	"gorm.io/gorm"
 )
 
 // Storage interface abstracts file storage operations.
@@ -28,8 +29,10 @@ type Storage interface {
 
 // Service manages media file storage.
 type Service struct {
-	storage Storage
-	logger  zerolog.Logger
+	storage       Storage
+	orphanScanner *OrphanScanner
+	mediaRoot     string
+	logger        zerolog.Logger
 }
 
 // NewService creates a media service using filesystem or S3 storage based on config.
@@ -65,8 +68,9 @@ func NewService(cfg *config.Config, logger zerolog.Logger) (*Service, error) {
 	}
 
 	return &Service{
-		storage: storage,
-		logger:  logger,
+		storage:   storage,
+		mediaRoot: cfg.MediaRoot,
+		logger:    logger,
 	}, nil
 }
 
@@ -121,4 +125,87 @@ func buildMediaPath(stationID, mediaID, extension string) string {
 		return filepath.Join(stationID, mediaID+extension)
 	}
 	return filepath.Join(stationID, mediaID[0:2], mediaID[2:4], mediaID+extension)
+}
+
+// InitOrphanScanner initializes the orphan scanner with database access.
+// This must be called after the database is available.
+func (s *Service) InitOrphanScanner(db *gorm.DB) {
+	s.orphanScanner = NewOrphanScanner(db, s.mediaRoot, s.logger)
+}
+
+// GetOrphanScanner returns the orphan scanner instance.
+func (s *Service) GetOrphanScanner() *OrphanScanner {
+	return s.orphanScanner
+}
+
+// ScanForOrphans scans the media directory for orphaned files.
+func (s *Service) ScanForOrphans(ctx context.Context) (*models.ScanResult, error) {
+	if s.orphanScanner == nil {
+		return nil, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.ScanForOrphans(ctx)
+}
+
+// GetOrphans returns a paginated list of orphan media records.
+func (s *Service) GetOrphans(ctx context.Context, page, pageSize int) ([]models.OrphanMedia, int64, error) {
+	if s.orphanScanner == nil {
+		return nil, 0, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.GetOrphans(ctx, page, pageSize)
+}
+
+// GetOrphanByHash finds an orphan by content hash.
+func (s *Service) GetOrphanByHash(ctx context.Context, hash string) (*models.OrphanMedia, error) {
+	if s.orphanScanner == nil {
+		return nil, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.GetOrphanByHash(ctx, hash)
+}
+
+// GetOrphanByID finds an orphan by ID.
+func (s *Service) GetOrphanByID(ctx context.Context, id string) (*models.OrphanMedia, error) {
+	if s.orphanScanner == nil {
+		return nil, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.GetOrphanByID(ctx, id)
+}
+
+// AdoptOrphan converts an orphan to a MediaItem for a station.
+func (s *Service) AdoptOrphan(ctx context.Context, orphanID, stationID string) (*models.MediaItem, error) {
+	if s.orphanScanner == nil {
+		return nil, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.AdoptOrphan(ctx, orphanID, stationID)
+}
+
+// DeleteOrphan removes an orphan record and optionally the file.
+func (s *Service) DeleteOrphan(ctx context.Context, orphanID string, deleteFile bool) error {
+	if s.orphanScanner == nil {
+		return fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.DeleteOrphan(ctx, orphanID, deleteFile)
+}
+
+// BulkAdoptOrphans adopts multiple orphans to a station.
+func (s *Service) BulkAdoptOrphans(ctx context.Context, orphanIDs []string, stationID string) (int, error) {
+	if s.orphanScanner == nil {
+		return 0, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.BulkAdoptOrphans(ctx, orphanIDs, stationID)
+}
+
+// BulkDeleteOrphans deletes multiple orphans.
+func (s *Service) BulkDeleteOrphans(ctx context.Context, orphanIDs []string, deleteFiles bool) (int, error) {
+	if s.orphanScanner == nil {
+		return 0, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.BulkDeleteOrphans(ctx, orphanIDs, deleteFiles)
+}
+
+// GetOrphanStats returns aggregate statistics about orphans.
+func (s *Service) GetOrphanStats(ctx context.Context) (count int64, totalSize int64, err error) {
+	if s.orphanScanner == nil {
+		return 0, 0, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.GetOrphanStats(ctx)
 }

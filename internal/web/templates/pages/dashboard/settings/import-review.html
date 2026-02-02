@@ -74,6 +74,22 @@
         </div>
     </div>
 
+    <!-- Orphan Match Info -->
+    {{ if gt .Data.OrphanMatchCount 0 }}
+    <div class="alert alert-info mb-4">
+        <div class="d-flex align-items-center">
+            <div>
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>{{ .Data.OrphanMatchCount }} file(s) found on disk!</strong>
+                <p class="mb-0 mt-1">
+                    These files already exist from a previous import and will be adopted instead of downloading again.
+                    This saves time and bandwidth.
+                </p>
+            </div>
+        </div>
+    </div>
+    {{ end }}
+
     <!-- Warnings -->
     {{ if .Data.Staged.Warnings }}
     <div class="alert alert-warning mb-4">
@@ -160,12 +176,18 @@
                             <td>{{ .Album }}</td>
                             <td>{{ formatDurationMs .DurationMs }}</td>
                             <td>
-                                {{ if .IsDuplicate }}
+                                {{ if .OrphanMatch }}
+                                <span class="badge bg-info" title="Will adopt existing file on disk">
+                                    <i class="bi bi-link-45deg me-1"></i>Existing file
+                                </span>
+                                {{ else if .IsDuplicate }}
                                 <span class="badge bg-warning text-dark">
                                     <i class="bi bi-copy me-1"></i>Duplicate
                                 </span>
                                 {{ else }}
-                                <span class="badge bg-success">New</span>
+                                <span class="badge bg-success">
+                                    <i class="bi bi-cloud-download me-1"></i>New
+                                </span>
                                 {{ end }}
                             </td>
                         </tr>
