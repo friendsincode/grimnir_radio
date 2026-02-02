@@ -160,8 +160,8 @@
                     <div class="card station-card h-100">
                         <div class="card-body text-center">
                             {{if $showLogo}}
-                                {{if .LogoURL}}
-                                <img src="{{.LogoURL}}" alt="{{.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;">
+                                {{if .Logo}}
+                                <img src="/api/v1/stations/{{.ID}}/logo" alt="{{.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
                                 {{else}}
                                 <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
                                 {{end}}

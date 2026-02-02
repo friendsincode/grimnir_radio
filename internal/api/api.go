@@ -219,6 +219,7 @@ func (a *API) Routes(r chi.Router) {
 		r.Get("/analytics/now-playing", a.handleAnalyticsNowPlaying)
 		r.Get("/analytics/listeners", a.handleAnalyticsListeners)
 		r.Get("/public/stations", a.handlePublicStations)
+		r.Get("/stations/{stationID}/logo", a.handleStationLogo)
 
 		// Public schedule endpoints (Phase 8G)
 		a.AddPublicScheduleRoutes(r)
@@ -561,6 +562,32 @@ func (a *API) handleStationsGet(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, station)
 }
+
+// handleStationLogo serves a station's logo image (public, no auth required).
+func (a *API) handleStationLogo(w http.ResponseWriter, r *http.Request) {
+	stationID := chi.URLParam(r, "stationID")
+	if stationID == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	var station models.Station
+	result := a.db.WithContext(r.Context()).Select("id", "logo", "logo_mime").First(&station, "id = ?", stationID)
+	if result.Error != nil || len(station.Logo) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	contentType := station.LogoMime
+	if contentType == "" {
+		contentType = "image/png"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(station.Logo)
+}
+
 func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {
