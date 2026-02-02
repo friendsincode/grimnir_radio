@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.9.2 — 2026-02-02
+
+### New Features
+- **Audit Logs UI**: Added web pages for viewing audit logs
+  - Platform-wide audit logs at `/dashboard/admin/audit` (platform admins)
+  - Station audit logs at `/dashboard/station/audit` (managers+)
+  - Filter by action type, station, and date range
+  - View detailed JSON for each audit entry
+
+### Bug Fixes
+- **Landing Page Editor**: Added missing `landing-page.js` file
+
+---
+
 ## 1.9.1 — 2026-02-02
 
 ### Bug Fixes
