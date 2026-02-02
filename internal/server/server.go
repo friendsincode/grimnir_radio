@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/analytics"
 	"github.com/friendsincode/grimnir_radio/internal/analyzer"
 	"github.com/friendsincode/grimnir_radio/internal/api"
 	"github.com/friendsincode/grimnir_radio/internal/audit"
@@ -37,10 +38,13 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/notifications"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
+	"github.com/friendsincode/grimnir_radio/internal/schedule"
 	"github.com/friendsincode/grimnir_radio/internal/scheduler"
 	schedulerstate "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
 	"github.com/friendsincode/grimnir_radio/internal/smartblock"
+	"github.com/friendsincode/grimnir_radio/internal/syndication"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
+	"github.com/friendsincode/grimnir_radio/internal/underwriting"
 	"github.com/friendsincode/grimnir_radio/internal/web"
 	"github.com/friendsincode/grimnir_radio/internal/webhooks"
 	"github.com/friendsincode/grimnir_radio/internal/webrtc"
@@ -262,6 +266,12 @@ func (s *Server) initDependencies() error {
 	// Webhook service for show transition notifications
 	s.webhookSvc = webhooks.NewService(database, s.bus, s.logger)
 
+	// Phase 8H services: Analytics, Syndication, Underwriting, Export
+	scheduleAnalyticsSvc := analytics.NewScheduleAnalyticsService(database, s.logger)
+	syndicationSvc := syndication.NewService(database, s.logger)
+	underwritingSvc := underwriting.NewService(database, s.logger)
+	scheduleExportSvc := schedule.NewExportService(database, s.logger)
+
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
 	s.api = api.New(s.db, s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, broadcastSrv, s.bus, s.logBuffer, s.logger)
@@ -273,6 +283,19 @@ func (s *Server) initDependencies() error {
 	// Set webhook API
 	webhookAPI := api.NewWebhookAPI(s.api, s.webhookSvc)
 	s.api.SetWebhookAPI(webhookAPI)
+
+	// Phase 8H APIs
+	scheduleAnalyticsAPI := api.NewScheduleAnalyticsAPI(s.api, scheduleAnalyticsSvc)
+	s.api.SetScheduleAnalyticsAPI(scheduleAnalyticsAPI)
+
+	syndicationAPI := api.NewSyndicationAPI(s.api, syndicationSvc)
+	s.api.SetSyndicationAPI(syndicationAPI)
+
+	underwritingAPI := api.NewUnderwritingAPI(s.api, underwritingSvc)
+	s.api.SetUnderwritingAPI(underwritingAPI)
+
+	scheduleExportAPI := api.NewScheduleExportAPI(s.api, scheduleExportSvc)
+	s.api.SetScheduleExportAPI(scheduleExportAPI)
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
