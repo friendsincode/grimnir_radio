@@ -60,6 +60,10 @@ func Migrate(database *gorm.DB) error {
 		&models.ScheduleRequest{},
 		&models.ScheduleLock{},
 
+		// Notifications (Phase 8F)
+		&models.NotificationPreference{},
+		&models.Notification{},
+
 		// Migration jobs
 		&migration.Job{},
 	)

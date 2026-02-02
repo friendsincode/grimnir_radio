@@ -52,6 +52,7 @@ type API struct {
 	prioritySvc      *priority.Service
 	executorStateMgr *executor.StateManager
 	auditSvc         *audit.Service
+	notificationAPI  *NotificationAPI
 	migrationHandler *MigrationHandler
 	broadcast        *broadcast.Server
 	bus              *events.Bus
@@ -80,6 +81,11 @@ func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, 
 		bus:              bus,
 		logger:           logger,
 	}
+}
+
+// SetNotificationAPI sets the notification API handler.
+func (a *API) SetNotificationAPI(notifAPI *NotificationAPI) {
+	a.notificationAPI = notifAPI
 }
 
 type mountRequest struct {
@@ -306,6 +312,11 @@ func (a *API) Routes(r chi.Router) {
 
 			// DJ self-service
 			a.AddDJSelfServiceRoutes(pr)
+
+			// Notifications
+			if a.notificationAPI != nil {
+				a.notificationAPI.RegisterRoutes(pr)
+			}
 
 			// Migration routes (admin only)
 			pr.Group(func(mr chi.Router) {

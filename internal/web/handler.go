@@ -186,6 +186,8 @@ func (h *Handler) loadTemplates() error {
 		"isPlatformAdmin": isPlatformAdmin,
 		"isActive":        isActive,
 		"iterate":         iterate,
+		"deref":           deref,
+		"string":          stringify,
 		"stationColor":    stationColor,
 	}
 
@@ -575,6 +577,19 @@ func iterate(n int) []int {
 		result[i] = i
 	}
 	return result
+}
+
+// deref dereferences a pointer to int and returns its value.
+func deref(p *int) int {
+	if p == nil {
+		return -1
+	}
+	return *p
+}
+
+// stringify converts any value to a string using fmt.Sprintf.
+func stringify(v any) string {
+	return fmt.Sprintf("%v", v)
 }
 func mul(a, b any) int { return toInt(a) * toInt(b) }
 func div(a, b any) int {
