@@ -1,8 +1,14 @@
 # Grimnir Radio — Sales Spec
 
-**Version:** 0.0.1-alpha
+**Version:** 1.3.1
 
 This document describes Grimnir Radio's value proposition, target customers, and capabilities. Features are marked as **✓ IMPLEMENTED** or **⏳ PLANNED**.
+
+---
+
+## Production Deployment
+
+Grimnir Radio powers **[rlmradio.xyz](https://rlmradio.xyz)**, a community radio station honoring the legacy of Grimnir who dedicated his work to the community.
 
 ---
 
@@ -14,9 +20,9 @@ Professional radio automation where Go owns the control plane and a dedicated me
 
 ## Current Status
 
-**Alpha Release (0.0.1-alpha)** - Core control plane and scheduling implemented, playout integration in progress. NOT production-ready.
+**Production Release (1.3.1)** - Full-featured broadcast automation system. Production-ready.
 
-**What Works Today:**
+**Core Features (All Implemented):**
 - Smart scheduling with rule-based playlist generation (deterministic, reproducible)
 - 48-hour rolling schedule automation with clock templates
 - Multi-station/multi-mount architecture with isolation
@@ -24,16 +30,23 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Media upload and metadata management
 - HTTP JSON API with WebSocket events for real-time updates
 - PostgreSQL/MySQL/SQLite database support
+- **Two-binary architecture**: Control plane + separate media engine
+- **GStreamer-based media engine** with gRPC control interface
+- **5-tier priority system** (Emergency > Live Override > Live Scheduled > Automation > Fallback)
+- **Graph-based DSP pipeline**: Loudness normalization, AGC, compression, limiting
+- **Redis/NATS event bus** for multi-instance support and fault isolation
+- **Webstream relay** with failover chains for external streams
+- **Migration tools**: One-command import from AzuraCast/LibreTime
+- **Live DJ input** with token-based authorization (Icecast, RTP, SRT)
+- **Full observability**: Prometheus metrics, OpenTelemetry tracing, alerting
+- **Horizontal scaling** with consistent hashing and leader election
+- **Turn-key deployment**: Docker Compose, Kubernetes, Nix
+- **Audit logging** for sensitive operations
 
 **What's Coming:**
-- **Process separation**: API Gateway, Planner, Executor Pool, Media Engine (separate binaries)
-- **Media engine**: GStreamer-based with gRPC control interface (not embedded)
-- **Priority system**: 5-tier ladder (Emergency > Live > Scheduled > Automation > Fallback)
-- **DSP pipeline**: Graph-based loudness normalization, AGC, compression, limiting
-- **Event bus**: Redis/NATS for multi-instance support and fault isolation
-- **Webstream relay**: Failover chains for external streams
-- **Migration tools**: One-command import from AzuraCast/LibreTime
 - **WebDJ**: Browser-based DJ control panel
+- **Emergency Alert System (EAS)** integration
+- **Advanced scheduling**: Conflict detection, templates
 
 ---
 
@@ -99,31 +112,31 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - **Solution:** Complete RESTful JSON API with WebSocket events
 - **Benefit:** Build custom dashboards, mobile apps, third-party integrations
 
-### ⏳ Planned Solutions
+### ✓ Additional Solved Problems
 
 **Liquidsoap Complexity = Development Bottleneck**
 - **Problem:** Liquidsoap scripting (OCaml-based DSL) requires specialized expertise; hard to debug and maintain
-- **Solution (planned):** Go control plane + separate media engine with gRPC interface; declarative YAML configuration (no scripting DSL)
+- **Solution:** Go control plane + separate media engine with gRPC interface; declarative YAML configuration (no scripting DSL)
 - **Benefit:** Easier to understand, extend, and maintain; standard programming tools work
 
 **Inconsistent Loudness = Listener Fatigue**
 - **Problem:** Volume jumps between tracks harm listener experience
-- **Solution (planned):** Graph-based DSP pipeline with loudness normalization (EBU R128/ATSC A/85); analysis at ingest, enforcement at playout
+- **Solution:** Graph-based DSP pipeline with loudness normalization (EBU R128/ATSC A/85); analysis at ingest, enforcement at playout
 - **Benefit:** Consistent volume across entire broadcast; professional sound quality
 
 **Fragile Live Handovers = Dead Air**
 - **Problem:** DJ transitions fail, causing embarrassing gaps; no priority system for emergency content
-- **Solution (planned):** 5-tier priority ladder (Emergency > Live Override > Live Scheduled > Automation > Fallback) with seamless crossfades
+- **Solution:** 5-tier priority ladder (Emergency > Live Override > Live Scheduled > Automation > Fallback) with seamless crossfades
 - **Benefit:** Sub-3-second transitions; emergency content always takes priority; no dead air
 
 **Monolithic Failures = Total Outage**
 - **Problem:** Single component crash takes down entire broadcast
-- **Solution (planned):** Process separation (API Gateway, Planner, Executor Pool, Media Engine) with isolated failure domains; one process crash doesn't kill others
+- **Solution:** Process separation (Control Plane + Media Engine) with isolated failure domains; one process crash doesn't kill others
 - **Benefit:** Improved reliability; graceful degradation; easier debugging
 
 **Migration from Legacy = Downtime Risk**
 - **Problem:** Switching platforms means hours of manual data entry
-- **Solution (planned):** One-command import from AzuraCast/LibreTime backups; dry-run preview with diff report
+- **Solution:** One-command import from AzuraCast/LibreTime backups; dry-run preview with diff report
 - **Benefit:** Per-mount cutover with zero/low downtime; validated migration
 
 ---
@@ -160,10 +173,10 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - S3-compatible object storage or filesystem
 - **vs. Cloud-Only:** No vendor lock-in; run anywhere
 
-### ⏳ Planned Advantages
+### ✓ Additional Advantages
 
 **Process Separation Architecture**
-- API Gateway, Planner, Executor Pool, Media Engine run as separate processes
+- Control Plane and Media Engine run as separate processes
 - Isolated failure domains: one component crash doesn't kill broadcast
 - gRPC control interface between Go control plane and media engine
 - Event bus (Redis/NATS) for multi-instance coordination
@@ -273,13 +286,12 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Request ID propagation
 - Metrics endpoint placeholders
 
-### ⏳ PLANNED
+### ✓ IMPLEMENTED (Post-1.0)
 
 **Process Architecture**
-- API Gateway (HTTP/WebSocket server, authentication, routing)
-- Planner (timeline generation, Smart Block materialization)
-- Executor Pool (per-station goroutines, state management)
+- Control Plane (HTTP/WebSocket/gRPC server, authentication, routing, scheduling)
 - Media Engine (separate binary, GStreamer-based, gRPC controlled)
+- Executor Pool (per-station goroutines, state management)
 - Event Bus (Redis Pub/Sub or NATS for inter-process communication)
 - Isolated failure domains (one crash doesn't kill broadcast)
 
@@ -325,13 +337,6 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Per-mount cutover with rollback
 - Progress tracking via WebSocket events
 
-**Smart Block Enhancements**
-- Energy curves (ramp up/down energy over hour)
-- Historical play data integration (avoid recently played)
-- Advanced scoring algorithms (weighted multi-factor)
-- Mood-based transitions
-- Time-of-day awareness
-
 **Observability**
 - Complete Prometheus metrics (latency, throughput, errors)
 - Distributed tracing (OpenTelemetry)
@@ -342,10 +347,26 @@ Professional radio automation where Go owns the control plane and a dedicated me
 
 **User Management**
 - User CRUD API (admin)
-- Password reset flow
-- Optional OIDC/SSO integration
 - Audit logging for sensitive operations
 - Per-user activity tracking
+
+**Deployment Options**
+- Docker Compose (turn-key with Icecast2)
+- Kubernetes manifests
+- Nix flakes (Basic, Full NixOS, Dev flavors)
+- Systemd service files
+
+### ⏳ PLANNED
+
+**Smart Block Enhancements**
+- Energy curves (ramp up/down energy over hour)
+- Advanced scoring algorithms (weighted multi-factor)
+- Mood-based transitions
+- Time-of-day awareness
+
+**User Management Enhancements**
+- Password reset flow
+- Optional OIDC/SSO integration
 
 **WebDJ Interface**
 - Browser-based DJ control panel
@@ -353,16 +374,23 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Playlist management
 - Voice tracking
 
+**Emergency Alert System (EAS)**
+- EAS message parsing
+- Automatic broadcast interruption
+- Compliance logging
+
 ---
 
 ## Packaging & Deployment
 
-### ✓ CURRENT
+### ✓ IMPLEMENTED
 
-**Single Binary (Monolithic Phase)**
-- `cmd/grimnirradio` → `./grimnirradio` (Go binary)
+**Two-Binary Architecture**
+- `cmd/grimnirradio` → `./grimnirradio` (Control Plane)
+- `cmd/mediaengine` → `./mediaengine` (Media Engine)
 - All migrations embedded
-- Basic GStreamer integration (control plane launches pipelines)
+- gRPC communication between processes
+- Separate failure domains (one crash ≠ total outage)
 
 **Databases**
 - PostgreSQL (preferred for production)
@@ -377,38 +405,27 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Linux first (x86_64 and ARM64)
 - Runs on modern Linux distributions (Ubuntu 20.04+, Debian 11+)
 
-**Deployment**
-- systemd service
+**Deployment Options**
+- **Nix (Recommended)**: Reproducible builds, three flavors (Basic, Full NixOS, Dev)
+- **Docker Compose**: Turn-key with intelligent port detection, external storage/database support
+- **Kubernetes**: Full manifests with process separation
+- **Systemd**: Service files for bare metal deployment
 - Environment variable configuration
 - GStreamer 1.0 required (plugins: base, good, ugly)
 
-### ⏳ FUTURE
-
-**Multi-Process Architecture**
-- `grimnirradio` binary (API Gateway + Planner + Executor Pool)
-- `mediaengine` binary (separate process, GStreamer-based)
-- systemd service files for each process
-- gRPC communication between processes
-- Redis/NATS event bus for multi-instance coordination
-- Separate failure domains (one crash ≠ total outage)
-
-**Containerization**
-- Docker images: `grimnirradio:latest` and `mediaengine:latest`
-- Docker Compose for full stack (control plane + media engine + postgres + redis + icecast)
-- Kubernetes manifests with process separation
-- Helm charts with HA configuration
-
 **High Availability**
-- Load-balanced API Gateway instances
-- Multiple Planner instances with leader election
-- Executor Pool scaled across instances (via event bus)
+- Load-balanced API instances
+- Leader election for executor distribution
+- Consistent hashing (CRC32, 500 virtual nodes)
+- Event bus via Redis Pub/Sub or NATS
 - Shared PostgreSQL with replication
-- Redis Sentinel or NATS cluster for event bus HA
 - Shared media storage (S3/NFS)
 
+### ⏳ FUTURE
+
 **Cloud Deployment**
-- One-click AWS/GCP/Azure deployment
-- Managed database integration
+- One-click AWS/GCP/Azure deployment templates
+- Managed database integration guides
 - CDN integration for media delivery
 
 ---
@@ -610,19 +627,17 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Gradual adoption: start with scheduling, add live features later
 - Training materials and examples
 
-### "It's alpha software"
+### "Is it production-ready?"
 
-**Response (honest):**
-- **Correct:** This is 0.0.1-alpha, not production-ready
-- **What works:** Core scheduling, smart blocks, API, authentication
-- **What's missing:** Complete playout integration, migration tools, WebDJ
-- **Best for:** Testing, pilots, non-critical streams
-- **Roadmap:** Production hardening in Phase 6
+**Response:**
+- **Yes:** Version 1.3.1 is production-ready and powers [rlmradio.xyz](https://rlmradio.xyz)
+- **What works:** All core features including scheduling, smart blocks, API, authentication, two-process architecture, 5-tier priority system, live input, webstream relay, migration tools, and full observability
+- **What's coming:** WebDJ interface, EAS integration, advanced scheduling
 
-**When to Wait:**
-- Critical 24/7 broadcast (wait for beta/1.0)
-- Need migration tools immediately (wait for Phase 6)
-- Want webstream support (wait for Phase 4)
+**When to Consider:**
+- 24/7 community or commercial broadcast
+- Migration from AzuraCast or LibreTime
+- Multi-station hosting with centralized control
 
 ### "We need commercial support"
 
@@ -662,13 +677,17 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Metrics endpoint localhost-only by default
 - Database credentials via environment variables
 
+### ✓ IMPLEMENTED (Post-1.0)
+
+**Enhanced Security:**
+- Audit logging for sensitive operations (priority, live, API keys, webstreams)
+- API key authentication with configurable expiration
+
 ### ⏳ PLANNED
 
 **Enhanced Security:**
 - Optional OIDC/SSO integration
-- API key authentication for webhooks
 - Rate limiting on public endpoints
-- Audit logging for sensitive operations
 - IP allowlisting for admin endpoints
 
 **Compliance:**
@@ -702,12 +721,11 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - API integration proof-of-concept
 - Performance assessment
 
-### ⏳ Production Deployment (Planned for Beta/1.0)
+### ✓ Production Deployment
 
 **Prerequisites:**
 - Migration from existing system (using import tools)
 - Complete playout pipeline validation
-- WebDJ setup for remote DJs
 - Monitoring and alerting configured
 
 **Rollout:**
@@ -716,13 +734,12 @@ Professional radio automation where Go owns the control plane and a dedicated me
 - Rollback plan to existing system
 - 1-week validation period
 
-### ⏳ Multi-Station Rollout (Planned for 1.0+)
+### ✓ Multi-Station Rollout
 
 1. Onboard one station completely
 2. Add additional stations incrementally
 3. Centralize media library management
 4. Build custom integrations via API
-5. Train staff on WebDJ interface
 
 ---
 
@@ -748,83 +765,86 @@ Professional radio automation where Go owns the control plane and a dedicated me
 
 ## Roadmap Summary
 
-### Phase 1-3: ✓ PARTIALLY COMPLETE (Current - 0.0.1-alpha)
+### ✓ COMPLETE - All Planned Phases
+
+**Phase 0: Foundation Fixes** ✓
 - Core control plane, API, authentication
 - Smart Blocks and scheduling
 - Multi-station/multi-mount
-- Basic playout controls
 - Media management
 
-### Phase 4A: ⏳ NEXT (Executor Refactor - Months 1-2)
-- Priority system implementation (5-tier ladder)
+**Phase 4A: Executor & Priority System** ✓
+- 5-tier priority ladder implementation
 - State machine for priority resolution
-- In-memory event bus (foundation for Redis/NATS later)
 - Executor state tracking
 
-### Phase 4B: ⏳ (Media Engine Separation - Months 2-3)
+**Phase 4B: Media Engine Separation** ✓
 - Separate `mediaengine` binary
 - gRPC interface (protobuf definitions)
 - Graph-based DSP pipeline (loudness, AGC, compression, limiting)
 - Telemetry stream to control plane
 - Process supervision and restart
 
-### Phase 4C: ⏳ (Live & Webstreams - Month 4)
-- Live handover with priority system
+**Phase 4C: Live Input & Webstream Relay** ✓
+- Live handover with priority system (harbor-style)
 - Webstream relay with failover chains
-- Crossfade enhancements (cue-aware)
 - Sub-3-second transitions
 
-### Phase 5: ⏳ (Multi-Instance & Scaling - Months 4-5)
-- Redis Pub/Sub or NATS event bus
-- Load-balanced API Gateway
-- Leader election for Planner
-- Shared PostgreSQL setup
+**Phase 5: Observability & Multi-Instance** ✓
+- Redis Pub/Sub and NATS event bus
+- Prometheus metrics, OpenTelemetry tracing
+- Leader election with consistent hashing
 - Multi-instance executor coordination
 
-### Phase 6: ⏳ (Production Ready - Months 5-8)
+**Phase 6: Production Readiness** ✓
 - Migration tools (AzuraCast/LibreTime import)
-- Complete observability (metrics, traces, logs)
-- Performance optimization and profiling
-- Production deployment guides
-- WebDJ interface
-- Beta release → 1.0
+- Docker Compose and Kubernetes deployment
+- Load testing and performance optimization
 
-**Timeline:** 6-8 months from 0.0.1-alpha to production-ready 1.0 release
+**Phase 7: Nix Integration** ✓
+- Reproducible builds via Nix flakes
+- Three deployment flavors (Basic, Full NixOS, Dev)
 
-See `docs/ARCHITECTURE_ROADMAP.md` for detailed implementation plan.
+### ⏳ FUTURE PHASES
+
+**Phase 8: WebDJ & Advanced Features**
+- Browser-based DJ control panel
+- Emergency Alert System (EAS) integration
+- Advanced scheduling (conflict detection, templates)
+
+See `docs/ARCHITECTURE_ROADMAP.md` for detailed implementation history.
 
 ---
 
 ## Summary
 
-Grimnir Radio is a **promising but early-stage** radio automation platform with a clear architectural vision: **Go owns the control plane, a dedicated media engine owns real-time audio.** The core scheduling engine, Smart Blocks, and API are implemented and functional. The planned multi-process architecture (API Gateway, Planner, Executor Pool, Media Engine) with priority-based handover and graph-based DSP will provide production-grade reliability and sound quality.
+Grimnir Radio is a **production-ready** radio automation platform powering [rlmradio.xyz](https://rlmradio.xyz). The architectural vision is realized: **Go owns the control plane, a dedicated media engine owns real-time audio.** All planned phases are complete, including the two-process architecture, 5-tier priority system, graph-based DSP, live input, webstream relay, migration tools, and full observability.
 
-**Best suited today:** Testing, pilots, non-critical streams, evaluating the architecture and API design
-
-**Production readiness:** Expected in 6-8 months (beta/1.0) after completing process separation, priority system, and migration tools
+**Best suited for:**
+- Community radio stations seeking modern, reliable automation
+- Streaming-only stations prioritizing sound consistency and uptime
+- Content networks managing multiple stations from a single control plane
+- Organizations wanting to migrate from AzuraCast or LibreTime
 
 **Choose Grimnir Radio if you:**
 - Value API-first design and automation
 - Want deterministic, predictable scheduling with reproducible results
 - Prefer maintainable architecture (Go + gRPC + GStreamer) over Liquidsoap scripting complexity
-- Need process isolation and fault tolerance (planned)
-- Are comfortable with alpha-stage software and want to influence development direction
+- Need process isolation and fault tolerance
 - Plan to build custom integrations or mobile apps
 - Want to replace Liquidsoap with declarative configuration
 
-**Wait for later releases if you:**
-- Need 24/7 production-critical reliability today (wait for beta/1.0)
-- Require complete webstream support with failover (Phase 4C)
-- Need migration tools immediately (Phase 6)
-- Want comprehensive WebDJ features (Phase 6)
+**Consider alternatives if you:**
+- Need WebDJ browser-based streaming (coming soon)
+- Require Emergency Alert System integration (coming soon)
 - Require unlimited DSP customization (Liquidsoap may be better fit)
-- Require commercial support (not available yet)
+- Require commercial support contracts (not available yet)
 
 ---
 
 ## Contact & Next Steps
 
-- **Repository:** (check project README for repository URL)
-- **Documentation:** `docs/API_REFERENCE.md`, `docs/specs/`
+- **Live Deployment:** [rlmradio.xyz](https://rlmradio.xyz)
+- **Repository:** [github.com/friendsincode/grimnir_radio](https://github.com/friendsincode/grimnir_radio)
+- **Documentation:** `docs/api/README.md`, `docs/specs/`
 - **Issues:** GitHub Issues
-- **Community:** (check project README for community links)

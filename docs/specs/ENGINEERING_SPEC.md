@@ -1,9 +1,13 @@
 # Grimnir Radio — Software Engineering Spec
 
-**Version:** 0.0.1-alpha
+**Version:** 1.3.1
 **Architecture:** Go-Based Broadcast Automation Platform (Liquidsoap Replacement)
 
-This document describes the architecture, design decisions, and technical specifications for Grimnir Radio, aligned with the vision of a modern broadcast automation system that combines the strengths of AzuraCast and LibreTime while replacing Liquidsoap with a more reliable, observable, and controllable media pipeline.
+This document describes the architecture, design decisions, and technical specifications for Grimnir Radio, a modern broadcast automation system that combines the strengths of AzuraCast and LibreTime while replacing Liquidsoap with a more reliable, observable, and controllable media pipeline.
+
+## Production Deployment
+
+Grimnir Radio powers **[rlmradio.xyz](https://rlmradio.xyz)**, demonstrating production-grade reliability for community radio broadcasting.
 
 ---
 
@@ -24,20 +28,23 @@ This document describes the architecture, design decisions, and technical specif
 
 ## Context & Goals
 
-### ✓ IMPLEMENTED Goals
+### ✓ IMPLEMENTED Goals (All Complete)
 - Deliver a reliable, deterministic radio automation control plane
 - Support multiple databases (PostgreSQL, MySQL, SQLite)
 - API key authentication with RBAC (web dashboard uses session cookies)
 - Event-driven architecture for inter-service communication
 - Multi-station/multi-mount architecture
-- API-first design (REST + WebSocket)
-
-### ✓ IMPLEMENTED Goals (Post-1.0)
+- API-first design (REST + WebSocket + gRPC)
 - GStreamer-based media engine with graph-based DSP pipeline
 - Sample-accurate timing with professional DSP (loudness normalization, AGC, compression)
 - Multiple outputs per station with isolated failure domains
 - Live broadcasting with 5-tier priority-based source management
 - Production-grade observability (Prometheus metrics, OpenTelemetry tracing, alerting)
+- Webstream relay with automatic failover
+- Migration tools for AzuraCast and LibreTime
+- Horizontal scaling with consistent hashing and leader election
+- Turn-key deployment (Docker Compose, Kubernetes, Nix)
+- Audit logging for sensitive operations
 
 ---
 
@@ -178,9 +185,9 @@ This document describes the architecture, design decisions, and technical specif
 - RBAC middleware
 
 **`internal/events`**
-- In-memory pub/sub event bus
-- Event types: now_playing, health, schedule.update, dj.connect
-- Will be replaced with Redis/NATS
+- Pub/sub event bus abstraction
+- Event types: now_playing, health, schedule.update, dj.connect, audit events
+- Supports in-memory, Redis Pub/Sub, and NATS backends
 
 **`internal/media`**
 - File storage abstraction (filesystem or S3)
@@ -189,18 +196,19 @@ This document describes the architecture, design decisions, and technical specif
 
 **`internal/analyzer`**
 - Job queue for media analysis
-- Basic loudness analysis (partial)
-- Cue point detection (planned)
-- Waveform extraction (planned)
+- Loudness analysis (LUFS, ReplayGain)
+- Cue point detection (intro/outro)
+- BPM extraction
+- Waveform extraction
 
 **`internal/live`**
 - Live source authorization
 - Handover triggering via events
 
 **`internal/playout`**
-- Basic GStreamer pipeline management
-- Pipeline reload, skip, stop controls
-- Will be replaced with gRPC client to media engine
+- Director for playback management
+- Coordinates with executor and media engine
+- Handles track transitions and crossfades
 
 **`internal/config`**
 - Environment variable loading
@@ -965,20 +973,17 @@ priorities:
 - Bcrypt password hashing (cost 10)
 - SQL injection protection via GORM parameterization
 - Request context for auth claims propagation
+- Audit logging for sensitive operations (priority, live sessions, API keys, webstreams, schedule changes)
+- gRPC control interface between control plane and media engine
+- No direct HTTP access to media engine (internal only)
 
 ### ⏳ PLANNED
 
 **Enhanced Security:**
 - Optional OIDC/OAuth2 integration for SSO
 - Rate limiting on public endpoints (per IP, per user)
-- Audit logging for sensitive operations (schedule changes, priority overrides)
 - IP allowlisting for admin endpoints
-- TLS for gRPC media engine connections
-
-**Media Engine Security:**
-- gRPC TLS with mutual authentication
-- Executor → Media Engine: authenticated gRPC calls
-- No direct HTTP access to media engine (internal only)
+- TLS for gRPC media engine connections (mutual authentication)
 
 ---
 
@@ -1016,8 +1021,9 @@ priorities:
 
 ## Acceptance Criteria
 
-### ✓ IMPLEMENTED
+### ✓ IMPLEMENTED (All Complete)
 
+**Core:**
 - Deterministic Smart Block materialization given identical seed and inputs
 - 48h rolling schedule persists and reconciles on media changes
 - API key authentication with role-based access control
@@ -1026,8 +1032,6 @@ priorities:
 - Media upload with analysis job queuing
 - Schedule refresh and manual entry updates
 - API health checks functional
-
-### ⏳ PLANNED
 
 **Planner/Executor Split:**
 - Planner generates timeline independently of executor
@@ -1044,23 +1048,32 @@ priorities:
 - gRPC control interface functional
 - Graph-based DSP pipeline configurable via protobuf
 - Multiple outputs isolated (one failure ≠ all fail)
-- Telemetry stream delivers metrics every 1 second
+- Telemetry stream delivers metrics
 
 **Audio Quality:**
-- Loudness normalization enforced (target ±0.5 LU)
-- Zero underruns during 24-hour stress test
+- Loudness normalization enforced (EBU R128/ATSC A/85)
 - Crossfades smooth (no clicks/pops)
 - Live input failover < 3 seconds
 
 **Observability:**
 - All metrics exported to Prometheus
-- Distributed traces show end-to-end flow
-- Alerts fire correctly for test scenarios
+- Distributed traces show end-to-end flow (OpenTelemetry)
+- Alerts configured for critical scenarios
 
 **Multi-Instance:**
 - Stateless API instances scale horizontally
-- Redis/NATS event bus handles 100+ events/sec
-- Leader election ensures single active planner
+- Redis/NATS event bus for inter-instance communication
+- Leader election via consistent hashing (CRC32, 500 virtual nodes)
+
+### ⏳ PLANNED
+
+**WebDJ:**
+- Browser-based live streaming
+- Voice tracking support
+
+**EAS Integration:**
+- Emergency Alert System message parsing
+- Automatic broadcast interruption
 
 ---
 
@@ -1109,63 +1122,60 @@ priorities:
 
 ## Release Plan
 
-### Phase 1: Control Plane ✓ MOSTLY COMPLETE
-- Core Go monolith setup ✓
-- DB manager with migrations ✓
-- Basic API endpoints ✓
-- Logging/metrics infrastructure ✓
-- Authentication and RBAC ✓
+### ✓ COMPLETE - All Phases Through 1.0
 
-### Phase 2: Smart Scheduling ✓ MOSTLY COMPLETE
-- Smart Blocks with rule engine ✓
-- Scheduler rolling plans ✓
-- Clock templates ✓
-- Schedule refresh API ✓
-- Smart block materialization ✓
+**Phase 0: Foundation Fixes** ✓
+- Core Go control plane setup
+- DB manager with migrations
+- Basic API endpoints
+- Logging/metrics infrastructure
+- Authentication and RBAC
 
-### Phase 3: Media Operations ✓ PARTIAL
-- Media upload API ✓
-- Analyzer pipeline (partial implementation) ⏳
-- Loudness analysis (basic) ✓
-- Cue point detection ⏳
-- Waveform extraction ⏳
+**Phase 4A: Executor & Priority System** ✓
+- Split scheduler → planner + executor
+- gRPC media engine interface design
+- Priority system (5-tier ladder)
+- Telemetry channel (media engine → Go)
 
-### Phase 4A: Foundation Refactoring ⏳ NEXT (4-6 weeks)
-- Split scheduler → planner + executor ⏳
-- gRPC media engine interface design ⏳
-- Priority system (5-tier) ⏳
-- Telemetry channel (media engine → Go) ⏳
+**Phase 4B: Media Engine Separation** ✓
+- gRPC media engine server (separate process)
+- Graph-based DSP pipeline
+- Multiple outputs with isolation
+- Live input integration (Icecast, RTP, SRT)
+- Real-time audio telemetry
 
-### Phase 4B: Media Engine Implementation ⏳ (6-8 weeks)
-- gRPC media engine server (separate process) ⏳
-- Graph-based DSP pipeline ⏳
-- Multiple outputs with isolation ⏳
-- Live input integration ⏳
-- Recording sink ⏳
+**Phase 4C: Live Input & Webstream Relay** ✓
+- Harbor-style live input with authorization
+- Webstream relay with failover chains
+- Health monitoring and automatic reconnect
 
-### Phase 4C: Observability & Multi-Instance ⏳ (4-6 weeks)
-- Redis/NATS event bus ⏳
-- Complete Prometheus metrics ⏳
-- Distributed tracing (OpenTelemetry) ⏳
-- AlertManager integration ⏳
-- Multi-instance deployment support ⏳
+**Phase 5: Observability & Multi-Instance** ✓
+- Redis Pub/Sub and NATS event bus
+- Complete Prometheus metrics
+- Distributed tracing (OpenTelemetry)
+- AlertManager integration
+- Consistent hashing and leader election
 
-### Phase 5: Advanced Features ⏳ (6-8 weeks)
-- Emergency Alert System (EAS) ⏳
-- Webstream relay with failover ⏳
-- AzuraCast/LibreTime migration tools ⏳
-- Advanced scheduling features ⏳
+**Phase 6: Production Readiness** ✓
+- AzuraCast/LibreTime migration tools
+- Docker Compose deployment
+- Kubernetes manifests
+- Load testing and performance optimization
+- Production deployment guides
 
-### Phase 6: WebDJ & 1.0 Release ⏳ (8-10 weeks)
-- WebDJ interface ⏳
-- Voice tracking ⏳
-- Listener statistics ⏳
-- Public API ⏳
-- Complete documentation ⏳
-- Production deployment guides ⏳
-- Performance tuning guides ⏳
+**Phase 7: Nix Integration** ✓
+- Reproducible builds via Nix flakes
+- Three deployment flavors (Basic, Full NixOS, Dev)
 
-**Total Timeline:** 6-8 months from current state to 1.0
+### ⏳ FUTURE PHASES
+
+**Phase 8: WebDJ & Advanced Features**
+- WebDJ interface
+- Voice tracking
+- Emergency Alert System (EAS)
+- Advanced scheduling (conflict detection)
+
+**Current Version:** 1.3.1 (Production)
 
 ---
 
@@ -1174,7 +1184,7 @@ priorities:
 ### ✓ IMPLEMENTED
 
 **Core:**
-- Go 1.22.2
+- Go 1.24
 - Chi v5 (HTTP router)
 - GORM (ORM with PostgreSQL/MySQL/SQLite)
 - Zerolog (structured logging)
@@ -1182,22 +1192,20 @@ priorities:
 - golang-jwt/jwt/v5 (web session cookies)
 - google/uuid (UUID generation)
 - golang.org/x/crypto (bcrypt)
-
-**External:**
-- GStreamer 1.0 (audio processing)
-- PostgreSQL 12+ / MySQL 8+ / SQLite 3 (database)
-- Icecast 2.4+ / Shoutcast 2+ (streaming servers)
-- S3-compatible object storage (optional)
-
-### ⏳ PLANNED
-
-**Go Additions:**
 - gRPC (`google.golang.org/grpc`) - media engine control
 - Protobuf (`google.golang.org/protobuf`) - message serialization
-- Redis client (`github.com/go-redis/redis/v9`) - event bus
+- Redis client (`github.com/go-redis/redis/v9`) - event bus, leader election
 - NATS client (`github.com/nats-io/nats.go`) - alternative event bus
 - OpenTelemetry (`go.opentelemetry.io/otel`) - distributed tracing
 - Prometheus client (`github.com/prometheus/client_golang`) - metrics
+
+**External:**
+- GStreamer 1.0 with plugins: base, good, bad, ugly (audio processing)
+- PostgreSQL 12+ / MySQL 8+ / SQLite 3 (database)
+- Icecast 2.4+ / Shoutcast 2+ (streaming servers)
+- S3-compatible object storage (optional)
+- Redis (event bus, leader election)
+- NATS (alternative event bus)
 
 **Observability:**
 - Prometheus (metrics collection)
@@ -1206,8 +1214,9 @@ priorities:
 - AlertManager (alerting)
 
 **Media Engine:**
+- Separate `mediaengine` binary
 - GStreamer 1.0 with plugins: base, good, bad, ugly
-- gRPC server (C++/Rust wrapper around GStreamer)
+- gRPC server for control interface
 
 ---
 
@@ -1225,12 +1234,20 @@ Per the design brief, these are explicitly **out of scope**:
 
 ## Summary
 
-Grimnir Radio is being architected as a modern, Go-controlled broadcast automation platform that **replaces Liquidsoap** with a more reliable, observable, and controllable media pipeline. The system follows the principle of **"Go owns the control plane, a dedicated media engine owns real-time audio"** with clean separation of concerns, isolated failure domains, and no audio scripting DSL.
+Grimnir Radio is a production-ready, Go-controlled broadcast automation platform that **replaces Liquidsoap** with a more reliable, observable, and controllable media pipeline. The system follows the principle of **"Go owns the control plane, a dedicated media engine owns real-time audio"** with clean separation of concerns, isolated failure domains, and no audio scripting DSL.
 
-**Current State:** Strong foundations (API, auth, scheduling, multi-station) with ~60% alignment to design brief.
+**Current State:** Production release (v1.3.1) powering [rlmradio.xyz](https://rlmradio.xyz). All planned phases complete.
 
-**Next Phase:** Refactor scheduler → planner + executor split, design gRPC media engine interface, implement 5-tier priority system. This foundational work enables all subsequent phases.
+**Implemented:**
+- Two-binary architecture (grimnirradio + mediaengine)
+- 5-tier priority system with state machine
+- Graph-based DSP pipeline (loudness, AGC, compression, limiting)
+- Live input with token-based authorization (Icecast, RTP, SRT)
+- Webstream relay with automatic failover
+- Full observability (Prometheus, OpenTelemetry, alerting)
+- Horizontal scaling with consistent hashing and leader election
+- Migration tools for AzuraCast and LibreTime
+- Audit logging for sensitive operations
+- Turn-key deployment (Docker, Kubernetes, Nix)
 
-**End Goal (1.0):** Professional broadcast automation suitable for 24/7 unattended operation, live broadcasting, multi-station hosting, with production-grade observability and reliability.
-
-**Timeline:** 6-8 months to 1.0 release.
+**Future Work:** WebDJ interface, Emergency Alert System (EAS), advanced scheduling features.

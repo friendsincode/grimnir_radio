@@ -1,9 +1,13 @@
 # Grimnir Radio — Programmer's Spec
 
-**Version:** 0.0.1-alpha
+**Version:** 1.3.1
 **Architecture:** Go-Based Broadcast Automation Platform (Liquidsoap Replacement)
 
-This document is for developers working on Grimnir Radio. It clearly separates **✓ IMPLEMENTED** features from **⏳ PLANNED** features and provides practical guidance for working with the codebase.
+This document is for developers working on Grimnir Radio. It provides practical guidance for working with the codebase.
+
+## Production Deployment
+
+Grimnir Radio powers **[rlmradio.xyz](https://rlmradio.xyz)**, a community radio station honoring the legacy of Grimnir.
 
 ---
 
@@ -28,149 +32,154 @@ This document is for developers working on Grimnir Radio. It clearly separates *
 ```
 grimnir_radio/
 ├── cmd/
-│   └── grimnirradio/          # Main binary ✓
-│       └── main.go            # Entry point, service bootstrap
+│   ├── grimnirradio/          # Control plane binary
+│   │   └── main.go            # Entry point, service bootstrap
+│   └── mediaengine/           # Media engine binary (gRPC server)
+│       └── main.go            # GStreamer pipeline, gRPC server
 │
 ├── internal/
-│   ├── api/                   # HTTP+WebSocket API ✓
-│   │   └── api.go             # REST endpoints, WebSocket handling
-│   ├── analyzer/              # Media analysis service ✓ (partial)
-│   │   └── analyzer.go        # LUFS analysis, cue points (basic)
-│   ├── auth/                  # API key auth + RBAC ✓
+│   ├── api/                   # HTTP+WebSocket+gRPC API
+│   │   ├── api.go             # REST endpoints, route registration
+│   │   ├── priority.go        # Priority management endpoints
+│   │   ├── live.go            # Live input endpoints
+│   │   ├── webstream.go       # Webstream relay endpoints
+│   │   ├── migration.go       # Migration endpoints
+│   │   ├── executor.go        # Executor state endpoints
+│   │   └── audit.go           # Audit log endpoints
+│   ├── analyzer/              # Media analysis service
+│   │   └── analyzer.go        # LUFS, cue points, BPM, waveform
+│   ├── audit/                 # Audit logging service
+│   │   └── service.go         # Event-driven audit log recording
+│   ├── auth/                  # API key auth + RBAC
 │   │   ├── apikey.go          # API key generation/validation
 │   │   └── middleware.go      # Auth middleware
-│   ├── clock/                 # Clock compilation ✓
+│   ├── clock/                 # Clock compilation
 │   │   └── clock.go           # Hour template processing
-│   ├── config/                # Configuration loading ✓
+│   ├── config/                # Configuration loading
 │   │   └── config.go          # Env var parsing, validation
-│   ├── db/                    # Database management ✓
+│   ├── db/                    # Database management
 │   │   └── db.go              # GORM setup, migrations
-│   ├── events/                # Event bus ✓ (in-memory, will be replaced)
-│   │   └── bus.go             # Pub/sub event bus
-│   ├── live/                  # Live input services ✓
+│   ├── events/                # Event bus (in-memory, Redis, NATS)
+│   │   └── bus.go             # Pub/sub event bus abstraction
+│   ├── executor/              # Per-station execution
+│   │   ├── executor.go        # State machine, timeline execution
+│   │   ├── state.go           # State definitions and transitions
+│   │   └── manager.go         # State manager
+│   ├── live/                  # Live input services
 │   │   └── live.go            # Authorization, handover triggering
-│   ├── logging/               # Structured logging ✓
+│   ├── logging/               # Structured logging
 │   │   └── logger.go          # Zerolog setup
-│   ├── media/                 # Media service ✓
+│   ├── media/                 # Media service
 │   │   └── media.go           # File storage, upload handling
-│   ├── models/                # Data models ✓
-│   │   └── models.go          # GORM entities
-│   ├── playout/               # GStreamer pipeline mgmt ✓ (basic)
+│   ├── mediaengine/           # gRPC client + DSP
+│   │   ├── client/            # gRPC client wrapper
+│   │   ├── dsp/               # DSP graph builder and nodes
+│   │   ├── service.go         # Media engine service
+│   │   └── pipeline.go        # GStreamer pipeline management
+│   ├── migration/             # Import tools
+│   │   ├── azuracast/         # AzuraCast backup import
+│   │   └── libretime/         # LibreTime backup import
+│   ├── models/                # Data models
+│   │   ├── models.go          # Core GORM entities
+│   │   ├── priority.go        # Priority and executor state models
+│   │   ├── webstream.go       # Webstream model
+│   │   └── audit.go           # Audit log model
+│   ├── playout/               # Playout coordination
+│   │   ├── director.go        # Director for playback management
 │   │   └── manager.go         # Pipeline lifecycle
-│   ├── scheduler/             # Schedule builder ✓ (will become planner)
+│   ├── priority/              # Priority system
+│   │   ├── service.go         # 5-tier priority service
+│   │   └── ladder.go          # Priority ladder definitions
+│   ├── scheduler/             # Schedule builder
 │   │   └── scheduler.go       # Timeline generation
-│   ├── smartblock/            # Rule engine ✓
+│   ├── smartblock/            # Rule engine
 │   │   └── engine.go          # Smart Block materialization
-│   ├── storage/               # Object storage ✓
+│   ├── storage/               # Object storage
 │   │   └── storage.go         # S3-compatible or filesystem
-│   └── telemetry/             # Metrics/health ✓ (partial)
-│       └── telemetry.go       # Health checks, metric stubs
+│   ├── telemetry/             # Metrics/health
+│   │   └── telemetry.go       # Prometheus metrics, health checks
+│   ├── version/               # Version info
+│   │   └── version.go         # Version and update checker
+│   ├── web/                   # Web dashboard
+│   │   └── pages_dashboard.go # Dashboard page handlers
+│   └── webstream/             # HTTP stream relay
+│       ├── service.go         # Webstream management
+│       └── health_checker.go  # Health monitoring
+│
+├── proto/                     # Protobuf definitions
+│   └── mediaengine/v1/        # Media engine gRPC interface
 │
 ├── docs/                      # Documentation
-│   ├── API_REFERENCE.md       # Complete API docs ✓
-│   ├── ARCHITECTURE_ROADMAP.md # Implementation roadmap ✓
+│   ├── api/                   # API documentation
+│   │   └── README.md          # API guide
+│   ├── ARCHITECTURE_ROADMAP.md
 │   └── specs/                 # Specification documents
-│       ├── ENGINEERING_SPEC.md
-│       ├── PROGRAMMERS_SPEC.md (this file)
-│       └── SALES_SPEC.md
 │
-├── go.mod                     # Go dependencies ✓
+├── deploy/                    # Deployment configurations
+│   └── systemd/               # systemd service files
+│
+├── kubernetes/                # Kubernetes manifests
+│
+├── go.mod                     # Go dependencies
 ├── go.sum
-├── Makefile                   # Build targets ✓
-└── VERSION                    # Version file (0.0.1-alpha)
-```
-
-### ✓ IMPLEMENTED Packages (Post-1.0)
-
-```
-internal/
-├── executor/                  # Per-station execution
-│   ├── executor.go            # State machine, timeline execution
-│   ├── state.go               # State definitions and transitions
-│   └── manager.go             # State manager
-├── mediaengine/               # gRPC client + media engine
-│   ├── client/                # gRPC client wrapper
-│   ├── dsp/                   # DSP graph builder and nodes
-│   ├── service.go             # Media engine service
-│   └── pipeline.go            # GStreamer pipeline management
-├── priority/                  # Priority system
-│   ├── service.go             # 5-tier priority service
-│   └── ladder.go              # Priority ladder definitions
-├── eventbus/                  # Event bus adapters
-│   ├── redis.go               # Redis Pub/Sub adapter
-│   └── nats.go                # NATS adapter
-├── webstream/                 # HTTP stream relay
-│   ├── service.go             # Webstream management
-│   └── health_checker.go      # Health monitoring
-└── migration/                 # Import tools
-    ├── azuracast/             # AzuraCast backup import
-    └── libretime/             # LibreTime backup import
-
-cmd/
-├── grimnirradio/              # Control plane binary
-└── mediaengine/               # Media engine binary (gRPC server)
+└── Makefile                   # Build targets
 ```
 
 ---
 
 ## Build & Run
 
-### ✓ IMPLEMENTED
-
-**Prerequisites:**
-- Go 1.22+
+### Prerequisites
+- Go 1.24+
 - PostgreSQL 12+ / MySQL 8+ / SQLite 3
-- GStreamer 1.0 (for playout)
+- GStreamer 1.0 with plugins: base, good, bad, ugly
 
-**Build:**
+### Build
+
 ```bash
-make build              # Builds ./grimnirradio
-# OR
-go build ./cmd/grimnirradio
-```
-
-**Run:**
-```bash
-./grimnirradio
-```
-
-**Test:**
-```bash
-make test               # Run tests with race detector
-# OR
-go test -race ./...
-```
-
-**Verify (CI):**
-```bash
-make verify             # tidy, fmt, vet, lint, test
-```
-
-### ✓ IMPLEMENTED (Two-Binary Architecture)
-
-**Build both binaries:**
-```bash
+# Build both binaries
 make build              # Builds grimnirradio + mediaengine
-# OR
+
+# Or build individually
 go build ./cmd/grimnirradio
 go build ./cmd/mediaengine
 ```
 
-**Run with media engine:**
+### Run
+
 ```bash
-# Terminal 1: Start media engine
+# Terminal 1: Start media engine (must start first)
 ./mediaengine
 
 # Terminal 2: Start control plane
-export GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=localhost:9091
 ./grimnirradio
+```
+
+### Test
+
+```bash
+make test               # Run tests with race detector
+go test -race ./...     # Same as above
+
+# Integration tests
+go test -v -tags=integration ./...
+
+# E2E browser tests (go-rod)
+make test-e2e
+```
+
+### Verify (CI)
+
+```bash
+make verify             # tidy, fmt, vet, lint, test
+make ci                 # verify + fmt-check
 ```
 
 ---
 
 ## Environment Variables
 
-### ✓ IMPLEMENTED (prefer `GRIMNIR_*`)
+Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for backward compatibility).
 
 **Core Configuration:**
 ```bash
@@ -179,7 +188,7 @@ GRIMNIR_HTTP_BIND=0.0.0.0                  # HTTP bind address
 GRIMNIR_HTTP_PORT=8080                     # HTTP port
 GRIMNIR_DB_BACKEND=postgres                # postgres | mysql | sqlite
 GRIMNIR_DB_DSN="postgres://..."           # Database connection string (required)
-GRIMNIR_MEDIA_ROOT=./media                 # Media storage path
+GRIMNIR_MEDIA_ROOT=./media                 # Media storage path (e.g., /var/lib/grimnir/media)
 GRIMNIR_OBJECT_STORAGE_URL=                # S3 URL (optional)
 GRIMNIR_GSTREAMER_BIN=gst-launch-1.0       # GStreamer binary path
 GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES=48     # Schedule horizon (48 hours)
@@ -187,24 +196,17 @@ GRIMNIR_JWT_SIGNING_KEY=secret             # Session signing key (required)
 GRIMNIR_METRICS_BIND=127.0.0.1:9000        # Metrics endpoint
 ```
 
-**Legacy Compatibility:**
-- `RLM_*` variants accepted as fallback (for backward compatibility)
-
-### ✓ IMPLEMENTED Configuration (Post-1.0)
-
-**Event Bus:**
+**Event Bus & Multi-Instance:**
 ```bash
 GRIMNIR_REDIS_ADDR=localhost:6379          # Redis address for events/leadership
 ```
 
 **Media Engine:**
 ```bash
-GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=localhost:9091  # gRPC endpoint
+GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=localhost:9091  # gRPC endpoint for media engine
 ```
 
-**Webstream:** (configured per-webstream in database)
-
-**Migration Tools:** (configured via API)
+**Webstream and Migration:** Configured per-resource in database via API
 
 ---
 
@@ -345,8 +347,6 @@ GET  /api/v1/analytics/spins        # Play history (admin, manager)
 GET  /api/v1/events                 # WebSocket stream
 ```
 
-### ✓ IMPLEMENTED Endpoints (Post-1.0)
-
 **Priority Management:**
 ```
 POST   /api/v1/priority/emergency   # Emergency takeover (priority 0)
@@ -383,13 +383,10 @@ GET  /api/v1/migrations/{jobID}     # Status
 GET  /api/v1/migrations             # List all
 ```
 
-### ⏳ PLANNED Endpoints
-
-**DSP Graphs:** (graphs exist internally but no HTTP API yet)
+**Audit Logs:**
 ```
-GET    /api/v1/dsp-graphs           # List DSP configurations
-POST   /api/v1/dsp-graphs           # Create DSP graph
-POST   /api/v1/dsp-graphs/{id}/apply # Apply to station
+GET /api/v1/audit                   # List audit logs (platform admin)
+GET /api/v1/stations/{stationID}/audit # Station audit logs (admin/manager)
 ```
 
 ---
@@ -520,18 +517,21 @@ CREATE TABLE webstreams (
 );
 ```
 
-### ⏳ PLANNED Tables
-
-**`dsp_graphs`** - DSP configurations (currently runtime-only in `internal/mediaengine/dsp`)
+**`audit_logs`** - Audit trail for sensitive operations (`internal/models/audit.go`)
 ```sql
-CREATE TABLE dsp_graphs (
+CREATE TABLE audit_logs (
   id UUID PRIMARY KEY,
-  station_id UUID NOT NULL,
-  name VARCHAR(255) NOT NULL,
-  description TEXT,
-  nodes JSONB NOT NULL,  -- ordered array of DSP nodes
-  created_at TIMESTAMP NOT NULL,
-  updated_at TIMESTAMP NOT NULL
+  timestamp TIMESTAMP NOT NULL,
+  user_id UUID,              -- NULL for system actions
+  user_email VARCHAR(255),   -- Denormalized for readability
+  station_id UUID,           -- NULL if platform-wide
+  action VARCHAR(64) NOT NULL,
+  resource_type VARCHAR(64),
+  resource_id UUID,
+  details JSONB,             -- Action-specific details
+  ip_address VARCHAR(45),
+  user_agent VARCHAR(512),
+  created_at TIMESTAMP NOT NULL
 );
 ```
 
@@ -539,55 +539,42 @@ CREATE TABLE dsp_graphs (
 
 ## Testing
 
-### ✓ IMPLEMENTED
-
 **Run tests:**
 ```bash
-make test
-# OR
-go test -race ./...
+make test               # Unit tests with race detector
+go test -race ./...     # Same as above
 ```
 
 **Coverage:**
 ```bash
 go test -cover ./...
-# OR
 go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```
 
-**Focus areas with existing tests:**
+**Integration tests:**
+```bash
+go test -v -tags=integration ./...
+```
+
+**E2E browser tests (go-rod):**
+```bash
+make test-e2e
+```
+
+**Quick route verification (no browser):**
+```bash
+make test-routes
+```
+
+**Test areas:**
 - Smart Block rule evaluation (`internal/smartblock`)
 - Schedule generation (`internal/scheduler`)
 - API endpoint validation (`internal/api`)
 - API key auth (`internal/auth`)
-
-### ⏳ PLANNED Testing
-
-**Unit Tests (to be added):**
-- Planner timeline generation
-- Executor state machine transitions
-- Priority resolution logic
-- DSP graph builder
-- gRPC command serialization
-
-**Integration Tests:**
-```bash
-# End-to-end test with mock media engine
-go test -tags=integration ./test/integration/...
-```
-
-**Stress Tests:**
-```bash
-# 24-hour continuous run with 10 stations
-go test -tags=stress -timeout=24h ./test/stress/...
-```
-
-**Chaos Tests:**
-```bash
-# Random component failures
-go test -tags=chaos ./test/chaos/...
-```
+- Executor state machine (`internal/executor`)
+- Priority resolution logic (`internal/priority`)
+- Audit logging (`internal/audit`)
 
 ---
 
@@ -736,9 +723,7 @@ func (a *API) handleExecutorState(w http.ResponseWriter, r *http.Request) {
 
 ## gRPC Media Engine Interface
 
-### ⏳ PLANNED
-
-**Protocol Buffer Definition** (`proto/mediaengine.proto`):
+**Protocol Buffer Definition** (`proto/mediaengine/v1/mediaengine.proto`):
 ```protobuf
 syntax = "proto3";
 package mediaengine;
@@ -971,7 +956,7 @@ make build
 
 <body>
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ```
 
 **Types:**
@@ -995,7 +980,7 @@ Implement 5-tier priority system:
 
 Includes executor state machine, priority resolver, and API endpoints.
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ```
 
 ---
