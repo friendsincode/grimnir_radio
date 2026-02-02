@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -516,4 +517,393 @@ func (s *Service) ResetImportedData(ctx context.Context) error {
 		s.logger.Warn().Msg("database reset complete - all imported data has been cleared")
 		return nil
 	})
+}
+
+// =============================================================================
+// STAGED IMPORT METHODS
+// =============================================================================
+
+// CreateStagedJob creates a new migration job in staged mode.
+// It creates both the job and a staged import record for review.
+func (s *Service) CreateStagedJob(ctx context.Context, sourceType SourceType, options Options) (*Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Validate source type
+	importer, ok := s.importers[sourceType]
+	if !ok {
+		return nil, fmt.Errorf("no importer registered for source type: %s", sourceType)
+	}
+
+	// Validate options
+	if err := importer.Validate(ctx, options); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Create job in staged mode
+	job := &Job{
+		ID:         uuid.New().String(),
+		SourceType: sourceType,
+		Status:     JobStatusAnalyzing,
+		StagedMode: true,
+		Options:    options,
+		Progress: Progress{
+			Phase:      "analyzing",
+			TotalSteps: 0,
+			StartTime:  time.Now(),
+		},
+		CreatedAt: time.Now(),
+	}
+
+	// Save job to database
+	if err := s.db.WithContext(ctx).Create(job).Error; err != nil {
+		return nil, fmt.Errorf("save job: %w", err)
+	}
+
+	// Store in memory
+	s.jobs[job.ID] = job
+
+	s.logger.Info().
+		Str("job_id", job.ID).
+		Str("source_type", string(sourceType)).
+		Bool("staged_mode", true).
+		Msg("staged migration job created")
+
+	// Publish event
+	s.bus.Publish(events.EventMigration, events.Payload{
+		"job_id":      job.ID,
+		"source_type": string(sourceType),
+		"status":      string(JobStatusAnalyzing),
+		"staged_mode": true,
+	})
+
+	return job, nil
+}
+
+// GetStagedImport retrieves a staged import by ID.
+func (s *Service) GetStagedImport(ctx context.Context, id string) (*models.StagedImport, error) {
+	var staged models.StagedImport
+	if err := s.db.WithContext(ctx).First(&staged, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &staged, nil
+}
+
+// GetStagedImportByJobID retrieves a staged import by job ID.
+func (s *Service) GetStagedImportByJobID(ctx context.Context, jobID string) (*models.StagedImport, error) {
+	var staged models.StagedImport
+	if err := s.db.WithContext(ctx).First(&staged, "job_id = ?", jobID).Error; err != nil {
+		return nil, err
+	}
+	return &staged, nil
+}
+
+// UpdateSelections updates the user's selections on a staged import.
+func (s *Service) UpdateSelections(ctx context.Context, stagedID string, selections models.ImportSelections) error {
+	var staged models.StagedImport
+	if err := s.db.WithContext(ctx).First(&staged, "id = ?", stagedID).Error; err != nil {
+		return fmt.Errorf("staged import not found: %w", err)
+	}
+
+	if staged.Status != models.StagedImportStatusReady {
+		return fmt.Errorf("staged import is not ready for selection updates: %s", staged.Status)
+	}
+
+	staged.Selections = selections
+
+	// Update individual item selections based on IDs in selections
+	for i := range staged.StagedMedia {
+		staged.StagedMedia[i].Selected = containsString(selections.MediaIDs, staged.StagedMedia[i].SourceID)
+	}
+	for i := range staged.StagedPlaylists {
+		staged.StagedPlaylists[i].Selected = containsString(selections.PlaylistIDs, staged.StagedPlaylists[i].SourceID)
+	}
+	for i := range staged.StagedSmartBlocks {
+		staged.StagedSmartBlocks[i].Selected = containsString(selections.SmartBlockIDs, staged.StagedSmartBlocks[i].SourceID)
+	}
+	for i := range staged.StagedWebstreams {
+		staged.StagedWebstreams[i].Selected = containsString(selections.WebstreamIDs, staged.StagedWebstreams[i].SourceID)
+	}
+
+	// Update show selections with Show vs Clock preference
+	for i := range staged.StagedShows {
+		sourceID := staged.StagedShows[i].SourceID
+		staged.StagedShows[i].Selected = containsString(selections.ShowIDs, sourceID)
+		staged.StagedShows[i].CreateShow = containsString(selections.ShowsAsShows, sourceID)
+		staged.StagedShows[i].CreateClock = containsString(selections.ShowsAsClocks, sourceID)
+		if customRRule, ok := selections.CustomRRules[sourceID]; ok {
+			staged.StagedShows[i].CustomRRule = customRRule
+		}
+	}
+
+	if err := s.db.WithContext(ctx).Save(&staged).Error; err != nil {
+		return fmt.Errorf("save selections: %w", err)
+	}
+
+	s.logger.Info().
+		Str("staged_id", stagedID).
+		Int("selected_count", staged.SelectedCount()).
+		Msg("staged import selections updated")
+
+	return nil
+}
+
+// RejectStagedImport marks a staged import as rejected and cleans up.
+func (s *Service) RejectStagedImport(ctx context.Context, stagedID string) error {
+	var staged models.StagedImport
+	if err := s.db.WithContext(ctx).First(&staged, "id = ?", stagedID).Error; err != nil {
+		return fmt.Errorf("staged import not found: %w", err)
+	}
+
+	if staged.Status == models.StagedImportStatusCommitted {
+		return fmt.Errorf("cannot reject already committed import")
+	}
+
+	staged.Status = models.StagedImportStatusRejected
+
+	if err := s.db.WithContext(ctx).Save(&staged).Error; err != nil {
+		return fmt.Errorf("save staged import: %w", err)
+	}
+
+	// Update the associated job
+	var job Job
+	if err := s.db.WithContext(ctx).First(&job, "id = ?", staged.JobID).Error; err == nil {
+		job.Status = JobStatusCancelled
+		now := time.Now()
+		job.CompletedAt = &now
+		s.db.WithContext(ctx).Save(&job)
+	}
+
+	s.logger.Info().
+		Str("staged_id", stagedID).
+		Str("job_id", staged.JobID).
+		Msg("staged import rejected")
+
+	// Publish event
+	s.bus.Publish(events.EventMigration, events.Payload{
+		"staged_id": stagedID,
+		"job_id":    staged.JobID,
+		"status":    string(models.StagedImportStatusRejected),
+	})
+
+	return nil
+}
+
+// GetImportedItems retrieves the items created by a specific import job.
+func (s *Service) GetImportedItems(ctx context.Context, jobID string) (*ImportedItems, error) {
+	var job Job
+	if err := s.db.WithContext(ctx).First(&job, "id = ?", jobID).Error; err != nil {
+		return nil, fmt.Errorf("job not found: %w", err)
+	}
+
+	if job.ImportedItems != nil {
+		return job.ImportedItems, nil
+	}
+
+	// If ImportedItems not stored on job, query by provenance fields
+	items := &ImportedItems{}
+
+	// Query media items
+	var mediaIDs []string
+	s.db.WithContext(ctx).Model(&models.MediaItem{}).
+		Where("import_job_id = ?", jobID).
+		Pluck("id", &mediaIDs)
+	items.MediaIDs = mediaIDs
+
+	// Query smart blocks
+	var smartBlockIDs []string
+	s.db.WithContext(ctx).Model(&models.SmartBlock{}).
+		Where("import_job_id = ?", jobID).
+		Pluck("id", &smartBlockIDs)
+	items.SmartBlockIDs = smartBlockIDs
+
+	// Query playlists
+	var playlistIDs []string
+	s.db.WithContext(ctx).Model(&models.Playlist{}).
+		Where("import_job_id = ?", jobID).
+		Pluck("id", &playlistIDs)
+	items.PlaylistIDs = playlistIDs
+
+	// Query shows
+	var showIDs []string
+	s.db.WithContext(ctx).Model(&models.Show{}).
+		Where("import_job_id = ?", jobID).
+		Pluck("id", &showIDs)
+	items.ShowIDs = showIDs
+
+	// Query clocks
+	var clockIDs []string
+	s.db.WithContext(ctx).Model(&models.Clock{}).
+		Where("import_job_id = ?", jobID).
+		Pluck("id", &clockIDs)
+	items.ClockIDs = clockIDs
+
+	// Query webstreams
+	var webstreamIDs []string
+	s.db.WithContext(ctx).Model(&models.Webstream{}).
+		Where("import_job_id = ?", jobID).
+		Pluck("id", &webstreamIDs)
+	items.WebstreamIDs = webstreamIDs
+
+	return items, nil
+}
+
+// RollbackImport deletes all items created by a specific import job.
+func (s *Service) RollbackImport(ctx context.Context, jobID string) error {
+	var job Job
+	if err := s.db.WithContext(ctx).First(&job, "id = ?", jobID).Error; err != nil {
+		return fmt.Errorf("job not found: %w", err)
+	}
+
+	if job.Status != JobStatusCompleted {
+		return fmt.Errorf("can only rollback completed imports")
+	}
+
+	s.logger.Warn().
+		Str("job_id", jobID).
+		Msg("starting import rollback - this will delete all items from this import")
+
+	// Get imported items
+	items, err := s.GetImportedItems(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("get imported items: %w", err)
+	}
+
+	// Use a transaction for atomicity
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Delete in reverse order of dependencies
+
+		// Delete webstreams
+		if len(items.WebstreamIDs) > 0 {
+			if err := tx.Where("id IN ?", items.WebstreamIDs).Delete(&models.Webstream{}).Error; err != nil {
+				return fmt.Errorf("delete webstreams: %w", err)
+			}
+			s.logger.Info().Int("count", len(items.WebstreamIDs)).Msg("deleted webstreams")
+		}
+
+		// Delete clocks
+		if len(items.ClockIDs) > 0 {
+			if err := tx.Where("id IN ?", items.ClockIDs).Delete(&models.Clock{}).Error; err != nil {
+				return fmt.Errorf("delete clocks: %w", err)
+			}
+			s.logger.Info().Int("count", len(items.ClockIDs)).Msg("deleted clocks")
+		}
+
+		// Delete show instances first, then shows
+		if len(items.ShowIDs) > 0 {
+			if err := tx.Where("show_id IN ?", items.ShowIDs).Delete(&models.ShowInstance{}).Error; err != nil {
+				return fmt.Errorf("delete show instances: %w", err)
+			}
+			if err := tx.Where("id IN ?", items.ShowIDs).Delete(&models.Show{}).Error; err != nil {
+				return fmt.Errorf("delete shows: %w", err)
+			}
+			s.logger.Info().Int("count", len(items.ShowIDs)).Msg("deleted shows")
+		}
+
+		// Delete playlist items first, then playlists
+		if len(items.PlaylistIDs) > 0 {
+			if err := tx.Where("playlist_id IN ?", items.PlaylistIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
+				return fmt.Errorf("delete playlist items: %w", err)
+			}
+			if err := tx.Where("id IN ?", items.PlaylistIDs).Delete(&models.Playlist{}).Error; err != nil {
+				return fmt.Errorf("delete playlists: %w", err)
+			}
+			s.logger.Info().Int("count", len(items.PlaylistIDs)).Msg("deleted playlists")
+		}
+
+		// Delete smart blocks
+		if len(items.SmartBlockIDs) > 0 {
+			if err := tx.Where("id IN ?", items.SmartBlockIDs).Delete(&models.SmartBlock{}).Error; err != nil {
+				return fmt.Errorf("delete smart blocks: %w", err)
+			}
+			s.logger.Info().Int("count", len(items.SmartBlockIDs)).Msg("deleted smart blocks")
+		}
+
+		// Delete media items
+		if len(items.MediaIDs) > 0 {
+			// First delete media tag links
+			if err := tx.Where("media_item_id IN ?", items.MediaIDs).Delete(&models.MediaTagLink{}).Error; err != nil {
+				return fmt.Errorf("delete media tag links: %w", err)
+			}
+			if err := tx.Where("id IN ?", items.MediaIDs).Delete(&models.MediaItem{}).Error; err != nil {
+				return fmt.Errorf("delete media items: %w", err)
+			}
+			s.logger.Info().Int("count", len(items.MediaIDs)).Msg("deleted media items")
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("rollback transaction failed: %w", err)
+	}
+
+	// Update job status
+	job.Status = JobStatusRolledBack
+	if err := s.db.WithContext(ctx).Save(&job).Error; err != nil {
+		s.logger.Error().Err(err).Str("job_id", jobID).Msg("failed to update job status after rollback")
+	}
+
+	s.logger.Warn().
+		Str("job_id", jobID).
+		Int("total_deleted", items.TotalCount()).
+		Msg("import rollback complete")
+
+	// Publish event
+	s.bus.Publish(events.EventMigration, events.Payload{
+		"job_id":        jobID,
+		"status":        string(JobStatusRolledBack),
+		"items_deleted": items.TotalCount(),
+	})
+
+	return nil
+}
+
+// CloneJobForRedo creates a new job with the same options for re-running an import.
+func (s *Service) CloneJobForRedo(ctx context.Context, jobID string) (*Job, error) {
+	var originalJob Job
+	if err := s.db.WithContext(ctx).First(&originalJob, "id = ?", jobID).Error; err != nil {
+		return nil, fmt.Errorf("original job not found: %w", err)
+	}
+
+	// Create new job with same options
+	newJob := &Job{
+		ID:          uuid.New().String(),
+		SourceType:  originalJob.SourceType,
+		Status:      JobStatusPending,
+		StagedMode:  originalJob.StagedMode,
+		Options:     originalJob.Options,
+		RedoOfJobID: &jobID,
+		Progress: Progress{
+			Phase:      "created",
+			TotalSteps: 0,
+			StartTime:  time.Now(),
+		},
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.db.WithContext(ctx).Create(newJob).Error; err != nil {
+		return nil, fmt.Errorf("create redo job: %w", err)
+	}
+
+	s.mu.Lock()
+	s.jobs[newJob.ID] = newJob
+	s.mu.Unlock()
+
+	s.logger.Info().
+		Str("new_job_id", newJob.ID).
+		Str("original_job_id", jobID).
+		Msg("created redo job")
+
+	return newJob, nil
+}
+
+// containsString checks if a string slice contains a specific string.
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }

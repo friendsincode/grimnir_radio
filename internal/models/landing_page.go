@@ -40,7 +40,7 @@ func (lp *LandingPage) HasDraft() bool {
 // When StationID is NULL, this is a platform-level asset.
 type LandingPageAsset struct {
 	ID         string    `gorm:"type:uuid;primaryKey" json:"id"`
-	StationID  *string   `gorm:"type:uuid;index" json:"station_id"` // NULL = platform asset
+	StationID  *string   `gorm:"type:uuid;index" json:"station_id"`  // NULL = platform asset
 	AssetType  string    `gorm:"type:varchar(32)" json:"asset_type"` // logo, background, image, favicon
 	FilePath   string    `gorm:"type:varchar(512)" json:"file_path"`
 	FileName   string    `gorm:"type:varchar(255)" json:"file_name"`

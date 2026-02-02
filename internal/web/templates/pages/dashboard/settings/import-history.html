@@ -1,0 +1,142 @@
+{{ define "content" }}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">Import History</h1>
+            <p class="text-muted mb-0">View past imports, rollback changes, or re-run imports</p>
+        </div>
+        <a href="/dashboard/settings/migrations" class="btn btn-outline-primary">
+            <i class="bi bi-arrow-left me-1"></i> Back to Migrations
+        </a>
+    </div>
+
+    {{ if not .Data.Jobs }}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>
+        No imports have been performed yet. Start a new import from the
+        <a href="/dashboard/settings/migrations">Migrations</a> page.
+    </div>
+    {{ else }}
+
+    <!-- Completed Imports -->
+    {{ if .Data.CompletedJobs }}
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <i class="bi bi-check-circle me-2"></i>Completed Imports
+        </div>
+        <div class="list-group list-group-flush">
+            {{ range .Data.CompletedJobs }}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1">
+                            {{ sourceTypeName .SourceType }}
+                            <span class="badge bg-success ms-2">Completed</span>
+                        </h6>
+                        <p class="mb-1 text-muted small">
+                            Imported on {{ formatTime .CompletedAt }}
+                        </p>
+                        {{ if .Result }}
+                        <p class="mb-0 small">
+                            {{ if .Result.MediaItemsImported }}<span class="badge bg-secondary me-1">{{ .Result.MediaItemsImported }} media</span>{{ end }}
+                            {{ if .Result.PlaylistsCreated }}<span class="badge bg-secondary me-1">{{ .Result.PlaylistsCreated }} playlists</span>{{ end }}
+                            {{ if .Result.SchedulesCreated }}<span class="badge bg-secondary me-1">{{ .Result.SchedulesCreated }} shows</span>{{ end }}
+                            {{ if .Result.StationsCreated }}<span class="badge bg-secondary me-1">{{ .Result.StationsCreated }} stations</span>{{ end }}
+                        </p>
+                        {{ end }}
+                    </div>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                hx-get="/dashboard/settings/migrations/history/{{ .ID }}/items"
+                                hx-target="#items-{{ .ID }}"
+                                hx-swap="innerHTML">
+                            <i class="bi bi-list-ul me-1"></i>View Items
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning"
+                                hx-post="/dashboard/settings/migrations/history/{{ .ID }}/rollback"
+                                hx-target="#rollback-result-{{ .ID }}"
+                                hx-confirm="Are you sure you want to rollback this import? All imported items will be deleted.">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Rollback
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary"
+                                hx-post="/dashboard/settings/migrations/history/{{ .ID }}/redo">
+                            <i class="bi bi-arrow-repeat me-1"></i>Redo
+                        </button>
+                    </div>
+                </div>
+                <div id="items-{{ .ID }}" class="mt-2"></div>
+                <div id="rollback-result-{{ .ID }}" class="mt-2"></div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+    {{ end }}
+
+    <!-- Rolled Back Imports -->
+    {{ if .Data.RolledBackJobs }}
+    <div class="card mb-4">
+        <div class="card-header bg-secondary text-white">
+            <i class="bi bi-arrow-counterclockwise me-2"></i>Rolled Back Imports
+        </div>
+        <div class="list-group list-group-flush">
+            {{ range .Data.RolledBackJobs }}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1">
+                            {{ sourceTypeName .SourceType }}
+                            <span class="badge bg-secondary ms-2">Rolled Back</span>
+                        </h6>
+                        <p class="mb-1 text-muted small">
+                            Originally imported on {{ formatTime .CompletedAt }}
+                        </p>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            hx-post="/dashboard/settings/migrations/history/{{ .ID }}/redo">
+                        <i class="bi bi-arrow-repeat me-1"></i>Redo
+                    </button>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+    {{ end }}
+
+    <!-- Failed Imports -->
+    {{ if .Data.FailedJobs }}
+    <div class="card mb-4">
+        <div class="card-header bg-danger text-white">
+            <i class="bi bi-x-circle me-2"></i>Failed Imports
+        </div>
+        <div class="list-group list-group-flush">
+            {{ range .Data.FailedJobs }}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1">
+                            {{ sourceTypeName .SourceType }}
+                            <span class="badge bg-danger ms-2">Failed</span>
+                        </h6>
+                        <p class="mb-1 text-muted small">
+                            Attempted on {{ formatTime .CreatedAt }}
+                        </p>
+                        {{ if .Error }}
+                        <p class="mb-0 text-danger small">
+                            <i class="bi bi-exclamation-triangle me-1"></i>{{ .Error }}
+                        </p>
+                        {{ end }}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            hx-post="/dashboard/settings/migrations/history/{{ .ID }}/redo">
+                        <i class="bi bi-arrow-repeat me-1"></i>Retry
+                    </button>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+    {{ end }}
+
+    {{ end }}
+</div>
+{{ end }}

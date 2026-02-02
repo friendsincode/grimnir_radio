@@ -17,6 +17,11 @@ type Webstream struct {
 	Name        string `gorm:"type:varchar(255)"`
 	Description string `gorm:"type:text"`
 
+	// Import provenance (nullable for manually created items)
+	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
+	ImportSource   string  `gorm:"type:varchar(50)"`  // "libretime", "azuracast"
+	ImportSourceID string  `gorm:"type:varchar(255)"` // Original ID in source system
+
 	// URLs for failover chain (primary -> backup -> backup2, etc.)
 	URLs []string `gorm:"serializer:json"`
 

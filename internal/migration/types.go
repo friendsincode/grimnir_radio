@@ -24,6 +24,9 @@ const (
 	JobStatusFailed     JobStatus = "failed"
 	JobStatusCancelled  JobStatus = "cancelled"
 	JobStatusValidating JobStatus = "validating"
+	JobStatusAnalyzing  JobStatus = "analyzing"   // Analyzing for staged import
+	JobStatusStaged     JobStatus = "staged"      // Analysis complete, awaiting review
+	JobStatusRolledBack JobStatus = "rolled_back" // Import was rolled back
 )
 
 // SourceType represents the type of system being migrated from.
@@ -38,14 +41,25 @@ const (
 
 // Job represents a migration job.
 type Job struct {
-	ID          string     `json:"id" gorm:"primaryKey"`
-	SourceType  SourceType `json:"source_type" gorm:"type:varchar(50);not null"`
-	Status      JobStatus  `json:"status" gorm:"type:varchar(50);not null;default:'pending'"`
-	DryRun      bool       `json:"dry_run" gorm:"not null;default:false"`
-	Options     Options    `json:"options" gorm:"type:jsonb"`
-	Progress    Progress   `json:"progress" gorm:"type:jsonb"`
-	Result      *Result    `json:"result,omitempty" gorm:"type:jsonb"`
-	Error       string     `json:"error,omitempty" gorm:"type:text"`
+	ID         string     `json:"id" gorm:"primaryKey"`
+	SourceType SourceType `json:"source_type" gorm:"type:varchar(50);not null"`
+	Status     JobStatus  `json:"status" gorm:"type:varchar(50);not null;default:'pending'"`
+	DryRun     bool       `json:"dry_run" gorm:"not null;default:false"`
+	Options    Options    `json:"options" gorm:"type:jsonb"`
+	Progress   Progress   `json:"progress" gorm:"type:jsonb"`
+	Result     *Result    `json:"result,omitempty" gorm:"type:jsonb"`
+	Error      string     `json:"error,omitempty" gorm:"type:text"`
+
+	// Staged import support
+	StagedImportID *string `json:"staged_import_id,omitempty" gorm:"type:uuid;index"` // Links to staged import
+	StagedMode     bool    `json:"staged_mode" gorm:"not null;default:false"`         // True if using staged import workflow
+
+	// Import tracking for rollback
+	ImportedItems *ImportedItems `json:"imported_items,omitempty" gorm:"type:jsonb"` // Items created by this import
+
+	// Redo tracking
+	RedoOfJobID *string `json:"redo_of_job_id,omitempty" gorm:"type:uuid;index"` // If this is a redo, original job ID
+
 	CreatedAt   time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
@@ -61,6 +75,10 @@ type Options struct {
 	SkipUsers       bool `json:"skip_users"`
 	SkipSmartblocks bool `json:"skip_smartblocks"`
 	SkipWebstreams  bool `json:"skip_webstreams"`
+
+	// Staged import mode
+	StagedMode     bool   `json:"staged_mode"`                // Use staged import workflow (analyze first)
+	StagedImportID string `json:"staged_import_id,omitempty"` // ID of staged import to commit
 
 	// AzuraCast options
 	AzuraCastBackupPath string `json:"azuracast_backup_path,omitempty"`
@@ -189,6 +207,47 @@ type MigrationStats struct {
 	SchedulesImported int
 	UsersImported     int
 	ErrorsEncountered int
+}
+
+// ImportedItems tracks what was created by an import job (for rollback/history).
+type ImportedItems struct {
+	MediaIDs      []string `json:"media_ids,omitempty"`
+	SmartBlockIDs []string `json:"smart_block_ids,omitempty"`
+	PlaylistIDs   []string `json:"playlist_ids,omitempty"`
+	ShowIDs       []string `json:"show_ids,omitempty"`
+	ClockIDs      []string `json:"clock_ids,omitempty"`
+	WebstreamIDs  []string `json:"webstream_ids,omitempty"`
+	ScheduleIDs   []string `json:"schedule_ids,omitempty"`
+	UserIDs       []string `json:"user_ids,omitempty"`
+}
+
+// Value implements driver.Valuer for database serialization.
+func (i ImportedItems) Value() (driver.Value, error) {
+	return json.Marshal(i)
+}
+
+// Scan implements sql.Scanner for database deserialization.
+func (i *ImportedItems) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		return fmt.Errorf("failed to unmarshal ImportedItems: expected []byte or string, got %T", value)
+	}
+	return json.Unmarshal(bytes, i)
+}
+
+// TotalCount returns the total number of items imported.
+func (i *ImportedItems) TotalCount() int {
+	return len(i.MediaIDs) + len(i.SmartBlockIDs) + len(i.PlaylistIDs) +
+		len(i.ShowIDs) + len(i.ClockIDs) + len(i.WebstreamIDs) +
+		len(i.ScheduleIDs) + len(i.UserIDs)
 }
 
 // Scanner/Valuer interfaces for GORM JSONB support

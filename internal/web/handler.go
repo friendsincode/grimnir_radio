@@ -155,47 +155,49 @@ func (h *Handler) SetLandingPageService(svc *landingpage.Service) {
 
 func (h *Handler) loadTemplates() error {
 	funcMap := template.FuncMap{
-		"formatTime":      formatTime,
-		"timeago":         timeago,
-		"formatDuration":  formatDuration,
-		"formatMs":        formatMs,
-		"formatBytes":     formatBytes,
-		"truncate":        truncate,
-		"lower":           strings.ToLower,
-		"upper":           strings.ToUpper,
-		"title":           strings.Title,
-		"contains":        strings.Contains,
-		"hasPrefix":       strings.HasPrefix,
-		"hasSuffix":       strings.HasSuffix,
-		"join":            strings.Join,
-		"split":           strings.Split,
-		"dict":            dict,
-		"list":            list,
-		"safeHTML":        safeHTML,
-		"safeJS":          safeJS,
-		"safeURL":         safeURL,
-		"add":             add,
-		"sub":             sub,
-		"mul":             mul,
-		"div":             div,
-		"mod":             mod,
-		"eq":              eq,
-		"ne":              ne,
-		"lt":              lt,
-		"le":              le,
-		"gt":              gt,
-		"ge":              ge,
-		"default":         defaultVal,
-		"coalesce":        coalesce,
-		"ternary":         ternary,
-		"jsonMarshal":     jsonMarshal,
-		"roleAtLeast":     roleAtLeast,
-		"isPlatformAdmin": isPlatformAdmin,
-		"isActive":        isActive,
-		"iterate":         iterate,
-		"deref":           deref,
-		"string":          stringify,
-		"stationColor":    stationColor,
+		"formatTime":       formatTime,
+		"timeago":          timeago,
+		"formatDuration":   formatDuration,
+		"formatMs":         formatMs,
+		"formatBytes":      formatBytes,
+		"truncate":         truncate,
+		"lower":            strings.ToLower,
+		"upper":            strings.ToUpper,
+		"title":            strings.Title,
+		"contains":         strings.Contains,
+		"hasPrefix":        strings.HasPrefix,
+		"hasSuffix":        strings.HasSuffix,
+		"join":             strings.Join,
+		"split":            strings.Split,
+		"dict":             dict,
+		"list":             list,
+		"safeHTML":         safeHTML,
+		"safeJS":           safeJS,
+		"safeURL":          safeURL,
+		"add":              add,
+		"sub":              sub,
+		"mul":              mul,
+		"div":              div,
+		"mod":              mod,
+		"eq":               eq,
+		"ne":               ne,
+		"lt":               lt,
+		"le":               le,
+		"gt":               gt,
+		"ge":               ge,
+		"default":          defaultVal,
+		"coalesce":         coalesce,
+		"ternary":          ternary,
+		"jsonMarshal":      jsonMarshal,
+		"roleAtLeast":      roleAtLeast,
+		"isPlatformAdmin":  isPlatformAdmin,
+		"isActive":         isActive,
+		"iterate":          iterate,
+		"deref":            deref,
+		"string":           stringify,
+		"stationColor":     stationColor,
+		"sourceTypeName":   sourceTypeName,
+		"formatDurationMs": formatDurationMs,
 	}
 
 	h.templates = make(map[string]*template.Template)
@@ -534,6 +536,39 @@ func formatBytes(b int64) string {
 func stationColor(index int) string {
 	colors := []string{"#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"}
 	return colors[index%len(colors)]
+}
+
+func sourceTypeName(sourceType string) string {
+	switch sourceType {
+	case "libretime":
+		return "LibreTime"
+	case "azuracast":
+		return "AzuraCast"
+	case "radioboss":
+		return "RadioBoss"
+	case "playoutone":
+		return "PlayoutONE"
+	case "csv":
+		return "CSV Import"
+	default:
+		return sourceType
+	}
+}
+
+func formatDurationMs(ms int) string {
+	if ms <= 0 {
+		return "0:00"
+	}
+	seconds := ms / 1000
+	minutes := seconds / 60
+	secs := seconds % 60
+	hours := minutes / 60
+	mins := minutes % 60
+
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", hours, mins, secs)
+	}
+	return fmt.Sprintf("%d:%02d", mins, secs)
 }
 
 func truncate(s string, n int) string {

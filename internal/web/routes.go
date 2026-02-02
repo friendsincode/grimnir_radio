@@ -332,6 +332,20 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Post("/migrations/jobs/{id}/restart", h.MigrationJobRestart)
 				r.Delete("/migrations/jobs/{id}", h.MigrationJobDelete)
 				r.Post("/migrations/reset", h.MigrationResetData)
+
+				// Import review (staged imports)
+				r.Get("/migrations/review/{id}", h.ImportReviewPage)
+				r.Post("/migrations/review/{id}/commit", h.ImportReviewCommit)
+				r.Post("/migrations/review/{id}/reject", h.ImportReviewReject)
+				r.Post("/migrations/review/{id}/selections", h.ImportReviewUpdateSelections)
+				r.Get("/migrations/review/{id}/media", h.ImportReviewMediaTab)
+				r.Get("/migrations/review/{id}/shows", h.ImportReviewShowsTab)
+
+				// Import history (tracking & redo)
+				r.Get("/migrations/history", h.ImportHistoryPage)
+				r.Post("/migrations/history/{id}/rollback", h.ImportHistoryRollback)
+				r.Post("/migrations/history/{id}/redo", h.ImportHistoryRedo)
+				r.Get("/migrations/history/{id}/items", h.ImportHistoryItems)
 			})
 
 			// Platform Admin routes (platform_admin only)
