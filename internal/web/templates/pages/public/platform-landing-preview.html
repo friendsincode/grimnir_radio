@@ -228,9 +228,9 @@
                                     <p class="card-text small">{{.Description}}</p>
                                     {{end}}
                                     {{if .Shortcode}}
-                                    <a href="/s/{{.Shortcode}}" class="btn btn-outline-primary btn-sm">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="playStation('{{.ID}}', '{{.Shortcode}}', '{{.Name}}')">
                                         <i class="bi bi-play-circle me-1"></i>Listen
-                                    </a>
+                                    </button>
                                     {{end}}
                                 </div>
                             </div>
@@ -407,6 +407,30 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    // Play station in global player (if available) or fallback to widget player
+    function playStation(stationId, shortcode, stationName) {
+        // Try to use the global player first
+        if (window.globalPlayer && typeof window.globalPlayer.playLive === 'function') {
+            const streamUrl = '/s/' + shortcode + '/stream';
+            window.globalPlayer.playLive(streamUrl, stationName, stationId);
+            return;
+        }
+
+        // Fallback: use the widget player if it exists
+        const select = document.getElementById('widgetStationSelect');
+        if (select) {
+            select.value = stationId;
+            widgetSelectStation(stationId);
+            if (!widgetPlayer.playing) {
+                widgetTogglePlay();
+            }
+            return;
+        }
+
+        // Last resort: navigate to station page
+        window.location.href = '/s/' + shortcode;
+    }
+
     // Widget Player State
     const widgetPlayer = {
         audio: new Audio(),
