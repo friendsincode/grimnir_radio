@@ -176,6 +176,13 @@
                         <span class="sidebar-text ms-2">Station Logs</span>
                     </a>
                 </li>
+
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/station/audit"}}active bg-primary text-white{{end}}" href="/dashboard/station/audit" data-bs-toggle="tooltip" data-bs-placement="right" title="Audit Logs">
+                        <i class="bi bi-shield-check"></i>
+                        <span class="sidebar-text ms-2">Audit Logs</span>
+                    </a>
+                </li>
                 {{end}}
 
                 <!-- Platform Admin Section (only for platform admins) -->
@@ -209,6 +216,13 @@
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/logs"}}active bg-primary text-white{{end}}" href="/dashboard/admin/logs" data-bs-toggle="tooltip" data-bs-placement="right" title="System Logs">
                         <i class="bi bi-terminal"></i>
                         <span class="sidebar-text ms-2">System Logs</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/audit"}}active bg-primary text-white{{end}}" href="/dashboard/admin/audit" data-bs-toggle="tooltip" data-bs-placement="right" title="Audit Logs">
+                        <i class="bi bi-shield-check"></i>
+                        <span class="sidebar-text ms-2">Audit Logs</span>
                     </a>
                 </li>
 

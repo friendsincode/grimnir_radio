@@ -108,6 +108,9 @@ func (h *Handler) Routes(r chi.Router) {
 				// Station logs (all station members)
 				r.Get("/logs", h.StationLogs)
 
+				// Station audit logs (manager+)
+				r.Get("/audit", h.StationAudit)
+
 				// Landing page editor (manager+)
 				r.Route("/landing-page", func(r chi.Router) {
 					r.Use(h.RequireRole("manager"))
@@ -355,6 +358,9 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// System logs
 				r.Get("/logs", h.AdminLogs)
+
+				// Audit logs
+				r.Get("/audit", h.AdminAudit)
 			})
 		})
 	})
