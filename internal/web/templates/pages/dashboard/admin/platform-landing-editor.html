@@ -744,14 +744,42 @@ function updateAddedWidgetsList() {
         const def = widgetDefs[widget.type];
         const name = def?.name || widget.type;
         const isSelected = selectedWidget === widget.id;
+        const isFirst = index === 0;
+        const isLast = index === widgets.length - 1;
 
-        html += `<div class="widget-item ${isSelected ? 'active' : ''}" onclick="selectWidgetForEdit('${widget.id}')" style="cursor: pointer;">
-            <span class="badge bg-secondary me-2">${index + 1}</span>
-            ${name}
+        html += `<div class="widget-item d-flex align-items-center ${isSelected ? 'active' : ''}" style="cursor: pointer;">
+            <div class="d-flex flex-column me-2">
+                <button type="button" class="btn btn-link btn-sm p-0 text-muted ${isFirst ? 'invisible' : ''}" onclick="event.stopPropagation(); moveWidget('${widget.id}', -1)" title="Move up">
+                    <i class="bi bi-chevron-up"></i>
+                </button>
+                <button type="button" class="btn btn-link btn-sm p-0 text-muted ${isLast ? 'invisible' : ''}" onclick="event.stopPropagation(); moveWidget('${widget.id}', 1)" title="Move down">
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+            </div>
+            <div class="flex-grow-1" onclick="selectWidgetForEdit('${widget.id}')">
+                <span class="badge bg-secondary me-2">${index + 1}</span>
+                ${name}
+            </div>
         </div>`;
     });
 
     container.innerHTML = html;
+}
+
+function moveWidget(widgetId, direction) {
+    const widgets = config.content?.widgets || [];
+    const index = widgets.findIndex(w => w.id === widgetId);
+    if (index === -1) return;
+
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= widgets.length) return;
+
+    // Swap widgets
+    [widgets[index], widgets[newIndex]] = [widgets[newIndex], widgets[index]];
+
+    isDirty = true;
+    updateAddedWidgetsList();
+    refreshPreview();
 }
 
 function deselectWidget() {
