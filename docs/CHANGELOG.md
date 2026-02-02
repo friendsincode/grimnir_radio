@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.3 — 2026-02-02
+
+### Bug Fixes
+- **Notifications**: Fixed 401 errors on notification API calls from dashboard by adding Authorization headers
+
+---
+
 ## 1.9.2 — 2026-02-02
 
 ### New Features
