@@ -48,6 +48,10 @@ func Migrate(database *gorm.DB) error {
 		&models.PlaylistItem{},
 		&models.Clock{},
 
+		// Shows and scheduling (Phase 8)
+		&models.Show{},
+		&models.ShowInstance{},
+
 		// Migration jobs
 		&migration.Job{},
 	)

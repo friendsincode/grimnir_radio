@@ -294,6 +294,9 @@ func (a *API) Routes(r chi.Router) {
 			// Executor state routes
 			a.AddExecutorRoutes(pr)
 
+			// Shows and scheduling routes
+			a.AddShowRoutes(pr)
+
 			// Migration routes (admin only)
 			pr.Group(func(mr chi.Router) {
 				mr.Use(a.requireRoles(models.RoleAdmin))
