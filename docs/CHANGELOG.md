@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.1 — 2026-02-02
+
+### Bug Fixes
+- **System Status**: Fixed "Failed to check" error on System Settings page by adding Authorization header to API calls
+- **Webhook Routes**: Fixed panic on startup caused by duplicate `/webhooks` route registration
+
+### UI Improvements
+- **View Site Button**: Added button in dashboard header to open platform landing page
+- **Landing Page Link**: Added "Landing Page" navigation link in station sidebar
+
+---
+
 ## 1.9.0 — 2026-02-02
 
 ### Phase 9: Landing Page Editor (Complete)
