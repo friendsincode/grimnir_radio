@@ -209,13 +209,14 @@ function refreshLogs() {
     })
     .then(r => r.json())
     .then(data => {
-        renderLogs(data.entries || []);
+        const entries = data.audit_logs || [];
+        renderLogs(entries);
         document.getElementById('entryCount').textContent = (data.total || 0) + ' entries';
         document.getElementById('statTotal').textContent = data.total || 0;
 
         // Count by type
         let priority = 0, live = 0, schedule = 0;
-        (data.entries || []).forEach(e => {
+        entries.forEach(e => {
             if (e.action.startsWith('priority.')) priority++;
             else if (e.action.startsWith('live.')) live++;
             else if (e.action.startsWith('schedule.')) schedule++;
