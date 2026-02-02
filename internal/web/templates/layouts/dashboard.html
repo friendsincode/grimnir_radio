@@ -634,7 +634,9 @@ window.GRIMNIR_WEBRTC = {
 
     async function loadNotifications() {
         try {
-            const response = await fetch('/api/v1/notifications?unread_only=false&limit=10');
+            const response = await fetch('/api/v1/notifications?unread_only=false&limit=10', {
+                headers: { 'Authorization': 'Bearer ' + (window.GRIMNIR_WS_TOKEN || '') }
+            });
             if (!response.ok) throw new Error('Failed to load');
             const data = await response.json();
             notifications = data.notifications || [];
@@ -657,7 +659,10 @@ window.GRIMNIR_WEBRTC = {
 
     async function markRead(id) {
         try {
-            await fetch(`/api/v1/notifications/${id}/read`, { method: 'POST' });
+            await fetch(`/api/v1/notifications/${id}/read`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (window.GRIMNIR_WS_TOKEN || '') }
+            });
             const n = notifications.find(x => x.id === id);
             if (n) n.status = 'read';
             loadNotifications();
@@ -669,7 +674,10 @@ window.GRIMNIR_WEBRTC = {
             e.preventDefault();
             e.stopPropagation();
             try {
-                await fetch('/api/v1/notifications/mark-all-read', { method: 'POST' });
+                await fetch('/api/v1/notifications/mark-all-read', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + (window.GRIMNIR_WS_TOKEN || '') }
+                });
                 loadNotifications();
             } catch (e) {}
         });
