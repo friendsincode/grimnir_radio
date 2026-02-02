@@ -41,6 +41,8 @@ func (w *WebhookAPI) RegisterRoutes(r chi.Router) {
 		r.Delete("/{id}", w.handleDelete)
 		r.Post("/{id}/test", w.handleTest)
 		r.Get("/{id}/logs", w.handleLogs)
+		// Track start webhook (admin only)
+		r.With(w.requireRoles(models.RoleAdmin)).Post("/track-start", w.handleWebhookTrackStart)
 	})
 }
 

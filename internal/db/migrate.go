@@ -77,6 +77,11 @@ func Migrate(database *gorm.DB) error {
 		&models.UnderwritingObligation{},
 		&models.UnderwritingSpot{},
 
+		// Landing Page Editor (Phase 9)
+		&models.LandingPage{},
+		&models.LandingPageAsset{},
+		&models.LandingPageVersion{},
+
 		// Migration jobs
 		&migration.Job{},
 	)

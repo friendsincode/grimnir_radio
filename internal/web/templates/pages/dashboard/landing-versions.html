@@ -1,0 +1,117 @@
+{{define "pages/dashboard/landing-versions"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item">{{.Data.Station.Name}}</li>
+        <li class="breadcrumb-item"><a href="/dashboard/station/landing-page/editor">Landing Page</a></li>
+        <li class="breadcrumb-item active">Version History</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i>Landing Page History</h4>
+    <a href="/dashboard/station/landing-page/editor" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>Back to Editor
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        {{if .Data.Versions}}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Version</th>
+                        <th>Type</th>
+                        <th>Summary</th>
+                        <th>Date</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Data.Versions}}
+                    <tr>
+                        <td><strong>v{{.VersionNumber}}</strong></td>
+                        <td>
+                            {{if eq .ChangeType "publish"}}
+                            <span class="badge bg-success">Published</span>
+                            {{else if eq .ChangeType "restore"}}
+                            <span class="badge bg-info">Restored</span>
+                            {{else}}
+                            <span class="badge bg-secondary">{{.ChangeType}}</span>
+                            {{end}}
+                        </td>
+                        <td>{{if .ChangeSummary}}{{.ChangeSummary}}{{else}}<span class="text-muted">-</span>{{end}}</td>
+                        <td>{{timeago .CreatedAt}}</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="restoreVersion('{{.ID}}', {{.VersionNumber}})">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+                            </button>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+
+        {{if gt .Data.Total .Data.Limit}}
+        <div class="card-footer">
+            <nav aria-label="Version pagination">
+                <ul class="pagination pagination-sm mb-0 justify-content-center">
+                    {{if gt .Data.Offset 0}}
+                    <li class="page-item">
+                        <a class="page-link" href="?offset={{sub .Data.Offset .Data.Limit}}&limit={{.Data.Limit}}">Previous</a>
+                    </li>
+                    {{end}}
+                    {{if lt (add .Data.Offset .Data.Limit) .Data.Total}}
+                    <li class="page-item">
+                        <a class="page-link" href="?offset={{add .Data.Offset .Data.Limit}}&limit={{.Data.Limit}}">Next</a>
+                    </li>
+                    {{end}}
+                </ul>
+            </nav>
+        </div>
+        {{end}}
+
+        {{else}}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-clock-history fs-1"></i>
+            <p class="mt-3 mb-0">No version history yet</p>
+            <p class="small">Versions are created when you publish changes</p>
+        </div>
+        {{end}}
+    </div>
+</div>
+
+<script>
+async function restoreVersion(versionId, versionNumber) {
+    if (!confirm(`Restore to version ${versionNumber}? This will replace the current published configuration.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/dashboard/station/landing-page/versions/${versionId}/restore`, {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            alert('Version restored successfully!');
+            window.location.href = '/dashboard/station/landing-page/editor';
+        } else {
+            const data = await response.json();
+            alert('Failed to restore version: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Restore error:', error);
+        alert('Failed to restore version');
+    }
+}
+</script>
+{{end}}

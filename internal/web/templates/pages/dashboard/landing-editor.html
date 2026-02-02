@@ -1,0 +1,743 @@
+{{define "pages/dashboard/landing-editor"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item">{{.Data.Station.Name}}</li>
+        <li class="breadcrumb-item active">Landing Page Editor</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="landing-editor" id="landingEditor" data-station-id="{{.Data.Station.ID}}" data-config="{{.Data.ConfigJSON}}">
+    <!-- Header Toolbar -->
+    <div class="editor-toolbar d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <a href="/dashboard" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i>Back
+            </a>
+            <h5 class="mb-0 ms-2"><i class="bi bi-palette me-2"></i>Landing Page Editor</h5>
+            {{if .Data.HasDraft}}
+            <span class="badge bg-warning text-dark ms-2">Unsaved Draft</span>
+            {{end}}
+        </div>
+        <div class="d-flex gap-2">
+            <a href="/dashboard/station/landing-page/versions" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-clock-history me-1"></i>History
+            </a>
+            <div class="btn-group">
+                <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                    <i class="bi bi-eye me-1"></i>Preview
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" onclick="setPreviewMode('desktop')"><i class="bi bi-display me-2"></i>Desktop</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="setPreviewMode('tablet')"><i class="bi bi-tablet me-2"></i>Tablet</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="setPreviewMode('mobile')"><i class="bi bi-phone me-2"></i>Mobile</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="/dashboard/station/landing-page/preview" target="_blank"><i class="bi bi-box-arrow-up-right me-2"></i>Open in New Tab</a></li>
+                </ul>
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="saveDraft()">
+                <i class="bi bi-save me-1"></i>Save Draft
+            </button>
+            {{if .Data.HasDraft}}
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="discardDraft()">
+                <i class="bi bi-x-circle me-1"></i>Discard
+            </button>
+            {{end}}
+            <button type="button" class="btn btn-primary btn-sm" onclick="publishPage()">
+                <i class="bi bi-send me-1"></i>Publish
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-3" style="height: calc(100vh - 200px);">
+        <!-- Sidebar -->
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-header p-0">
+                    <ul class="nav nav-tabs nav-tabs-sm card-header-tabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#widgetsTab" type="button"><i class="bi bi-puzzle me-1"></i>Widgets</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#themeTab" type="button"><i class="bi bi-palette me-1"></i>Theme</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#settingsTab" type="button"><i class="bi bi-gear me-1"></i>Settings</button>
+                        </li>
+                    </ul>
+                </div>
+                <div class="card-body overflow-auto p-2" style="height: calc(100% - 60px);">
+                    <div class="tab-content h-100">
+                        <!-- Widgets Tab -->
+                        <div class="tab-pane fade show active h-100" id="widgetsTab">
+                            <div class="widget-categories">
+                                <h6 class="text-muted small mb-2">Core Widgets</h6>
+                                <div class="widget-list mb-3">
+                                    {{range .Data.WidgetList}}
+                                    {{if eq .Category "core"}}
+                                    <div class="widget-item" draggable="true" data-widget-type="{{.Type}}">
+                                        <i class="bi bi-{{.Icon}} me-2"></i>{{.Name}}
+                                    </div>
+                                    {{end}}
+                                    {{end}}
+                                </div>
+
+                                <h6 class="text-muted small mb-2">Content</h6>
+                                <div class="widget-list mb-3">
+                                    {{range .Data.WidgetList}}
+                                    {{if eq .Category "content"}}
+                                    <div class="widget-item" draggable="true" data-widget-type="{{.Type}}">
+                                        <i class="bi bi-{{.Icon}} me-2"></i>{{.Name}}
+                                    </div>
+                                    {{end}}
+                                    {{end}}
+                                </div>
+
+                                <h6 class="text-muted small mb-2">Layout</h6>
+                                <div class="widget-list mb-3">
+                                    {{range .Data.WidgetList}}
+                                    {{if eq .Category "layout"}}
+                                    <div class="widget-item" draggable="true" data-widget-type="{{.Type}}">
+                                        <i class="bi bi-{{.Icon}} me-2"></i>{{.Name}}
+                                    </div>
+                                    {{end}}
+                                    {{end}}
+                                </div>
+
+                                <h6 class="text-muted small mb-2">Advanced</h6>
+                                <div class="widget-list">
+                                    {{range .Data.WidgetList}}
+                                    {{if eq .Category "advanced"}}
+                                    <div class="widget-item" draggable="true" data-widget-type="{{.Type}}">
+                                        <i class="bi bi-{{.Icon}} me-2"></i>{{.Name}}
+                                    </div>
+                                    {{end}}
+                                    {{end}}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Theme Tab -->
+                        <div class="tab-pane fade h-100" id="themeTab">
+                            <h6 class="text-muted small mb-2">Select Theme</h6>
+                            <div class="theme-grid">
+                                {{range .Data.Themes}}
+                                <div class="theme-card {{if eq $.Data.LandingPage.Theme .ID}}active{{end}}" data-theme-id="{{.ID}}" onclick="selectTheme('{{.ID}}')">
+                                    <div class="theme-preview" style="background: linear-gradient(135deg, {{.Colors.Primary}} 0%, {{.Colors.Secondary}} 100%);">
+                                        <span class="theme-name">{{.Name}}</span>
+                                    </div>
+                                </div>
+                                {{end}}
+                            </div>
+
+                            <hr class="my-3">
+
+                            <h6 class="text-muted small mb-2">Colors</h6>
+                            <div class="color-pickers">
+                                <div class="mb-2">
+                                    <label class="form-label small">Primary</label>
+                                    <input type="color" class="form-control form-control-color w-100" id="colorPrimary" value="{{.Data.CurrentTheme.Colors.Primary}}" onchange="updateColor('primary', this.value)">
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small">Secondary</label>
+                                    <input type="color" class="form-control form-control-color w-100" id="colorSecondary" value="{{.Data.CurrentTheme.Colors.Secondary}}" onchange="updateColor('secondary', this.value)">
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small">Background</label>
+                                    <input type="color" class="form-control form-control-color w-100" id="colorBackground" value="{{.Data.CurrentTheme.Colors.Background}}" onchange="updateColor('background', this.value)">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Settings Tab -->
+                        <div class="tab-pane fade h-100" id="settingsTab">
+                            <div class="accordion accordion-flush" id="settingsAccordion">
+                                <!-- Header Settings -->
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button py-2" type="button" data-bs-toggle="collapse" data-bs-target="#headerSettings">
+                                            <i class="bi bi-layout-wtf me-2"></i>Header
+                                        </button>
+                                    </h2>
+                                    <div id="headerSettings" class="accordion-collapse collapse show" data-bs-parent="#settingsAccordion">
+                                        <div class="accordion-body px-2 py-2">
+                                            <div class="form-check mb-2">
+                                                <input type="checkbox" class="form-check-input" id="showLogo" onchange="updateConfig('header.showLogo', this.checked)">
+                                                <label class="form-check-label small" for="showLogo">Show Logo</label>
+                                            </div>
+                                            <div class="form-check mb-2">
+                                                <input type="checkbox" class="form-check-input" id="showStationName" onchange="updateConfig('header.showStationName', this.checked)">
+                                                <label class="form-check-label small" for="showStationName">Show Station Name</label>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small">Tagline</label>
+                                                <input type="text" class="form-control form-control-sm" id="headerTagline" onchange="updateConfig('header.tagline', this.value)">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Hero Settings -->
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#heroSettings">
+                                            <i class="bi bi-image me-2"></i>Hero Section
+                                        </button>
+                                    </h2>
+                                    <div id="heroSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                                        <div class="accordion-body px-2 py-2">
+                                            <div class="form-check mb-2">
+                                                <input type="checkbox" class="form-check-input" id="heroEnabled" onchange="updateConfig('hero.enabled', this.checked)">
+                                                <label class="form-check-label small" for="heroEnabled">Enable Hero Section</label>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small">Height</label>
+                                                <select class="form-select form-select-sm" id="heroHeight" onchange="updateConfig('hero.height', this.value)">
+                                                    <option value="small">Small</option>
+                                                    <option value="medium">Medium</option>
+                                                    <option value="large">Large</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-check mb-2">
+                                                <input type="checkbox" class="form-check-input" id="heroShowPlayer" onchange="updateConfig('hero.showPlayer', this.checked)">
+                                                <label class="form-check-label small" for="heroShowPlayer">Show Player</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Footer Settings -->
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#footerSettings">
+                                            <i class="bi bi-layout-text-window-reverse me-2"></i>Footer
+                                        </button>
+                                    </h2>
+                                    <div id="footerSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                                        <div class="accordion-body px-2 py-2">
+                                            <div class="form-check mb-2">
+                                                <input type="checkbox" class="form-check-input" id="showCopyright" onchange="updateConfig('footer.showCopyright', this.checked)">
+                                                <label class="form-check-label small" for="showCopyright">Show Copyright</label>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small">Copyright Text</label>
+                                                <input type="text" class="form-control form-control-sm" id="copyrightText" placeholder="Leave empty for default" onchange="updateConfig('footer.copyrightText', this.value)">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- SEO Settings -->
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#seoSettings">
+                                            <i class="bi bi-search me-2"></i>SEO
+                                        </button>
+                                    </h2>
+                                    <div id="seoSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                                        <div class="accordion-body px-2 py-2">
+                                            <div class="mb-2">
+                                                <label class="form-label small">Page Title</label>
+                                                <input type="text" class="form-control form-control-sm" id="seoTitle" placeholder="{{.Data.Station.Name}}" onchange="updateConfig('seo.title', this.value)">
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small">Meta Description</label>
+                                                <textarea class="form-control form-control-sm" id="seoDescription" rows="2" onchange="updateConfig('seo.description', this.value)"></textarea>
+                                            </div>
+                                            <div class="form-check mb-2">
+                                                <input type="checkbox" class="form-check-input" id="seoNoIndex" onchange="updateConfig('seo.noIndex', this.checked)">
+                                                <label class="form-check-label small" for="seoNoIndex">Hide from Search Engines</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Custom CSS -->
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#cssSettings">
+                                            <i class="bi bi-code-slash me-2"></i>Custom CSS
+                                        </button>
+                                    </h2>
+                                    <div id="cssSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                                        <div class="accordion-body px-2 py-2">
+                                            <textarea class="form-control form-control-sm font-monospace" id="customCSS" rows="6" placeholder="/* Custom CSS */" onchange="updateCustomCSS(this.value)">{{.Data.LandingPage.CustomCSS}}</textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Widget Properties Panel (shown when widget selected) -->
+                <div class="widget-properties-panel d-none" id="widgetProperties">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <span class="small fw-bold" id="selectedWidgetName">Widget Properties</span>
+                        <button type="button" class="btn-close btn-close-sm" onclick="deselectWidget()"></button>
+                    </div>
+                    <div class="card-body p-2">
+                        <div id="widgetConfigForm"></div>
+                        <hr class="my-2">
+                        <button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="deleteSelectedWidget()">
+                            <i class="bi bi-trash me-1"></i>Remove Widget
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Pane -->
+        <div class="col-md-9">
+            <div class="card h-100">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <span class="small">Preview</span>
+                    <div class="preview-controls">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshPreview()">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0 position-relative" style="height: calc(100% - 45px);">
+                    <div class="preview-container" id="previewContainer">
+                        <iframe id="previewFrame" src="/dashboard/station/landing-page/preview" class="preview-frame"></iframe>
+                    </div>
+                    <div class="widget-drop-zone" id="widgetDropZone">
+                        <span>Drop widget here</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Landing Page Editor Styles */
+.landing-editor {
+    height: 100%;
+}
+
+.editor-toolbar {
+    background: var(--bs-body-bg);
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid var(--bs-border-color);
+}
+
+.nav-tabs-sm .nav-link {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+}
+
+.widget-item {
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.25rem;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.25rem;
+    cursor: grab;
+    font-size: 0.8125rem;
+    transition: all 0.15s;
+}
+
+.widget-item:hover {
+    background: var(--bs-tertiary-bg);
+    border-color: var(--bs-primary);
+}
+
+.widget-item:active {
+    cursor: grabbing;
+}
+
+.theme-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+}
+
+.theme-card {
+    cursor: pointer;
+    border: 2px solid transparent;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    transition: all 0.15s;
+}
+
+.theme-card:hover,
+.theme-card.active {
+    border-color: var(--bs-primary);
+}
+
+.theme-preview {
+    height: 60px;
+    display: flex;
+    align-items: flex-end;
+    padding: 0.25rem 0.5rem;
+}
+
+.theme-name {
+    color: white;
+    font-size: 0.75rem;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+.preview-container {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bs-secondary-bg);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 1rem;
+}
+
+.preview-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: white;
+    border-radius: 0.25rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: all 0.3s;
+}
+
+.preview-frame.tablet {
+    width: 768px;
+    max-width: 100%;
+}
+
+.preview-frame.mobile {
+    width: 375px;
+    max-width: 100%;
+}
+
+.widget-drop-zone {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(var(--bs-primary-rgb), 0.1);
+    border: 2px dashed var(--bs-primary);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.25rem;
+    color: var(--bs-primary);
+    pointer-events: none;
+}
+
+.widget-drop-zone.active {
+    display: flex;
+}
+
+.color-pickers input[type="color"] {
+    height: 32px;
+    cursor: pointer;
+}
+
+.accordion-button {
+    font-size: 0.8125rem;
+}
+
+.accordion-body .form-label {
+    margin-bottom: 0.25rem;
+}
+
+.widget-properties-panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bs-body-bg);
+    border-top: 1px solid var(--bs-border-color);
+    max-height: 300px;
+    overflow-y: auto;
+}
+</style>
+
+<script>
+// Landing Page Editor JavaScript
+(function() {
+    const stationId = document.getElementById('landingEditor').dataset.stationId;
+    let config = JSON.parse(document.getElementById('landingEditor').dataset.config || '{}');
+    let selectedWidget = null;
+    let isDirty = false;
+    let autoSaveTimeout = null;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        initDragAndDrop();
+        populateSettingsForm();
+        setupAutoSave();
+    });
+
+    // Drag and Drop
+    function initDragAndDrop() {
+        const widgets = document.querySelectorAll('.widget-item');
+        const dropZone = document.getElementById('widgetDropZone');
+        const previewContainer = document.getElementById('previewContainer');
+
+        widgets.forEach(widget => {
+            widget.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('widget-type', widget.dataset.widgetType);
+                dropZone.classList.add('active');
+            });
+
+            widget.addEventListener('dragend', () => {
+                dropZone.classList.remove('active');
+            });
+        });
+
+        previewContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        previewContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('active');
+            const widgetType = e.dataTransfer.getData('widget-type');
+            if (widgetType) {
+                addWidget(widgetType);
+            }
+        });
+    }
+
+    // Add widget
+    function addWidget(type) {
+        const id = 'w' + Date.now();
+        const widget = {
+            id: id,
+            type: type,
+            config: {}
+        };
+
+        if (!config.content) config.content = { widgets: [] };
+        if (!config.content.widgets) config.content.widgets = [];
+        config.content.widgets.push(widget);
+
+        markDirty();
+        refreshPreview();
+    }
+
+    // Update config
+    window.updateConfig = function(path, value) {
+        const parts = path.split('.');
+        let obj = config;
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (!obj[parts[i]]) obj[parts[i]] = {};
+            obj = obj[parts[i]];
+        }
+        obj[parts[parts.length - 1]] = value;
+        markDirty();
+        refreshPreview();
+    };
+
+    // Populate settings form from config
+    function populateSettingsForm() {
+        // Header
+        document.getElementById('showLogo').checked = config.header?.showLogo !== false;
+        document.getElementById('showStationName').checked = config.header?.showStationName !== false;
+        document.getElementById('headerTagline').value = config.header?.tagline || '';
+
+        // Hero
+        document.getElementById('heroEnabled').checked = config.hero?.enabled !== false;
+        document.getElementById('heroHeight').value = config.hero?.height || 'large';
+        document.getElementById('heroShowPlayer').checked = config.hero?.showPlayer !== false;
+
+        // Footer
+        document.getElementById('showCopyright').checked = config.footer?.showCopyright !== false;
+        document.getElementById('copyrightText').value = config.footer?.copyrightText || '';
+
+        // SEO
+        document.getElementById('seoTitle').value = config.seo?.title || '';
+        document.getElementById('seoDescription').value = config.seo?.description || '';
+        document.getElementById('seoNoIndex').checked = config.seo?.noIndex === true;
+    }
+
+    // Mark as dirty
+    function markDirty() {
+        isDirty = true;
+        // Schedule auto-save
+        if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
+        autoSaveTimeout = setTimeout(() => saveDraft(true), 30000);
+    }
+
+    // Setup auto-save
+    function setupAutoSave() {
+        window.addEventListener('beforeunload', (e) => {
+            if (isDirty) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+    }
+
+    // Save draft
+    window.saveDraft = async function(silent = false) {
+        try {
+            const response = await fetch('/dashboard/station/landing-page/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config: config })
+            });
+
+            if (response.ok) {
+                isDirty = false;
+                if (!silent) {
+                    showToast('Draft saved', 'success');
+                }
+            } else {
+                showToast('Failed to save draft', 'danger');
+            }
+        } catch (error) {
+            console.error('Save error:', error);
+            showToast('Failed to save draft', 'danger');
+        }
+    };
+
+    // Publish
+    window.publishPage = async function() {
+        if (!confirm('Publish this landing page? It will be visible to visitors.')) return;
+
+        try {
+            // Save first
+            await saveDraft(true);
+
+            const response = await fetch('/dashboard/station/landing-page/publish', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+
+            if (response.ok) {
+                showToast('Landing page published!', 'success');
+                location.reload();
+            } else {
+                showToast('Failed to publish', 'danger');
+            }
+        } catch (error) {
+            console.error('Publish error:', error);
+            showToast('Failed to publish', 'danger');
+        }
+    };
+
+    // Discard draft
+    window.discardDraft = async function() {
+        if (!confirm('Discard all changes and revert to published version?')) return;
+
+        try {
+            const response = await fetch('/dashboard/station/landing-page/discard', {
+                method: 'POST'
+            });
+
+            if (response.ok) {
+                showToast('Draft discarded', 'info');
+                location.reload();
+            } else {
+                showToast('Failed to discard draft', 'danger');
+            }
+        } catch (error) {
+            console.error('Discard error:', error);
+            showToast('Failed to discard draft', 'danger');
+        }
+    };
+
+    // Theme selection
+    window.selectTheme = async function(themeId) {
+        document.querySelectorAll('.theme-card').forEach(card => {
+            card.classList.toggle('active', card.dataset.themeId === themeId);
+        });
+
+        config.theme = themeId;
+        markDirty();
+
+        try {
+            await fetch('/dashboard/station/landing-page/theme', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ theme: themeId })
+            });
+            refreshPreview();
+        } catch (error) {
+            console.error('Theme update error:', error);
+        }
+    };
+
+    // Update color
+    window.updateColor = function(type, value) {
+        if (!config.colors) config.colors = {};
+        config.colors[type] = value;
+        markDirty();
+        refreshPreview();
+    };
+
+    // Update custom CSS
+    window.updateCustomCSS = async function(css) {
+        try {
+            await fetch('/dashboard/station/landing-page/custom-css', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ css: css })
+            });
+            refreshPreview();
+        } catch (error) {
+            console.error('CSS update error:', error);
+        }
+    };
+
+    // Preview mode
+    window.setPreviewMode = function(mode) {
+        const frame = document.getElementById('previewFrame');
+        frame.classList.remove('desktop', 'tablet', 'mobile');
+        if (mode !== 'desktop') {
+            frame.classList.add(mode);
+        }
+    };
+
+    // Refresh preview
+    window.refreshPreview = function() {
+        const frame = document.getElementById('previewFrame');
+        frame.src = frame.src;
+    };
+
+    // Deselect widget
+    window.deselectWidget = function() {
+        selectedWidget = null;
+        document.getElementById('widgetProperties').classList.add('d-none');
+    };
+
+    // Delete selected widget
+    window.deleteSelectedWidget = function() {
+        if (!selectedWidget) return;
+        if (!confirm('Remove this widget?')) return;
+
+        const widgets = config.content?.widgets || [];
+        const index = widgets.findIndex(w => w.id === selectedWidget);
+        if (index !== -1) {
+            widgets.splice(index, 1);
+            markDirty();
+            refreshPreview();
+            deselectWidget();
+        }
+    };
+
+    // Toast helper
+    function showToast(message, type) {
+        // Simple alert for now - could be enhanced with Bootstrap toasts
+        if (type === 'danger') {
+            console.error(message);
+        } else {
+            console.log(message);
+        }
+    }
+})();
+</script>
+{{end}}

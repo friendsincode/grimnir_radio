@@ -1,0 +1,493 @@
+/*
+Copyright (C) 2026 Friends Incode
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
+
+package web
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/friendsincode/grimnir_radio/internal/landingpage"
+	"github.com/friendsincode/grimnir_radio/internal/models"
+)
+
+// LandingPageEditor renders the landing page editor
+func (h *Handler) LandingPageEditor(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
+	// Check permission
+	if !h.canManageLandingPage(user, station) {
+		http.Error(w, "Permission denied", http.StatusForbidden)
+		return
+	}
+
+	// Get landing page service from handler (we'll need to add this)
+	page, err := h.landingPageSvc.GetOrCreate(r.Context(), station.ID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to get landing page")
+		http.Error(w, "Failed to load landing page", http.StatusInternalServerError)
+		return
+	}
+
+	// Get the draft config or fall back to published
+	config := page.PublishedConfig
+	if page.DraftConfig != nil && len(page.DraftConfig) > 0 {
+		config = page.DraftConfig
+	}
+
+	// Get themes and widgets
+	themes := h.landingPageSvc.ListThemes()
+	widgets := landingpage.GetWidgetsByCategory()
+
+	// Get assets
+	assets, _ := h.landingPageSvc.ListAssets(r.Context(), station.ID)
+
+	h.Render(w, r, "pages/dashboard/landing-editor", PageData{
+		Title:    "Landing Page Editor - " + station.Name,
+		Stations: h.LoadStations(r),
+		Data: map[string]any{
+			"Station":      station,
+			"LandingPage":  page,
+			"Config":       config,
+			"ConfigJSON":   mustMarshalJSON(config),
+			"Themes":       themes,
+			"Widgets":      widgets,
+			"WidgetList":   landingpage.WidgetRegistry,
+			"Assets":       assets,
+			"HasDraft":     page.HasDraft(),
+			"CurrentTheme": h.landingPageSvc.GetTheme(page.Theme),
+		},
+	})
+}
+
+// LandingPageEditorSave saves the landing page draft
+func (h *Handler) LandingPageEditorSave(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		writeJSONError(w, http.StatusBadRequest, "no_station")
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		writeJSONError(w, http.StatusForbidden, "permission_denied")
+		return
+	}
+
+	var req struct {
+		Config map[string]any `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	if err := h.landingPageSvc.SaveDraft(r.Context(), station.ID, req.Config); err != nil {
+		h.logger.Error().Err(err).Msg("failed to save draft")
+		writeJSONError(w, http.StatusInternalServerError, "save_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+// LandingPageEditorPublish publishes the landing page
+func (h *Handler) LandingPageEditorPublish(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		writeJSONError(w, http.StatusBadRequest, "no_station")
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		writeJSONError(w, http.StatusForbidden, "permission_denied")
+		return
+	}
+
+	var req struct {
+		Summary string `json:"summary"`
+	}
+	json.NewDecoder(r.Body).Decode(&req) // Optional summary
+
+	if err := h.landingPageSvc.Publish(r.Context(), station.ID, user.ID, req.Summary); err != nil {
+		h.logger.Error().Err(err).Msg("failed to publish")
+		writeJSONError(w, http.StatusInternalServerError, "publish_failed")
+		return
+	}
+
+	h.logger.Info().
+		Str("station_id", station.ID).
+		Str("user_id", user.ID).
+		Msg("landing page published")
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "published"})
+}
+
+// LandingPageEditorDiscard discards the draft
+func (h *Handler) LandingPageEditorDiscard(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		writeJSONError(w, http.StatusBadRequest, "no_station")
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		writeJSONError(w, http.StatusForbidden, "permission_denied")
+		return
+	}
+
+	if err := h.landingPageSvc.DiscardDraft(r.Context(), station.ID); err != nil {
+		h.logger.Error().Err(err).Msg("failed to discard draft")
+		writeJSONError(w, http.StatusInternalServerError, "discard_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "discarded"})
+}
+
+// LandingPageEditorPreview serves the preview iframe content
+func (h *Handler) LandingPageEditorPreview(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	// Get landing page
+	page, err := h.landingPageSvc.GetOrCreate(r.Context(), station.ID)
+	if err != nil {
+		http.Error(w, "Failed to load landing page", http.StatusInternalServerError)
+		return
+	}
+
+	// Use draft if available
+	config := page.PublishedConfig
+	if page.DraftConfig != nil && len(page.DraftConfig) > 0 {
+		config = page.DraftConfig
+	}
+
+	theme := h.landingPageSvc.GetTheme(page.Theme)
+	if theme == nil {
+		theme = h.landingPageSvc.GetTheme("default")
+	}
+
+	// Create renderer and render preview
+	renderer, err := landingpage.NewRenderer(h.db)
+	if err != nil {
+		http.Error(w, "Failed to initialize renderer", http.StatusInternalServerError)
+		return
+	}
+
+	html, err := renderer.RenderPage(r.Context(), station, config, theme, page.CustomCSS, page.CustomHead)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to render preview")
+		http.Error(w, "Failed to render preview", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
+}
+
+// LandingPageVersions renders the version history page
+func (h *Handler) LandingPageVersions(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		http.Error(w, "Permission denied", http.StatusForbidden)
+		return
+	}
+
+	limit := 20
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	versions, total, err := h.landingPageSvc.ListVersions(r.Context(), station.ID, limit, offset)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to list versions")
+		http.Error(w, "Failed to load versions", http.StatusInternalServerError)
+		return
+	}
+
+	h.Render(w, r, "pages/dashboard/landing-versions", PageData{
+		Title:    "Landing Page History - " + station.Name,
+		Stations: h.LoadStations(r),
+		Data: map[string]any{
+			"Station":  station,
+			"Versions": versions,
+			"Total":    total,
+			"Limit":    limit,
+			"Offset":   offset,
+		},
+	})
+}
+
+// LandingPageVersionRestore restores a version
+func (h *Handler) LandingPageVersionRestore(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		writeJSONError(w, http.StatusBadRequest, "no_station")
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		writeJSONError(w, http.StatusForbidden, "permission_denied")
+		return
+	}
+
+	versionID := chi.URLParam(r, "versionID")
+	if versionID == "" {
+		writeJSONError(w, http.StatusBadRequest, "version_id_required")
+		return
+	}
+
+	if err := h.landingPageSvc.RestoreVersion(r.Context(), station.ID, versionID, user.ID); err != nil {
+		h.logger.Error().Err(err).Msg("failed to restore version")
+		writeJSONError(w, http.StatusInternalServerError, "restore_failed")
+		return
+	}
+
+	h.logger.Info().
+		Str("station_id", station.ID).
+		Str("version_id", versionID).
+		Str("user_id", user.ID).
+		Msg("landing page version restored")
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "restored"})
+}
+
+// LandingPageAssetUpload handles asset uploads
+func (h *Handler) LandingPageAssetUpload(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		writeJSONError(w, http.StatusBadRequest, "no_station")
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		writeJSONError(w, http.StatusForbidden, "permission_denied")
+		return
+	}
+
+	// Parse multipart form (max 10MB)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_multipart")
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "file_required")
+		return
+	}
+	defer file.Close()
+
+	assetType := r.FormValue("type")
+	if assetType == "" {
+		assetType = models.AssetTypeImage
+	}
+
+	asset, err := h.landingPageSvc.UploadAsset(r.Context(), station.ID, assetType, header.Filename, file, &user.ID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to upload asset")
+		writeJSONError(w, http.StatusInternalServerError, "upload_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusCreated, asset)
+}
+
+// LandingPageAssetDelete deletes an asset
+func (h *Handler) LandingPageAssetDelete(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		writeJSONError(w, http.StatusBadRequest, "no_station")
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		writeJSONError(w, http.StatusForbidden, "permission_denied")
+		return
+	}
+
+	assetID := chi.URLParam(r, "assetID")
+	if assetID == "" {
+		writeJSONError(w, http.StatusBadRequest, "asset_id_required")
+		return
+	}
+
+	if err := h.landingPageSvc.DeleteAsset(r.Context(), assetID); err != nil {
+		h.logger.Error().Err(err).Msg("failed to delete asset")
+		writeJSONError(w, http.StatusInternalServerError, "delete_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// LandingPageAssetServe serves an asset file
+func (h *Handler) LandingPageAssetServe(w http.ResponseWriter, r *http.Request) {
+	assetID := chi.URLParam(r, "assetID")
+	if assetID == "" {
+		http.Error(w, "Asset ID required", http.StatusBadRequest)
+		return
+	}
+
+	asset, err := h.landingPageSvc.GetAsset(r.Context(), assetID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	path := h.landingPageSvc.GetAssetPath(asset)
+	http.ServeFile(w, r, path)
+}
+
+// LandingPageThemeUpdate updates the theme
+func (h *Handler) LandingPageThemeUpdate(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		writeJSONError(w, http.StatusBadRequest, "no_station")
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		writeJSONError(w, http.StatusForbidden, "permission_denied")
+		return
+	}
+
+	var req struct {
+		Theme string `json:"theme"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	if err := h.landingPageSvc.UpdateTheme(r.Context(), station.ID, req.Theme); err != nil {
+		h.logger.Error().Err(err).Msg("failed to update theme")
+		writeJSONError(w, http.StatusInternalServerError, "update_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// canManageLandingPage checks if user can manage the landing page
+func (h *Handler) canManageLandingPage(user *models.User, station *models.Station) bool {
+	if user == nil || station == nil {
+		return false
+	}
+
+	// Platform admins can manage all
+	if user.IsPlatformAdmin() {
+		return true
+	}
+
+	// Check station role
+	stationUser := h.GetStationRole(user, station.ID)
+	if stationUser == nil {
+		return false
+	}
+
+	// Owner, admin, and manager can manage landing page
+	return stationUser.Role == models.StationRoleOwner ||
+		stationUser.Role == models.StationRoleAdmin ||
+		stationUser.Role == models.StationRoleManager
+}
+
+// Helper functions
+
+// writeJSONResponse writes a JSON response with the given status code.
+func writeJSONResponse(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+func mustMarshalJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+// LandingPageCustomCSS updates custom CSS
+func (h *Handler) LandingPageCustomCSS(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	station := h.GetStation(r)
+
+	if station == nil {
+		writeJSONError(w, http.StatusBadRequest, "no_station")
+		return
+	}
+
+	if !h.canManageLandingPage(user, station) {
+		writeJSONError(w, http.StatusForbidden, "permission_denied")
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "read_failed")
+		return
+	}
+
+	var req struct {
+		CSS string `json:"css"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	if err := h.landingPageSvc.UpdateCustomCSS(r.Context(), station.ID, req.CSS); err != nil {
+		h.logger.Error().Err(err).Msg("failed to update custom CSS")
+		writeJSONError(w, http.StatusInternalServerError, "update_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "updated"})
+}

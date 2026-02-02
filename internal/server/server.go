@@ -31,6 +31,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/db"
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/executor"
+	"github.com/friendsincode/grimnir_radio/internal/landingpage"
 	"github.com/friendsincode/grimnir_radio/internal/leadership"
 	"github.com/friendsincode/grimnir_radio/internal/live"
 	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
@@ -297,6 +298,11 @@ func (s *Server) initDependencies() error {
 	scheduleExportAPI := api.NewScheduleExportAPI(s.api, scheduleExportSvc)
 	s.api.SetScheduleExportAPI(scheduleExportAPI)
 
+	// Phase 9: Landing Page Editor
+	landingPageSvc := landingpage.NewService(database, mediaService, s.cfg.MediaRoot, s.logger)
+	landingPageAPI := api.NewLandingPageAPI(s.api, landingPageSvc)
+	s.api.SetLandingPageAPI(landingPageAPI)
+
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
 		STUNURL:      s.cfg.WebRTCSTUNURL,
@@ -309,6 +315,9 @@ func (s *Server) initDependencies() error {
 		return fmt.Errorf("failed to initialize web handler: %w", err)
 	}
 	s.webHandler = webHandler
+
+	// Set landing page service on web handler
+	webHandler.SetLandingPageService(landingPageSvc)
 
 	return nil
 }

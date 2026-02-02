@@ -1,5 +1,110 @@
 # Changelog
 
+## 1.9.0 — 2026-02-02
+
+### Phase 9: Landing Page Editor (Complete)
+
+Visual editor for station operators to customize their public-facing landing page without writing code. Includes theme system, widget library, drag-and-drop editor, asset management, versioning, and SEO controls.
+
+#### Phase 9A: Foundation
+- **Landing Page Models**: LandingPage, LandingPageAsset, LandingPageVersion with JSONB config storage
+- **Service Layer**: CRUD operations, draft/publish workflow, version management
+- **Theme System**: 7 built-in themes (Default, Dark, Light, Bold, Vintage, Neon, Community)
+- **API Handlers**: Full REST API for landing page management
+
+#### Phase 9B: Core Widgets
+- **Widget Registry**: 16 widget types with configuration specs
+- **Server-Side Rendering**: Go templates for all widgets
+- **Core Widgets**: Player, Schedule, Recent Tracks, Text, Image, Spacer, Divider
+
+#### Phase 9C: Editor UI
+- **Visual Editor**: Drag-and-drop interface with live preview
+- **Sidebar Tabs**: Widgets, Theme, Header, Hero, Content, Footer, SEO, Custom CSS
+- **Live Preview**: iframe with real-time updates via postMessage
+- **Auto-Save**: Automatic draft saving every 30 seconds
+
+#### Phase 9D: Asset Management
+- **Asset Upload**: Images up to 10MB (PNG, JPG, GIF, WebP, SVG)
+- **Asset Library**: Grid view with upload dropzone
+- **Asset Serving**: Public URLs for uploaded assets
+
+#### Phase 9E: Additional Widgets
+- **DJ Grid**: Display DJs with photos and bios
+- **Upcoming Shows**: Next N shows with host info
+- **Image Gallery**: Grid layout with optional lightbox
+- **Video**: Embed videos with autoplay/muted options
+- **CTA (Call to Action)**: Headline, subtext, button
+- **Contact**: Form, map, contact info
+- **Social Feed**: Platform embeds
+- **Newsletter**: Email signup form
+- **Custom HTML**: Sanitized custom code blocks
+
+#### Phase 9F: Advanced Features
+- **Version History**: Browse, preview, and restore previous versions
+- **Mobile Preview**: Responsive viewport testing
+- **SEO Configuration**: Title, description, OG image, Twitter cards
+- **Custom CSS Editor**: Scoped CSS with live preview
+
+### New API Endpoints
+
+**Landing Page Configuration:**
+- `GET /api/v1/landing-page` - Get landing page config
+- `PUT /api/v1/landing-page` - Update landing page config
+- `POST /api/v1/landing-page/publish` - Publish changes
+- `POST /api/v1/landing-page/discard-draft` - Discard draft
+- `GET /api/v1/landing-page/preview` - Preview rendered page
+
+**Assets:**
+- `GET /api/v1/landing-page/assets` - List assets
+- `POST /api/v1/landing-page/assets` - Upload asset
+- `DELETE /api/v1/landing-page/assets/{assetID}` - Delete asset
+
+**Versions:**
+- `GET /api/v1/landing-page/versions` - List versions
+- `GET /api/v1/landing-page/versions/{versionID}` - Get version
+- `POST /api/v1/landing-page/versions/{versionID}/restore` - Restore version
+
+**Themes:**
+- `GET /api/v1/landing-page/themes` - List themes
+- `GET /api/v1/landing-page/themes/{name}` - Get theme details
+
+### Web UI Routes
+
+- `/dashboard/station/landing-page/editor` - Visual editor
+- `/dashboard/station/landing-page/preview` - Live preview iframe
+- `/dashboard/station/landing-page/versions` - Version history
+- `/landing-assets/{assetID}` - Public asset serving
+
+### Database Changes
+
+Adds 3 new tables via GORM AutoMigrate:
+- `landing_pages` - Main configuration with draft/published configs
+- `landing_page_assets` - Uploaded images and files
+- `landing_page_versions` - Version history with change tracking
+
+### Files Added
+
+- `internal/models/landing_page.go` - Data models
+- `internal/landingpage/service.go` - Business logic service
+- `internal/landingpage/themes.go` - Theme definitions
+- `internal/landingpage/widgets.go` - Widget registry
+- `internal/landingpage/renderer.go` - Server-side rendering
+- `internal/api/landing_page.go` - API handlers
+- `internal/web/pages_landing_editor.go` - Web handlers
+- `internal/web/templates/pages/dashboard/landing-editor.html` - Editor UI
+- `internal/web/templates/pages/dashboard/landing-versions.html` - Version history
+- `internal/web/static/css/landing-page.css` - Theme and widget styles
+
+### Files Modified
+
+- `internal/db/migrate.go` - Added new models to migration
+- `internal/server/server.go` - Service wiring
+- `internal/api/api.go` - Route registration
+- `internal/web/handler.go` - Service injection
+- `internal/web/routes.go` - Editor routes
+
+---
+
 ## 1.7.0 — 2026-02-01
 
 ### Phase 8: Advanced Scheduling (Complete)
