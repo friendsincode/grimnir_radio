@@ -755,13 +755,48 @@ func (h *Handler) PlatformLandingPagePreview(w http.ResponseWriter, r *http.Requ
 	// Order stations based on config
 	orderedStations := orderStationsByConfig(stations, config)
 
+	// Prepare stations with their mounts and stream URLs (same as Landing handler)
+	type stationWithStream struct {
+		Station     models.Station
+		StreamURL   string
+		StreamURLLQ string
+		MountName   string
+	}
+
+	var stationsWithStreams []stationWithStream
+	for _, s := range orderedStations {
+		var mount models.Mount
+		h.db.Where("station_id = ?", s.ID).First(&mount)
+
+		sw := stationWithStream{Station: s}
+		if mount.ID != "" {
+			sw.StreamURL = "/live/" + mount.Name
+			sw.StreamURLLQ = "/live/" + mount.Name + "-lq"
+			sw.MountName = mount.Name
+		}
+		stationsWithStreams = append(stationsWithStreams, sw)
+	}
+
+	// Get featured station for hero player (if any)
+	var featuredStation *stationWithStream
+	for i, s := range stationsWithStreams {
+		if s.Station.Featured {
+			featuredStation = &stationsWithStreams[i]
+			break
+		}
+	}
+	if featuredStation == nil && len(stationsWithStreams) > 0 {
+		featuredStation = &stationsWithStreams[0]
+	}
+
 	h.Render(w, r, "pages/public/platform-landing-preview", PageData{
 		Title: "Platform Preview",
 		Data: map[string]any{
 			"Config":          config,
 			"Theme":           theme,
 			"Stations":        stations,
-			"OrderedStations": orderedStations,
+			"OrderedStations": stationsWithStreams,
+			"FeaturedStation": featuredStation,
 			"IsPreview":       true,
 			"IsPlatform":      true,
 		},
