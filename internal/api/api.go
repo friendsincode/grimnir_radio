@@ -43,6 +43,7 @@ import (
 // API exposes HTTP handlers.
 type API struct {
 	db                   *gorm.DB
+	jwtSecret            []byte
 	scheduler            *scheduler.Service
 	analyzer             *analyzer.Service
 	media                *media.Service
@@ -67,11 +68,12 @@ type API struct {
 }
 
 // New creates the API router wrapper.
-func New(db *gorm.DB, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, auditSvc *audit.Service, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, logger zerolog.Logger) *API {
+func New(db *gorm.DB, jwtSecret []byte, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, auditSvc *audit.Service, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, logger zerolog.Logger) *API {
 	migrationHandler := NewMigrationHandler(db, media, bus, logger)
 
 	return &API{
 		db:               db,
+		jwtSecret:        jwtSecret,
 		scheduler:        scheduler,
 		analyzer:         analyzer,
 		media:            media,
@@ -1322,7 +1324,7 @@ func (a *API) writeEvent(ctx context.Context, conn *ws.Conn, eventType events.Ev
 }
 
 func (a *API) authMiddleware() func(http.Handler) http.Handler {
-	return auth.Middleware(a.db)
+	return auth.MiddlewareWithJWT(a.db, a.jwtSecret)
 }
 
 func (a *API) requireRoles(allowed ...models.RoleName) func(http.Handler) http.Handler {
