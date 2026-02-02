@@ -15,6 +15,7 @@ type WidgetType string
 
 // Widget types
 const (
+	WidgetStationsGrid WidgetType = "stations-grid"
 	WidgetPlayer       WidgetType = "player"
 	WidgetSchedule     WidgetType = "schedule"
 	WidgetRecentTracks WidgetType = "recent-tracks"
@@ -75,8 +76,28 @@ type ConfigField struct {
 // WidgetRegistry contains all available widget definitions.
 var WidgetRegistry = []WidgetDefinition{
 	{
+		Type:        WidgetStationsGrid,
+		Name:        "Stations Grid",
+		Description: "Grid display of all public stations",
+		Icon:        "broadcast",
+		Category:    "core",
+		Defaults: map[string]any{
+			"title":       "Our Stations",
+			"columns":     3,
+			"showLogo":    true,
+			"showDesc":    true,
+			"centerSingle": true,
+		},
+		ConfigSpec: []ConfigField{
+			{Key: "title", Label: "Section Title", Type: "text", Default: "Our Stations"},
+			{Key: "columns", Label: "Columns", Type: "select", Default: 3, Options: []any{2, 3, 4}},
+			{Key: "showLogo", Label: "Show Station Logo", Type: "boolean", Default: true},
+			{Key: "showDesc", Label: "Show Description", Type: "boolean", Default: true},
+		},
+	},
+	{
 		Type:        WidgetPlayer,
-		Name:        "Player",
+		Name:        "Radio Player",
 		Description: "Audio player with now playing info",
 		Icon:        "play-circle",
 		Category:    "core",
@@ -85,8 +106,10 @@ var WidgetRegistry = []WidgetDefinition{
 			"showNowPlaying":   true,
 			"showVolumeSlider": true,
 			"size":             "large",
+			"stationId":        "",
 		},
 		ConfigSpec: []ConfigField{
+			{Key: "title", Label: "Title", Type: "text", Placeholder: "Listen Live"},
 			{Key: "showArtwork", Label: "Show Artwork", Type: "boolean", Default: true},
 			{Key: "showNowPlaying", Label: "Show Now Playing", Type: "boolean", Default: true},
 			{Key: "showVolumeSlider", Label: "Show Volume", Type: "boolean", Default: true},
