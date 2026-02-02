@@ -563,6 +563,12 @@ func (h *Handler) PlatformLandingPageEditor(w http.ResponseWriter, r *http.Reque
 	widgets := landingpage.GetWidgetsByCategory()
 	assets, _ := h.landingPageSvc.ListPlatformAssets(r.Context())
 
+	// Get all public stations for ordering
+	var publicStations []models.Station
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).
+		Order("sort_order, name").
+		Find(&publicStations)
+
 	h.Render(w, r, "pages/dashboard/admin/platform-landing-editor", PageData{
 		Title:    "Platform Landing Page Editor",
 		Stations: h.LoadStations(r),
@@ -577,6 +583,7 @@ func (h *Handler) PlatformLandingPageEditor(w http.ResponseWriter, r *http.Reque
 			"HasDraft":     page.HasDraft(),
 			"CurrentTheme": h.landingPageSvc.GetTheme(page.Theme),
 			"IsPlatform":   true,
+			"Stations":     publicStations,
 		},
 	})
 }
@@ -696,21 +703,74 @@ func (h *Handler) PlatformLandingPagePreview(w http.ResponseWriter, r *http.Requ
 		config = page.DraftConfig
 	}
 
+	// Get theme for styling
+	theme := h.landingPageSvc.GetTheme(page.Theme)
+	if theme == nil {
+		theme = h.landingPageSvc.GetTheme("default")
+	}
+
 	// Get all public stations for the stations grid widget
 	var stations []models.Station
 	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).
 		Order("sort_order, name").
 		Find(&stations)
 
+	// Order stations based on config
+	orderedStations := orderStationsByConfig(stations, config)
+
 	h.Render(w, r, "pages/public/platform-landing-preview", PageData{
 		Title: "Platform Preview",
 		Data: map[string]any{
-			"Config":     config,
-			"Stations":   stations,
-			"IsPreview":  true,
-			"IsPlatform": true,
+			"Config":          config,
+			"Theme":           theme,
+			"Stations":        stations,
+			"OrderedStations": orderedStations,
+			"IsPreview":       true,
+			"IsPlatform":      true,
 		},
 	})
+}
+
+// orderStationsByConfig reorders stations based on content.stationOrder config
+func orderStationsByConfig(stations []models.Station, config map[string]any) []models.Station {
+	content, ok := config["content"].(map[string]any)
+	if !ok {
+		return stations
+	}
+
+	orderList, ok := content["stationOrder"].([]any)
+	if !ok || len(orderList) == 0 {
+		return stations
+	}
+
+	// Build order map
+	orderMap := make(map[string]int)
+	for i, id := range orderList {
+		if idStr, ok := id.(string); ok {
+			orderMap[idStr] = i
+		}
+	}
+
+	// Sort stations
+	result := make([]models.Station, len(stations))
+	copy(result, stations)
+
+	// Simple insertion sort based on custom order
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			iOrder, iHasOrder := orderMap[result[i].ID]
+			jOrder, jHasOrder := orderMap[result[j].ID]
+
+			// Items with custom order come first, in their specified order
+			if jHasOrder && !iHasOrder {
+				result[i], result[j] = result[j], result[i]
+			} else if iHasOrder && jHasOrder && jOrder < iOrder {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	return result
 }
 
 // getClientIP extracts the client IP from request, checking proxy headers.
