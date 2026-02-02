@@ -218,18 +218,18 @@
                             <div class="card station-card h-100">
                                 <div class="card-body text-center">
                                     {{if $showLogo}}
-                                        {{if .Logo}}
-                                        <img src="/api/v1/stations/{{.ID}}/logo" alt="{{.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
+                                        {{if .Station.Logo}}
+                                        <img src="/api/v1/stations/{{.Station.ID}}/logo" alt="{{.Station.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
                                         {{else}}
                                         <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
                                         {{end}}
                                     {{end}}
-                                    <h5 class="card-title">{{.Name}}</h5>
-                                    {{if and $showDesc .Description}}
-                                    <p class="card-text small">{{.Description}}</p>
+                                    <h5 class="card-title">{{.Station.Name}}</h5>
+                                    {{if and $showDesc .Station.Description}}
+                                    <p class="card-text small">{{.Station.Description}}</p>
                                     {{end}}
-                                    {{if .Shortcode}}
-                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="playStation('{{.ID}}', '{{.Shortcode}}', '{{.Name}}')">
+                                    {{if .StreamURL}}
+                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="playStation('{{.Station.ID}}', '{{.StreamURL}}', '{{.Station.Name}}')">
                                         <i class="bi bi-play-circle me-1"></i>Listen
                                     </button>
                                     {{end}}
@@ -259,7 +259,7 @@
                             <div class="mb-3">
                                 <select class="form-select" id="widgetStationSelect" onchange="widgetSelectStation(this.value)">
                                     {{range $.Data.OrderedStations}}
-                                    <option value="{{.ID}}" data-shortcode="{{.Shortcode}}" data-name="{{.Name}}" data-logo="{{if .Logo}}1{{end}}">{{.Name}}</option>
+                                    <option value="{{.Station.ID}}" data-stream="{{.StreamURL}}" data-name="{{.Station.Name}}" data-logo="{{if .Station.Logo}}1{{end}}">{{.Station.Name}}</option>
                                     {{end}}
                                 </select>
                             </div>
@@ -365,19 +365,19 @@
                 <div class="col-md-4">
                     <div class="card station-card h-100">
                         <div class="card-body text-center">
-                            {{if .Logo}}
-                            <img src="/api/v1/stations/{{.ID}}/logo" alt="{{.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
+                            {{if .Station.Logo}}
+                            <img src="/api/v1/stations/{{.Station.ID}}/logo" alt="{{.Station.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
                             {{else}}
                             <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
                             {{end}}
-                            <h5 class="card-title">{{.Name}}</h5>
-                            {{if .Description}}
-                            <p class="card-text small">{{.Description}}</p>
+                            <h5 class="card-title">{{.Station.Name}}</h5>
+                            {{if .Station.Description}}
+                            <p class="card-text small">{{.Station.Description}}</p>
                             {{end}}
-                            {{if .Shortcode}}
-                            <a href="/s/{{.Shortcode}}" class="btn btn-outline-primary btn-sm">
+                            {{if .StreamURL}}
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="playStation('{{.Station.ID}}', '{{.StreamURL}}', '{{.Station.Name}}')">
                                 <i class="bi bi-play-circle me-1"></i>Listen
-                            </a>
+                            </button>
                             {{end}}
                         </div>
                     </div>
@@ -469,9 +469,7 @@
 
     <script>
     // Play station in global player
-    function playStation(stationId, shortcode, stationName) {
-        const streamUrl = '/s/' + shortcode + '/stream';
-
+    function playStation(stationId, streamUrl, stationName) {
         // Try to use the global player
         if (window.globalPlayer && typeof window.globalPlayer.playLive === 'function') {
             window.globalPlayer.playLive(streamUrl, stationName, stationId);
@@ -544,11 +542,11 @@
         const option = select.querySelector(`option[value="${stationId}"]`);
         if (!option) return;
 
-        const shortcode = option.dataset.shortcode;
+        const streamUrl = option.dataset.stream;
         const name = option.dataset.name;
         const hasLogo = option.dataset.logo === '1';
 
-        widgetPlayer.currentStation = { id: stationId, shortcode, name, hasLogo };
+        widgetPlayer.currentStation = { id: stationId, streamUrl, name, hasLogo };
 
         // Update display
         const nameEl = document.getElementById('widgetStationName');
@@ -568,7 +566,7 @@
 
         // If currently playing, switch to new station
         if (widgetPlayer.playing) {
-            widgetPlayer.audio.src = '/s/' + shortcode + '/stream';
+            widgetPlayer.audio.src = streamUrl;
             widgetPlayer.audio.play().catch(e => console.error('Play error:', e));
             widgetStartNowPlaying();
         }
@@ -582,7 +580,7 @@
             widgetPlayer.playing = false;
             widgetStopNowPlaying();
         } else {
-            widgetPlayer.audio.src = '/s/' + widgetPlayer.currentStation.shortcode + '/stream';
+            widgetPlayer.audio.src = widgetPlayer.currentStation.streamUrl;
             widgetPlayer.audio.play().catch(e => console.error('Play error:', e));
             widgetPlayer.playing = true;
             widgetStartNowPlaying();

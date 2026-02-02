@@ -97,7 +97,7 @@ func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 			"Config":          config,
 			"Theme":           theme,
 			"Stations":        stations,
-			"OrderedStations": orderedStations,
+			"OrderedStations": stationsWithStreams,
 			"FeaturedStation": featuredStation,
 			"IsPlatform":      true,
 			"IsPreview":       false,
