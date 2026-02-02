@@ -36,7 +36,10 @@
                 <i class="bi bi-soundwave fs-4 text-info"></i>
                 <span class="sidebar-text fw-bold ms-2">Grimnir</span>
             </a>
-            <button class="btn btn-sm btn-outline-secondary ms-auto sidebar-toggle" id="sidebarToggle" data-bs-toggle="tooltip" data-bs-placement="right" title="Toggle sidebar">
+            <a class="btn btn-sm btn-outline-info ms-auto sidebar-text" href="/" target="_blank" data-bs-toggle="tooltip" data-bs-placement="right" title="View Site">
+                <i class="bi bi-box-arrow-up-right"></i>
+            </a>
+            <button class="btn btn-sm btn-outline-secondary ms-2 sidebar-toggle" id="sidebarToggle" data-bs-toggle="tooltip" data-bs-placement="right" title="Toggle sidebar">
                 <i class="bi bi-chevron-left" id="toggleIcon"></i>
             </button>
         </div>
@@ -157,6 +160,13 @@
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/station/settings"}}active bg-primary text-white{{end}}" href="/dashboard/station/settings" data-bs-toggle="tooltip" data-bs-placement="right" title="Station Settings">
                         <i class="bi bi-sliders"></i>
                         <span class="sidebar-text ms-2">Station Settings</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/station/landing-page"}}active bg-primary text-white{{end}}" href="/dashboard/station/landing-page/editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Landing Page">
+                        <i class="bi bi-palette"></i>
+                        <span class="sidebar-text ms-2">Landing Page</span>
                     </a>
                 </li>
 

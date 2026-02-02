@@ -68,6 +68,8 @@
     </div>
 </div>
 <script>
+const wsToken = '{{.WSToken}}';
+
 function updateStatusBadge(elementId, status) {
     const badge = document.getElementById(elementId);
     badge.className = 'badge me-2';
@@ -88,7 +90,8 @@ function updateStatusBadge(elementId, status) {
 
 function refreshSystemStatus() {
     fetch('/api/v1/system/status', {
-        credentials: 'same-origin'
+        credentials: 'same-origin',
+        headers: { 'Authorization': 'Bearer ' + wsToken }
     })
     .then(response => response.json())
     .then(data => {
@@ -137,7 +140,8 @@ function testMediaEngine() {
 
     fetch('/api/v1/system/test-media-engine', {
         method: 'POST',
-        credentials: 'same-origin'
+        credentials: 'same-origin',
+        headers: { 'Authorization': 'Bearer ' + wsToken }
     })
     .then(response => response.json())
     .then(data => {
