@@ -57,6 +57,9 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/embed/now-playing", h.EmbedNowPlaying)
 			r.Get("/embed/schedule.js", h.EmbedScheduleJS)
 
+			// Landing page assets (public)
+			r.Get("/landing-assets/{assetID}", h.LandingPageAssetServe)
+
 			// Auth pages
 			r.Get("/login", h.LoginPage)
 			r.Post("/login", h.LoginSubmit)
@@ -104,6 +107,22 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// Station logs (all station members)
 				r.Get("/logs", h.StationLogs)
+
+				// Landing page editor (manager+)
+				r.Route("/landing-page", func(r chi.Router) {
+					r.Use(h.RequireRole("manager"))
+					r.Get("/editor", h.LandingPageEditor)
+					r.Post("/save", h.LandingPageEditorSave)
+					r.Post("/publish", h.LandingPageEditorPublish)
+					r.Post("/discard", h.LandingPageEditorDiscard)
+					r.Get("/preview", h.LandingPageEditorPreview)
+					r.Put("/theme", h.LandingPageThemeUpdate)
+					r.Put("/custom-css", h.LandingPageCustomCSS)
+					r.Get("/versions", h.LandingPageVersions)
+					r.Post("/versions/{versionID}/restore", h.LandingPageVersionRestore)
+					r.Post("/assets", h.LandingPageAssetUpload)
+					r.Delete("/assets/{assetID}", h.LandingPageAssetDelete)
+				})
 			})
 
 			// Station-scoped routes

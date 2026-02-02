@@ -21,6 +21,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/landingpage"
 	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
@@ -51,6 +52,7 @@ type Handler struct {
 	partials         *template.Template            // Shared partials
 	updateChecker    *version.Checker              // Checks for new versions
 	migrationService *migration.Service            // Migration job management
+	landingPageSvc   *landingpage.Service          // Landing page management
 	eventBus         *events.Bus                   // Event bus for real-time updates
 	director         *playout.Director             // Playout director for emergency stop
 
@@ -144,6 +146,11 @@ func (h *Handler) StartUpdateChecker(ctx context.Context) {
 // StopUpdateChecker stops the background version checker.
 func (h *Handler) StopUpdateChecker() {
 	h.updateChecker.Stop()
+}
+
+// SetLandingPageService sets the landing page service for the web handler.
+func (h *Handler) SetLandingPageService(svc *landingpage.Service) {
+	h.landingPageSvc = svc
 }
 
 func (h *Handler) loadTemplates() error {

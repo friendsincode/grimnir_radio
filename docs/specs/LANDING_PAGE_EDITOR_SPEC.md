@@ -1,7 +1,8 @@
 # Landing Page Editor Specification
 
-**Status:** Planning
-**Priority:** Phase 9 (after Advanced Scheduling)
+**Status:** Implemented
+**Priority:** Phase 9 (v1.9.0)
+**Estimated:** ~4,000 lines of code
 
 ## Overview
 

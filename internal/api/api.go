@@ -58,6 +58,7 @@ type API struct {
 	syndicationAPI       *SyndicationAPI
 	underwritingAPI      *UnderwritingAPI
 	scheduleExportAPI    *ScheduleExportAPI
+	landingPageAPI       *LandingPageAPI
 	migrationHandler     *MigrationHandler
 	broadcast            *broadcast.Server
 	bus                  *events.Bus
@@ -116,6 +117,11 @@ func (a *API) SetUnderwritingAPI(api *UnderwritingAPI) {
 // SetScheduleExportAPI sets the schedule export API handler.
 func (a *API) SetScheduleExportAPI(api *ScheduleExportAPI) {
 	a.scheduleExportAPI = api
+}
+
+// SetLandingPageAPI sets the landing page API handler.
+func (a *API) SetLandingPageAPI(api *LandingPageAPI) {
+	a.landingPageAPI = api
 }
 
 type mountRequest struct {
@@ -305,10 +311,6 @@ func (a *API) Routes(r chi.Router) {
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/spins", a.handleAnalyticsSpins)
 			})
 
-			pr.Route("/webhooks", func(r chi.Router) {
-				r.With(a.requireRoles(models.RoleAdmin)).Post("/track-start", a.handleWebhookTrackStart)
-			})
-
 			// System status routes (platform admin only)
 			pr.Route("/system", func(r chi.Router) {
 				r.Use(a.requirePlatformAdmin())
@@ -387,6 +389,11 @@ func (a *API) Routes(r chi.Router) {
 					er.Use(a.requireRoles(models.RoleAdmin, models.RoleManager))
 					a.scheduleExportAPI.RegisterRoutes(er)
 				})
+			}
+
+			// Landing Page Editor (admin/manager)
+			if a.landingPageAPI != nil {
+				a.landingPageAPI.RegisterRoutes(pr)
 			}
 
 			// Migration routes (admin only)
