@@ -1,0 +1,277 @@
+{{define "pages/embed/schedule"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            {{if eq (index .Data "Theme") "dark"}}
+            background: #1a1a2e;
+            color: #e4e4e7;
+            {{else}}
+            background: #ffffff;
+            color: #27272a;
+            {{end}}
+        }
+
+        .schedule-widget {
+            padding: 12px;
+            max-height: 100vh;
+            overflow-y: auto;
+        }
+
+        .widget-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            {{if eq (index .Data "Theme") "dark"}}
+            border-bottom: 1px solid #374151;
+            {{else}}
+            border-bottom: 1px solid #e5e7eb;
+            {{end}}
+        }
+
+        .station-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .day-group {
+            margin-bottom: 16px;
+        }
+
+        .day-header {
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            {{if eq (index .Data "Theme") "dark"}}
+            color: #9ca3af;
+            {{else}}
+            color: #6b7280;
+            {{end}}
+        }
+
+        .show-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 8px;
+            margin-bottom: 4px;
+            border-radius: 6px;
+            {{if eq (index .Data "Theme") "dark"}}
+            background: #27272a;
+            {{else}}
+            background: #f4f4f5;
+            {{end}}
+        }
+
+        .show-item.current {
+            {{if eq (index .Data "Theme") "dark"}}
+            background: #1e3a5f;
+            border-left: 3px solid #3b82f6;
+            {{else}}
+            background: #dbeafe;
+            border-left: 3px solid #3b82f6;
+            {{end}}
+        }
+
+        {{if index .Data "Compact"}}
+        .show-item {
+            padding: 6px;
+        }
+        {{end}}
+
+        .show-color {
+            width: 4px;
+            height: 100%;
+            min-height: 36px;
+            border-radius: 2px;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+
+        .show-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .show-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .show-time {
+            font-size: 12px;
+            {{if eq (index .Data "Theme") "dark"}}
+            color: #9ca3af;
+            {{else}}
+            color: #6b7280;
+            {{end}}
+        }
+
+        .show-host {
+            font-size: 12px;
+            {{if eq (index .Data "Theme") "dark"}}
+            color: #9ca3af;
+            {{else}}
+            color: #6b7280;
+            {{end}}
+        }
+
+        .no-shows {
+            text-align: center;
+            padding: 24px;
+            {{if eq (index .Data "Theme") "dark"}}
+            color: #9ca3af;
+            {{else}}
+            color: #6b7280;
+            {{end}}
+        }
+
+        .loading {
+            text-align: center;
+            padding: 24px;
+        }
+
+        .powered-by {
+            text-align: center;
+            font-size: 11px;
+            margin-top: 12px;
+            {{if eq (index .Data "Theme") "dark"}}
+            color: #6b7280;
+            {{else}}
+            color: #9ca3af;
+            {{end}}
+        }
+
+        .powered-by a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .powered-by a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="schedule-widget">
+        <div class="widget-header">
+            <span class="station-name">{{(index .Data "Station").Name}}</span>
+        </div>
+
+        <div id="scheduleContainer" class="loading">
+            Loading schedule...
+        </div>
+
+        <div class="powered-by">
+            Powered by <a href="https://github.com/friendsincode/grimnir_radio" target="_blank" rel="noopener">Grimnir Radio</a>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const stationId = '{{index .Data "StationID"}}';
+        const days = {{index .Data "Days"}};
+        const showHost = {{index .Data "ShowHost"}};
+        const container = document.getElementById('scheduleContainer');
+
+        async function loadSchedule() {
+            try {
+                const response = await fetch('/api/v1/public/schedule?station_id=' + stationId + '&end=' + getEndDate());
+                if (!response.ok) throw new Error('Failed to load');
+                const data = await response.json();
+                renderSchedule(data.schedule);
+            } catch (e) {
+                container.innerHTML = '<div class="no-shows">Unable to load schedule</div>';
+            }
+        }
+
+        function getEndDate() {
+            const d = new Date();
+            d.setDate(d.getDate() + days);
+            return d.toISOString().split('T')[0];
+        }
+
+        function renderSchedule(schedule) {
+            if (!schedule || schedule.length === 0) {
+                container.innerHTML = '<div class="no-shows">No upcoming shows scheduled</div>';
+                return;
+            }
+
+            // Group by day
+            const grouped = {};
+            const now = new Date();
+
+            schedule.forEach(show => {
+                const date = new Date(show.starts_at);
+                const key = date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(show);
+            });
+
+            let html = '';
+            for (const [day, shows] of Object.entries(grouped)) {
+                html += '<div class="day-group">';
+                html += '<div class="day-header">' + escapeHtml(day) + '</div>';
+
+                shows.forEach(show => {
+                    const start = new Date(show.starts_at);
+                    const end = new Date(show.ends_at);
+                    const isCurrent = now >= start && now < end;
+
+                    html += '<div class="show-item' + (isCurrent ? ' current' : '') + '">';
+                    if (show.show && show.show.color) {
+                        html += '<div class="show-color" style="background-color: ' + escapeHtml(show.show.color) + '"></div>';
+                    }
+                    html += '<div class="show-info">';
+                    html += '<div class="show-name">' + escapeHtml(show.show ? show.show.name : 'Unknown') + '</div>';
+                    html += '<div class="show-time">' + formatTime(start) + ' - ' + formatTime(end) + '</div>';
+                    if (showHost && show.show && show.show.host_name) {
+                        html += '<div class="show-host">Host: ' + escapeHtml(show.show.host_name) + '</div>';
+                    }
+                    html += '</div></div>';
+                });
+
+                html += '</div>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function formatTime(date) {
+            return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        loadSchedule();
+
+        // Refresh every 5 minutes
+        setInterval(loadSchedule, 5 * 60 * 1000);
+    })();
+    </script>
+</body>
+</html>
+{{end}}

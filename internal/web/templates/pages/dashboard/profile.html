@@ -199,6 +199,27 @@
             </div>
         </div>
 
+        <!-- Notification Preferences -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bell me-2"></i>Notification Preferences</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-body-secondary mb-3">
+                    Control how and when you receive notifications about schedule changes, show reminders, and other events.
+                </p>
+
+                <div id="notificationPrefsContainer">
+                    <div class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        Loading preferences...
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Role Permissions -->
         <div class="card">
             <div class="card-header">
@@ -299,4 +320,136 @@
         </div>
     </div>
 </div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('notificationPrefsContainer');
+
+    const notificationTypeLabels = {
+        'show_reminder': 'Show Reminders',
+        'schedule_change': 'Schedule Changes',
+        'request_status': 'Request Status Updates',
+        'new_assignment': 'New Show Assignments',
+        'schedule_published': 'Schedule Published',
+        'show_cancelled': 'Show Cancellations'
+    };
+
+    const channelLabels = {
+        'email': 'Email',
+        'in_app': 'In-App'
+    };
+
+    const channelIcons = {
+        'email': 'bi-envelope',
+        'in_app': 'bi-bell'
+    };
+
+    async function loadPreferences() {
+        try {
+            const response = await fetch('/api/v1/notifications/preferences');
+            if (!response.ok) throw new Error('Failed to load');
+            const data = await response.json();
+            renderPreferences(data.preferences);
+        } catch (e) {
+            container.innerHTML = '<div class="alert alert-danger">Failed to load notification preferences.</div>';
+        }
+    }
+
+    function renderPreferences(prefs) {
+        // Group by notification type
+        const grouped = {};
+        prefs.forEach(p => {
+            if (!grouped[p.notification_type]) {
+                grouped[p.notification_type] = [];
+            }
+            grouped[p.notification_type].push(p);
+        });
+
+        let html = '<div class="table-responsive"><table class="table table-sm align-middle">';
+        html += '<thead><tr><th>Notification Type</th><th class="text-center">Email</th><th class="text-center">In-App</th></tr></thead>';
+        html += '<tbody>';
+
+        for (const type of Object.keys(notificationTypeLabels)) {
+            const typePrefs = grouped[type] || [];
+            const emailPref = typePrefs.find(p => p.channel === 'email');
+            const inAppPref = typePrefs.find(p => p.channel === 'in_app');
+
+            html += '<tr>';
+            html += `<td>${notificationTypeLabels[type]}</td>`;
+
+            // Email toggle
+            if (emailPref) {
+                html += `<td class="text-center">
+                    <div class="form-check form-switch d-flex justify-content-center">
+                        <input class="form-check-input" type="checkbox" role="switch"
+                               data-pref-id="${emailPref.id}"
+                               ${emailPref.enabled ? 'checked' : ''}
+                               onchange="togglePref(this)">
+                    </div>
+                </td>`;
+            } else {
+                html += '<td class="text-center text-body-secondary">—</td>';
+            }
+
+            // In-App toggle
+            if (inAppPref) {
+                html += `<td class="text-center">
+                    <div class="form-check form-switch d-flex justify-content-center">
+                        <input class="form-check-input" type="checkbox" role="switch"
+                               data-pref-id="${inAppPref.id}"
+                               ${inAppPref.enabled ? 'checked' : ''}
+                               onchange="togglePref(this)">
+                    </div>
+                </td>`;
+            } else {
+                html += '<td class="text-center text-body-secondary">—</td>';
+            }
+
+            html += '</tr>';
+        }
+
+        html += '</tbody></table></div>';
+
+        html += `<div class="small text-body-secondary mt-2">
+            <i class="bi bi-info-circle me-1"></i>
+            Email notifications require SMTP to be configured. In-app notifications appear in the notification bell.
+        </div>`;
+
+        container.innerHTML = html;
+    }
+
+    window.togglePref = async function(checkbox) {
+        const prefId = checkbox.dataset.prefId;
+        const enabled = checkbox.checked;
+
+        checkbox.disabled = true;
+
+        try {
+            const response = await fetch(`/api/v1/notifications/preferences/${prefId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: enabled })
+            });
+
+            if (!response.ok) throw new Error('Failed to update');
+
+            // Brief success feedback
+            checkbox.parentElement.classList.add('text-success');
+            setTimeout(() => checkbox.parentElement.classList.remove('text-success'), 500);
+        } catch (e) {
+            // Revert on error
+            checkbox.checked = !enabled;
+            if (typeof grimnirUtils !== 'undefined') {
+                grimnirUtils.showToast('Failed to update preference', 'error');
+            }
+        } finally {
+            checkbox.disabled = false;
+        }
+    };
+
+    loadPreferences();
+});
+</script>
 {{end}}

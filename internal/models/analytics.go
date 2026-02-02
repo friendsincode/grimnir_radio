@@ -1,0 +1,71 @@
+/*
+Copyright (C) 2026 Friends Incode
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
+
+package models
+
+import (
+	"time"
+)
+
+// ScheduleAnalytics stores aggregated listener data per hour/show.
+type ScheduleAnalytics struct {
+	ID            string    `gorm:"type:uuid;primaryKey" json:"id"`
+	StationID     string    `gorm:"type:uuid;index;not null" json:"station_id"`
+	ShowID        *string   `gorm:"type:uuid;index" json:"show_id,omitempty"`
+	InstanceID    *string   `gorm:"type:uuid;index" json:"instance_id,omitempty"`
+	Date          time.Time `gorm:"type:date;index;not null" json:"date"`
+	Hour          int       `gorm:"not null" json:"hour"` // 0-23
+	AvgListeners  int       `json:"avg_listeners"`
+	PeakListeners int       `json:"peak_listeners"`
+	TuneIns       int       `json:"tune_ins"`
+	TuneOuts      int       `json:"tune_outs"`
+	TotalMinutes  int       `json:"total_minutes"` // Total listener-minutes
+
+	// Relationships
+	Station  *Station      `gorm:"foreignKey:StationID" json:"station,omitempty"`
+	Show     *Show         `gorm:"foreignKey:ShowID" json:"show,omitempty"`
+	Instance *ShowInstance `gorm:"foreignKey:InstanceID" json:"instance,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// TableName returns the table name for GORM.
+func (ScheduleAnalytics) TableName() string {
+	return "schedule_analytics"
+}
+
+// ShowPerformance represents aggregated performance metrics for a show.
+type ShowPerformance struct {
+	ShowID        string  `json:"show_id"`
+	ShowName      string  `json:"show_name"`
+	InstanceCount int     `json:"instance_count"`
+	AvgListeners  float64 `json:"avg_listeners"`
+	PeakListeners int     `json:"peak_listeners"`
+	TotalTuneIns  int     `json:"total_tune_ins"`
+	TotalMinutes  int     `json:"total_listener_minutes"`
+	TrendPercent  float64 `json:"trend_percent"` // Change vs previous period
+}
+
+// TimeSlotPerformance represents performance metrics for a time slot.
+type TimeSlotPerformance struct {
+	DayOfWeek     int     `json:"day_of_week"` // 0=Sunday, 6=Saturday
+	Hour          int     `json:"hour"`        // 0-23
+	AvgListeners  float64 `json:"avg_listeners"`
+	PeakListeners int     `json:"peak_listeners"`
+	SampleCount   int     `json:"sample_count"`
+}
+
+// SchedulingSuggestion represents a data-driven scheduling suggestion.
+type SchedulingSuggestion struct {
+	Type          string  `json:"type"` // "move_show", "extend_show", "reduce_show", "add_show"
+	ShowID        string  `json:"show_id,omitempty"`
+	ShowName      string  `json:"show_name,omitempty"`
+	CurrentSlot   string  `json:"current_slot,omitempty"`
+	SuggestedSlot string  `json:"suggested_slot,omitempty"`
+	Reason        string  `json:"reason"`
+	Impact        string  `json:"impact"`     // Expected impact description
+	Confidence    float64 `json:"confidence"` // 0-1 confidence score
+}

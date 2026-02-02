@@ -71,6 +71,7 @@
         --calendar-color-live: #ef4444;
         --calendar-color-webstream: #f59e0b;
         --calendar-color-clock: #8b5cf6;
+        --calendar-color-show: #ec4899;
     }
     .fc-event.event-media { background: var(--calendar-color-media) !important; border-color: var(--calendar-color-media) !important; }
     .fc-event.event-playlist { background: var(--calendar-color-playlist) !important; border-color: var(--calendar-color-playlist) !important; }
@@ -78,22 +79,40 @@
     .fc-event.event-live { background: var(--calendar-color-live) !important; border-color: var(--calendar-color-live) !important; }
     .fc-event.event-webstream { background: var(--calendar-color-webstream) !important; border-color: var(--calendar-color-webstream) !important; color: var(--bs-dark) !important; }
     .fc-event.event-clock_template { background: var(--calendar-color-clock) !important; border-color: var(--calendar-color-clock) !important; }
+    /* Show events - uses show's custom color if set */
+    .fc-event.event-show { border-width: 2px !important; }
+    .fc-event.event-show.event-cancelled { opacity: 0.5; text-decoration: line-through; }
+    .fc-event.event-show.event-exception { border-style: dashed !important; }
     /* Badge for purple/clock type */
     .badge.bg-purple { background-color: var(--calendar-color-clock) !important; }
+    .badge.bg-pink { background-color: var(--calendar-color-show) !important; }
+    /* Validation styles */
+    .validation-error { border-left: 3px solid var(--bs-danger) !important; }
+    .validation-warning { border-left: 3px solid var(--bs-warning) !important; }
+    .validation-info { border-left: 3px solid var(--bs-info) !important; }
+    .validation-result-item {
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        margin-bottom: 0.5rem;
+    }
+    .validation-result-item.error { background-color: rgba(var(--bs-danger-rgb), 0.1); border-left: 3px solid var(--bs-danger); }
+    .validation-result-item.warning { background-color: rgba(var(--bs-warning-rgb), 0.1); border-left: 3px solid var(--bs-warning); }
+    .validation-result-item.info { background-color: rgba(var(--bs-info-rgb), 0.1); border-left: 3px solid var(--bs-info); }
+    .validation-badge { font-size: 0.65rem; vertical-align: middle; }
 </style>
 <script>
 // Apply calendar color theme
 (function() {
     const colorTheme = '{{index .Data "ColorTheme"}}' || 'default';
     const themes = {
-        'default': { media: '#6366f1', playlist: '#10b981', smartblock: '#06b6d4', live: '#ef4444', webstream: '#f59e0b', clock: '#8b5cf6' },
-        'ocean': { media: '#0ea5e9', playlist: '#14b8a6', smartblock: '#06b6d4', live: '#3b82f6', webstream: '#0891b2', clock: '#22d3ee' },
-        'forest': { media: '#22c55e', playlist: '#10b981', smartblock: '#84cc16', live: '#16a34a', webstream: '#059669', clock: '#4ade80' },
-        'sunset': { media: '#f97316', playlist: '#ef4444', smartblock: '#ec4899', live: '#f43f5e', webstream: '#fb923c', clock: '#e11d48' },
-        'berry': { media: '#a855f7', playlist: '#8b5cf6', smartblock: '#d946ef', live: '#c026d3', webstream: '#9333ea', clock: '#e879f9' },
-        'earth': { media: '#92400e', playlist: '#f59e0b', smartblock: '#78716c', live: '#b45309', webstream: '#d97706', clock: '#a16207' },
-        'neon': { media: '#00ff88', playlist: '#ff0088', smartblock: '#00ffff', live: '#ffff00', webstream: '#ff00ff', clock: '#88ff00' },
-        'pastel': { media: '#93c5fd', playlist: '#a5b4fc', smartblock: '#c4b5fd', live: '#f9a8d4', webstream: '#fca5a5', clock: '#fed7aa' }
+        'default': { media: '#6366f1', playlist: '#10b981', smartblock: '#06b6d4', live: '#ef4444', webstream: '#f59e0b', clock: '#8b5cf6', show: '#ec4899' },
+        'ocean': { media: '#0ea5e9', playlist: '#14b8a6', smartblock: '#06b6d4', live: '#3b82f6', webstream: '#0891b2', clock: '#22d3ee', show: '#06b6d4' },
+        'forest': { media: '#22c55e', playlist: '#10b981', smartblock: '#84cc16', live: '#16a34a', webstream: '#059669', clock: '#4ade80', show: '#15803d' },
+        'sunset': { media: '#f97316', playlist: '#ef4444', smartblock: '#ec4899', live: '#f43f5e', webstream: '#fb923c', clock: '#e11d48', show: '#be185d' },
+        'berry': { media: '#a855f7', playlist: '#8b5cf6', smartblock: '#d946ef', live: '#c026d3', webstream: '#9333ea', clock: '#e879f9', show: '#a21caf' },
+        'earth': { media: '#92400e', playlist: '#f59e0b', smartblock: '#78716c', live: '#b45309', webstream: '#d97706', clock: '#a16207', show: '#854d0e' },
+        'neon': { media: '#00ff88', playlist: '#ff0088', smartblock: '#00ffff', live: '#ffff00', webstream: '#ff00ff', clock: '#88ff00', show: '#ff0088' },
+        'pastel': { media: '#93c5fd', playlist: '#a5b4fc', smartblock: '#c4b5fd', live: '#f9a8d4', webstream: '#fca5a5', clock: '#fed7aa', show: '#fbcfe8' }
     };
     const colors = themes[colorTheme] || themes['default'];
     const root = document.documentElement;
@@ -103,6 +122,7 @@
     root.style.setProperty('--calendar-color-live', colors.live);
     root.style.setProperty('--calendar-color-webstream', colors.webstream);
     root.style.setProperty('--calendar-color-clock', colors.clock);
+    root.style.setProperty('--calendar-color-show', colors.show);
 })();
 </script>
 {{end}}
@@ -126,7 +146,22 @@
             <option value="{{.ID}}">{{.Name}}</option>
             {{end}}
         </select>
+        <button class="btn btn-outline-secondary btn-sm" id="validateScheduleBtn" title="Validate schedule for conflicts">
+            <i class="bi bi-shield-check me-1"></i>Validate
+            <span class="badge bg-danger validation-badge d-none" id="validationBadge">0</span>
+        </button>
         {{if roleAtLeast .User "manager"}}
+        <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-info dropdown-toggle" data-bs-toggle="dropdown" title="Templates & History">
+                <i class="bi bi-collection me-1"></i>Templates
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="#" id="saveTemplateBtn"><i class="bi bi-save me-2"></i>Save as Template</a></li>
+                <li><a class="dropdown-item" href="#" id="loadTemplateBtn"><i class="bi bi-folder2-open me-2"></i>Load Template</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item" href="#" id="viewHistoryBtn"><i class="bi bi-clock-history me-2"></i>Version History</a></li>
+            </ul>
+        </div>
         <button class="btn btn-outline-primary btn-sm"
                 hx-post="/dashboard/schedule/refresh"
                 hx-swap="none">
@@ -168,6 +203,11 @@
     <div class="context-menu-item" data-action="add-live">
         <i class="bi bi-broadcast"></i>
         <span>Schedule Live Session</span>
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" data-action="add-show">
+        <i class="bi bi-calendar-event"></i>
+        <span>Schedule Show</span>
     </div>
 </div>
 
@@ -356,6 +396,11 @@
                                 <i class="bi bi-broadcast me-1"></i>Live
                             </button>
                         </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="show-tab" data-bs-toggle="tab" data-bs-target="#showPane" type="button">
+                                <i class="bi bi-calendar-event me-1"></i>Show
+                            </button>
+                        </li>
                     </ul>
 
                     <div class="tab-content pt-3" id="sourceTypeTabContent">
@@ -420,6 +465,38 @@
                                     <option value="2" selected>Normal (2) - Scheduled slot</option>
                                     <option value="3">Low (3) - Fallback only</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <!-- Show (Recurring Program) -->
+                        <div class="tab-pane fade" id="showPane" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label">Select Existing Show</label>
+                                <select class="form-select" id="showSelect">
+                                    <option value="">Select a show...</option>
+                                </select>
+                            </div>
+                            <div class="text-center my-3">
+                                <span class="text-body-secondary">or</span>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Create New Show</label>
+                                <input type="text" class="form-control mb-2" id="newShowName" placeholder="Show name">
+                                <textarea class="form-control mb-2" id="newShowDescription" rows="2" placeholder="Description (optional)"></textarea>
+                                <div class="row g-2">
+                                    <div class="col">
+                                        <label class="form-label small">Duration (minutes)</label>
+                                        <input type="number" class="form-control" id="newShowDuration" value="60" min="15" max="480">
+                                    </div>
+                                    <div class="col">
+                                        <label class="form-label small">Color</label>
+                                        <input type="color" class="form-control form-control-color" id="newShowColor" value="#ec4899">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="alert alert-info py-2 small">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Shows support RRULE recurrence patterns. Set the repeat options below to define when this show airs.
                             </div>
                         </div>
                     </div>
@@ -718,6 +795,298 @@
         </div>
     </div>
 </div>
+
+<!-- Validation Results Modal -->
+<div class="modal fade" id="validationModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-shield-check me-2"></i>Schedule Validation</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="validationLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2 text-body-secondary">Validating schedule...</p>
+                </div>
+                <div id="validationResults" class="d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <span class="badge bg-success me-1" id="validStatusBadge">Valid</span>
+                            <small class="text-body-secondary">Checked: <span id="validationCheckedAt">-</span></small>
+                        </div>
+                        <div class="text-body-secondary small">
+                            <span id="validationRange">-</span>
+                        </div>
+                    </div>
+
+                    <!-- Summary -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-4">
+                            <div class="card text-center">
+                                <div class="card-body py-2">
+                                    <h5 class="mb-0 text-danger" id="errorCount">0</h5>
+                                    <small class="text-body-secondary">Errors</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="card text-center">
+                                <div class="card-body py-2">
+                                    <h5 class="mb-0 text-warning" id="warningCount">0</h5>
+                                    <small class="text-body-secondary">Warnings</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="card text-center">
+                                <div class="card-body py-2">
+                                    <h5 class="mb-0 text-info" id="infoCount">0</h5>
+                                    <small class="text-body-secondary">Info</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Error list -->
+                    <div id="errorsList" class="mb-3 d-none">
+                        <h6 class="text-danger"><i class="bi bi-x-circle me-1"></i>Errors</h6>
+                        <div id="errorsContainer"></div>
+                    </div>
+
+                    <!-- Warning list -->
+                    <div id="warningsList" class="mb-3 d-none">
+                        <h6 class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>Warnings</h6>
+                        <div id="warningsContainer"></div>
+                    </div>
+
+                    <!-- Info list -->
+                    <div id="infoList" class="d-none">
+                        <h6 class="text-info"><i class="bi bi-info-circle me-1"></i>Info</h6>
+                        <div id="infoContainer"></div>
+                    </div>
+
+                    <!-- All valid message -->
+                    <div id="allValidMessage" class="text-center py-4 d-none">
+                        <i class="bi bi-check-circle text-success" style="font-size: 3rem;"></i>
+                        <p class="mt-2 mb-0 text-success fw-bold">Schedule is valid!</p>
+                        <p class="text-body-secondary small">No conflicts or issues found.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="revalidateBtn">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Re-validate
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Save Template Modal -->
+<div class="modal fade" id="saveTemplateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-save me-2"></i>Save as Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-body-secondary small">Save the current week's schedule as a reusable template.</p>
+                <div class="mb-3">
+                    <label class="form-label">Template Name</label>
+                    <input type="text" class="form-control" id="templateName" placeholder="e.g., Standard Week, Holiday Schedule">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Description (optional)</label>
+                    <textarea class="form-control" id="templateDescription" rows="2" placeholder="Brief description of this template"></textarea>
+                </div>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="templateStartDate">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="templateEndDate">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmSaveTemplate">
+                    <i class="bi bi-save me-1"></i>Save Template
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Load Template Modal -->
+<div class="modal fade" id="loadTemplateModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-folder2-open me-2"></i>Load Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="templateListLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="templateListEmpty" class="text-center py-4 d-none">
+                    <i class="bi bi-collection text-body-secondary" style="font-size: 3rem;"></i>
+                    <p class="mt-2 text-body-secondary">No templates saved yet.</p>
+                </div>
+                <div id="templateList" class="d-none">
+                    <div class="list-group" id="templateListItems">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                <hr class="my-3 d-none" id="applyTemplateHr">
+                <div id="applyTemplateSection" class="d-none">
+                    <h6>Apply Template</h6>
+                    <p class="text-body-secondary small">Selected: <strong id="selectedTemplateName">-</strong></p>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Target Week Start</label>
+                            <input type="date" class="form-control" id="applyTargetDate">
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" id="clearExisting">
+                                <label class="form-check-label" for="clearExisting">
+                                    Clear existing entries in target week
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <button type="button" class="btn btn-outline-danger d-none" id="deleteTemplateBtn">
+                    <i class="bi bi-trash me-1"></i>Delete
+                </button>
+                <div>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary d-none" id="confirmApplyTemplate">
+                        <i class="bi bi-check-lg me-1"></i>Apply Template
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Version History Modal -->
+<div class="modal fade" id="versionHistoryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Version History</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="versionListLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="versionListEmpty" class="text-center py-4 d-none">
+                    <i class="bi bi-clock-history text-body-secondary" style="font-size: 3rem;"></i>
+                    <p class="mt-2 text-body-secondary">No version history available.</p>
+                </div>
+                <div id="versionList" class="d-none">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Version</th>
+                                    <th>Change</th>
+                                    <th>By</th>
+                                    <th>Date</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="versionListItems">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Version Diff Modal -->
+<div class="modal fade" id="versionDiffModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-file-diff me-2"></i>Version Diff</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="diffLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="diffContent" class="d-none">
+                    <div class="d-flex justify-content-between mb-3">
+                        <span>Version <strong id="diffFromVersion">-</strong></span>
+                        <i class="bi bi-arrow-right"></i>
+                        <span>Version <strong id="diffToVersion">-</strong></span>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="card border-success">
+                                <div class="card-header bg-success text-white">
+                                    <i class="bi bi-plus-circle me-1"></i>Added (<span id="diffAddedCount">0</span>)
+                                </div>
+                                <div class="card-body p-2" id="diffAddedList" style="max-height: 200px; overflow-y: auto;">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card border-danger">
+                                <div class="card-header bg-danger text-white">
+                                    <i class="bi bi-dash-circle me-1"></i>Removed (<span id="diffRemovedCount">0</span>)
+                                </div>
+                                <div class="card-body p-2" id="diffRemovedList" style="max-height: 200px; overflow-y: auto;">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card border-warning">
+                                <div class="card-header bg-warning text-dark">
+                                    <i class="bi bi-pencil me-1"></i>Modified (<span id="diffModifiedCount">0</span>)
+                                </div>
+                                <div class="card-body p-2" id="diffModifiedList" style="max-height: 200px; overflow-y: auto;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <button type="button" class="btn btn-outline-warning d-none" id="restoreVersionBtn">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Restore This Version
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 {{end}}
 
 {{define "scripts"}}
@@ -796,29 +1165,61 @@ document.addEventListener('DOMContentLoaded', function() {
         unselectAuto: false,
         longPressDelay: 500,
 
-        // Custom event class names based on source type
+        // Custom event class names based on source type or show type
         eventClassNames: function(arg) {
-            const type = arg.event.extendedProps.source_type;
+            const props = arg.event.extendedProps;
+            if (props.type === 'show') {
+                let classes = ['event-show'];
+                if (props.status === 'cancelled') classes.push('event-cancelled');
+                if (props.exception_type) classes.push('event-exception');
+                return classes;
+            }
+            const type = props.source_type;
             return ['event-' + (type || 'media')];
         },
 
-        events: function(info, successCallback, failureCallback) {
-            const mountId = mountFilter.value;
-            let url = `/dashboard/schedule/events?start=${info.startStr}&end=${info.endStr}`;
-            if (mountId) {
-                url += `&mount_id=${mountId}`;
+        // Use multiple event sources: schedule entries + shows
+        eventSources: [
+            // Schedule entries
+            {
+                id: 'schedule',
+                events: function(info, successCallback, failureCallback) {
+                    const mountId = mountFilter.value;
+                    let url = `/dashboard/schedule/events?start=${info.startStr}&end=${info.endStr}`;
+                    if (mountId) {
+                        url += `&mount_id=${mountId}`;
+                    }
+                    fetch(url)
+                        .then(response => response.json())
+                        .then(data => successCallback(data))
+                        .catch(error => failureCallback(error));
+                }
+            },
+            // Show instances
+            {
+                id: 'shows',
+                events: function(info, successCallback, failureCallback) {
+                    let url = `/dashboard/schedule/show-events?start=${info.startStr}&end=${info.endStr}`;
+                    fetch(url)
+                        .then(response => response.json())
+                        .then(data => successCallback(data))
+                        .catch(error => {
+                            console.warn('Failed to load show events:', error);
+                            successCallback([]); // Don't fail calendar on show fetch error
+                        });
+                }
             }
+        ],
 
-            fetch(url)
-                .then(response => response.json())
-                .then(data => successCallback(data))
-                .catch(error => failureCallback(error));
-        },
-
-        // Left click on event - open edit modal
+        // Left click on event - open edit modal or show details
         eventClick: function(info) {
             selectedEvent = info.event;
-            openEditModal(info.event);
+            const props = info.event.extendedProps;
+            if (props.type === 'show') {
+                showShowInstanceDetails(info.event);
+            } else {
+                openEditModal(info.event);
+            }
         },
 
         // Right click on event - show context menu
@@ -832,11 +1233,21 @@ document.addEventListener('DOMContentLoaded', function() {
         },
 
         eventDrop: function(info) {
-            updateEvent(info.event);
+            const props = info.event.extendedProps;
+            if (props.type === 'show') {
+                updateShowInstance(info.event);
+            } else {
+                updateEvent(info.event);
+            }
         },
 
         eventResize: function(info) {
-            updateEvent(info.event);
+            const props = info.event.extendedProps;
+            if (props.type === 'show') {
+                updateShowInstance(info.event);
+            } else {
+                updateEvent(info.event);
+            }
         },
 
         // Time selection (drag only) - store the range and show context menu
@@ -958,6 +1369,7 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'add-clock':
             case 'add-webstream':
             case 'add-live':
+            case 'add-show':
                 if (selectedTimeRange) {
                     openAddScheduleModal(selectedTimeRange.start, selectedTimeRange.end, action.replace('add-', ''));
                 } else {
@@ -970,10 +1382,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Event context actions
             case 'event-details':
-                if (selectedEvent) showEventDetails(selectedEvent);
+                if (selectedEvent) {
+                    const props = selectedEvent.extendedProps;
+                    if (props.type === 'show') {
+                        showShowInstanceDetails(selectedEvent);
+                    } else {
+                        showEventDetails(selectedEvent);
+                    }
+                }
                 break;
             case 'event-edit':
-                if (selectedEvent) openEditModal(selectedEvent);
+                if (selectedEvent) {
+                    const props = selectedEvent.extendedProps;
+                    if (props.type === 'show') {
+                        showShowInstanceDetails(selectedEvent);
+                    } else {
+                        openEditModal(selectedEvent);
+                    }
+                }
                 break;
             case 'event-duplicate':
                 if (selectedEvent) duplicateEvent(selectedEvent);
@@ -982,7 +1408,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 grimnirUtils.showToast('Drag the event to move it', 'info');
                 break;
             case 'event-delete':
-                if (selectedEvent) deleteEvent(selectedEvent);
+                if (selectedEvent) {
+                    const props = selectedEvent.extendedProps;
+                    if (props.type === 'show') {
+                        cancelShowInstance(selectedEvent);
+                    } else {
+                        deleteEvent(selectedEvent);
+                    }
+                }
                 break;
         }
     }
@@ -1066,7 +1499,8 @@ document.addEventListener('DOMContentLoaded', function() {
             'smartblock': 'smartblock-tab',
             'clock': 'clock-tab',
             'webstream': 'webstream-tab',
-            'live': 'live-tab'
+            'live': 'live-tab',
+            'show': 'show-tab'
         };
         const tabId = tabMap[sourceType] || 'media-tab';
         document.getElementById(tabId)?.click();
@@ -1085,7 +1519,8 @@ document.addEventListener('DOMContentLoaded', function() {
             loadSmartBlocks(),
             loadClockTemplates(),
             loadWebstreams(),
-            loadInitialMedia()
+            loadInitialMedia(),
+            loadShows()
         ]);
 
         addScheduleModal.show();
@@ -1433,6 +1868,82 @@ document.addEventListener('DOMContentLoaded', function() {
                     priority: parseInt(document.getElementById('livePriority').value)
                 };
                 break;
+
+            case 'show-tab':
+                // Handle show scheduling
+                const existingShowId = document.getElementById('showSelect').value;
+                const newShowName = document.getElementById('newShowName').value;
+
+                if (!existingShowId && !newShowName) {
+                    grimnirUtils.showToast('Please select or create a show', 'warning');
+                    return;
+                }
+
+                // Get recurrence settings
+                const showRecurrenceType = document.getElementById('recurrenceType').value;
+                let showRRule = '';
+                if (showRecurrenceType) {
+                    showRRule = buildRRule(showRecurrenceType, startDateTime);
+                }
+
+                if (newShowName) {
+                    // Create new show
+                    const showData = {
+                        name: newShowName,
+                        description: document.getElementById('newShowDescription').value,
+                        default_duration_minutes: parseInt(document.getElementById('newShowDuration').value) || 60,
+                        color: document.getElementById('newShowColor').value,
+                        dtstart: startDateTime.toISOString(),
+                        rrule: showRRule,
+                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                    };
+
+                    try {
+                        const showResp = await fetch('/dashboard/shows/', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(showData)
+                        });
+
+                        if (showResp.ok) {
+                            addScheduleModal.hide();
+                            calendar.refetchEvents();
+                            grimnirUtils.showToast('Show created and scheduled', 'success');
+                        } else {
+                            const err = await showResp.json();
+                            grimnirUtils.showToast(err.error || 'Failed to create show', 'error');
+                        }
+                    } catch (e) {
+                        grimnirUtils.showToast('Failed to create show', 'error');
+                    }
+                    return;
+                } else {
+                    // Materialize instances for existing show
+                    const endRange = new Date(startDateTime);
+                    endRange.setDate(endRange.getDate() + 90); // 90 days
+
+                    try {
+                        const matResp = await fetch(`/dashboard/shows/${existingShowId}/materialize`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                start: startDateTime.toISOString(),
+                                end: endRange.toISOString()
+                            })
+                        });
+
+                        if (matResp.ok) {
+                            addScheduleModal.hide();
+                            calendar.refetchEvents();
+                            grimnirUtils.showToast('Show instances created', 'success');
+                        } else {
+                            grimnirUtils.showToast('Failed to materialize show instances', 'error');
+                        }
+                    } catch (e) {
+                        grimnirUtils.showToast('Failed to schedule show', 'error');
+                    }
+                    return;
+                }
         }
 
         // Get recurrence settings
@@ -1961,7 +2472,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Delete/Backspace - Delete selected event
         if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEvent) {
-            deleteEvent(selectedEvent);
+            const props = selectedEvent.extendedProps;
+            if (props.type === 'show') {
+                cancelShowInstance(selectedEvent);
+            } else {
+                deleteEvent(selectedEvent);
+            }
         }
 
         // Escape - Deselect and close menus
@@ -1970,6 +2486,657 @@ document.addEventListener('DOMContentLoaded', function() {
             calendar.unselect();
             selectedEvent = null;
             selectedTimeRange = null;
+        }
+    });
+
+    // ===== Show Functions =====
+
+    // Load shows for dropdown
+    async function loadShows() {
+        try {
+            const response = await fetch('/dashboard/shows/?active=true');
+            const data = await response.json();
+            const select = document.getElementById('showSelect');
+            select.innerHTML = '<option value="">Select a show...</option>';
+            (data.shows || []).forEach(show => {
+                select.innerHTML += `<option value="${show.ID}">${show.Name}</option>`;
+            });
+        } catch (e) {
+            console.error('Failed to load shows:', e);
+        }
+    }
+
+    // Build RRULE from recurrence settings
+    function buildRRule(recurrenceType, startDate) {
+        const dayMap = {0: 'SU', 1: 'MO', 2: 'TU', 3: 'WE', 4: 'TH', 5: 'FR', 6: 'SA'};
+        const startDay = dayMap[startDate.getDay()];
+
+        switch (recurrenceType) {
+            case 'daily':
+                return 'FREQ=DAILY';
+            case 'weekdays':
+                return 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR';
+            case 'weekly':
+                return `FREQ=WEEKLY;BYDAY=${startDay}`;
+            case 'custom':
+                const days = [];
+                document.querySelectorAll('#customDaysContainer input:checked').forEach(cb => {
+                    days.push(dayMap[parseInt(cb.value)]);
+                });
+                if (days.length === 0) return '';
+                return `FREQ=WEEKLY;BYDAY=${days.join(',')}`;
+            default:
+                return '';
+        }
+    }
+
+    // Show details for a show instance
+    function showShowInstanceDetails(event) {
+        const props = event.extendedProps;
+
+        document.getElementById('eventModalTitle').textContent = event.title;
+
+        let statusBadge = '';
+        if (props.status === 'cancelled') {
+            statusBadge = '<span class="badge bg-danger ms-2">Cancelled</span>';
+        } else if (props.exception_type) {
+            const exLabels = {
+                'rescheduled': 'Rescheduled',
+                'substitute': 'Substitute Host',
+                'cancelled': 'Cancelled'
+            };
+            statusBadge = `<span class="badge bg-warning text-dark ms-2">${exLabels[props.exception_type] || props.exception_type}</span>`;
+        }
+
+        let body = `
+            <dl class="row mb-0">
+                <dt class="col-4">Type</dt>
+                <dd class="col-8"><span class="badge bg-pink">Show</span>${statusBadge}</dd>
+
+                <dt class="col-4">Start</dt>
+                <dd class="col-8">${event.start.toLocaleString()}</dd>
+
+                <dt class="col-4">End</dt>
+                <dd class="col-8">${event.end.toLocaleString()}</dd>
+
+                <dt class="col-4">Duration</dt>
+                <dd class="col-8">${formatDuration((event.end - event.start) / 1000)}</dd>
+        `;
+
+        if (props.host_name) {
+            body += `<dt class="col-4">Host</dt><dd class="col-8">${props.host_name}</dd>`;
+        }
+
+        if (props.exception_note) {
+            body += `<dt class="col-4">Note</dt><dd class="col-8">${props.exception_note}</dd>`;
+        }
+
+        if (props.is_virtual) {
+            body += `<dt class="col-4 text-body-secondary">Status</dt><dd class="col-8 text-body-secondary"><em>Not yet materialized</em></dd>`;
+        }
+
+        body += '</dl>';
+        document.getElementById('eventModalBody').innerHTML = body;
+        eventModal.show();
+    }
+
+    // Update a show instance (drag/resize)
+    function updateShowInstance(event) {
+        const props = event.extendedProps;
+        const instanceId = props.instance_id;
+
+        fetch(`/dashboard/shows/instances/${instanceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                starts_at: event.start.toISOString(),
+                ends_at: event.end.toISOString()
+            })
+        }).then(response => {
+            if (response.ok) {
+                grimnirUtils.showToast('Show instance updated', 'success');
+            } else {
+                calendar.refetchEvents();
+                grimnirUtils.showToast('Failed to update show instance', 'error');
+            }
+        }).catch(() => {
+            calendar.refetchEvents();
+            grimnirUtils.showToast('Failed to update show instance', 'error');
+        });
+    }
+
+    // Cancel a show instance
+    function cancelShowInstance(event) {
+        const props = event.extendedProps;
+        const instanceId = props.instance_id;
+
+        if (!confirm('Cancel this show instance?')) return;
+
+        fetch(`/dashboard/shows/instances/${instanceId}`, {
+            method: 'DELETE'
+        }).then(response => {
+            if (response.ok) {
+                calendar.refetchEvents();
+                eventModal.hide();
+                grimnirUtils.showToast('Show instance cancelled', 'success');
+            } else {
+                grimnirUtils.showToast('Failed to cancel show instance', 'error');
+            }
+        }).catch(() => {
+            grimnirUtils.showToast('Failed to cancel show instance', 'error');
+        });
+    }
+
+    // ===== Schedule Validation =====
+
+    const validationModal = new bootstrap.Modal(document.getElementById('validationModal'));
+    const stationID = '{{.Data.StationID}}';
+
+    // Validate schedule button
+    document.getElementById('validateScheduleBtn')?.addEventListener('click', function() {
+        validationModal.show();
+        runValidation();
+    });
+
+    // Re-validate button
+    document.getElementById('revalidateBtn')?.addEventListener('click', function() {
+        runValidation();
+    });
+
+    async function runValidation() {
+        const loadingEl = document.getElementById('validationLoading');
+        const resultsEl = document.getElementById('validationResults');
+
+        loadingEl.classList.remove('d-none');
+        resultsEl.classList.add('d-none');
+
+        // Get current calendar view range or default to next 7 days
+        const view = calendar.view;
+        let start = view.activeStart || new Date();
+        let end = view.activeEnd || new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+        try {
+            const response = await fetch(`/api/v1/schedule/validate?station_id=${stationID}&start=${start.toISOString()}&end=${end.toISOString()}`);
+            if (!response.ok) {
+                throw new Error('Validation failed');
+            }
+            const result = await response.json();
+            displayValidationResults(result);
+        } catch (e) {
+            console.error('Validation error:', e);
+            loadingEl.classList.add('d-none');
+            resultsEl.classList.remove('d-none');
+            document.getElementById('errorsContainer').innerHTML =
+                '<div class="validation-result-item error">Failed to validate schedule. Please try again.</div>';
+            document.getElementById('errorsList').classList.remove('d-none');
+        }
+    }
+
+    function displayValidationResults(result) {
+        const loadingEl = document.getElementById('validationLoading');
+        const resultsEl = document.getElementById('validationResults');
+
+        loadingEl.classList.add('d-none');
+        resultsEl.classList.remove('d-none');
+
+        // Update status badge
+        const statusBadge = document.getElementById('validStatusBadge');
+        if (result.valid) {
+            statusBadge.textContent = 'Valid';
+            statusBadge.className = 'badge bg-success me-1';
+        } else {
+            statusBadge.textContent = 'Issues Found';
+            statusBadge.className = 'badge bg-danger me-1';
+        }
+
+        // Update checked time and range
+        document.getElementById('validationCheckedAt').textContent =
+            new Date(result.checked_at).toLocaleString();
+        document.getElementById('validationRange').textContent =
+            `${new Date(result.range_start).toLocaleDateString()} - ${new Date(result.range_end).toLocaleDateString()}`;
+
+        // Update counts
+        const errors = result.errors || [];
+        const warnings = result.warnings || [];
+        const info = result.info || [];
+
+        document.getElementById('errorCount').textContent = errors.length;
+        document.getElementById('warningCount').textContent = warnings.length;
+        document.getElementById('infoCount').textContent = info.length;
+
+        // Update validation badge in toolbar
+        const badge = document.getElementById('validationBadge');
+        const totalIssues = errors.length + warnings.length;
+        if (totalIssues > 0) {
+            badge.textContent = totalIssues;
+            badge.classList.remove('d-none');
+            badge.className = errors.length > 0 ? 'badge bg-danger validation-badge' : 'badge bg-warning validation-badge';
+        } else {
+            badge.classList.add('d-none');
+        }
+
+        // Display errors
+        const errorsListEl = document.getElementById('errorsList');
+        const errorsContainer = document.getElementById('errorsContainer');
+        if (errors.length > 0) {
+            errorsListEl.classList.remove('d-none');
+            errorsContainer.innerHTML = errors.map(v => renderViolation(v, 'error')).join('');
+        } else {
+            errorsListEl.classList.add('d-none');
+        }
+
+        // Display warnings
+        const warningsListEl = document.getElementById('warningsList');
+        const warningsContainer = document.getElementById('warningsContainer');
+        if (warnings.length > 0) {
+            warningsListEl.classList.remove('d-none');
+            warningsContainer.innerHTML = warnings.map(v => renderViolation(v, 'warning')).join('');
+        } else {
+            warningsListEl.classList.add('d-none');
+        }
+
+        // Display info
+        const infoListEl = document.getElementById('infoList');
+        const infoContainer = document.getElementById('infoContainer');
+        if (info.length > 0) {
+            infoListEl.classList.remove('d-none');
+            infoContainer.innerHTML = info.map(v => renderViolation(v, 'info')).join('');
+        } else {
+            infoListEl.classList.add('d-none');
+        }
+
+        // Show all-valid message
+        const allValidMsg = document.getElementById('allValidMessage');
+        if (errors.length === 0 && warnings.length === 0 && info.length === 0) {
+            allValidMsg.classList.remove('d-none');
+        } else {
+            allValidMsg.classList.add('d-none');
+        }
+    }
+
+    function renderViolation(violation, severity) {
+        const ruleTypeLabels = {
+            'overlap': 'Overlap',
+            'gap': 'Gap',
+            'dj_double_booking': 'Double Booking',
+            'min_duration': 'Min Duration',
+            'max_duration': 'Max Duration',
+            'max_consecutive': 'Max Consecutive',
+            'station_id_interval': 'Station ID',
+            'content_restriction': 'Content Restriction',
+            'required_break': 'Required Break'
+        };
+
+        const ruleLabel = ruleTypeLabels[violation.rule_type] || violation.rule_type;
+        const startTime = new Date(violation.starts_at).toLocaleString();
+        const endTime = new Date(violation.ends_at).toLocaleString();
+
+        return `
+            <div class="validation-result-item ${severity}">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <strong>${violation.rule_name || ruleLabel}</strong>
+                        <span class="badge bg-secondary ms-1">${ruleLabel}</span>
+                    </div>
+                    <small class="text-body-secondary">${startTime}</small>
+                </div>
+                <p class="mb-1 mt-1">${violation.message}</p>
+                <small class="text-body-secondary">
+                    <i class="bi bi-clock me-1"></i>${startTime} - ${endTime}
+                </small>
+            </div>
+        `;
+    }
+
+    // Auto-validate on calendar date change (optional, runs in background)
+    calendar.on('datesSet', function(info) {
+        // Silently update validation badge after a delay
+        setTimeout(async () => {
+            try {
+                const response = await fetch(`/api/v1/schedule/validate?station_id=${stationID}&start=${info.startStr}&end=${info.endStr}`);
+                if (response.ok) {
+                    const result = await response.json();
+                    const badge = document.getElementById('validationBadge');
+                    const errors = (result.errors || []).length;
+                    const warnings = (result.warnings || []).length;
+                    const totalIssues = errors + warnings;
+                    if (totalIssues > 0) {
+                        badge.textContent = totalIssues;
+                        badge.classList.remove('d-none');
+                        badge.className = errors > 0 ? 'badge bg-danger validation-badge' : 'badge bg-warning validation-badge';
+                    } else {
+                        badge.classList.add('d-none');
+                    }
+                }
+            } catch (e) {
+                // Silent fail for background validation
+            }
+        }, 1000);
+    });
+
+    // ===== Template Management =====
+
+    const saveTemplateModal = new bootstrap.Modal(document.getElementById('saveTemplateModal'));
+    const loadTemplateModal = new bootstrap.Modal(document.getElementById('loadTemplateModal'));
+    const versionHistoryModal = new bootstrap.Modal(document.getElementById('versionHistoryModal'));
+    const versionDiffModal = new bootstrap.Modal(document.getElementById('versionDiffModal'));
+
+    let selectedTemplateId = null;
+    let selectedVersionId = null;
+
+    // Save Template button
+    document.getElementById('saveTemplateBtn')?.addEventListener('click', function(e) {
+        e.preventDefault();
+        // Set default dates to current week
+        const view = calendar.view;
+        const start = view.activeStart || new Date();
+        const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
+        document.getElementById('templateStartDate').value = start.toISOString().split('T')[0];
+        document.getElementById('templateEndDate').value = end.toISOString().split('T')[0];
+        document.getElementById('templateName').value = '';
+        document.getElementById('templateDescription').value = '';
+        saveTemplateModal.show();
+    });
+
+    // Confirm save template
+    document.getElementById('confirmSaveTemplate')?.addEventListener('click', async function() {
+        const name = document.getElementById('templateName').value.trim();
+        if (!name) {
+            grimnirUtils.showToast('Please enter a template name', 'error');
+            return;
+        }
+
+        const data = {
+            station_id: stationID,
+            name: name,
+            description: document.getElementById('templateDescription').value.trim(),
+            start_date: document.getElementById('templateStartDate').value,
+            end_date: document.getElementById('templateEndDate').value
+        };
+
+        try {
+            const response = await fetch('/api/v1/schedule-templates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                saveTemplateModal.hide();
+                grimnirUtils.showToast('Template saved successfully', 'success');
+            } else {
+                const err = await response.json();
+                grimnirUtils.showToast(err.error || 'Failed to save template', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to save template', 'error');
+        }
+    });
+
+    // Load Template button
+    document.getElementById('loadTemplateBtn')?.addEventListener('click', function(e) {
+        e.preventDefault();
+        loadTemplatesList();
+        loadTemplateModal.show();
+    });
+
+    async function loadTemplatesList() {
+        const loading = document.getElementById('templateListLoading');
+        const empty = document.getElementById('templateListEmpty');
+        const list = document.getElementById('templateList');
+        const items = document.getElementById('templateListItems');
+        const applySection = document.getElementById('applyTemplateSection');
+        const applyHr = document.getElementById('applyTemplateHr');
+
+        loading.classList.remove('d-none');
+        empty.classList.add('d-none');
+        list.classList.add('d-none');
+        applySection.classList.add('d-none');
+        applyHr.classList.add('d-none');
+        document.getElementById('confirmApplyTemplate').classList.add('d-none');
+        document.getElementById('deleteTemplateBtn').classList.add('d-none');
+        selectedTemplateId = null;
+
+        try {
+            const response = await fetch(`/api/v1/schedule-templates?station_id=${stationID}`);
+            const data = await response.json();
+            const templates = data.templates || [];
+
+            loading.classList.add('d-none');
+
+            if (templates.length === 0) {
+                empty.classList.remove('d-none');
+                return;
+            }
+
+            items.innerHTML = templates.map(t => `
+                <a href="#" class="list-group-item list-group-item-action template-item" data-id="${t.id}" data-name="${t.name}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <strong>${t.name}</strong>
+                            ${t.description ? `<br><small class="text-body-secondary">${t.description}</small>` : ''}
+                        </div>
+                        <small class="text-body-secondary">${new Date(t.created_at).toLocaleDateString()}</small>
+                    </div>
+                </a>
+            `).join('');
+
+            list.classList.remove('d-none');
+
+            // Add click handlers
+            items.querySelectorAll('.template-item').forEach(item => {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    items.querySelectorAll('.template-item').forEach(i => i.classList.remove('active'));
+                    this.classList.add('active');
+                    selectedTemplateId = this.dataset.id;
+                    document.getElementById('selectedTemplateName').textContent = this.dataset.name;
+                    applySection.classList.remove('d-none');
+                    applyHr.classList.remove('d-none');
+                    document.getElementById('confirmApplyTemplate').classList.remove('d-none');
+                    document.getElementById('deleteTemplateBtn').classList.remove('d-none');
+                    // Set default target date to next week
+                    const nextWeek = new Date();
+                    nextWeek.setDate(nextWeek.getDate() + 7 - nextWeek.getDay());
+                    document.getElementById('applyTargetDate').value = nextWeek.toISOString().split('T')[0];
+                });
+            });
+        } catch (e) {
+            loading.classList.add('d-none');
+            empty.classList.remove('d-none');
+        }
+    }
+
+    // Apply template
+    document.getElementById('confirmApplyTemplate')?.addEventListener('click', async function() {
+        if (!selectedTemplateId) return;
+
+        const targetDate = document.getElementById('applyTargetDate').value;
+        if (!targetDate) {
+            grimnirUtils.showToast('Please select a target date', 'error');
+            return;
+        }
+
+        const data = {
+            target_date: targetDate,
+            clear_existing: document.getElementById('clearExisting').checked
+        };
+
+        try {
+            const response = await fetch(`/api/v1/schedule-templates/${selectedTemplateId}/apply`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                loadTemplateModal.hide();
+                calendar.refetchEvents();
+                grimnirUtils.showToast(`Template applied: ${result.created} entries created`, 'success');
+            } else {
+                const err = await response.json();
+                grimnirUtils.showToast(err.error || 'Failed to apply template', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to apply template', 'error');
+        }
+    });
+
+    // Delete template
+    document.getElementById('deleteTemplateBtn')?.addEventListener('click', async function() {
+        if (!selectedTemplateId) return;
+        if (!confirm('Delete this template?')) return;
+
+        try {
+            const response = await fetch(`/api/v1/schedule-templates/${selectedTemplateId}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                grimnirUtils.showToast('Template deleted', 'success');
+                loadTemplatesList();
+            } else {
+                grimnirUtils.showToast('Failed to delete template', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to delete template', 'error');
+        }
+    });
+
+    // ===== Version History =====
+
+    document.getElementById('viewHistoryBtn')?.addEventListener('click', function(e) {
+        e.preventDefault();
+        loadVersionsList();
+        versionHistoryModal.show();
+    });
+
+    async function loadVersionsList() {
+        const loading = document.getElementById('versionListLoading');
+        const empty = document.getElementById('versionListEmpty');
+        const list = document.getElementById('versionList');
+        const items = document.getElementById('versionListItems');
+
+        loading.classList.remove('d-none');
+        empty.classList.add('d-none');
+        list.classList.add('d-none');
+
+        try {
+            const response = await fetch(`/api/v1/schedule/versions?station_id=${stationID}&limit=20`);
+            const data = await response.json();
+            const versions = data.versions || [];
+
+            loading.classList.add('d-none');
+
+            if (versions.length === 0) {
+                empty.classList.remove('d-none');
+                return;
+            }
+
+            items.innerHTML = versions.map(v => `
+                <tr>
+                    <td><strong>v${v.version_number}</strong></td>
+                    <td>
+                        <span class="badge bg-secondary">${v.change_type || 'change'}</span>
+                        ${v.change_summary || ''}
+                    </td>
+                    <td>${v.changed_by?.email || 'System'}</td>
+                    <td>${new Date(v.created_at).toLocaleString()}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary view-diff-btn" data-id="${v.id}" data-version="${v.version_number}">
+                            <i class="bi bi-file-diff"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            list.classList.remove('d-none');
+
+            // Add click handlers for diff buttons
+            items.querySelectorAll('.view-diff-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    selectedVersionId = this.dataset.id;
+                    viewVersionDiff(this.dataset.id, this.dataset.version);
+                });
+            });
+        } catch (e) {
+            loading.classList.add('d-none');
+            empty.classList.remove('d-none');
+        }
+    }
+
+    async function viewVersionDiff(versionId, versionNumber) {
+        const loading = document.getElementById('diffLoading');
+        const content = document.getElementById('diffContent');
+        const restoreBtn = document.getElementById('restoreVersionBtn');
+
+        loading.classList.remove('d-none');
+        content.classList.add('d-none');
+        restoreBtn.classList.add('d-none');
+
+        versionHistoryModal.hide();
+        versionDiffModal.show();
+
+        try {
+            const response = await fetch(`/api/v1/schedule/versions/${versionId}/diff`);
+            const diff = await response.json();
+
+            loading.classList.add('d-none');
+            content.classList.remove('d-none');
+            restoreBtn.classList.remove('d-none');
+
+            document.getElementById('diffFromVersion').textContent = diff.from_version || '0';
+            document.getElementById('diffToVersion').textContent = diff.to_version;
+
+            const added = diff.added || [];
+            const removed = diff.removed || [];
+            const modified = diff.modified || [];
+
+            document.getElementById('diffAddedCount').textContent = added.length;
+            document.getElementById('diffRemovedCount').textContent = removed.length;
+            document.getElementById('diffModifiedCount').textContent = modified.length;
+
+            document.getElementById('diffAddedList').innerHTML = added.length === 0
+                ? '<p class="text-body-secondary small m-0">None</p>'
+                : added.map(e => `<div class="small mb-1">${e.source_type}: ${new Date(e.starts_at).toLocaleString()}</div>`).join('');
+
+            document.getElementById('diffRemovedList').innerHTML = removed.length === 0
+                ? '<p class="text-body-secondary small m-0">None</p>'
+                : removed.map(e => `<div class="small mb-1">${e.source_type}: ${new Date(e.starts_at).toLocaleString()}</div>`).join('');
+
+            document.getElementById('diffModifiedList').innerHTML = modified.length === 0
+                ? '<p class="text-body-secondary small m-0">None</p>'
+                : modified.map(e => `<div class="small mb-1">${e.after.source_type}: ${new Date(e.after.starts_at).toLocaleString()}</div>`).join('');
+
+        } catch (e) {
+            loading.classList.add('d-none');
+            content.innerHTML = '<div class="alert alert-danger">Failed to load diff</div>';
+            content.classList.remove('d-none');
+        }
+    }
+
+    // Restore version
+    document.getElementById('restoreVersionBtn')?.addEventListener('click', async function() {
+        if (!selectedVersionId) return;
+        if (!confirm('Restore to this version? This will replace current schedule entries.')) return;
+
+        try {
+            const response = await fetch(`/api/v1/schedule/versions/${selectedVersionId}/restore`, {
+                method: 'POST'
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                versionDiffModal.hide();
+                calendar.refetchEvents();
+                grimnirUtils.showToast(`Restored to v${result.version}: ${result.restored} entries`, 'success');
+            } else {
+                const err = await response.json();
+                grimnirUtils.showToast(err.error || 'Failed to restore version', 'error');
+            }
+        } catch (e) {
+            grimnirUtils.showToast('Failed to restore version', 'error');
         }
     });
 });
