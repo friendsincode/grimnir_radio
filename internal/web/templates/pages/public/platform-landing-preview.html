@@ -101,6 +101,17 @@
             max-height: 40px;
             width: auto;
         }
+        /* Make iframes fill their container */
+        .widget-custom-html {
+            display: flex;
+            flex-direction: column;
+        }
+        .widget-custom-html iframe {
+            flex: 1;
+            width: 100%;
+            min-height: 300px;
+            border: none;
+        }
     </style>
 </head>
 <body>
