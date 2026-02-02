@@ -155,7 +155,7 @@ function refreshLogs() {
     })
     .then(r => r.json())
     .then(data => {
-        renderLogs(data.entries || []);
+        renderLogs(data.audit_logs || []);
         document.getElementById('entryCount').textContent = (data.total || 0) + ' entries';
         renderPagination(data.total || 0);
     })
