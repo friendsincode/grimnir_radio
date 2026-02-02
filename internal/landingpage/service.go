@@ -68,7 +68,7 @@ func (s *Service) GetOrCreate(ctx context.Context, stationID string) (*models.La
 	// Create new landing page with default config
 	page = models.LandingPage{
 		ID:              uuid.NewString(),
-		StationID:       stationID,
+		StationID:       &stationID,
 		Theme:           "default",
 		PublishedConfig: GetThemeDefaults("default"),
 		DraftConfig:     nil,
@@ -80,6 +80,135 @@ func (s *Service) GetOrCreate(ctx context.Context, stationID string) (*models.La
 
 	s.logger.Info().Str("station_id", stationID).Msg("created landing page")
 	return &page, nil
+}
+
+// GetOrCreatePlatform retrieves or creates the platform landing page (no station).
+func (s *Service) GetOrCreatePlatform(ctx context.Context) (*models.LandingPage, error) {
+	var page models.LandingPage
+	err := s.db.WithContext(ctx).Where("station_id IS NULL").First(&page).Error
+	if err == nil {
+		return &page, nil
+	}
+
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("query platform landing page: %w", err)
+	}
+
+	// Create new platform landing page with default config
+	page = models.LandingPage{
+		ID:              uuid.NewString(),
+		StationID:       nil,
+		Theme:           "default",
+		PublishedConfig: GetPlatformThemeDefaults(),
+		DraftConfig:     nil,
+	}
+
+	if err := s.db.WithContext(ctx).Create(&page).Error; err != nil {
+		return nil, fmt.Errorf("create platform landing page: %w", err)
+	}
+
+	s.logger.Info().Msg("created platform landing page")
+	return &page, nil
+}
+
+// GetPlatform retrieves the platform landing page.
+func (s *Service) GetPlatform(ctx context.Context) (*models.LandingPage, error) {
+	var page models.LandingPage
+	err := s.db.WithContext(ctx).Where("station_id IS NULL").First(&page).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query platform landing page: %w", err)
+	}
+	return &page, nil
+}
+
+// GetPlatformDraft retrieves the draft configuration for the platform.
+func (s *Service) GetPlatformDraft(ctx context.Context) (map[string]any, error) {
+	page, err := s.GetOrCreatePlatform(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if page.DraftConfig != nil && len(page.DraftConfig) > 0 {
+		return page.DraftConfig, nil
+	}
+
+	return page.PublishedConfig, nil
+}
+
+// GetPlatformPublished retrieves the published configuration for the platform.
+func (s *Service) GetPlatformPublished(ctx context.Context) (map[string]any, error) {
+	page, err := s.GetOrCreatePlatform(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.PublishedConfig, nil
+}
+
+// SavePlatformDraft saves a draft configuration for the platform.
+func (s *Service) SavePlatformDraft(ctx context.Context, config map[string]any) error {
+	page, err := s.GetOrCreatePlatform(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := s.db.WithContext(ctx).Model(page).Update("draft_config", config).Error; err != nil {
+		return fmt.Errorf("save platform draft: %w", err)
+	}
+
+	s.logger.Debug().Msg("saved platform landing page draft")
+	return nil
+}
+
+// PublishPlatform publishes the platform draft configuration.
+func (s *Service) PublishPlatform(ctx context.Context, userID, summary string) error {
+	page, err := s.GetOrCreatePlatform(ctx)
+	if err != nil {
+		return err
+	}
+
+	configToPublish := page.PublishedConfig
+	if page.DraftConfig != nil && len(page.DraftConfig) > 0 {
+		configToPublish = page.DraftConfig
+	}
+
+	version, err := s.createVersion(ctx, page.ID, configToPublish, models.ChangeTypePublish, summary, &userID)
+	if err != nil {
+		return fmt.Errorf("create version: %w", err)
+	}
+
+	now := time.Now()
+	updates := map[string]any{
+		"published_config": configToPublish,
+		"draft_config":     nil,
+		"published_at":     now,
+		"published_by":     userID,
+	}
+
+	if err := s.db.WithContext(ctx).Model(page).Updates(updates).Error; err != nil {
+		return fmt.Errorf("publish platform: %w", err)
+	}
+
+	s.logger.Info().Int("version", version.VersionNumber).Msg("published platform landing page")
+	return nil
+}
+
+// DiscardPlatformDraft discards the platform draft configuration.
+func (s *Service) DiscardPlatformDraft(ctx context.Context) error {
+	page, err := s.GetPlatform(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := s.db.WithContext(ctx).Model(page).Update("draft_config", nil).Error; err != nil {
+		return fmt.Errorf("discard platform draft: %w", err)
+	}
+
+	s.logger.Info().Msg("discarded platform landing page draft")
+	return nil
 }
 
 // Get retrieves a landing page by station ID.
@@ -363,7 +492,8 @@ func (s *Service) RestoreVersion(ctx context.Context, stationID, versionID, user
 // Asset Management
 
 // UploadAsset uploads an asset file.
-func (s *Service) UploadAsset(ctx context.Context, stationID, assetType, fileName string, r io.Reader, userID *string) (*models.LandingPageAsset, error) {
+// If stationID is nil, this is a platform-level asset.
+func (s *Service) UploadAsset(ctx context.Context, stationID *string, assetType, fileName string, r io.Reader, userID *string) (*models.LandingPageAsset, error) {
 	// Validate asset type
 	validTypes := map[string]bool{
 		models.AssetTypeLogo:       true,
@@ -394,7 +524,11 @@ func (s *Service) UploadAsset(ctx context.Context, stationID, assetType, fileNam
 
 	// Generate asset ID and path
 	assetID := uuid.NewString()
-	relativePath := filepath.Join("landing-assets", stationID, assetID+ext)
+	pathPrefix := "platform"
+	if stationID != nil && *stationID != "" {
+		pathPrefix = *stationID
+	}
+	relativePath := filepath.Join("landing-assets", pathPrefix, assetID+ext)
 	fullPath := filepath.Join(s.mediaRoot, relativePath)
 
 	// Ensure directory exists
@@ -434,11 +568,13 @@ func (s *Service) UploadAsset(ctx context.Context, stationID, assetType, fileNam
 		return nil, fmt.Errorf("create asset record: %w", err)
 	}
 
-	s.logger.Info().
-		Str("station_id", stationID).
-		Str("asset_id", assetID).
-		Str("type", assetType).
-		Msg("uploaded landing page asset")
+	logCtx := s.logger.Info().Str("asset_id", assetID).Str("type", assetType)
+	if stationID != nil {
+		logCtx.Str("station_id", *stationID)
+	} else {
+		logCtx.Str("scope", "platform")
+	}
+	logCtx.Msg("uploaded landing page asset")
 
 	return &asset, nil
 }
@@ -452,6 +588,19 @@ func (s *Service) ListAssets(ctx context.Context, stationID string) ([]models.La
 		Find(&assets).Error
 	if err != nil {
 		return nil, fmt.Errorf("list assets: %w", err)
+	}
+	return assets, nil
+}
+
+// ListPlatformAssets returns assets for the platform landing page.
+func (s *Service) ListPlatformAssets(ctx context.Context) ([]models.LandingPageAsset, error) {
+	var assets []models.LandingPageAsset
+	err := s.db.WithContext(ctx).
+		Where("station_id IS NULL").
+		Order("created_at DESC").
+		Find(&assets).Error
+	if err != nil {
+		return nil, fmt.Errorf("list platform assets: %w", err)
 	}
 	return assets, nil
 }

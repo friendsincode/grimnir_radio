@@ -346,7 +346,7 @@ func (lp *LandingPageAPI) handleAssetsUpload(w http.ResponseWriter, r *http.Requ
 		assetType = models.AssetTypeImage
 	}
 
-	asset, err := lp.service.UploadAsset(r.Context(), stationID, assetType, header.Filename, file, &claims.UserID)
+	asset, err := lp.service.UploadAsset(r.Context(), &stationID, assetType, header.Filename, file, &claims.UserID)
 	if err != nil {
 		if errors.Is(err, landingpage.ErrInvalidAssetType) {
 			writeError(w, http.StatusBadRequest, "invalid_asset_type")

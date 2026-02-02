@@ -1,0 +1,331 @@
+{{define "pages/dashboard/admin/platform-landing-editor"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item">Platform Admin</li>
+        <li class="breadcrumb-item active">Landing Page Editor</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="landing-editor" id="landingEditor" data-config="{{.Data.ConfigJSON}}">
+    <!-- Header Toolbar -->
+    <div class="editor-toolbar d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <a href="/dashboard" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i>Back
+            </a>
+            <h5 class="mb-0 ms-2"><i class="bi bi-house-door me-2"></i>Platform Landing Page Editor</h5>
+            {{if .Data.HasDraft}}
+            <span class="badge bg-warning text-dark ms-2">Unsaved Draft</span>
+            {{end}}
+        </div>
+        <div class="d-flex gap-2">
+            <a href="/" class="btn btn-outline-info btn-sm" target="_blank">
+                <i class="bi bi-eye me-1"></i>View Live
+            </a>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="saveDraft()">
+                <i class="bi bi-save me-1"></i>Save Draft
+            </button>
+            {{if .Data.HasDraft}}
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="discardDraft()">
+                <i class="bi bi-x-circle me-1"></i>Discard
+            </button>
+            {{end}}
+            <button type="button" class="btn btn-primary btn-sm" onclick="publishPage()">
+                <i class="bi bi-send me-1"></i>Publish
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <!-- Settings Panel -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#headerTab">Header</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#heroTab">Hero</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#seoTab">SEO</button>
+                        </li>
+                    </ul>
+                </div>
+                <div class="card-body">
+                    <div class="tab-content">
+                        <!-- Header Tab -->
+                        <div class="tab-pane fade show active" id="headerTab">
+                            <div class="mb-3">
+                                <label class="form-label">Platform Name</label>
+                                <input type="text" class="form-control form-control-sm" id="platformName" onchange="updateConfig()">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Tagline</label>
+                                <input type="text" class="form-control form-control-sm" id="tagline" onchange="updateConfig()">
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="showLogo" onchange="updateConfig()">
+                                <label class="form-check-label" for="showLogo">Show Logo</label>
+                            </div>
+                        </div>
+
+                        <!-- Hero Tab -->
+                        <div class="tab-pane fade" id="heroTab">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="heroEnabled" onchange="updateConfig()">
+                                <label class="form-check-label" for="heroEnabled">Enable Hero Section</label>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Hero Title</label>
+                                <input type="text" class="form-control form-control-sm" id="heroTitle" onchange="updateConfig()">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Hero Description</label>
+                                <textarea class="form-control form-control-sm" id="heroDescription" rows="3" onchange="updateConfig()"></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Hero Height</label>
+                                <select class="form-select form-select-sm" id="heroHeight" onchange="updateConfig()">
+                                    <option value="small">Small</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="large">Large</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- SEO Tab -->
+                        <div class="tab-pane fade" id="seoTab">
+                            <div class="mb-3">
+                                <label class="form-label">Page Title</label>
+                                <input type="text" class="form-control form-control-sm" id="seoTitle" onchange="updateConfig()">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Meta Description</label>
+                                <textarea class="form-control form-control-sm" id="seoDescription" rows="3" onchange="updateConfig()"></textarea>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="seoNoIndex" onchange="updateConfig()">
+                                <label class="form-check-label" for="seoNoIndex">No Index (hide from search engines)</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme Selection -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <i class="bi bi-palette me-1"></i>Theme
+                </div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        {{range .Data.Themes}}
+                        <div class="col-6">
+                            <div class="theme-option p-2 border rounded text-center" data-theme="{{.ID}}" onclick="selectTheme('{{.ID}}')" style="cursor: pointer;">
+                                <div class="d-flex justify-content-center gap-1 mb-1">
+                                    <span class="rounded-circle" style="width: 16px; height: 16px; background: {{.Colors.Primary}};"></span>
+                                    <span class="rounded-circle" style="width: 16px; height: 16px; background: {{.Colors.Secondary}};"></span>
+                                    <span class="rounded-circle" style="width: 16px; height: 16px; background: {{.Colors.Background}}; border: 1px solid #ccc;"></span>
+                                </div>
+                                <small>{{.Name}}</small>
+                            </div>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Panel -->
+        <div class="col-md-8">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-eye me-1"></i>Preview</span>
+                    <a href="/dashboard/admin/landing-page/preview" target="_blank" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                </div>
+                <div class="card-body p-0">
+                    <iframe id="previewFrame" src="/dashboard/admin/landing-page/preview" style="width: 100%; height: 600px; border: none;"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="editorToast" class="toast" role="alert">
+        <div class="toast-body d-flex align-items-center gap-2">
+            <i class="bi" id="toastIcon"></i>
+            <span id="toastMessage"></span>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+let config = JSON.parse(document.getElementById('landingEditor').dataset.config || '{}');
+let isDirty = false;
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadConfigToForm();
+    highlightCurrentTheme();
+});
+
+function loadConfigToForm() {
+    // Header
+    document.getElementById('platformName').value = config.header?.platformName || 'Grimnir Radio';
+    document.getElementById('tagline').value = config.header?.tagline || '';
+    document.getElementById('showLogo').checked = config.header?.showLogo !== false;
+
+    // Hero
+    document.getElementById('heroEnabled').checked = config.hero?.enabled !== false;
+    document.getElementById('heroTitle').value = config.hero?.title || '';
+    document.getElementById('heroDescription').value = config.hero?.description || '';
+    document.getElementById('heroHeight').value = config.hero?.height || 'large';
+
+    // SEO
+    document.getElementById('seoTitle').value = config.seo?.title || '';
+    document.getElementById('seoDescription').value = config.seo?.description || '';
+    document.getElementById('seoNoIndex').checked = config.seo?.noIndex === true;
+}
+
+function updateConfig() {
+    config.header = config.header || {};
+    config.header.platformName = document.getElementById('platformName').value;
+    config.header.tagline = document.getElementById('tagline').value;
+    config.header.showLogo = document.getElementById('showLogo').checked;
+
+    config.hero = config.hero || {};
+    config.hero.enabled = document.getElementById('heroEnabled').checked;
+    config.hero.title = document.getElementById('heroTitle').value;
+    config.hero.description = document.getElementById('heroDescription').value;
+    config.hero.height = document.getElementById('heroHeight').value;
+
+    config.seo = config.seo || {};
+    config.seo.title = document.getElementById('seoTitle').value;
+    config.seo.description = document.getElementById('seoDescription').value;
+    config.seo.noIndex = document.getElementById('seoNoIndex').checked;
+
+    isDirty = true;
+    refreshPreview();
+}
+
+function selectTheme(themeId) {
+    config.theme = themeId;
+    highlightCurrentTheme();
+    isDirty = true;
+    refreshPreview();
+}
+
+function highlightCurrentTheme() {
+    document.querySelectorAll('.theme-option').forEach(el => {
+        el.classList.remove('border-primary', 'bg-primary-subtle');
+        if (el.dataset.theme === config.theme) {
+            el.classList.add('border-primary', 'bg-primary-subtle');
+        }
+    });
+}
+
+function refreshPreview() {
+    const iframe = document.getElementById('previewFrame');
+    iframe.contentWindow.postMessage({ type: 'configUpdate', config: config }, '*');
+}
+
+window.saveDraft = async function(silent = false) {
+    try {
+        const response = await fetch('/dashboard/admin/landing-page/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: config })
+        });
+
+        if (response.ok) {
+            isDirty = false;
+            if (!silent) showToast('Draft saved', 'success');
+        } else {
+            showToast('Failed to save draft', 'danger');
+        }
+    } catch (error) {
+        console.error('Save error:', error);
+        showToast('Failed to save draft', 'danger');
+    }
+};
+
+window.publishPage = async function() {
+    if (!confirm('Publish the platform landing page? It will be visible to all visitors.')) return;
+
+    try {
+        await saveDraft(true);
+
+        const response = await fetch('/dashboard/admin/landing-page/publish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+
+        if (response.ok) {
+            showToast('Platform landing page published!', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast('Failed to publish', 'danger');
+        }
+    } catch (error) {
+        console.error('Publish error:', error);
+        showToast('Failed to publish', 'danger');
+    }
+};
+
+window.discardDraft = async function() {
+    if (!confirm('Discard all changes and revert to published version?')) return;
+
+    try {
+        const response = await fetch('/dashboard/admin/landing-page/discard', {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            showToast('Draft discarded', 'info');
+            location.reload();
+        } else {
+            showToast('Failed to discard draft', 'danger');
+        }
+    } catch (error) {
+        console.error('Discard error:', error);
+        showToast('Failed to discard draft', 'danger');
+    }
+};
+
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('editorToast');
+    const icon = document.getElementById('toastIcon');
+    const msg = document.getElementById('toastMessage');
+
+    msg.textContent = message;
+    toast.className = 'toast bg-' + type + ' text-white';
+    icon.className = 'bi bi-' + (type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-circle' : 'info-circle');
+
+    new bootstrap.Toast(toast).show();
+}
+
+// Warn on unsaved changes
+window.addEventListener('beforeunload', (e) => {
+    if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+</script>
+{{end}}

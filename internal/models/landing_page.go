@@ -10,10 +10,11 @@ import (
 	"time"
 )
 
-// LandingPage stores the landing page configuration for a station.
+// LandingPage stores the landing page configuration for a station or the platform.
+// When StationID is empty, this is the platform landing page.
 type LandingPage struct {
 	ID              string         `gorm:"type:uuid;primaryKey" json:"id"`
-	StationID       string         `gorm:"type:uuid;uniqueIndex" json:"station_id"`
+	StationID       *string        `gorm:"type:uuid;uniqueIndex" json:"station_id"` // NULL = platform landing page
 	Theme           string         `gorm:"type:varchar(64);default:'default'" json:"theme"`
 	PublishedConfig map[string]any `gorm:"type:jsonb;serializer:json" json:"published_config"`
 	DraftConfig     map[string]any `gorm:"type:jsonb;serializer:json" json:"draft_config"`
@@ -25,15 +26,21 @@ type LandingPage struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
+// IsPlatformPage returns true if this is the platform landing page (no station).
+func (lp *LandingPage) IsPlatformPage() bool {
+	return lp.StationID == nil || *lp.StationID == ""
+}
+
 // HasDraft returns true if there are unpublished changes.
 func (lp *LandingPage) HasDraft() bool {
 	return lp.DraftConfig != nil && len(lp.DraftConfig) > 0
 }
 
 // LandingPageAsset stores uploaded assets (images, logos) for landing pages.
+// When StationID is NULL, this is a platform-level asset.
 type LandingPageAsset struct {
 	ID         string    `gorm:"type:uuid;primaryKey" json:"id"`
-	StationID  string    `gorm:"type:uuid;index" json:"station_id"`
+	StationID  *string   `gorm:"type:uuid;index" json:"station_id"` // NULL = platform asset
 	AssetType  string    `gorm:"type:varchar(32)" json:"asset_type"` // logo, background, image, favicon
 	FilePath   string    `gorm:"type:varchar(512)" json:"file_path"`
 	FileName   string    `gorm:"type:varchar(255)" json:"file_name"`

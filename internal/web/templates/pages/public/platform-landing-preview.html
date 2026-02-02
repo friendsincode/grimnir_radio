@@ -1,0 +1,134 @@
+{{define "pages/public/platform-landing-preview"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{if .Data.Config.seo.title}}{{.Data.Config.seo.title}}{{else}}Platform Preview{{end}}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #3B82F6;
+            --secondary-color: #10B981;
+            --bg-color: #FFFFFF;
+            --text-color: #1F2937;
+        }
+        body {
+            background: var(--bg-color);
+            color: var(--text-color);
+        }
+        .hero-section {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 4rem 0;
+        }
+        .hero-section.height-small { padding: 2rem 0; }
+        .hero-section.height-medium { padding: 4rem 0; }
+        .hero-section.height-large { padding: 6rem 0; }
+        .station-card {
+            transition: transform 0.2s;
+        }
+        .station-card:hover {
+            transform: translateY(-4px);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom">
+        <div class="container">
+            {{if .Data.Config.header.showLogo}}
+            <i class="bi bi-broadcast-pin fs-3 text-primary me-2"></i>
+            {{end}}
+            <a class="navbar-brand fw-bold" href="#">
+                {{if .Data.Config.header.platformName}}{{.Data.Config.header.platformName}}{{else}}Grimnir Radio{{end}}
+            </a>
+            <div class="ms-auto d-flex gap-2">
+                <a href="/listen" class="btn btn-outline-primary btn-sm">Listen</a>
+                <a href="/schedule" class="btn btn-outline-secondary btn-sm">Schedule</a>
+                <a href="/login" class="btn btn-primary btn-sm">Login</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    {{if ne .Data.Config.hero.enabled false}}
+    <section class="hero-section height-{{if .Data.Config.hero.height}}{{.Data.Config.hero.height}}{{else}}large{{end}}">
+        <div class="container text-center">
+            <h1 class="display-4 fw-bold mb-3">
+                {{if .Data.Config.hero.title}}{{.Data.Config.hero.title}}{{else}}Welcome to Grimnir Radio{{end}}
+            </h1>
+            {{if .Data.Config.hero.description}}
+            <p class="lead mb-4">{{.Data.Config.hero.description}}</p>
+            {{end}}
+            <div class="d-flex justify-content-center gap-3">
+                <a href="/listen" class="btn btn-light btn-lg">
+                    <i class="bi bi-headphones me-2"></i>Listen Now
+                </a>
+                <a href="/schedule" class="btn btn-outline-light btn-lg">
+                    <i class="bi bi-calendar3 me-2"></i>View Schedule
+                </a>
+            </div>
+        </div>
+    </section>
+    {{end}}
+
+    <!-- Stations Grid -->
+    <section class="py-5">
+        <div class="container">
+            <h2 class="text-center mb-4">Our Stations</h2>
+            <div class="row g-4">
+                {{range .Data.Stations}}
+                <div class="col-md-4">
+                    <div class="card station-card h-100 shadow-sm">
+                        <div class="card-body text-center">
+                            <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
+                            <h5 class="card-title">{{.Name}}</h5>
+                            {{if .Description}}
+                            <p class="card-text text-muted small">{{.Description}}</p>
+                            {{end}}
+                            {{if .Shortcode}}
+                            <a href="/s/{{.Shortcode}}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-play-circle me-1"></i>Listen
+                            </a>
+                            {{end}}
+                        </div>
+                    </div>
+                </div>
+                {{else}}
+                <div class="col-12 text-center text-muted">
+                    <p>No stations available yet.</p>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-light py-4 mt-auto">
+        <div class="container text-center">
+            <p class="mb-0">
+                {{if .Data.Config.footer.copyrightText}}
+                {{.Data.Config.footer.copyrightText}}
+                {{else}}
+                &copy; {{now.Year}} {{if .Data.Config.header.platformName}}{{.Data.Config.header.platformName}}{{else}}Grimnir Radio{{end}}
+                {{end}}
+            </p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // Listen for config updates from parent
+    window.addEventListener('message', (event) => {
+        if (event.data.type === 'configUpdate') {
+            // Reload with updated config would require server-side rendering
+            // For now, just reload
+            location.reload();
+        }
+    });
+    </script>
+</body>
+</html>
+{{end}}

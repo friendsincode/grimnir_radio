@@ -199,6 +199,13 @@
                 </li>
 
                 <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/landing-page"}}active bg-primary text-white{{end}}" href="/dashboard/admin/landing-page/editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Platform Landing Page">
+                        <i class="bi bi-house-door"></i>
+                        <span class="sidebar-text ms-2">Platform Landing Page</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/users"}}active bg-primary text-white{{end}}" href="/dashboard/admin/users" data-bs-toggle="tooltip" data-bs-placement="right" title="All Users">
                         <i class="bi bi-people-fill"></i>
                         <span class="sidebar-text ms-2">All Users</span>

@@ -324,7 +324,7 @@ func (h *Handler) LandingPageAssetUpload(w http.ResponseWriter, r *http.Request)
 		assetType = models.AssetTypeImage
 	}
 
-	asset, err := h.landingPageSvc.UploadAsset(r.Context(), station.ID, assetType, header.Filename, file, &user.ID)
+	asset, err := h.landingPageSvc.UploadAsset(r.Context(), &station.ID, assetType, header.Filename, file, &user.ID)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to upload asset")
 		writeJSONError(w, http.StatusInternalServerError, "upload_failed")
@@ -490,4 +490,190 @@ func (h *Handler) LandingPageCustomCSS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// ============================================================================
+// Platform Landing Page Editor (Platform Admin Only)
+// ============================================================================
+
+// PlatformLandingPageEditor renders the platform landing page editor
+func (h *Handler) PlatformLandingPageEditor(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	page, err := h.landingPageSvc.GetOrCreatePlatform(r.Context())
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to get platform landing page")
+		http.Error(w, "Failed to load landing page", http.StatusInternalServerError)
+		return
+	}
+
+	config := page.PublishedConfig
+	if page.DraftConfig != nil && len(page.DraftConfig) > 0 {
+		config = page.DraftConfig
+	}
+
+	themes := h.landingPageSvc.ListThemes()
+	widgets := landingpage.GetWidgetsByCategory()
+	assets, _ := h.landingPageSvc.ListPlatformAssets(r.Context())
+
+	h.Render(w, r, "pages/dashboard/admin/platform-landing-editor", PageData{
+		Title:    "Platform Landing Page Editor",
+		Stations: h.LoadStations(r),
+		Data: map[string]any{
+			"LandingPage":  page,
+			"Config":       config,
+			"ConfigJSON":   mustMarshalJSON(config),
+			"Themes":       themes,
+			"Widgets":      widgets,
+			"WidgetList":   landingpage.WidgetRegistry,
+			"Assets":       assets,
+			"HasDraft":     page.HasDraft(),
+			"CurrentTheme": h.landingPageSvc.GetTheme(page.Theme),
+			"IsPlatform":   true,
+		},
+	})
+}
+
+// PlatformLandingPageSave saves the platform landing page draft
+func (h *Handler) PlatformLandingPageSave(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		writeJSONError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	var req struct {
+		Config map[string]any `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	if err := h.landingPageSvc.SavePlatformDraft(r.Context(), req.Config); err != nil {
+		h.logger.Error().Err(err).Msg("failed to save platform draft")
+		writeJSONError(w, http.StatusInternalServerError, "save_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+// PlatformLandingPagePublish publishes the platform landing page
+func (h *Handler) PlatformLandingPagePublish(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		writeJSONError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	var req struct {
+		Summary string `json:"summary"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	if err := h.landingPageSvc.PublishPlatform(r.Context(), user.ID, req.Summary); err != nil {
+		h.logger.Error().Err(err).Msg("failed to publish platform landing page")
+		writeJSONError(w, http.StatusInternalServerError, "publish_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "published"})
+}
+
+// PlatformLandingPageDiscard discards the platform landing page draft
+func (h *Handler) PlatformLandingPageDiscard(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		writeJSONError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	if err := h.landingPageSvc.DiscardPlatformDraft(r.Context()); err != nil {
+		h.logger.Error().Err(err).Msg("failed to discard platform draft")
+		writeJSONError(w, http.StatusInternalServerError, "discard_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "discarded"})
+}
+
+// PlatformLandingPagePreview renders a preview of the platform landing page
+func (h *Handler) PlatformLandingPagePreview(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	page, err := h.landingPageSvc.GetOrCreatePlatform(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to load", http.StatusInternalServerError)
+		return
+	}
+
+	config := page.PublishedConfig
+	if page.DraftConfig != nil && len(page.DraftConfig) > 0 {
+		config = page.DraftConfig
+	}
+
+	// Get all public stations for the stations grid widget
+	var stations []models.Station
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).
+		Order("sort_order, name").
+		Find(&stations)
+
+	h.Render(w, r, "pages/public/platform-landing-preview", PageData{
+		Title: "Platform Preview",
+		Data: map[string]any{
+			"Config":     config,
+			"Stations":   stations,
+			"IsPreview":  true,
+			"IsPlatform": true,
+		},
+	})
+}
+
+// PlatformLandingPageAssetUpload uploads an asset for the platform
+func (h *Handler) PlatformLandingPageAssetUpload(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		writeJSONError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "file_too_large")
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "no_file")
+		return
+	}
+	defer file.Close()
+
+	assetType := r.FormValue("type")
+	if assetType == "" {
+		assetType = models.AssetTypeImage
+	}
+
+	asset, err := h.landingPageSvc.UploadAsset(r.Context(), nil, assetType, header.Filename, file, &user.ID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to upload platform asset")
+		writeJSONError(w, http.StatusInternalServerError, "upload_failed")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]any{
+		"id":       asset.ID,
+		"filename": asset.FileName,
+		"url":      "/landing-assets/" + asset.ID,
+		"type":     asset.AssetType,
+	})
 }

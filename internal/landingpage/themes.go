@@ -213,6 +213,59 @@ func GetThemeDefaults(id string) map[string]any {
 	return theme.Defaults
 }
 
+// GetPlatformThemeDefaults returns default configuration for the platform landing page.
+// This differs from station pages as it shows a list of all public stations.
+func GetPlatformThemeDefaults() map[string]any {
+	return map[string]any{
+		"version": 1,
+		"theme":   "default",
+		"header": map[string]any{
+			"showLogo":         true,
+			"showPlatformName": true,
+			"platformName":     "Grimnir Radio",
+			"showTagline":      true,
+			"tagline":          "Professional Radio Automation",
+			"socialLinks":      []any{},
+		},
+		"hero": map[string]any{
+			"enabled":         true,
+			"height":          "large",
+			"overlayOpacity":  0.5,
+			"showTitle":       true,
+			"showDescription": true,
+			"title":           "Welcome to Grimnir Radio",
+			"description":     "Discover our stations and start listening",
+		},
+		"content": map[string]any{
+			"layout": "single",
+			"widgets": []map[string]any{
+				{
+					"id":     "w1",
+					"type":   "stations-grid",
+					"config": map[string]any{"columns": 3, "showDescription": true, "showListeners": true},
+				},
+				{
+					"id":     "w2",
+					"type":   "text",
+					"config": map[string]any{"title": "About Us", "content": "Welcome to our radio platform."},
+				},
+			},
+		},
+		"footer": map[string]any{
+			"showCopyright":   true,
+			"copyrightText":   "",
+			"showSocialLinks": true,
+			"links":           []any{},
+		},
+		"seo": map[string]any{
+			"title":       "Grimnir Radio",
+			"description": "Professional radio automation platform",
+			"ogImage":     "",
+			"noIndex":     false,
+		},
+	}
+}
+
 // defaultThemeConfig creates a default landing page configuration.
 func defaultThemeConfig(themeID string) map[string]any {
 	return map[string]any{
