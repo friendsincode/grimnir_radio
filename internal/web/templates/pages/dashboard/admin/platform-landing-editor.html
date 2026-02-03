@@ -389,8 +389,14 @@
     border-color: var(--bs-primary) !important;
     background: var(--bs-primary-bg-subtle);
 }
+/* Ensure settings panel is always on top */
+.col-md-4 {
+    position: relative;
+    z-index: 10;
+}
 .preview-container {
     overflow: auto;
+    position: relative;
 }
 .preview-frame {
     width: 100%;
@@ -400,6 +406,10 @@
     border-radius: 0.25rem;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     transition: width 0.3s;
+}
+/* Prevent iframe from capturing pointer events when loading */
+.preview-frame.loading {
+    pointer-events: none;
 }
 .preview-frame.tablet {
     width: 768px;
@@ -856,13 +866,29 @@ function escapeHtml(str) {
 }
 
 async function refreshPreview() {
-    if (isDirty) {
-        await saveDraft(true);
-    }
     const iframe = document.getElementById('previewFrame');
-    const url = new URL(iframe.src, window.location.origin);
-    url.searchParams.set('_t', Date.now());
-    iframe.src = url.toString();
+
+    // Add loading class to prevent pointer event issues
+    iframe.classList.add('loading');
+
+    try {
+        if (isDirty) {
+            await saveDraft(true);
+        }
+        const url = new URL(iframe.src, window.location.origin);
+        url.searchParams.set('_t', Date.now());
+        iframe.src = url.toString();
+    } finally {
+        // Remove loading class after iframe starts loading
+        // Use load event to ensure it's fully loaded
+        iframe.onload = () => {
+            iframe.classList.remove('loading');
+        };
+        // Fallback: remove loading class after timeout in case load event doesn't fire
+        setTimeout(() => {
+            iframe.classList.remove('loading');
+        }, 3000);
+    }
 }
 
 function setPreviewMode(mode) {
@@ -1133,5 +1159,31 @@ window.addEventListener('beforeunload', (e) => {
         e.returnValue = '';
     }
 });
+
+// Debug: Log click targets to help identify blocking elements
+// Enable with: localStorage.setItem('debugClicks', 'true')
+if (localStorage.getItem('debugClicks') === 'true') {
+    document.addEventListener('click', (e) => {
+        console.log('[ClickDebug] Clicked element:', e.target);
+        console.log('[ClickDebug] Element path:', e.composedPath().map(el => {
+            if (el.tagName) {
+                return el.tagName + (el.id ? '#' + el.id : '') + (el.className ? '.' + el.className.split(' ').join('.') : '');
+            }
+            return String(el);
+        }).slice(0, 5).join(' > '));
+    }, true);
+
+    document.addEventListener('mousedown', (e) => {
+        // Check what element is actually at this position
+        const elemAtPoint = document.elementFromPoint(e.clientX, e.clientY);
+        if (elemAtPoint !== e.target) {
+            console.log('[ClickDebug] WARNING: Element at point differs!');
+            console.log('[ClickDebug] e.target:', e.target);
+            console.log('[ClickDebug] elementFromPoint:', elemAtPoint);
+        }
+    }, true);
+
+    console.log('[ClickDebug] Click debugging enabled. Click anywhere to see element info.');
+}
 </script>
 {{end}}
