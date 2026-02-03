@@ -67,8 +67,17 @@ function webdjConsole() {
         positionTimer: null,
 
         init() {
+            console.log('[WebDJ] init() called');
+
             // Get station ID from the webdj-app element
-            this.stationId = document.getElementById('webdj-app')?.dataset.stationId || '';
+            const appElement = document.getElementById('webdj-app');
+            this.stationId = appElement?.dataset.stationId || '';
+
+            console.log('[WebDJ] Initialized with:', {
+                stationId: this.stationId || '(empty)',
+                hasAppElement: !!appElement,
+                hasWSToken: !!window.GRIMNIR_WS_TOKEN
+            });
 
             // Initialize waveform canvases
             this.$nextTick(() => {
@@ -91,33 +100,49 @@ function webdjConsole() {
 
             // Keyboard shortcuts
             document.addEventListener('keydown', (e) => this.handleKeyboard(e));
+
+            console.log('[WebDJ] init() complete');
         },
 
         async startSession() {
-            this.loading = true;
-            const stationId = this.getStationId();
-            const authToken = this.getAuthToken();
-
-            console.log('Starting WebDJ session...', {
-                stationId,
-                hasAuthToken: !!authToken
-            });
-
-            if (!stationId) {
-                console.error('No station ID available');
-                alert('No station selected. Please select a station first.');
-                this.loading = false;
-                return;
-            }
-
-            if (!authToken) {
-                console.error('No auth token available');
-                alert('Authentication required. Please refresh the page.');
-                this.loading = false;
-                return;
-            }
+            console.log('[WebDJ] startSession() called');
 
             try {
+                this.loading = true;
+
+                // Debug: Log current state
+                console.log('[WebDJ] Current state:', {
+                    sessionId: this.sessionId,
+                    stationId: this.stationId,
+                    loading: this.loading
+                });
+
+                const stationId = this.getStationId();
+                const authToken = this.getAuthToken();
+
+                console.log('[WebDJ] Starting session with:', {
+                    stationId: stationId || '(empty)',
+                    hasAuthToken: !!authToken,
+                    authTokenLength: authToken ? authToken.length : 0
+                });
+
+                if (!stationId) {
+                    console.error('[WebDJ] No station ID available');
+                    alert('No station selected. Please select a station first.');
+                    this.loading = false;
+                    return;
+                }
+
+                if (!authToken) {
+                    console.error('[WebDJ] No auth token available');
+                    console.log('[WebDJ] window.GRIMNIR_WS_TOKEN:', typeof window.GRIMNIR_WS_TOKEN, window.GRIMNIR_WS_TOKEN ? '(set)' : '(not set)');
+                    alert('Authentication required. Please refresh the page.');
+                    this.loading = false;
+                    return;
+                }
+
+                console.log('[WebDJ] Making API request to /api/v1/webdj/sessions');
+
                 const response = await fetch('/api/v1/webdj/sessions', {
                     method: 'POST',
                     headers: {
@@ -129,18 +154,22 @@ function webdjConsole() {
                     })
                 });
 
-                console.log('Session response status:', response.status);
+                console.log('[WebDJ] Response status:', response.status);
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error('Session start failed:', response.status, errorText);
-                    throw new Error('Failed to start session: ' + errorText);
+                    console.error('[WebDJ] Session start failed:', response.status, errorText);
+                    alert('Failed to start session: ' + errorText);
+                    this.loading = false;
+                    return;
                 }
 
                 const data = await response.json();
+                console.log('[WebDJ] Session created:', data);
                 this.sessionId = data.id;
 
                 // Connect WebSocket
+                console.log('[WebDJ] Connecting WebSocket...');
                 this.connect();
 
                 // Update UI
@@ -149,9 +178,11 @@ function webdjConsole() {
                 // Load state from response
                 this.loadState(data);
 
+                console.log('[WebDJ] Session started successfully');
+
             } catch (error) {
-                console.error('Failed to start session:', error);
-                alert('Failed to start WebDJ session. Please try again.');
+                console.error('[WebDJ] Exception in startSession:', error);
+                alert('Failed to start WebDJ session: ' + error.message);
             } finally {
                 this.loading = false;
             }
