@@ -607,11 +607,12 @@ function updateConfig() {
     updateTimeout = setTimeout(() => refreshPreview(), 500);
 }
 
-async function selectTheme(themeId) {
+function selectTheme(themeId) {
     config.theme = themeId;
     highlightCurrentTheme();
     isDirty = true;
-    await refreshPreview();
+    // Don't await - let it refresh in background to avoid blocking UI
+    refreshPreview().catch(err => console.error('Preview refresh failed:', err));
 }
 
 function highlightCurrentTheme() {
