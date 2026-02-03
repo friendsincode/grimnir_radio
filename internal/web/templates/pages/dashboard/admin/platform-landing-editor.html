@@ -389,10 +389,24 @@
     border-color: var(--bs-primary) !important;
     background: var(--bs-primary-bg-subtle);
 }
-/* Ensure settings panel is always on top */
-.col-md-4 {
+/* Fix for Firefox click blocking issue */
+.landing-editor {
     position: relative;
-    z-index: 10;
+}
+.landing-editor .row {
+    position: relative;
+}
+/* Ensure settings panel is always on top and receives pointer events */
+.landing-editor .col-md-4 {
+    position: relative;
+    z-index: 100;
+    /* Ensure this column receives pointer events */
+    pointer-events: auto;
+}
+/* Keep preview panel below settings panel in stacking order */
+.landing-editor .col-md-8 {
+    position: relative;
+    z-index: 1;
 }
 .preview-container {
     overflow: auto;
@@ -406,10 +420,13 @@
     border-radius: 0.25rem;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     transition: width 0.3s;
+    /* Prevent iframe from stealing focus/events from parent */
+    pointer-events: auto;
 }
 /* Prevent iframe from capturing pointer events when loading */
 .preview-frame.loading {
     pointer-events: none;
+    opacity: 0.7;
 }
 .preview-frame.tablet {
     width: 768px;
