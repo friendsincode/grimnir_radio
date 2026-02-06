@@ -45,6 +45,12 @@ type SchedulerService interface {
 	RefreshStation(ctx context.Context, stationID string) error
 }
 
+// WebstreamService defines the interface for webstream operations.
+type WebstreamService interface {
+	TriggerFailover(ctx context.Context, id string) error
+	ResetToPrimary(ctx context.Context, id string) error
+}
+
 // Handler provides web UI endpoints with server-rendered templates.
 type Handler struct {
 	db               *gorm.DB
@@ -62,6 +68,7 @@ type Handler struct {
 	eventBus         *events.Bus                   // Event bus for real-time updates
 	director         *playout.Director             // Playout director for emergency stop
 	scheduler        SchedulerService              // Scheduler service for schedule refresh
+	webstreamSvc     WebstreamService              // Webstream service for failover/reset
 
 	// WebRTC ICE server config (passed to client)
 	webrtcSTUNURL      string
@@ -163,6 +170,11 @@ func (h *Handler) SetLandingPageService(svc *landingpage.Service) {
 // SetScheduler sets the scheduler service for the web handler.
 func (h *Handler) SetScheduler(svc SchedulerService) {
 	h.scheduler = svc
+}
+
+// SetWebstreamService sets the webstream service for the web handler.
+func (h *Handler) SetWebstreamService(svc WebstreamService) {
+	h.webstreamSvc = svc
 }
 
 func (h *Handler) loadTemplates() error {

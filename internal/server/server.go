@@ -331,6 +331,9 @@ func (s *Server) initDependencies() error {
 	// Set scheduler service on web handler for schedule refresh
 	webHandler.SetScheduler(s.scheduler)
 
+	// Set webstream service on web handler for failover/reset
+	webHandler.SetWebstreamService(webstreamService)
+
 	return nil
 }
 

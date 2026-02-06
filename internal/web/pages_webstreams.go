@@ -267,24 +267,36 @@ func (h *Handler) WebstreamFailover(w http.ResponseWriter, r *http.Request) {
 
 	id := chi.URLParam(r, "id")
 
+	// Verify webstream belongs to station
 	var webstream models.Webstream
 	if err := h.db.First(&webstream, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	// Move to next URL in chain
-	if len(webstream.URLs) > 1 {
-		webstream.CurrentIndex = (webstream.CurrentIndex + 1) % len(webstream.URLs)
-		webstream.CurrentURL = webstream.URLs[webstream.CurrentIndex]
-
-		if err := h.db.Save(&webstream).Error; err != nil {
+	// Use webstream service if available (handles DB update, events, logging)
+	if h.webstreamSvc != nil {
+		if err := h.webstreamSvc.TriggerFailover(r.Context(), id); err != nil {
+			h.logger.Error().Err(err).Str("webstream_id", id).Msg("failed to trigger failover")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Write([]byte(`<div class="alert alert-danger">Failed to trigger failover: ` + err.Error() + `</div>`))
+				return
+			}
 			http.Error(w, "Failed to trigger failover", http.StatusInternalServerError)
 			return
 		}
+	} else {
+		// Fallback: direct DB update if service not available
+		if len(webstream.URLs) > 1 {
+			webstream.CurrentIndex = (webstream.CurrentIndex + 1) % len(webstream.URLs)
+			webstream.CurrentURL = webstream.URLs[webstream.CurrentIndex]
+			if err := h.db.Save(&webstream).Error; err != nil {
+				http.Error(w, "Failed to trigger failover", http.StatusInternalServerError)
+				return
+			}
+		}
+		h.logger.Warn().Msg("webstream service not available, failover event not emitted")
 	}
-
-	// TODO: Notify webstream service of failover
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Write([]byte(`<div class="alert alert-success">Failover triggered</div>`))
@@ -304,23 +316,36 @@ func (h *Handler) WebstreamReset(w http.ResponseWriter, r *http.Request) {
 
 	id := chi.URLParam(r, "id")
 
+	// Verify webstream belongs to station
 	var webstream models.Webstream
 	if err := h.db.First(&webstream, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	if len(webstream.URLs) > 0 {
-		webstream.CurrentIndex = 0
-		webstream.CurrentURL = webstream.URLs[0]
-
-		if err := h.db.Save(&webstream).Error; err != nil {
+	// Use webstream service if available (handles DB update, events, logging)
+	if h.webstreamSvc != nil {
+		if err := h.webstreamSvc.ResetToPrimary(r.Context(), id); err != nil {
+			h.logger.Error().Err(err).Str("webstream_id", id).Msg("failed to reset to primary")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Write([]byte(`<div class="alert alert-danger">Failed to reset: ` + err.Error() + `</div>`))
+				return
+			}
 			http.Error(w, "Failed to reset", http.StatusInternalServerError)
 			return
 		}
+	} else {
+		// Fallback: direct DB update if service not available
+		if len(webstream.URLs) > 0 {
+			webstream.CurrentIndex = 0
+			webstream.CurrentURL = webstream.URLs[0]
+			if err := h.db.Save(&webstream).Error; err != nil {
+				http.Error(w, "Failed to reset", http.StatusInternalServerError)
+				return
+			}
+		}
+		h.logger.Warn().Msg("webstream service not available, reset event not emitted")
 	}
-
-	// TODO: Notify webstream service of reset
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Write([]byte(`<div class="alert alert-success">Reset to primary URL</div>`))
