@@ -149,7 +149,7 @@ func TestBuilder_BuildNode(t *testing.T) {
 			name:     "limiter node",
 			node:     &pb.DSPNode{Id: "lim", Type: pb.NodeType_NODE_TYPE_LIMITER, Params: map[string]string{"threshold": "-1"}},
 			wantErr:  false,
-			contains: "audiodynamic",
+			contains: "ladspa-sc4",
 		},
 		{
 			name:     "equalizer node",
