@@ -87,17 +87,33 @@ func (h *Handler) LiveGenerateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify mount exists
+	// Verify mount exists and belongs to station
 	var mount models.Mount
-	if err := h.db.First(&mount, "id = ?", mountID).Error; err != nil {
+	if err := h.db.First(&mount, "id = ? AND station_id = ?", mountID, station.ID).Error; err != nil {
 		http.Error(w, "Mount not found", http.StatusNotFound)
 		return
 	}
 
-	// TODO: Call live service to generate token
-	// For now, generate a placeholder token
-
-	token := "live-token-placeholder-" + user.ID
+	// Generate token via live service
+	var token string
+	if h.liveSvc != nil {
+		var err error
+		token, err = h.liveSvc.GenerateToken(r.Context(), station.ID, mountID, user.ID, user.Email)
+		if err != nil {
+			h.logger.Error().Err(err).Str("station_id", station.ID).Str("user_id", user.ID).Msg("failed to generate live token")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Write([]byte(`<div class="alert alert-danger">Failed to generate token</div>`))
+				return
+			}
+			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			return
+		}
+		h.logger.Info().Str("station_id", station.ID).Str("user_id", user.ID).Msg("live token generated")
+	} else {
+		// Fallback placeholder if service not available
+		token = "live-token-placeholder-" + user.ID
+		h.logger.Warn().Msg("live service not available, using placeholder token")
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
 		h.RenderPartial(w, r, "partials/live-token", map[string]string{
@@ -141,14 +157,27 @@ func (h *Handler) LiveDisconnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mark session as inactive
-	session.Active = false
-	if err := h.db.Save(&session).Error; err != nil {
-		http.Error(w, "Failed to disconnect", http.StatusInternalServerError)
-		return
+	// Use live service if available (handles DB update, priority release, events)
+	if h.liveSvc != nil {
+		if err := h.liveSvc.DisconnectSession(r.Context(), id); err != nil {
+			h.logger.Error().Err(err).Str("session_id", id).Msg("failed to disconnect session")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Write([]byte(`<div class="alert alert-danger">Failed to disconnect session</div>`))
+				return
+			}
+			http.Error(w, "Failed to disconnect", http.StatusInternalServerError)
+			return
+		}
+		h.logger.Info().Str("session_id", id).Msg("live session disconnected")
+	} else {
+		// Fallback: direct DB update if service not available
+		session.Active = false
+		if err := h.db.Save(&session).Error; err != nil {
+			http.Error(w, "Failed to disconnect", http.StatusInternalServerError)
+			return
+		}
+		h.logger.Warn().Msg("live service not available, disconnect event not emitted")
 	}
-
-	// TODO: Notify live service to disconnect the session
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Refresh", "true")
@@ -176,7 +205,21 @@ func (h *Handler) LiveHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Call live service to initiate handover
+	// Use live service if available
+	if h.liveSvc != nil {
+		if err := h.liveSvc.InitiateHandover(r.Context(), session.ID, station.ID, user.ID); err != nil {
+			h.logger.Error().Err(err).Str("session_id", session.ID).Msg("failed to initiate handover")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Write([]byte(`<div class="alert alert-danger">Failed to initiate handover</div>`))
+				return
+			}
+			http.Error(w, "Failed to initiate handover", http.StatusInternalServerError)
+			return
+		}
+		h.logger.Info().Str("session_id", session.ID).Msg("live handover initiated")
+	} else {
+		h.logger.Warn().Msg("live service not available, handover not initiated")
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Write([]byte(`<div class="alert alert-info">Handover initiated - automation will take over after current track</div>`))
@@ -204,7 +247,21 @@ func (h *Handler) LiveReleaseHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Call live service to cancel handover
+	// Use live service if available
+	if h.liveSvc != nil {
+		if err := h.liveSvc.CancelHandover(r.Context(), session.ID); err != nil {
+			h.logger.Error().Err(err).Str("session_id", session.ID).Msg("failed to cancel handover")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Write([]byte(`<div class="alert alert-danger">Failed to cancel handover</div>`))
+				return
+			}
+			http.Error(w, "Failed to cancel handover", http.StatusInternalServerError)
+			return
+		}
+		h.logger.Info().Str("session_id", session.ID).Msg("live handover cancelled")
+	} else {
+		h.logger.Warn().Msg("live service not available, handover not cancelled")
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Write([]byte(`<div class="alert alert-success">Handover cancelled</div>`))

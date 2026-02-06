@@ -81,6 +81,39 @@ type Server struct {
 	bgWG     sync.WaitGroup
 }
 
+// liveServiceAdapter adapts *live.Service to web.LiveService interface.
+type liveServiceAdapter struct {
+	svc *live.Service
+}
+
+func (a *liveServiceAdapter) GenerateToken(ctx context.Context, stationID, mountID, userID, username string) (string, error) {
+	return a.svc.GenerateToken(ctx, live.GenerateTokenRequest{
+		StationID: stationID,
+		MountID:   mountID,
+		UserID:    userID,
+		Username:  username,
+		Priority:  2, // Default to scheduled live priority
+	})
+}
+
+func (a *liveServiceAdapter) DisconnectSession(ctx context.Context, sessionID string) error {
+	return a.svc.HandleDisconnect(ctx, sessionID)
+}
+
+func (a *liveServiceAdapter) InitiateHandover(ctx context.Context, sessionID, stationID, userID string) error {
+	_, err := a.svc.StartHandover(ctx, live.HandoverRequest{
+		SessionID: sessionID,
+		StationID: stationID,
+		UserID:    userID,
+		Priority:  2, // Default to scheduled live priority
+	})
+	return err
+}
+
+func (a *liveServiceAdapter) CancelHandover(ctx context.Context, sessionID string) error {
+	return a.svc.ReleaseHandover(ctx, sessionID)
+}
+
 // New constructs the server and wires dependencies.
 func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*Server, error) {
 	router := chi.NewRouter()
@@ -333,6 +366,9 @@ func (s *Server) initDependencies() error {
 
 	// Set webstream service on web handler for failover/reset
 	webHandler.SetWebstreamService(webstreamService)
+
+	// Set live service on web handler for token generation and session management
+	webHandler.SetLiveService(&liveServiceAdapter{svc: liveService})
 
 	return nil
 }
