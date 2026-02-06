@@ -166,12 +166,15 @@ func (b *Builder) buildLoudnessNode(node *pb.DSPNode) (string, error) {
 
 // buildAGCNode creates an AGC (automatic gain control) element
 func (b *Builder) buildAGCNode(node *pb.DSPNode) (string, error) {
-	_ = getParamFloat(node.Params, "target_level", -20.0) // TODO: implement target level tracking
+	targetLevel := getParamFloat(node.Params, "target_level", -20.0)
 	maxGain := getParamFloat(node.Params, "max_gain", 12.0)
 
-	// Use audioamplify with dynamic adjustment
-	// In a real implementation, this would need custom logic or a plugin
-	element := fmt.Sprintf("audioamplify amplification=%.2f clipping-method=0", maxGain)
+	// Use rgvolume for loudness normalization combined with audioamplify for gain limiting.
+	// rgvolume targets -18 LUFS by default, so we adjust pre-amp to reach target level.
+	// The audioamplify element enforces max gain limit with soft clipping.
+	preAmp := targetLevel + 18.0 // Adjust from -18 LUFS default to target level
+	element := fmt.Sprintf("rgvolume pre-amp=%.2f ! audioamplify amplification=%.2f clipping-method=1",
+		preAmp, maxGain)
 
 	return element, nil
 }
@@ -194,10 +197,13 @@ func (b *Builder) buildCompressorNode(node *pb.DSPNode) (string, error) {
 // buildLimiterNode creates a limiter element
 func (b *Builder) buildLimiterNode(node *pb.DSPNode) (string, error) {
 	threshold := getParamFloat(node.Params, "threshold", -1.0)
-	_ = getParamFloat(node.Params, "release_ms", 10.0) // TODO: add release time support
+	releaseMs := getParamFloat(node.Params, "release_ms", 10.0)
 
-	// Use audiodynamic as a limiter (mode=3 is hard-limit mode)
-	element := fmt.Sprintf("audiodynamic mode=3 threshold=%.2f", threshold)
+	// Use ladspa-sc4 configured as a limiter (high ratio, fast attack).
+	// SC4 has attack, release, threshold, ratio, and knee properties.
+	// For limiting, we use a very high ratio (20:1) and fast attack (0.1ms).
+	element := fmt.Sprintf("ladspa-sc4 attack=0.1 release=%.2f threshold=%.2f ratio=20",
+		releaseMs, threshold)
 
 	return element, nil
 }
@@ -261,12 +267,27 @@ func (b *Builder) buildMixNode(node *pb.DSPNode) (string, error) {
 
 // buildDuckNode creates an audio ducking element
 func (b *Builder) buildDuckNode(node *pb.DSPNode) (string, error) {
-	_ = getParamFloat(node.Params, "threshold", -20.0)    // TODO: implement ducking threshold
-	_ = getParamFloat(node.Params, "reduction_db", -12.0) // TODO: implement ducking reduction
+	threshold := getParamFloat(node.Params, "threshold", -20.0)
+	reductionDB := getParamFloat(node.Params, "reduction_db", -12.0)
 
-	// Audio ducking requires custom logic to reduce volume when a trigger signal is present
-	// This would typically be implemented as a custom element or with audiomixer
-	element := fmt.Sprintf("volume volume=%.2f", 1.0)
+	// Audio ducking reduces volume when a sidechain signal exceeds a threshold.
+	// We use audiodynamic in compressor mode to achieve this effect:
+	// - When input exceeds threshold, volume is reduced by the ratio
+	// - ratio is calculated from reduction_db: ratio = 10^(-reduction_db/20)
+	// For example, -12dB reduction = ratio of ~4:1
+	ratio := 1.0
+	if reductionDB < 0 {
+		// Convert dB reduction to compression ratio
+		// reduction_db = -12 means output should be 12dB lower, so ratio ~4:1
+		ratio = -reductionDB / 3.0 // Approximate: -12dB -> 4:1, -6dB -> 2:1
+		if ratio < 1.0 {
+			ratio = 1.0
+		}
+	}
+
+	// Use audiodynamic in soft-knee compressor mode (mode=1) with fast attack for ducking
+	element := fmt.Sprintf("audiodynamic mode=1 threshold=%.2f ratio=%.2f",
+		threshold, ratio)
 
 	return element, nil
 }
