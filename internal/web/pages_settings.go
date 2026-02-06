@@ -9,8 +9,12 @@ package web
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
@@ -160,11 +164,118 @@ func (h *Handler) MigrationsImport(w http.ResponseWriter, r *http.Request) {
 		Int64("size", header.Size).
 		Msg("migration import started")
 
-	// TODO: Process import file based on source type
-	// This would typically queue a background job
+	// Validate source type
+	var migrationSourceType migration.SourceType
+	switch sourceType {
+	case "azuracast":
+		migrationSourceType = migration.SourceTypeAzuraCast
+	case "libretime":
+		migrationSourceType = migration.SourceTypeLibreTime
+	default:
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-danger">Unsupported source type for file import</div>`))
+			return
+		}
+		http.Error(w, "Unsupported source type", http.StatusBadRequest)
+		return
+	}
+
+	// Save uploaded file to temp directory
+	tempDir := filepath.Join(os.TempDir(), "grimnir-imports")
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		h.logger.Error().Err(err).Msg("failed to create temp directory")
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-danger">Failed to save import file</div>`))
+			return
+		}
+		http.Error(w, "Failed to save import file", http.StatusInternalServerError)
+		return
+	}
+
+	tempFile := filepath.Join(tempDir, fmt.Sprintf("%d-%s", time.Now().UnixNano(), header.Filename))
+	dst, err := os.Create(tempFile)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to create temp file")
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-danger">Failed to save import file</div>`))
+			return
+		}
+		http.Error(w, "Failed to save import file", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		h.logger.Error().Err(err).Msg("failed to copy file contents")
+		os.Remove(tempFile)
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-danger">Failed to save import file</div>`))
+			return
+		}
+		http.Error(w, "Failed to save import file", http.StatusInternalServerError)
+		return
+	}
+
+	// Get user for import tracking
+	user := h.GetUser(r)
+	userID := ""
+	if user != nil {
+		userID = user.ID
+	}
+
+	// Build migration options based on source type
+	options := migration.Options{
+		ImportingUserID: userID,
+	}
+
+	switch migrationSourceType {
+	case migration.SourceTypeAzuraCast:
+		options.AzuraCastBackupPath = tempFile
+	case migration.SourceTypeLibreTime:
+		// LibreTime file imports would need different handling
+		// For now, we support AzuraCast backup files
+		os.Remove(tempFile)
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-warning">LibreTime file import is not yet supported. Use API import instead.</div>`))
+			return
+		}
+		http.Error(w, "LibreTime file import not supported", http.StatusBadRequest)
+		return
+	}
+
+	// Create job through migration service
+	ctx := r.Context()
+	job, err := h.migrationService.CreateJob(ctx, migrationSourceType, options)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to create migration job")
+		os.Remove(tempFile)
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-danger">Failed to create import job</div>`))
+			return
+		}
+		http.Error(w, "Failed to create import job", http.StatusInternalServerError)
+		return
+	}
+
+	// Start job in background
+	if err := h.migrationService.StartJob(context.Background(), job.ID); err != nil {
+		h.logger.Error().Err(err).Str("job_id", job.ID).Msg("failed to start migration job")
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-danger">Failed to start import job</div>`))
+			return
+		}
+		http.Error(w, "Failed to start import job", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("job_id", job.ID).
+		Str("source_type", sourceType).
+		Str("file", tempFile).
+		Msg("migration job created and started")
 
 	if r.Header.Get("HX-Request") == "true" {
-		w.Write([]byte(`<div class="alert alert-info">Import queued. Check progress in the background tasks.</div>`))
+		w.Write([]byte(`<div class="alert alert-success">Import job started. Check progress in the job list below.</div>`))
 		return
 	}
 
