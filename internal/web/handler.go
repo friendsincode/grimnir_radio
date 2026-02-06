@@ -51,6 +51,14 @@ type WebstreamService interface {
 	ResetToPrimary(ctx context.Context, id string) error
 }
 
+// LiveService defines the interface for live session operations.
+type LiveService interface {
+	GenerateToken(ctx context.Context, stationID, mountID, userID, username string) (string, error)
+	DisconnectSession(ctx context.Context, sessionID string) error
+	InitiateHandover(ctx context.Context, sessionID, stationID, userID string) error
+	CancelHandover(ctx context.Context, sessionID string) error
+}
+
 // Handler provides web UI endpoints with server-rendered templates.
 type Handler struct {
 	db               *gorm.DB
@@ -69,6 +77,7 @@ type Handler struct {
 	director         *playout.Director             // Playout director for emergency stop
 	scheduler        SchedulerService              // Scheduler service for schedule refresh
 	webstreamSvc     WebstreamService              // Webstream service for failover/reset
+	liveSvc          LiveService                   // Live service for token/session management
 
 	// WebRTC ICE server config (passed to client)
 	webrtcSTUNURL      string
@@ -175,6 +184,11 @@ func (h *Handler) SetScheduler(svc SchedulerService) {
 // SetWebstreamService sets the webstream service for the web handler.
 func (h *Handler) SetWebstreamService(svc WebstreamService) {
 	h.webstreamSvc = svc
+}
+
+// SetLiveService sets the live service for the web handler.
+func (h *Handler) SetLiveService(svc LiveService) {
+	h.liveSvc = svc
 }
 
 func (h *Handler) loadTemplates() error {
