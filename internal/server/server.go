@@ -328,6 +328,9 @@ func (s *Server) initDependencies() error {
 	// Set landing page service on web handler
 	webHandler.SetLandingPageService(landingPageSvc)
 
+	// Set scheduler service on web handler for schedule refresh
+	webHandler.SetScheduler(s.scheduler)
+
 	return nil
 }
 

@@ -559,8 +559,21 @@ func (h *Handler) ScheduleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Call scheduler service to refresh
-	// For now, just return success
+	// Call scheduler service to refresh
+	if h.scheduler != nil {
+		if err := h.scheduler.RefreshStation(r.Context(), station.ID); err != nil {
+			h.logger.Error().Err(err).Str("station_id", station.ID).Msg("failed to refresh schedule")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Write([]byte(`<div class="alert alert-danger">Failed to refresh schedule</div>`))
+				return
+			}
+			http.Error(w, "Failed to refresh schedule", http.StatusInternalServerError)
+			return
+		}
+		h.logger.Info().Str("station_id", station.ID).Msg("schedule refresh triggered")
+	} else {
+		h.logger.Warn().Msg("scheduler service not available")
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Write([]byte(`<div class="alert alert-success">Schedule refresh queued</div>`))

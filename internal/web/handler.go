@@ -40,6 +40,11 @@ const (
 	ThemeSM         Theme = "sm-theme"
 )
 
+// SchedulerService defines the interface for schedule operations.
+type SchedulerService interface {
+	RefreshStation(ctx context.Context, stationID string) error
+}
+
 // Handler provides web UI endpoints with server-rendered templates.
 type Handler struct {
 	db               *gorm.DB
@@ -56,6 +61,7 @@ type Handler struct {
 	landingPageSvc   *landingpage.Service          // Landing page management
 	eventBus         *events.Bus                   // Event bus for real-time updates
 	director         *playout.Director             // Playout director for emergency stop
+	scheduler        SchedulerService              // Scheduler service for schedule refresh
 
 	// WebRTC ICE server config (passed to client)
 	webrtcSTUNURL      string
@@ -152,6 +158,11 @@ func (h *Handler) StopUpdateChecker() {
 // SetLandingPageService sets the landing page service for the web handler.
 func (h *Handler) SetLandingPageService(svc *landingpage.Service) {
 	h.landingPageSvc = svc
+}
+
+// SetScheduler sets the scheduler service for the web handler.
+func (h *Handler) SetScheduler(svc SchedulerService) {
+	h.scheduler = svc
 }
 
 func (h *Handler) loadTemplates() error {
