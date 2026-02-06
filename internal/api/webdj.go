@@ -95,6 +95,18 @@ type webdjWaveformResponse struct {
 	PeakRight     []float32 `json:"peak_right"`
 }
 
+type webdjGoLiveRequest struct {
+	MountID   string `json:"mount_id"`
+	InputType string `json:"input_type"`
+	InputURL  string `json:"input_url,omitempty"`
+}
+
+type webdjGoLiveResponse struct {
+	LiveID  string `json:"live_id"`
+	MountID string `json:"mount_id"`
+	Status  string `json:"status"`
+}
+
 // Handlers
 
 func (a *WebDJAPI) handleStartSession(w http.ResponseWriter, r *http.Request) {
@@ -520,6 +532,81 @@ func (a *WebDJAPI) handleSetMasterVolume(w http.ResponseWriter, r *http.Request)
 		"status": "master_volume_set",
 		"volume": req.Volume,
 	})
+}
+
+// Live broadcast handlers
+
+func (a *WebDJAPI) handleGoLive(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id_required")
+		return
+	}
+
+	var req webdjGoLiveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	if req.MountID == "" {
+		writeError(w, http.StatusBadRequest, "mount_id_required")
+		return
+	}
+
+	if req.InputType == "" {
+		req.InputType = "webrtc"
+	}
+
+	if err := a.webdjSvc.GoLive(r.Context(), webdj.GoLiveRequest{
+		SessionID: sessionID,
+		MountID:   req.MountID,
+		InputType: req.InputType,
+		InputURL:  req.InputURL,
+	}); err != nil {
+		switch err {
+		case webdj.ErrSessionNotFound:
+			writeError(w, http.StatusNotFound, "session_not_found")
+		case webdj.ErrSessionNotActive:
+			writeError(w, http.StatusBadRequest, "session_not_active")
+		case webdj.ErrAlreadyLive:
+			writeError(w, http.StatusConflict, "already_live")
+		case webdj.ErrMediaEngineUnavailable:
+			writeError(w, http.StatusServiceUnavailable, "media_engine_unavailable")
+		default:
+			writeError(w, http.StatusInternalServerError, "go_live_failed")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, webdjGoLiveResponse{
+		MountID: req.MountID,
+		Status:  "live",
+	})
+}
+
+func (a *WebDJAPI) handleGoOffAir(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id_required")
+		return
+	}
+
+	if err := a.webdjSvc.GoOffAir(r.Context(), sessionID); err != nil {
+		switch err {
+		case webdj.ErrSessionNotFound:
+			writeError(w, http.StatusNotFound, "session_not_found")
+		case webdj.ErrSessionNotActive:
+			writeError(w, http.StatusBadRequest, "session_not_active")
+		case webdj.ErrNotLive:
+			writeError(w, http.StatusBadRequest, "not_live")
+		default:
+			writeError(w, http.StatusInternalServerError, "go_off_air_failed")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "off_air"})
 }
 
 // Library handlers

@@ -54,6 +54,13 @@ function webdjConsole() {
             masterVolume: 1.0
         },
 
+        // Live broadcast state
+        isLive: false,
+        selectedMount: '',
+        liveMountName: '',
+        liveId: '',
+        inputType: 'webrtc',
+
         // Library state
         libraryTracks: [],
         searchQuery: '',
@@ -338,6 +345,20 @@ function webdjConsole() {
                     this.mixer.masterVolume = msg.data.volume;
                     break;
 
+                case 'live_started':
+                    this.isLive = true;
+                    this.liveId = msg.data.live_id || '';
+                    this.liveMountName = msg.data.mount_id || this.selectedMount;
+                    console.log('WebDJ went live:', msg.data);
+                    break;
+
+                case 'live_stopped':
+                    this.isLive = false;
+                    this.liveId = '';
+                    this.liveMountName = '';
+                    console.log('WebDJ went off air');
+                    break;
+
                 case 'ping':
                     this.send({ action: 'pong' });
                     break;
@@ -548,6 +569,80 @@ function webdjConsole() {
                 action: 'master_volume',
                 data: { volume: parseFloat(volume) }
             });
+        },
+
+        // Live broadcast controls
+        async toggleLive() {
+            if (this.isLive) {
+                await this.goOffAir();
+            } else {
+                await this.goLive();
+            }
+        },
+
+        async goLive() {
+            if (!this.selectedMount) {
+                alert('Please select a mount to broadcast to.');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/webdj/sessions/${this.sessionId}/live`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + this.getAuthToken()
+                    },
+                    body: JSON.stringify({
+                        mount_id: this.selectedMount,
+                        input_type: this.inputType
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error);
+                }
+
+                const data = await response.json();
+                this.isLive = true;
+                this.liveId = data.live_id || '';
+                this.liveMountName = this.selectedMount;
+                console.log('Went live:', data);
+
+            } catch (error) {
+                console.error('Failed to go live:', error);
+                alert('Failed to go live: ' + error.message);
+            }
+        },
+
+        async goOffAir() {
+            if (!confirm('Go off air? This will stop your live broadcast.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/webdj/sessions/${this.sessionId}/live`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': 'Bearer ' + this.getAuthToken()
+                    }
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error);
+                }
+
+                this.isLive = false;
+                this.liveId = '';
+                this.liveMountName = '';
+                console.log('Went off air');
+
+            } catch (error) {
+                console.error('Failed to go off air:', error);
+                alert('Failed to go off air: ' + error.message);
+            }
         },
 
         // Library

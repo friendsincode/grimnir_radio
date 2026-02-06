@@ -326,6 +326,10 @@ func (a *API) Routes(r chi.Router) {
 				r.Post("/sessions/{id}/mixer/crossfader", a.handleWebDJSetCrossfader)
 				r.Post("/sessions/{id}/mixer/master-volume", a.handleWebDJSetMasterVolume)
 
+				// Live broadcast
+				r.Post("/sessions/{id}/live", a.handleWebDJGoLive)
+				r.Delete("/sessions/{id}/live", a.handleWebDJGoOffAir)
+
 				// Library (waveform)
 				r.Get("/library/{id}/waveform", a.handleWebDJGetWaveform)
 			})
@@ -2039,6 +2043,22 @@ func (a *API) handleWebDJSetMasterVolume(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	a.webdjAPI.handleSetMasterVolume(w, r)
+}
+
+func (a *API) handleWebDJGoLive(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleGoLive(w, r)
+}
+
+func (a *API) handleWebDJGoOffAir(w http.ResponseWriter, r *http.Request) {
+	if a.webdjAPI == nil {
+		writeError(w, http.StatusServiceUnavailable, "webdj_not_available")
+		return
+	}
+	a.webdjAPI.handleGoOffAir(w, r)
 }
 
 func (a *API) handleWebDJGetWaveform(w http.ResponseWriter, r *http.Request) {
