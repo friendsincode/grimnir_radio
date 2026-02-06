@@ -36,6 +36,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/live"
 	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/media"
+	meclient "github.com/friendsincode/grimnir_radio/internal/mediaengine/client"
 	"github.com/friendsincode/grimnir_radio/internal/notifications"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
@@ -339,7 +340,22 @@ func (s *Server) initDependencies() error {
 
 	// WebDJ Console
 	webdjSvc := webdj.NewService(database, liveService, mediaService, s.bus, s.logger)
-	waveformSvc := webdj.NewWaveformService(database, mediaService, s.cfg.MediaRoot, s.logger)
+
+	// Media engine client for waveform generation
+	var meClient *meclient.Client
+	if s.cfg.MediaEngineGRPCAddr != "" {
+		meCfg := meclient.DefaultConfig(s.cfg.MediaEngineGRPCAddr)
+		meClient = meclient.New(meCfg, s.logger)
+		if err := meClient.Connect(context.Background()); err != nil {
+			s.logger.Warn().Err(err).Msg("failed to connect media engine client for waveform, will use placeholder")
+			meClient = nil
+		} else {
+			s.DeferClose(func() error { return meClient.Close() })
+			s.logger.Info().Str("addr", s.cfg.MediaEngineGRPCAddr).Msg("media engine client connected for waveform generation")
+		}
+	}
+
+	waveformSvc := webdj.NewWaveformService(database, mediaService, meClient, s.cfg.MediaRoot, s.logger)
 	webdjAPI := api.NewWebDJAPI(database, webdjSvc, waveformSvc)
 	s.api.SetWebDJAPI(webdjAPI)
 	webdjWS := api.NewWebDJWebSocket(webdjSvc, s.logger)

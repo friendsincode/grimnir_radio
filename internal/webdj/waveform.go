@@ -18,7 +18,9 @@ import (
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/media"
+	"github.com/friendsincode/grimnir_radio/internal/mediaengine/client"
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
@@ -45,15 +47,17 @@ type WaveformData struct {
 type WaveformService struct {
 	db        *gorm.DB
 	mediaSvc  *media.Service
+	meClient  *client.Client
 	mediaRoot string
 	logger    zerolog.Logger
 }
 
 // NewWaveformService creates a new waveform service.
-func NewWaveformService(db *gorm.DB, mediaSvc *media.Service, mediaRoot string, logger zerolog.Logger) *WaveformService {
+func NewWaveformService(db *gorm.DB, mediaSvc *media.Service, meClient *client.Client, mediaRoot string, logger zerolog.Logger) *WaveformService {
 	return &WaveformService{
 		db:        db,
 		mediaSvc:  mediaSvc,
+		meClient:  meClient,
 		mediaRoot: mediaRoot,
 		logger:    logger.With().Str("component", "waveform").Logger(),
 	}
@@ -100,9 +104,7 @@ func (w *WaveformService) GetWaveform(ctx context.Context, mediaID string) (*Wav
 	return data, nil
 }
 
-// generateWaveform generates waveform data for a media file.
-// This is a simplified implementation that generates placeholder data.
-// In production, this would call the media engine's GenerateWaveform RPC.
+// generateWaveform generates waveform data for a media file via the media engine.
 func (w *WaveformService) generateWaveform(ctx context.Context, mediaID, path string, durationMS int64) (*WaveformData, error) {
 	w.logger.Info().
 		Str("media_id", mediaID).
@@ -111,7 +113,56 @@ func (w *WaveformService) generateWaveform(ctx context.Context, mediaID, path st
 		Msg("generating waveform")
 
 	// Default to 10 samples per second for visualization
-	samplesPerSec := 10
+	const samplesPerSec int32 = 10
+
+	// Check if media engine client is available
+	if w.meClient == nil || !w.meClient.IsConnected() {
+		w.logger.Warn().Msg("media engine not connected, using placeholder waveform")
+		return w.generatePlaceholderWaveform(mediaID, durationMS)
+	}
+
+	// Call media engine to generate waveform
+	resp, err := w.meClient.GenerateWaveform(ctx, path, samplesPerSec, pb.WaveformType_WAVEFORM_TYPE_PEAK)
+	if err != nil {
+		w.logger.Warn().Err(err).Str("media_id", mediaID).Msg("media engine waveform generation failed, using placeholder")
+		return w.generatePlaceholderWaveform(mediaID, durationMS)
+	}
+
+	if !resp.Success {
+		w.logger.Warn().Str("error", resp.Error).Str("media_id", mediaID).Msg("waveform generation returned error, using placeholder")
+		return w.generatePlaceholderWaveform(mediaID, durationMS)
+	}
+
+	// Convert proto float slices to float32 slices
+	peakLeft := make([]float32, len(resp.PeakLeft))
+	peakRight := make([]float32, len(resp.PeakRight))
+	for i, v := range resp.PeakLeft {
+		peakLeft[i] = v
+	}
+	for i, v := range resp.PeakRight {
+		peakRight[i] = v
+	}
+
+	data := &WaveformData{
+		MediaID:       mediaID,
+		SamplesPerSec: int(resp.SampleRate),
+		DurationMS:    resp.DurationMs,
+		PeakLeft:      peakLeft,
+		PeakRight:     peakRight,
+		GeneratedAt:   time.Now(),
+	}
+
+	w.logger.Info().
+		Str("media_id", mediaID).
+		Int("num_samples", len(peakLeft)).
+		Msg("waveform generated via media engine")
+
+	return data, nil
+}
+
+// generatePlaceholderWaveform creates synthetic waveform data when media engine is unavailable.
+func (w *WaveformService) generatePlaceholderWaveform(mediaID string, durationMS int64) (*WaveformData, error) {
+	const samplesPerSec = 10
 	numSamples := int((durationMS * int64(samplesPerSec)) / 1000)
 	if numSamples < 10 {
 		numSamples = 10
@@ -120,46 +171,29 @@ func (w *WaveformService) generateWaveform(ctx context.Context, mediaID, path st
 		numSamples = 10000 // Cap at 10000 samples
 	}
 
-	// For now, generate placeholder waveform data
-	// In production, this would call the media engine gRPC:
-	// resp, err := w.meClient.GenerateWaveform(ctx, &pb.GenerateWaveformRequest{
-	//     FilePath: path,
-	//     SamplesPerSecond: int32(samplesPerSec),
-	//     Type: pb.WaveformType_WAVEFORM_TYPE_PEAK,
-	// })
-
 	peakLeft := make([]float32, numSamples)
 	peakRight := make([]float32, numSamples)
 
 	// Generate placeholder waveform (simulated audio envelope)
 	for i := 0; i < numSamples; i++ {
-		// Simple sine wave modulation for visualization placeholder
 		t := float64(i) / float64(numSamples)
-		base := float32(0.3 + 0.5*t) // Gradual increase
+		base := float32(0.3 + 0.5*t)
 		if t > 0.8 {
-			base = float32(0.3 + 0.5*(1-t)*5) // Fade out
+			base = float32(0.3 + 0.5*(1-t)*5)
 		}
-		// Add some variation
 		variation := float32(0.1 * (float64(i%20) / 20.0))
 		peakLeft[i] = base + variation
 		peakRight[i] = base + variation*0.9
 	}
 
-	data := &WaveformData{
+	return &WaveformData{
 		MediaID:       mediaID,
 		SamplesPerSec: samplesPerSec,
 		DurationMS:    durationMS,
 		PeakLeft:      peakLeft,
 		PeakRight:     peakRight,
 		GeneratedAt:   time.Now(),
-	}
-
-	w.logger.Info().
-		Str("media_id", mediaID).
-		Int("num_samples", numSamples).
-		Msg("waveform generated")
-
-	return data, nil
+	}, nil
 }
 
 // cacheWaveform stores waveform data in the database.
