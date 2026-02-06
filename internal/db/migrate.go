@@ -17,6 +17,7 @@ func Migrate(database *gorm.DB) error {
 	return database.AutoMigrate(
 		// Platform-level models
 		&models.User{},
+		&models.SystemSettings{},
 		&models.APIKey{},
 		&models.PlatformGroup{},
 		&models.PlatformGroupMember{},

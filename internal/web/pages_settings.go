@@ -13,21 +13,34 @@ import (
 	"strings"
 
 	"github.com/friendsincode/grimnir_radio/internal/migration"
+	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/go-chi/chi/v5"
 )
 
 // SettingsPage renders the system settings page
 func (h *Handler) SettingsPage(w http.ResponseWriter, r *http.Request) {
-	// TODO: Load actual system settings from config/database
+	// Load settings from database
+	dbSettings, err := models.GetSystemSettings(h.db)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to load system settings")
+		http.Error(w, "Failed to load settings", http.StatusInternalServerError)
+		return
+	}
 
+	// Combine database settings with read-only config values
 	settings := map[string]any{
-		"scheduler_lookahead": "48h",
-		"media_root":          "/var/lib/grimnir/media",
-		"analysis_enabled":    true,
-		"websocket_enabled":   true,
-		"leader_election":     false,
-		"metrics_enabled":     true,
-		"log_level":           "info",
+		// Database-backed (editable)
+		"scheduler_lookahead": dbSettings.SchedulerLookahead,
+		"analysis_enabled":    dbSettings.AnalysisEnabled,
+		"websocket_enabled":   dbSettings.WebsocketEnabled,
+		"metrics_enabled":     dbSettings.MetricsEnabled,
+		"log_level":           dbSettings.LogLevel,
+		// Config-backed (read-only)
+		"media_root":       h.mediaRoot,
+		"leader_election":  h.eventBus != nil, // Leader election requires event bus (Redis/NATS)
+		// Validation options for dropdowns
+		"valid_lookaheads": models.ValidSchedulerLookaheads,
+		"valid_log_levels": models.ValidLogLevels,
 	}
 
 	h.Render(w, r, "pages/dashboard/settings/index", PageData{
@@ -44,7 +57,62 @@ func (h *Handler) SettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Actually save settings
+	// Load current settings
+	settings, err := models.GetSystemSettings(h.db)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to load system settings for update")
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-danger">Failed to load settings</div>`))
+			return
+		}
+		http.Error(w, "Failed to load settings", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse and validate form values
+	schedulerLookahead := r.FormValue("scheduler_lookahead")
+	if schedulerLookahead != "" {
+		if models.IsValidSchedulerLookahead(schedulerLookahead) {
+			settings.SchedulerLookahead = schedulerLookahead
+		} else {
+			h.logger.Warn().Str("value", schedulerLookahead).Msg("invalid scheduler_lookahead value, using default")
+			settings.SchedulerLookahead = "48h"
+		}
+	}
+
+	logLevel := r.FormValue("log_level")
+	if logLevel != "" {
+		if models.IsValidLogLevel(logLevel) {
+			settings.LogLevel = logLevel
+		} else {
+			h.logger.Warn().Str("value", logLevel).Msg("invalid log_level value, using default")
+			settings.LogLevel = "info"
+		}
+	}
+
+	// Boolean fields - checkboxes only send value when checked
+	settings.AnalysisEnabled = r.FormValue("analysis_enabled") == "on"
+	settings.WebsocketEnabled = r.FormValue("websocket_enabled") == "on"
+	settings.MetricsEnabled = r.FormValue("metrics_enabled") == "on"
+
+	// Save to database
+	if err := h.db.Save(settings).Error; err != nil {
+		h.logger.Error().Err(err).Msg("failed to save system settings")
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-danger">Failed to save settings</div>`))
+			return
+		}
+		http.Error(w, "Failed to save settings", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("scheduler_lookahead", settings.SchedulerLookahead).
+		Bool("analysis_enabled", settings.AnalysisEnabled).
+		Bool("websocket_enabled", settings.WebsocketEnabled).
+		Bool("metrics_enabled", settings.MetricsEnabled).
+		Str("log_level", settings.LogLevel).
+		Msg("system settings updated")
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Write([]byte(`<div class="alert alert-success">Settings saved</div>`))
