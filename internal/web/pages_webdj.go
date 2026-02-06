@@ -46,6 +46,12 @@ func (h *Handler) WebDJConsole(w http.ResponseWriter, r *http.Request) {
 		Order("name ASC").
 		Find(&playlists)
 
+	// Get mounts for live broadcast
+	var mounts []models.Mount
+	h.db.Where("station_id = ?", station.ID).
+		Order("name ASC").
+		Find(&mounts)
+
 	h.Render(w, r, "pages/dashboard/webdj", PageData{
 		Title:    "WebDJ Console",
 		Stations: h.LoadStations(r),
@@ -54,6 +60,7 @@ func (h *Handler) WebDJConsole(w http.ResponseWriter, r *http.Request) {
 			"ExistingSession": existingSession,
 			"RecentMedia":     recentMedia,
 			"Playlists":       playlists,
+			"Mounts":          mounts,
 		},
 	})
 }
