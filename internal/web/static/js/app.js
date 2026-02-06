@@ -18,15 +18,24 @@ function setTheme(theme) {
     if (themeModal) {
         const bsModal = bootstrap.Modal.getInstance(themeModal);
         if (bsModal) {
+            // Wait for modal to fully hide before cleanup
+            themeModal.addEventListener('hidden.bs.modal', function cleanup() {
+                themeModal.removeEventListener('hidden.bs.modal', cleanup);
+                // Clean up any stale modal backdrops after modal is fully hidden
+                document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+                document.body.classList.remove('modal-open');
+                document.body.style.removeProperty('overflow');
+                document.body.style.removeProperty('padding-right');
+            }, { once: true });
             bsModal.hide();
+        } else {
+            // No modal instance, just clean up directly
+            document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+            document.body.classList.remove('modal-open');
+            document.body.style.removeProperty('overflow');
+            document.body.style.removeProperty('padding-right');
         }
     }
-
-    // Clean up any stale modal backdrops
-    document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
-    document.body.classList.remove('modal-open');
-    document.body.style.removeProperty('overflow');
-    document.body.style.removeProperty('padding-right');
 
     // Save to server for cross-device sync (if logged in)
     if (window.htmx && window.GRIMNIR_WS_TOKEN) {
