@@ -16,7 +16,9 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/live"
 	"github.com/friendsincode/grimnir_radio/internal/media"
+	"github.com/friendsincode/grimnir_radio/internal/mediaengine/client"
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -40,6 +42,15 @@ var (
 
 	// ErrUnauthorized indicates the user is not authorized.
 	ErrUnauthorized = errors.New("unauthorized")
+
+	// ErrAlreadyLive indicates the session is already broadcasting live.
+	ErrAlreadyLive = errors.New("session already broadcasting live")
+
+	// ErrNotLive indicates the session is not broadcasting live.
+	ErrNotLive = errors.New("session not broadcasting live")
+
+	// ErrMediaEngineUnavailable indicates the media engine is not connected.
+	ErrMediaEngineUnavailable = errors.New("media engine unavailable")
 )
 
 // Service handles WebDJ console sessions and deck control.
@@ -47,6 +58,7 @@ type Service struct {
 	db       *gorm.DB
 	liveSvc  *live.Service
 	mediaSvc *media.Service
+	meClient *client.Client
 	bus      *events.Bus
 	logger   zerolog.Logger
 
@@ -62,6 +74,11 @@ type Session struct {
 	subscribers []chan *StateUpdate
 	stopChan    chan struct{}
 	lastUpdate  time.Time
+
+	// Live broadcast state
+	isLive  bool   // Whether session is currently broadcasting live
+	liveID  string // Media engine live routing ID
+	mountID string // Mount being broadcast to
 }
 
 // StateUpdate contains a real-time state update for WebSocket clients.
@@ -74,11 +91,12 @@ type StateUpdate struct {
 }
 
 // NewService creates a new WebDJ service.
-func NewService(db *gorm.DB, liveSvc *live.Service, mediaSvc *media.Service, bus *events.Bus, logger zerolog.Logger) *Service {
+func NewService(db *gorm.DB, liveSvc *live.Service, mediaSvc *media.Service, meClient *client.Client, bus *events.Bus, logger zerolog.Logger) *Service {
 	return &Service{
 		db:       db,
 		liveSvc:  liveSvc,
 		mediaSvc: mediaSvc,
+		meClient: meClient,
 		bus:      bus,
 		logger:   logger.With().Str("component", "webdj").Logger(),
 		sessions: make(map[string]*Session),
@@ -179,6 +197,18 @@ func (s *Service) EndSession(ctx context.Context, sessionID string) error {
 		return err
 	}
 
+	// Go off air if currently live
+	s.mu.RLock()
+	sess, exists := s.sessions[sessionID]
+	isLive := exists && sess.isLive
+	s.mu.RUnlock()
+
+	if isLive {
+		if err := s.GoOffAir(ctx, sessionID); err != nil {
+			s.logger.Warn().Err(err).Str("session_id", sessionID).Msg("failed to go off air during session end")
+		}
+	}
+
 	// Mark session as inactive
 	if err := s.db.WithContext(ctx).
 		Model(&models.WebDJSession{}).
@@ -211,6 +241,175 @@ func (s *Service) EndSession(ctx context.Context, sessionID string) error {
 	})
 
 	return nil
+}
+
+// GoLiveRequest contains parameters for going live.
+type GoLiveRequest struct {
+	SessionID string
+	MountID   string
+	InputType string // "webrtc", "rtp", or "icecast"
+	InputURL  string // Connection URL for RTP/Icecast inputs
+}
+
+// GoLive activates live broadcast for a WebDJ session.
+// This routes the DJ's audio input to the specified mount.
+func (s *Service) GoLive(ctx context.Context, req GoLiveRequest) error {
+	session, err := s.getActiveSession(ctx, req.SessionID)
+	if err != nil {
+		return err
+	}
+
+	// Check if media engine is available
+	if s.meClient == nil || !s.meClient.IsConnected() {
+		return ErrMediaEngineUnavailable
+	}
+
+	// Check if already live
+	s.mu.RLock()
+	sess, exists := s.sessions[req.SessionID]
+	if exists && sess.isLive {
+		s.mu.RUnlock()
+		return ErrAlreadyLive
+	}
+	s.mu.RUnlock()
+
+	// Determine input type
+	inputType := pb.LiveInputType_LIVE_INPUT_TYPE_WEBRTC
+	switch req.InputType {
+	case "rtp":
+		inputType = pb.LiveInputType_LIVE_INPUT_TYPE_RTP
+	case "icecast":
+		inputType = pb.LiveInputType_LIVE_INPUT_TYPE_ICECAST
+	case "srt":
+		inputType = pb.LiveInputType_LIVE_INPUT_TYPE_SRT
+	}
+
+	// Route live input via media engine
+	liveID, err := s.meClient.RouteLive(ctx, &client.RouteLiveRequest{
+		StationID: session.StationID,
+		MountID:   req.MountID,
+		SessionID: req.SessionID,
+		InputType: inputType,
+		InputURL:  req.InputURL,
+		FadeInMs:  500, // 500ms fade in for smooth transition
+	})
+	if err != nil {
+		return fmt.Errorf("route live input: %w", err)
+	}
+
+	// Update session state
+	s.mu.Lock()
+	if sess, ok := s.sessions[req.SessionID]; ok {
+		sess.mu.Lock()
+		sess.isLive = true
+		sess.liveID = liveID
+		sess.mountID = req.MountID
+		sess.mu.Unlock()
+	}
+	s.mu.Unlock()
+
+	s.logger.Info().
+		Str("session_id", req.SessionID).
+		Str("station_id", session.StationID).
+		Str("mount_id", req.MountID).
+		Str("live_id", liveID).
+		Str("input_type", req.InputType).
+		Msg("webdj session went live")
+
+	// Broadcast update
+	s.broadcastUpdate(req.SessionID, &StateUpdate{
+		Type:      "live_started",
+		SessionID: req.SessionID,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"mount_id":   req.MountID,
+			"live_id":    liveID,
+			"input_type": req.InputType,
+		},
+	})
+
+	// Publish event
+	s.bus.Publish(events.EventType("webdj.live_start"), events.Payload{
+		"session_id": req.SessionID,
+		"station_id": session.StationID,
+		"mount_id":   req.MountID,
+		"live_id":    liveID,
+	})
+
+	return nil
+}
+
+// GoOffAir stops live broadcast for a WebDJ session.
+func (s *Service) GoOffAir(ctx context.Context, sessionID string) error {
+	session, err := s.getActiveSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+
+	// Get live state
+	s.mu.RLock()
+	sess, exists := s.sessions[sessionID]
+	if !exists || !sess.isLive {
+		s.mu.RUnlock()
+		return ErrNotLive
+	}
+	mountID := sess.mountID
+	s.mu.RUnlock()
+
+	// Stop live routing via media engine
+	if s.meClient != nil && s.meClient.IsConnected() {
+		if err := s.meClient.Stop(ctx, session.StationID, mountID, false); err != nil {
+			s.logger.Warn().Err(err).
+				Str("session_id", sessionID).
+				Str("mount_id", mountID).
+				Msg("failed to stop live routing in media engine")
+		}
+	}
+
+	// Update session state
+	s.mu.Lock()
+	if sess, ok := s.sessions[sessionID]; ok {
+		sess.mu.Lock()
+		sess.isLive = false
+		sess.liveID = ""
+		sess.mountID = ""
+		sess.mu.Unlock()
+	}
+	s.mu.Unlock()
+
+	s.logger.Info().
+		Str("session_id", sessionID).
+		Str("station_id", session.StationID).
+		Msg("webdj session went off air")
+
+	// Broadcast update
+	s.broadcastUpdate(sessionID, &StateUpdate{
+		Type:      "live_stopped",
+		SessionID: sessionID,
+		Timestamp: time.Now(),
+		Data:      nil,
+	})
+
+	// Publish event
+	s.bus.Publish(events.EventType("webdj.live_stop"), events.Payload{
+		"session_id": sessionID,
+		"station_id": session.StationID,
+	})
+
+	return nil
+}
+
+// IsLive returns whether a session is currently broadcasting live.
+func (s *Service) IsLive(sessionID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if sess, ok := s.sessions[sessionID]; ok {
+		sess.mu.RLock()
+		defer sess.mu.RUnlock()
+		return sess.isLive
+	}
+	return false
 }
 
 // GetSession retrieves a WebDJ session by ID.

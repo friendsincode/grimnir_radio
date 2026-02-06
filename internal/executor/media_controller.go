@@ -166,14 +166,17 @@ func (mc *MediaController) RouteLive(ctx context.Context, inputURL, authToken st
 		return "", fmt.Errorf("media engine not connected")
 	}
 
-	input := &pb.LiveInputConfig{
-		InputUrl:        inputURL,
-		AuthToken:       authToken,
-		BufferMs:        2000, // 2 second buffer
-		ApplyProcessing: applyProcessing,
-	}
+	// Determine input type from URL scheme
+	inputType := pb.LiveInputType_LIVE_INPUT_TYPE_ICECAST
+	// Could parse URL to determine type, but default to Icecast for now
 
-	liveID, err := mc.client.RouteLive(ctx, mc.stationID, mc.mountID, input)
+	liveID, err := mc.client.RouteLive(ctx, &client.RouteLiveRequest{
+		StationID: mc.stationID,
+		MountID:   mc.mountID,
+		InputType: inputType,
+		InputURL:  inputURL,
+		FadeInMs:  500,
+	})
 	if err != nil {
 		mc.logger.Error().Err(err).Str("input_url", inputURL).Msg("failed to route live input")
 		return "", fmt.Errorf("route live: %w", err)
