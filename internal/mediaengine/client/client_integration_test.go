@@ -376,14 +376,13 @@ func TestRouteLive(t *testing.T) {
 	}
 
 	// Route live input
-	liveInput := &pb.LiveInputConfig{
-		InputUrl:        "http://localhost:8001/live",
-		AuthToken:       "test-token",
-		BufferMs:        2000,
-		ApplyProcessing: true,
-	}
-
-	liveID, err := client.RouteLive(ctx, "test-station", "test-mount", liveInput)
+	liveID, err := client.RouteLive(ctx, &RouteLiveRequest{
+		StationID: "test-station",
+		MountID:   "test-mount",
+		InputType: pb.LiveInputType_LIVE_INPUT_TYPE_ICECAST,
+		InputURL:  "http://localhost:8001/live",
+		FadeInMs:  500,
+	})
 	if err != nil {
 		t.Fatalf("failed to route live: %v", err)
 	}

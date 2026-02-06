@@ -338,23 +338,22 @@ func (s *Server) initDependencies() error {
 	landingPageAPI := api.NewLandingPageAPI(s.api, landingPageSvc)
 	s.api.SetLandingPageAPI(landingPageAPI)
 
-	// WebDJ Console
-	webdjSvc := webdj.NewService(database, liveService, mediaService, s.bus, s.logger)
-
-	// Media engine client for waveform generation
+	// Media engine client for WebDJ (shared by service and waveform)
 	var meClient *meclient.Client
 	if s.cfg.MediaEngineGRPCAddr != "" {
 		meCfg := meclient.DefaultConfig(s.cfg.MediaEngineGRPCAddr)
 		meClient = meclient.New(meCfg, s.logger)
 		if err := meClient.Connect(context.Background()); err != nil {
-			s.logger.Warn().Err(err).Msg("failed to connect media engine client for waveform, will use placeholder")
+			s.logger.Warn().Err(err).Msg("failed to connect media engine client for WebDJ, will use fallback mode")
 			meClient = nil
 		} else {
 			s.DeferClose(func() error { return meClient.Close() })
-			s.logger.Info().Str("addr", s.cfg.MediaEngineGRPCAddr).Msg("media engine client connected for waveform generation")
+			s.logger.Info().Str("addr", s.cfg.MediaEngineGRPCAddr).Msg("media engine client connected for WebDJ")
 		}
 	}
 
+	// WebDJ Console
+	webdjSvc := webdj.NewService(database, liveService, mediaService, meClient, s.bus, s.logger)
 	waveformSvc := webdj.NewWaveformService(database, mediaService, meClient, s.cfg.MediaRoot, s.logger)
 	webdjAPI := api.NewWebDJAPI(database, webdjSvc, waveformSvc)
 	s.api.SetWebDJAPI(webdjAPI)

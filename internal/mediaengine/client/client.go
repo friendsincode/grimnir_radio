@@ -295,8 +295,19 @@ func (c *Client) InsertEmergency(ctx context.Context, stationID, mountID string,
 	return resp.EmergencyId, nil
 }
 
+// RouteLiveRequest contains parameters for routing a live input.
+type RouteLiveRequest struct {
+	StationID string
+	MountID   string
+	SessionID string
+	InputType pb.LiveInputType
+	InputURL  string
+	Port      int32
+	FadeInMs  int32
+}
+
 // RouteLive routes a live input stream
-func (c *Client) RouteLive(ctx context.Context, stationID, mountID string, input *pb.LiveInputConfig) (string, error) {
+func (c *Client) RouteLive(ctx context.Context, req *RouteLiveRequest) (string, error) {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
@@ -305,13 +316,17 @@ func (c *Client) RouteLive(ctx context.Context, stationID, mountID string, input
 		return "", fmt.Errorf("not connected to media engine")
 	}
 
-	req := &pb.RouteLiveRequest{
-		StationId: stationID,
-		MountId:   mountID,
-		Input:     input,
+	pbReq := &pb.RouteLiveRequest{
+		StationId: req.StationID,
+		MountId:   req.MountID,
+		SessionId: req.SessionID,
+		InputType: req.InputType,
+		InputUrl:  req.InputURL,
+		Port:      req.Port,
+		FadeInMs:  req.FadeInMs,
 	}
 
-	resp, err := client.RouteLive(ctx, req)
+	resp, err := client.RouteLive(ctx, pbReq)
 	if err != nil {
 		return "", fmt.Errorf("failed to route live: %w", err)
 	}
@@ -320,6 +335,10 @@ func (c *Client) RouteLive(ctx context.Context, stationID, mountID string, input
 		return "", fmt.Errorf("live routing failed: %s", resp.Error)
 	}
 
+	// Use session_id from response (modern) or fall back to live_id (legacy)
+	if resp.SessionId != "" {
+		return resp.SessionId, nil
+	}
 	return resp.LiveId, nil
 }
 
