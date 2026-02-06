@@ -492,6 +492,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	// Migrate all tables
 	err = db.AutoMigrate(
 		&models.User{},
+		&models.SystemSettings{},
 		&models.Station{},
 		&models.StationUser{},
 		&models.Mount{},
