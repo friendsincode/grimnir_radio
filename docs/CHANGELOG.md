@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.9.0 — 2026-02-06
+
+### New Features
+- **WebDJ Console**: Complete browser-based DJ mixing interface
+  - Real waveform generation via media engine gRPC
+  - Live broadcast controls with Go Live / Off Air buttons
+  - Mount selector for choosing broadcast destination
+  - Live status indicator with pulsing animation
+  - Dual deck layout with transport controls, hot cues, EQ, pitch
+
+- **System Settings**: Persistent runtime-configurable settings
+  - Scheduler lookahead, analysis, websocket, metrics toggles
+  - Log level configuration
+  - Singleton pattern with database storage
+
+- **DSP Parameter Support**: Additional audio processing parameters
+  - AGC target level configuration
+  - Limiter release time control
+  - Ducking threshold and reduction settings
+
+### Improvements
+- **Live Session Handlers**: Wired up live service for token generation, disconnect, handover
+- **Webstream Failover**: Connected failover/reset handlers to webstream service
+- **Schedule Refresh**: Linked schedule refresh endpoint to scheduler service
+- **Migration Import**: Background file processing for AzuraCast/LibreTime imports
+
+---
+
 ## 1.10.0 — 2026-02-02
 
 ### New Features
