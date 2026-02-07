@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.9.0 — 2026-02-06
+## 1.9.5 — 2026-02-06
 
 ### New Features
 - **WebDJ Console**: Complete browser-based DJ mixing interface
