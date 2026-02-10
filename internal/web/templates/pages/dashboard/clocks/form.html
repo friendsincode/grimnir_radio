@@ -69,6 +69,7 @@
                         <label class="form-label">Slot Type</label>
                         <select class="form-select" id="newSlotType">
                             <option value="smart_block">Smart Block</option>
+                            <option value="playlist">Playlist</option>
                             <option value="webstream">Webstream</option>
                             <option value="stopset">Stopset (Ads)</option>
                             <option value="hard_item">Hard-coded Item</option>
@@ -86,6 +87,16 @@
                         <div id="smartBlockDuration" class="form-text text-info d-none">
                             <i class="bi bi-clock me-1"></i>Duration: <span id="smartBlockDurationText">--</span> min
                         </div>
+                    </div>
+
+                    <div class="mb-3 d-none" id="playlistSelect">
+                        <label class="form-label">Playlist</label>
+                        <select class="form-select" id="newPlaylistId">
+                            <option value="">Select a playlist...</option>
+                            {{range .Data.Playlists}}
+                            <option value="{{.ID}}">{{.Name}}</option>
+                            {{end}}
+                        </select>
                     </div>
 
                     <div class="mb-3 d-none" id="webstreamSelect">
@@ -202,6 +213,11 @@
         '{{.ID}}': '{{.Name}}',
         {{end}}
     };
+    const playlists = {
+        {{range .Data.Playlists}}
+        '{{.ID}}': '{{.Name}}',
+        {{end}}
+    };
 
     // State
     let slots = [];
@@ -245,29 +261,34 @@
     // Slot type colors
     const slotColors = {
         'smart_block': 'var(--bs-primary)',
-        'webstream': 'var(--bs-success)',
+        'playlist': 'var(--bs-success)',
+        'webstream': 'var(--bs-teal)',
         'stopset': 'var(--bs-warning)',
         'hard_item': 'var(--bs-info)'
     };
 
     const slotBadgeClasses = {
         'smart_block': 'bg-primary',
-        'webstream': 'bg-success',
+        'playlist': 'bg-success',
+        'webstream': 'bg-info',
         'stopset': 'bg-warning text-dark',
-        'hard_item': 'bg-info'
+        'hard_item': 'bg-secondary'
     };
 
     const slotTypeNames = {
         'smart_block': 'Smart Block',
+        'playlist': 'Playlist',
         'webstream': 'Webstream',
         'stopset': 'Stopset',
         'hard_item': 'Hard Item'
     };
 
     // Handle slot type change
+    const playlistSelect = document.getElementById('playlistSelect');
     newSlotType.addEventListener('change', function() {
         const type = this.value;
         smartBlockSelect.classList.toggle('d-none', type !== 'smart_block');
+        playlistSelect.classList.toggle('d-none', type !== 'playlist');
         webstreamSelect.classList.toggle('d-none', type !== 'webstream');
         durationInput.classList.toggle('d-none', type !== 'stopset' && type !== 'webstream');
         // Hide smart block duration when switching away
@@ -303,6 +324,13 @@
             // Store duration from smart block config
             const blockDuration = smartBlocks[newSmartBlockId.value]?.duration || 60;
             payload.duration_ms = blockDuration * 60 * 1000;
+        } else if (type === 'playlist') {
+            const playlistId = document.getElementById('newPlaylistId').value;
+            if (!playlistId) {
+                alert('Please select a playlist');
+                return;
+            }
+            payload.playlist_id = playlistId;
         } else if (type === 'webstream') {
             if (!newWebstreamId.value) {
                 alert('Please select a webstream');
@@ -325,6 +353,7 @@
 
         // Reset form
         newSmartBlockId.value = '';
+        document.getElementById('newPlaylistId').value = '';
         newWebstreamId.value = '';
         newOffset.value = '0';
 
@@ -338,6 +367,9 @@
                 return block.name + ' (' + block.duration + ' min)';
             }
             return 'Unknown';
+        }
+        if (slot.type === 'playlist' && slot.payload.playlist_id) {
+            return playlists[slot.payload.playlist_id] || 'Unknown playlist';
         }
         if (slot.type === 'webstream' && slot.payload.webstream_id) {
             return webstreams[slot.payload.webstream_id] || 'Unknown';

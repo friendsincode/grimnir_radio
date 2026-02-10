@@ -46,6 +46,10 @@ func (h *Handler) ClockNew(w http.ResponseWriter, r *http.Request) {
 	var webstreams []models.Webstream
 	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&webstreams)
 
+	// Get playlists
+	var playlists []models.Playlist
+	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&playlists)
+
 	h.Render(w, r, "pages/dashboard/clocks/form", PageData{
 		Title:    "New Clock Template",
 		Stations: h.LoadStations(r),
@@ -54,6 +58,7 @@ func (h *Handler) ClockNew(w http.ResponseWriter, r *http.Request) {
 			"IsNew":       true,
 			"SmartBlocks": smartBlocks,
 			"Webstreams":  webstreams,
+			"Playlists":   playlists,
 		},
 	})
 }
@@ -155,6 +160,9 @@ func (h *Handler) ClockEdit(w http.ResponseWriter, r *http.Request) {
 	var webstreams []models.Webstream
 	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&webstreams)
 
+	var playlists []models.Playlist
+	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&playlists)
+
 	h.Render(w, r, "pages/dashboard/clocks/form", PageData{
 		Title:    "Edit: " + clock.Name,
 		Stations: h.LoadStations(r),
@@ -163,6 +171,7 @@ func (h *Handler) ClockEdit(w http.ResponseWriter, r *http.Request) {
 			"IsNew":       false,
 			"SmartBlocks": smartBlocks,
 			"Webstreams":  webstreams,
+			"Playlists":   playlists,
 		},
 	})
 }
@@ -333,6 +342,22 @@ func (h *Handler) ClockSimulate(w http.ResponseWriter, r *http.Request) {
 					sim.Name = item.Title
 					sim.Tracks = []models.MediaItem{item}
 					sim.DurationMs = item.Duration.Milliseconds()
+					totalDurationMs += sim.DurationMs
+				}
+			}
+
+		case models.SlotTypePlaylist:
+			sim.TypeBadge = "bg-success"
+			if playlistID, ok := slot.Payload["playlist_id"].(string); ok {
+				var playlist models.Playlist
+				if h.db.Preload("Items.Media").First(&playlist, "id = ?", playlistID).Error == nil {
+					sim.Name = playlist.Name
+					for _, item := range playlist.Items {
+						if item.Media.ID != "" {
+							sim.Tracks = append(sim.Tracks, item.Media)
+							sim.DurationMs += item.Media.Duration.Milliseconds()
+						}
+					}
 					totalDurationMs += sim.DurationMs
 				}
 			}

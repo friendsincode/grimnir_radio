@@ -167,6 +167,12 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 				return err
 			}
 			entriesCreated++
+		case string(models.SlotTypePlaylist):
+			if err := s.createPlaylistEntry(ctx, stationID, plan); err != nil {
+				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "create_playlist_entry").Inc()
+				return err
+			}
+			entriesCreated++
 		case string(models.SlotTypeHardItem), string(models.SlotTypeStopset), string(models.SlotTypeWebstream):
 			if err := s.createPlaceholderEntry(ctx, stationID, plan); err != nil {
 				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "create_placeholder").Inc()
@@ -317,6 +323,35 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 	}
 
 	return s.db.WithContext(ctx).Create(&entries).Error
+}
+
+func (s *Service) createPlaylistEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {
+	mountID := stringValue(plan.Payload["mount_id"])
+	if mountID == "" {
+		mountID = s.getDefaultMountID(ctx, stationID)
+	}
+	if mountID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Str("station", stationID).Msg("no mount found for playlist entry")
+		return nil
+	}
+
+	playlistID := stringValue(plan.Payload["playlist_id"])
+	if playlistID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Msg("playlist slot missing playlist_id")
+		return nil
+	}
+
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		StartsAt:   plan.StartsAt,
+		EndsAt:     plan.EndsAt,
+		SourceType: "playlist",
+		SourceID:   playlistID,
+		Metadata:   plan.Payload,
+	}
+	return s.db.WithContext(ctx).Create(&entry).Error
 }
 
 func (s *Service) createPlaceholderEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {

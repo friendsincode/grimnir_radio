@@ -107,13 +107,15 @@
                                 <td>{{add $i 1}}</td>
                                 <td>
                                     {{if eq $slot.Type "smart_block"}}
-                                    <span class="badge bg-info">Smart Block</span>
+                                    <span class="badge bg-primary">Smart Block</span>
+                                    {{else if eq $slot.Type "playlist"}}
+                                    <span class="badge bg-success">Playlist</span>
                                     {{else if eq $slot.Type "webstream"}}
-                                    <span class="badge bg-success">Webstream</span>
+                                    <span class="badge bg-info">Webstream</span>
                                     {{else if eq $slot.Type "stopset"}}
                                     <span class="badge bg-warning text-dark">Stopset</span>
                                     {{else if eq $slot.Type "hard_item"}}
-                                    <span class="badge bg-primary">Hard Item</span>
+                                    <span class="badge bg-secondary">Hard Item</span>
                                     {{else}}
                                     <span class="badge bg-secondary">{{$slot.Type}}</span>
                                     {{end}}

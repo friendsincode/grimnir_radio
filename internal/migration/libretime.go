@@ -1020,6 +1020,7 @@ func (l *LibreTimeImporter) importShowsFromAPI(ctx context.Context, client *Libr
 
 	l.logger.Info().Int("count", len(shows)).Msg("importing shows as clocks via API")
 
+	slotsCreated := 0
 	for _, ltShow := range shows {
 		// Create Grimnir clock hour (shows become hour templates)
 		clock := &models.ClockHour{
@@ -1033,6 +1034,40 @@ func (l *LibreTimeImporter) importShowsFromAPI(ctx context.Context, client *Libr
 			continue
 		}
 
+		// If show has an auto_playlist, create a slot referencing the imported playlist
+		if ltShow.HasAutoplaylist && ltShow.AutoplaylistID != nil {
+			playlistKey := fmt.Sprintf("playlist_%d", *ltShow.AutoplaylistID)
+			if playlistMapping, ok := result.Mappings[playlistKey]; ok {
+				slot := &models.ClockSlot{
+					ID:          uuid.New().String(),
+					ClockHourID: clock.ID,
+					Position:    0,
+					Offset:      0, // Start at beginning of hour
+					Type:        models.SlotTypePlaylist,
+					Payload: map[string]any{
+						"playlist_id": playlistMapping.NewID,
+					},
+				}
+				if err := l.db.WithContext(ctx).Create(slot).Error; err != nil {
+					l.logger.Warn().Err(err).
+						Int("lt_show_id", ltShow.ID).
+						Int("lt_playlist_id", *ltShow.AutoplaylistID).
+						Msg("failed to create clock slot")
+				} else {
+					slotsCreated++
+					l.logger.Debug().
+						Str("clock", clock.Name).
+						Str("playlist", playlistMapping.Name).
+						Msg("created playlist slot for clock")
+				}
+			} else {
+				l.logger.Debug().
+					Int("lt_show_id", ltShow.ID).
+					Int("lt_playlist_id", *ltShow.AutoplaylistID).
+					Msg("show has auto_playlist but playlist not found in mappings")
+			}
+		}
+
 		result.Mappings[fmt.Sprintf("show_%d", ltShow.ID)] = Mapping{
 			OldID: fmt.Sprintf("%d", ltShow.ID),
 			NewID: clock.ID,
@@ -1044,11 +1079,18 @@ func (l *LibreTimeImporter) importShowsFromAPI(ctx context.Context, client *Libr
 	}
 
 	if result.SchedulesCreated > 0 {
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Imported %d LibreTime shows as clocks. Show schedules must be manually recreated using the clock templates.", result.SchedulesCreated))
+		msg := fmt.Sprintf("Imported %d LibreTime shows as clocks", result.SchedulesCreated)
+		if slotsCreated > 0 {
+			msg += fmt.Sprintf(" (%d with playlist slots)", slotsCreated)
+		}
+		msg += ". Show schedules must be manually recreated using the clock templates."
+		result.Warnings = append(result.Warnings, msg)
 	}
 
-	l.logger.Info().Int("count", result.SchedulesCreated).Msg("show import complete")
+	l.logger.Info().
+		Int("clocks", result.SchedulesCreated).
+		Int("slots", slotsCreated).
+		Msg("show import complete")
 	return nil
 }
 
