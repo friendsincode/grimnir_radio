@@ -39,6 +39,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     gstreamer1.0-tools \
     gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-base-apps \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
     gstreamer1.0-plugins-ugly \
@@ -51,6 +52,8 @@ RUN apt-get update && apt-get install -y \
     libshout3 \
     # SRT support
     libsrt1.4-gnutls \
+    # Analysis tools
+    ffmpeg \
     # Tools
     ca-certificates \
     curl \
