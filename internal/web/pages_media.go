@@ -237,6 +237,11 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sync file to disk to ensure it's fully written before analysis
+	if err := dst.Sync(); err != nil {
+		h.logger.Warn().Err(err).Msg("failed to sync media file")
+	}
+
 	// Create media item record with station's default archive settings
 	media := models.MediaItem{
 		ID:            mediaID,
