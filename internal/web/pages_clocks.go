@@ -25,7 +25,7 @@ func (h *Handler) ClockList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var clocks []models.ClockHour
-	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&clocks)
+	h.db.Preload("Slots").Where("station_id = ?", station.ID).Order("name ASC").Find(&clocks)
 
 	h.Render(w, r, "pages/dashboard/clocks/list", PageData{
 		Title:    "Clock Templates",
