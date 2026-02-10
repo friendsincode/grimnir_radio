@@ -178,8 +178,8 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form (32MB max)
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	// Parse multipart form (1GB max)
+	if err := r.ParseMultipartForm(1 << 30); err != nil {
 		http.Error(w, "File too large", http.StatusBadRequest)
 		return
 	}
