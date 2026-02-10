@@ -22,6 +22,9 @@ type LibreTimeAPIClient struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
+
+	// Cache for playlist contents (LibreTime API ignores filter params)
+	playlistContentsCache []LTPlaylistContent
 }
 
 // NewLibreTimeAPIClient creates a new LibreTime API client.
@@ -175,14 +178,31 @@ func (c *LibreTimeAPIClient) GetPlaylists(ctx context.Context) ([]LTPlaylist, er
 }
 
 // GetPlaylistContents returns the contents of a specific playlist.
+// Note: LibreTime API ignores the playlist filter parameter, so we fetch all
+// contents and filter client-side.
 func (c *LibreTimeAPIClient) GetPlaylistContents(ctx context.Context, playlistID int) ([]LTPlaylistContent, error) {
-	// LibreTime API v2 uses a separate endpoint with query filter, not nested routes
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v2/playlist-contents?playlist=%d", playlistID))
-	if err != nil {
-		return nil, err
+	// Cache all playlist contents on first call
+	if c.playlistContentsCache == nil {
+		resp, err := c.doRequest(ctx, "GET", "/api/v2/playlist-contents")
+		if err != nil {
+			return nil, err
+		}
+		allContents, err := decodeResponse[[]LTPlaylistContent](resp)
+		if err != nil {
+			return nil, err
+		}
+		c.playlistContentsCache = allContents
 	}
 
-	return decodeResponse[[]LTPlaylistContent](resp)
+	// Filter for the requested playlist
+	var filtered []LTPlaylistContent
+	for _, content := range c.playlistContentsCache {
+		if content.PlaylistID != nil && *content.PlaylistID == playlistID {
+			filtered = append(filtered, content)
+		}
+	}
+
+	return filtered, nil
 }
 
 // GetShows returns all shows from LibreTime.

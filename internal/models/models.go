@@ -529,6 +529,7 @@ type ClockSlotType string
 
 const (
 	SlotTypeSmartBlock ClockSlotType = "smart_block"
+	SlotTypePlaylist   ClockSlotType = "playlist"
 	SlotTypeHardItem   ClockSlotType = "hard_item"
 	SlotTypeStopset    ClockSlotType = "stopset"
 	SlotTypeWebstream  ClockSlotType = "webstream"
@@ -666,14 +667,15 @@ type Playlist struct {
 
 // PlaylistItem represents an item in a playlist.
 type PlaylistItem struct {
-	ID         string `gorm:"type:uuid;primaryKey"`
-	PlaylistID string `gorm:"type:uuid;index"`
-	MediaID    string `gorm:"type:uuid;index"`
-	Position   int    `gorm:"index"`
-	FadeIn     int    // Fade in duration in milliseconds
-	FadeOut    int    // Fade out duration in milliseconds
-	CueIn      int    // Cue in point in milliseconds
-	CueOut     int    // Cue out point in milliseconds
+	ID         string    `gorm:"type:uuid;primaryKey"`
+	PlaylistID string    `gorm:"type:uuid;index"`
+	MediaID    string    `gorm:"type:uuid;index"`
+	Media      MediaItem `gorm:"foreignKey:MediaID"`
+	Position   int       `gorm:"index"`
+	FadeIn     int       // Fade in duration in milliseconds
+	FadeOut    int       // Fade out duration in milliseconds
+	CueIn      int       // Cue in point in milliseconds
+	CueOut     int       // Cue out point in milliseconds
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
