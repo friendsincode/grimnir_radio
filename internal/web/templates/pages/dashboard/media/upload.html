@@ -51,7 +51,7 @@
                     <li>Files will be automatically analyzed for loudness, BPM, and waveform data</li>
                     <li>Metadata (ID3 tags) will be extracted automatically</li>
                     <li>For best results, use high-quality source files (FLAC or WAV)</li>
-                    <li>Maximum file size: 100MB per file</li>
+                    <li>Maximum file size: 1GB per file</li>
                     <li>You can edit metadata after upload</li>
                 </ul>
             </div>
@@ -69,7 +69,8 @@ const progressBar = progress.querySelector('.progress-bar');
 const results = document.getElementById('uploadResults');
 
 // Track files being uploaded to prevent duplicates
-const uploadingFiles = new Set();
+const uploadingFiles = new Map(); // fileKey -> {loaded, total}
+let activeUploads = 0;
 
 uploadZone.addEventListener('click', (e) => {
     // Prevent click if we're already uploading
@@ -101,40 +102,65 @@ fileInput.addEventListener('change', () => {
 });
 
 function handleFiles(files) {
-    Array.from(files).forEach(uploadFile);
+    // Upload files sequentially to avoid overwhelming the server
+    const fileArray = Array.from(files);
+    uploadFilesSequentially(fileArray, 0);
 }
 
-function uploadFile(file) {
+function uploadFilesSequentially(files, index) {
+    if (index >= files.length) return;
+    uploadFile(files[index], () => {
+        uploadFilesSequentially(files, index + 1);
+    });
+}
+
+function updateOverallProgress() {
+    let totalLoaded = 0;
+    let totalSize = 0;
+    uploadingFiles.forEach(info => {
+        totalLoaded += info.loaded;
+        totalSize += info.total;
+    });
+    if (totalSize > 0) {
+        const percent = Math.round((totalLoaded / totalSize) * 100);
+        progressBar.style.width = percent + '%';
+        progressBar.textContent = `${percent}% (${activeUploads} file${activeUploads > 1 ? 's' : ''})`;
+    }
+}
+
+function uploadFile(file, onComplete) {
     // Create unique key for this file (name + size + lastModified)
     const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
 
     // Skip if already uploading this exact file
     if (uploadingFiles.has(fileKey)) {
         console.log('Skipping duplicate upload:', file.name);
+        if (onComplete) onComplete();
         return;
     }
 
-    uploadingFiles.add(fileKey);
+    uploadingFiles.set(fileKey, { loaded: 0, total: file.size });
+    activeUploads++;
 
     const formData = new FormData();
     formData.append('file', file);
 
     progress.classList.remove('d-none');
     uploadZone.classList.add('uploading');
+    updateOverallProgress();
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/dashboard/media/upload');
 
     xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
-            const percent = Math.round((e.loaded / e.total) * 100);
-            progressBar.style.width = percent + '%';
-            progressBar.textContent = percent + '%';
+            uploadingFiles.set(fileKey, { loaded: e.loaded, total: e.total });
+            updateOverallProgress();
         }
     });
 
     xhr.addEventListener('load', () => {
-        uploadZone.classList.remove('uploading');
+        activeUploads--;
         uploadingFiles.delete(fileKey);
 
         if (xhr.status >= 200 && xhr.status < 300) {
@@ -143,17 +169,38 @@ function uploadFile(file) {
             addResult(file.name, 'danger', 'Upload failed: ' + (xhr.responseText || 'Unknown error'));
         }
 
-        // Reset for next file
-        setTimeout(() => {
-            progress.classList.add('d-none');
-            progressBar.style.width = '0%';
-        }, 1000);
+        // Only reset UI when ALL uploads are done
+        if (activeUploads === 0) {
+            uploadZone.classList.remove('uploading');
+            setTimeout(() => {
+                progress.classList.add('d-none');
+                progressBar.style.width = '0%';
+                progressBar.textContent = '0%';
+            }, 1000);
+        } else {
+            updateOverallProgress();
+        }
+
+        if (onComplete) onComplete();
     });
 
     xhr.addEventListener('error', () => {
-        uploadZone.classList.remove('uploading');
+        activeUploads--;
         uploadingFiles.delete(fileKey);
-        addResult(file.name, 'danger', 'Upload failed');
+        addResult(file.name, 'danger', 'Upload failed - network error');
+
+        if (activeUploads === 0) {
+            uploadZone.classList.remove('uploading');
+            setTimeout(() => {
+                progress.classList.add('d-none');
+                progressBar.style.width = '0%';
+                progressBar.textContent = '0%';
+            }, 1000);
+        } else {
+            updateOverallProgress();
+        }
+
+        if (onComplete) onComplete();
     });
 
     xhr.send(formData);
