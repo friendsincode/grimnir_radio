@@ -73,9 +73,11 @@ services:
     environment:
       MEDIAENGINE_GRPC_PORT: 9091
       MEDIAENGINE_LOG_LEVEL: ${LOG_LEVEL:-info}
+      MEDIAENGINE_MEDIA_ROOT: /var/lib/grimnir/media
     # Ports defined in docker-compose.override.yml
     volumes:
       - media-cache:/var/lib/mediaengine/cache
+      - media-data:/var/lib/grimnir/media:ro
     healthcheck:
       test: ["CMD", "/usr/local/bin/mediaengine", "health"]
       interval: 30s
