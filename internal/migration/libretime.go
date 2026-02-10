@@ -1021,16 +1021,11 @@ func (l *LibreTimeImporter) importShowsFromAPI(ctx context.Context, client *Libr
 	l.logger.Info().Int("count", len(shows)).Msg("importing shows as clocks via API")
 
 	for _, ltShow := range shows {
-		// Default duration of 1 hour for clocks
-		durationSeconds := 3600
-
-		// Create Grimnir clock (shows become hour templates)
-		clock := &models.Clock{
-			ID:          uuid.New().String(),
-			StationID:   stationID,
-			Name:        ltShow.Name,
-			Description: ltShow.Description,
-			Duration:    durationSeconds,
+		// Create Grimnir clock hour (shows become hour templates)
+		clock := &models.ClockHour{
+			ID:        uuid.New().String(),
+			StationID: stationID,
+			Name:      ltShow.Name,
 		}
 
 		if err := l.db.WithContext(ctx).Create(clock).Error; err != nil {
@@ -1769,23 +1764,11 @@ func (l *LibreTimeImporter) importShows(ctx context.Context, ltDB *gorm.DB, resu
 	l.logger.Info().Int("count", len(ltShows)).Msg("importing shows as clocks")
 
 	for _, ltShow := range ltShows {
-		// Parse duration (HH:MM:SS format)
-		durationTimeDuration, err := parseDuration(ltShow.Duration)
-		if err != nil {
-			l.logger.Warn().Err(err).Int("show_id", ltShow.ID).Str("duration", ltShow.Duration).Msg("failed to parse show duration")
-			durationTimeDuration = time.Hour // Default to 1 hour
-		}
-
-		// Convert time.Duration to seconds (int) for Clock model
-		durationSeconds := int(durationTimeDuration.Seconds())
-
-		// Create Grimnir clock (shows become hour templates)
-		clock := &models.Clock{
-			ID:          uuid.New().String(),
-			StationID:   stationID,
-			Name:        ltShow.Name,
-			Description: ltShow.Description.String,
-			Duration:    durationSeconds,
+		// Create Grimnir clock hour (shows become hour templates)
+		clock := &models.ClockHour{
+			ID:        uuid.New().String(),
+			StationID: stationID,
+			Name:      ltShow.Name,
 		}
 
 		if err := l.db.WithContext(ctx).Create(clock).Error; err != nil {
@@ -2632,16 +2615,11 @@ func (l *LibreTimeImporter) CommitStagedImport(ctx context.Context, staged *mode
 			importedItems.ShowIDs = append(importedItems.ShowIDs, show.ID)
 			result.SchedulesCreated++
 		} else {
-			// Create as Clock (template only)
-			clock := &models.Clock{
-				ID:             uuid.New().String(),
-				StationID:      stationID,
-				Name:           sh.Name,
-				Description:    sh.Description,
-				Duration:       sh.DurationMinutes * 60,
-				ImportJobID:    &jobID,
-				ImportSource:   string(SourceTypeLibreTime),
-				ImportSourceID: sh.SourceID,
+			// Create as ClockHour (template only)
+			clock := &models.ClockHour{
+				ID:        uuid.New().String(),
+				StationID: stationID,
+				Name:      sh.Name,
 			}
 
 			if err := l.db.WithContext(ctx).Create(clock).Error; err != nil {

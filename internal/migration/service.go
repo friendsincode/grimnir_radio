@@ -731,9 +731,9 @@ func (s *Service) GetImportedItems(ctx context.Context, jobID string) (*Imported
 		Pluck("id", &showIDs)
 	items.ShowIDs = showIDs
 
-	// Query clocks
+	// Query clock hours
 	var clockIDs []string
-	s.db.WithContext(ctx).Model(&models.Clock{}).
+	s.db.WithContext(ctx).Model(&models.ClockHour{}).
 		Where("import_job_id = ?", jobID).
 		Pluck("id", &clockIDs)
 	items.ClockIDs = clockIDs
@@ -781,12 +781,12 @@ func (s *Service) RollbackImport(ctx context.Context, jobID string) error {
 			s.logger.Info().Int("count", len(items.WebstreamIDs)).Msg("deleted webstreams")
 		}
 
-		// Delete clocks
+		// Delete clock hours
 		if len(items.ClockIDs) > 0 {
-			if err := tx.Where("id IN ?", items.ClockIDs).Delete(&models.Clock{}).Error; err != nil {
-				return fmt.Errorf("delete clocks: %w", err)
+			if err := tx.Where("id IN ?", items.ClockIDs).Delete(&models.ClockHour{}).Error; err != nil {
+				return fmt.Errorf("delete clock hours: %w", err)
 			}
-			s.logger.Info().Int("count", len(items.ClockIDs)).Msg("deleted clocks")
+			s.logger.Info().Int("count", len(items.ClockIDs)).Msg("deleted clock hours")
 		}
 
 		// Delete show instances first, then shows

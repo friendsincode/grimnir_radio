@@ -476,13 +476,11 @@ func (i *Importer) importShows(ctx context.Context, ltDB *sql.DB, stationID stri
 			continue
 		}
 
-		// Create Clock for this show
-		clock := &models.Clock{
-			ID:          uuid.New().String(),
-			StationID:   stationID,
-			Name:        s.Name,
-			Description: s.Description,
-			Duration:    3600, // 1 hour default
+		// Create ClockHour for this show
+		clock := &models.ClockHour{
+			ID:        uuid.New().String(),
+			StationID: stationID,
+			Name:      s.Name,
 		}
 
 		if !i.options.DryRun {
