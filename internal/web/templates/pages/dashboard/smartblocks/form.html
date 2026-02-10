@@ -168,6 +168,13 @@
                     <div id="filterSection" class="accordion-collapse collapse">
                         <div class="accordion-body">
                             <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label small text-uppercase text-muted">Text Search</label>
+                                    <input type="text" class="form-control filter-field" name="filter_text_search"
+                                           placeholder="Search title, artist, or album..."
+                                           value="{{index $rules "text_search"}}">
+                                    <div class="form-text">Matches tracks where title, artist, or album contains this text</div>
+                                </div>
                                 <div class="col-md-4">
                                     <label class="form-label small text-uppercase text-muted">Genre</label>
                                     <select class="form-select filter-field" name="filter_genre">
