@@ -228,6 +228,7 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/", h.ScheduleCalendar)
 					r.Get("/events", h.ScheduleEvents) // JSON for calendar
 					r.Post("/entries", h.ScheduleCreateEntry)
+					r.Get("/entries/{id}/details", h.ScheduleEntryDetails)
 					r.Put("/entries/{id}", h.ScheduleUpdateEntry)
 					r.Delete("/entries/{id}", h.ScheduleDeleteEntry)
 					r.Post("/refresh", h.ScheduleRefresh)

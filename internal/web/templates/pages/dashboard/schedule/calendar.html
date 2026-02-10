@@ -239,7 +239,7 @@
 
 <!-- Event Detail Modal -->
 <div class="modal fade" id="eventModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="eventModalTitle">Event Details</h5>
@@ -248,13 +248,21 @@
             <div class="modal-body" id="eventModalBody">
                 <!-- Populated by JS -->
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                {{if roleAtLeast .User "manager"}}
-                <button type="button" class="btn btn-danger" id="deleteEventBtn" title="Delete this event">
-                    <i class="bi bi-trash me-1"></i>Delete
-                </button>
-                {{end}}
+            <div class="modal-footer justify-content-between">
+                <div id="eventModalLinks">
+                    <!-- Populated by JS with links to clock/playlist/etc -->
+                </div>
+                <div>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    {{if roleAtLeast .User "manager"}}
+                    <button type="button" class="btn btn-outline-primary" id="editEventBtn" title="Edit this event">
+                        <i class="bi bi-pencil me-1"></i>Edit
+                    </button>
+                    <button type="button" class="btn btn-danger" id="deleteEventBtn" title="Delete this event">
+                        <i class="bi bi-trash me-1"></i>Delete
+                    </button>
+                    {{end}}
+                </div>
             </div>
         </div>
     </div>
@@ -1420,10 +1428,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function showEventDetails(event) {
+    async function showEventDetails(event) {
         const props = event.extendedProps;
+        const modalBody = document.getElementById('eventModalBody');
 
         document.getElementById('eventModalTitle').textContent = event.title || 'Scheduled Item';
+
+        // Show loading state
+        modalBody.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading details...</div>';
+        eventModal.show();
 
         let typeColor = {
             'media': 'primary',
@@ -1431,13 +1444,35 @@ document.addEventListener('DOMContentLoaded', function() {
             'smart_block': 'info',
             'clock_template': 'purple',
             'live': 'danger',
-            'webstream': 'warning'
+            'webstream': 'warning',
+            'show': 'secondary'
         }[props.source_type] || 'secondary';
 
+        let typeLabel = {
+            'media': 'Track',
+            'playlist': 'Playlist',
+            'smart_block': 'Smart Block',
+            'clock_template': 'Clock Template',
+            'live': 'Live',
+            'webstream': 'Webstream',
+            'show': 'Show'
+        }[props.source_type] || props.source_type;
+
+        // Fetch detailed info from API
+        let details = null;
+        try {
+            const resp = await fetch(`/dashboard/schedule/entries/${event.id}/details`);
+            if (resp.ok) {
+                details = await resp.json();
+            }
+        } catch (e) {
+            console.warn('Failed to fetch entry details:', e);
+        }
+
         let body = `
-            <dl class="row mb-0">
+            <dl class="row mb-3">
                 <dt class="col-4">Type</dt>
-                <dd class="col-8"><span class="badge bg-${typeColor}">${props.source_type}</span></dd>
+                <dd class="col-8"><span class="badge bg-${typeColor}">${typeLabel}</span></dd>
 
                 <dt class="col-4">Start</dt>
                 <dd class="col-8">${event.start.toLocaleString()}</dd>
@@ -1447,20 +1482,180 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 <dt class="col-4">Duration</dt>
                 <dd class="col-8">${formatDuration((event.end - event.start) / 1000)}</dd>
+            </dl>
         `;
 
-        if (props.metadata) {
-            if (props.metadata.artist) {
-                body += `<dt class="col-4">Artist</dt><dd class="col-8">${props.metadata.artist}</dd>`;
-            }
-            if (props.metadata.album) {
-                body += `<dt class="col-4">Album</dt><dd class="col-8">${props.metadata.album}</dd>`;
-            }
+        // Add detailed content section
+        if (details) {
+            body += renderDetailsContent(details, props.source_type);
         }
 
-        body += '</dl>';
-        document.getElementById('eventModalBody').innerHTML = body;
-        eventModal.show();
+        modalBody.innerHTML = body;
+
+        // Populate links in footer
+        const linksContainer = document.getElementById('eventModalLinks');
+        if (linksContainer) {
+            linksContainer.innerHTML = renderSourceLinks(details, props.source_type);
+        }
+    }
+
+    function renderSourceLinks(details, sourceType) {
+        if (!details) return '';
+
+        switch (sourceType) {
+        case 'clock_template':
+            if (details.clock) {
+                return `<a href="/dashboard/clocks/${details.clock.id}" class="btn btn-sm btn-outline-secondary" target="_blank">
+                    <i class="bi bi-clock me-1"></i>View Clock Template
+                </a>`;
+            }
+            break;
+        case 'playlist':
+            if (details.playlist) {
+                return `<a href="/dashboard/playlists/${details.playlist.id}" class="btn btn-sm btn-outline-secondary" target="_blank">
+                    <i class="bi bi-music-note-list me-1"></i>View Playlist
+                </a>`;
+            }
+            break;
+        case 'smart_block':
+            if (details.smart_block) {
+                return `<a href="/dashboard/smart-blocks/${details.smart_block.id}" class="btn btn-sm btn-outline-secondary" target="_blank">
+                    <i class="bi bi-lightning me-1"></i>View Smart Block
+                </a>`;
+            }
+            break;
+        case 'media':
+            if (details.media) {
+                return `<a href="/dashboard/media/${details.media.id}" class="btn btn-sm btn-outline-secondary" target="_blank">
+                    <i class="bi bi-file-music me-1"></i>View Media
+                </a>`;
+            }
+            break;
+        }
+        return '';
+    }
+
+    function renderDetailsContent(details, sourceType) {
+        let html = '';
+
+        switch (sourceType) {
+        case 'clock_template':
+            if (details.clock) {
+                html += `<div class="border-top pt-3">
+                    <h6 class="mb-2"><i class="bi bi-clock me-2"></i>Clock: ${escapeHtml(details.clock.name)}</h6>`;
+
+                if (details.slots && details.slots.length > 0) {
+                    html += `<div class="small text-body-secondary mb-2">${details.slots.length} slot(s) configured</div>`;
+
+                    for (const slot of details.slots) {
+                        html += renderSlotContent(slot);
+                    }
+                } else {
+                    html += `<div class="text-body-secondary small">No slots configured</div>`;
+                }
+                html += `</div>`;
+            }
+            break;
+
+        case 'playlist':
+            if (details.playlist) {
+                html += `<div class="border-top pt-3">
+                    <h6 class="mb-2"><i class="bi bi-music-note-list me-2"></i>Playlist: ${escapeHtml(details.playlist.name)}</h6>
+                    <div class="small text-body-secondary mb-2">${details.playlist.track_count} tracks, ${formatDuration(details.playlist.total_duration)}</div>`;
+                html += renderTrackList(details.playlist.tracks);
+                html += `</div>`;
+            }
+            break;
+
+        case 'smart_block':
+            if (details.smart_block) {
+                html += `<div class="border-top pt-3">
+                    <h6 class="mb-2"><i class="bi bi-lightning me-2"></i>Smart Block: ${escapeHtml(details.smart_block.name)}</h6>
+                    <div class="small text-body-secondary">Limit: ${details.smart_block.limit || 'No limit'}</div>
+                </div>`;
+            }
+            break;
+
+        case 'media':
+            if (details.media) {
+                html += `<div class="border-top pt-3">
+                    <h6 class="mb-2"><i class="bi bi-file-music me-2"></i>Track Details</h6>
+                    <dl class="row mb-0 small">
+                        <dt class="col-4">Title</dt><dd class="col-8">${escapeHtml(details.media.title || '-')}</dd>
+                        <dt class="col-4">Artist</dt><dd class="col-8">${escapeHtml(details.media.artist || '-')}</dd>
+                        <dt class="col-4">Album</dt><dd class="col-8">${escapeHtml(details.media.album || '-')}</dd>
+                        <dt class="col-4">Genre</dt><dd class="col-8">${escapeHtml(details.media.genre || '-')}</dd>
+                        <dt class="col-4">Duration</dt><dd class="col-8">${formatDuration(details.media.duration)}</dd>
+                    </dl>
+                </div>`;
+            }
+            break;
+
+        case 'webstream':
+            if (details.webstream) {
+                html += `<div class="border-top pt-3">
+                    <h6 class="mb-2"><i class="bi bi-broadcast me-2"></i>Webstream: ${escapeHtml(details.webstream.name)}</h6>
+                    <div class="small text-body-secondary text-truncate">${escapeHtml(details.webstream.url)}</div>
+                </div>`;
+            }
+            break;
+        }
+
+        return html;
+    }
+
+    function renderSlotContent(slot) {
+        let html = `<div class="card card-body p-2 mb-2 bg-body-secondary">`;
+
+        if (slot.playlist) {
+            html += `<div class="d-flex justify-content-between align-items-center mb-1">
+                <span><i class="bi bi-music-note-list me-1"></i><strong>${escapeHtml(slot.playlist.name)}</strong></span>
+                <span class="badge bg-success">${slot.playlist.track_count} tracks</span>
+            </div>`;
+            html += renderTrackList(slot.playlist.tracks, 5);
+        } else if (slot.smart_block) {
+            html += `<div><i class="bi bi-lightning me-1"></i><strong>${escapeHtml(slot.smart_block.name)}</strong></div>`;
+        } else {
+            html += `<div class="text-body-secondary">Slot type: ${slot.type}</div>`;
+        }
+
+        html += `</div>`;
+        return html;
+    }
+
+    function renderTrackList(tracks, limit = 10) {
+        if (!tracks || tracks.length === 0) {
+            return '<div class="text-body-secondary small">No tracks</div>';
+        }
+
+        let html = '<div class="list-group list-group-flush small" style="max-height: 200px; overflow-y: auto;">';
+        const displayTracks = tracks.slice(0, limit);
+
+        for (const track of displayTracks) {
+            html += `<div class="list-group-item py-1 px-2 d-flex justify-content-between">
+                <span class="text-truncate" style="max-width: 70%;">
+                    <strong>${escapeHtml(track.title || 'Unknown')}</strong>
+                    ${track.artist ? `<span class="text-body-secondary"> - ${escapeHtml(track.artist)}</span>` : ''}
+                </span>
+                <span class="text-body-secondary">${formatDuration(track.duration)}</span>
+            </div>`;
+        }
+
+        if (tracks.length > limit) {
+            html += `<div class="list-group-item py-1 px-2 text-body-secondary text-center">
+                ... and ${tracks.length - limit} more tracks
+            </div>`;
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
     }
 
     function formatDuration(seconds) {
@@ -2454,6 +2649,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Delete event button in modal
     document.getElementById('deleteEventBtn')?.addEventListener('click', () => {
         if (selectedEvent) deleteEvent(selectedEvent);
+    });
+
+    // Edit event button in modal
+    document.getElementById('editEventBtn')?.addEventListener('click', () => {
+        if (selectedEvent) {
+            eventModal.hide();
+            openEditModal(selectedEvent);
+        }
     });
 
     // WebSocket updates
