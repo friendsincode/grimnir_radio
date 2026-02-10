@@ -1143,6 +1143,9 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 	}
 
 	// Selection filters
+	if textSearch := r.FormValue("filter_text_search"); textSearch != "" {
+		rules["text_search"] = textSearch
+	}
 	if genre := r.FormValue("filter_genre"); genre != "" {
 		rules["genre"] = genre
 	}

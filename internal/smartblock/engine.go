@@ -203,6 +203,17 @@ func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
 	switch field {
 	case "genre", "mood", "language", "artist", "album", "title", "label":
 		return cond(field+" = ?", value)
+	case "text_search":
+		// Search across multiple text fields using ILIKE
+		if searchText, ok := value.(string); ok && searchText != "" {
+			pattern := "%" + searchText + "%"
+			searchClause := "(LOWER(title) LIKE LOWER(?) OR LOWER(artist) LIKE LOWER(?) OR LOWER(album) LIKE LOWER(?))"
+			if positive {
+				return query.Where(searchClause, pattern, pattern, pattern)
+			}
+			return query.Where("NOT "+searchClause, pattern, pattern, pattern)
+		}
+		return query
 	case "bpm":
 		rangeVals := toFloatRange(value)
 		if rangeVals[0] != 0 {
