@@ -540,6 +540,10 @@ type ClockHour struct {
 	StationID string `gorm:"type:uuid;index"`
 	Name      string
 	Slots     []ClockSlot `gorm:"foreignKey:ClockHourID"`
+
+	// Import provenance (nullable for manually created items)
+	ImportJobID *string `gorm:"type:uuid;index"` // Which import job created this
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
