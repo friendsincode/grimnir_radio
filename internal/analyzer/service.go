@@ -243,8 +243,24 @@ func (s *Service) performAnalysis(ctx context.Context, media *models.MediaItem) 
 	// Build full path from media root + relative path
 	fullPath := filepath.Join(s.workDir, media.Path)
 
-	if _, err := os.Stat(fullPath); err != nil {
-		return analysisResult{}, err
+	// Wait for file to appear (in case upload is still syncing)
+	var fileErr error
+	for i := 0; i < 5; i++ {
+		if _, fileErr = os.Stat(fullPath); fileErr == nil {
+			break
+		}
+		if !os.IsNotExist(fileErr) {
+			return analysisResult{}, fileErr
+		}
+		s.logger.Debug().Str("path", fullPath).Int("attempt", i+1).Msg("waiting for file to appear")
+		select {
+		case <-ctx.Done():
+			return analysisResult{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	if fileErr != nil {
+		return analysisResult{}, errors.New("file not found: " + fileErr.Error())
 	}
 
 	// Media engine is required for analysis
