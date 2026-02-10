@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -559,6 +560,156 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ScheduleEntryDetails returns detailed info about a schedule entry including what will be played
+func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var entry models.ScheduleEntry
+	if err := h.db.First(&entry, "id = ?", id).Error; err != nil {
+		http.Error(w, "Entry not found", http.StatusNotFound)
+		return
+	}
+
+	response := map[string]any{
+		"id":          entry.ID,
+		"source_type": entry.SourceType,
+		"source_id":   entry.SourceID,
+		"starts_at":   entry.StartsAt,
+		"ends_at":     entry.EndsAt,
+		"metadata":    entry.Metadata,
+	}
+
+	// Get detailed content based on source type
+	switch entry.SourceType {
+	case "clock_template":
+		var clockHour models.ClockHour
+		if err := h.db.Preload("Slots").First(&clockHour, "id = ?", entry.SourceID).Error; err == nil {
+			response["clock"] = map[string]any{
+				"id":   clockHour.ID,
+				"name": clockHour.Name,
+			}
+
+			// Get slot details
+			var slots []map[string]any
+			for _, slot := range clockHour.Slots {
+				slotInfo := map[string]any{
+					"id":       slot.ID,
+					"position": slot.Position,
+					"offset":   slot.Offset,
+					"type":     slot.Type,
+				}
+
+				// Get content for each slot type
+				switch slot.Type {
+				case models.SlotTypePlaylist:
+					if playlistID, ok := slot.Payload["playlist_id"].(string); ok {
+						var playlist models.Playlist
+						if h.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
+							return db.Order("position ASC").Limit(20)
+						}).Preload("Items.Media").First(&playlist, "id = ?", playlistID).Error == nil {
+							var tracks []map[string]any
+							var totalDuration int64
+							for _, item := range playlist.Items {
+								durSec := int64(item.Media.Duration.Seconds())
+								tracks = append(tracks, map[string]any{
+									"title":    item.Media.Title,
+									"artist":   item.Media.Artist,
+									"duration": durSec,
+								})
+								totalDuration += durSec
+							}
+							slotInfo["playlist"] = map[string]any{
+								"id":             playlist.ID,
+								"name":           playlist.Name,
+								"track_count":    len(playlist.Items),
+								"total_duration": totalDuration,
+								"tracks":         tracks,
+							}
+						}
+					}
+				case models.SlotTypeSmartBlock:
+					if smartBlockID, ok := slot.Payload["smart_block_id"].(string); ok {
+						var smartBlock models.SmartBlock
+						if h.db.First(&smartBlock, "id = ?", smartBlockID).Error == nil {
+							slotInfo["smart_block"] = map[string]any{
+								"id":   smartBlock.ID,
+								"name": smartBlock.Name,
+							}
+						}
+					}
+				}
+				slots = append(slots, slotInfo)
+			}
+			response["slots"] = slots
+		}
+
+	case "playlist":
+		var playlist models.Playlist
+		if err := h.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
+			return db.Order("position ASC").Limit(50)
+		}).Preload("Items.Media").First(&playlist, "id = ?", entry.SourceID).Error; err == nil {
+			var tracks []map[string]any
+			var totalDuration int64
+			for _, item := range playlist.Items {
+				durSec := int64(item.Media.Duration.Seconds())
+				tracks = append(tracks, map[string]any{
+					"title":    item.Media.Title,
+					"artist":   item.Media.Artist,
+					"duration": durSec,
+				})
+				totalDuration += durSec
+			}
+			response["playlist"] = map[string]any{
+				"id":             playlist.ID,
+				"name":           playlist.Name,
+				"track_count":    len(playlist.Items),
+				"total_duration": totalDuration,
+				"tracks":         tracks,
+			}
+		}
+
+	case "smart_block":
+		var smartBlock models.SmartBlock
+		if err := h.db.First(&smartBlock, "id = ?", entry.SourceID).Error; err == nil {
+			response["smart_block"] = map[string]any{
+				"id":    smartBlock.ID,
+				"name":  smartBlock.Name,
+				"rules": smartBlock.Rules,
+			}
+		}
+
+	case "media":
+		var media models.MediaItem
+		if err := h.db.First(&media, "id = ?", entry.SourceID).Error; err == nil {
+			response["media"] = map[string]any{
+				"id":       media.ID,
+				"title":    media.Title,
+				"artist":   media.Artist,
+				"album":    media.Album,
+				"duration": int64(media.Duration.Seconds()),
+				"genre":    media.Genre,
+			}
+		}
+
+	case "webstream":
+		var webstream models.Webstream
+		if err := h.db.First(&webstream, "id = ?", entry.SourceID).Error; err == nil {
+			var url string
+			if len(webstream.URLs) > 0 {
+				url = webstream.URLs[0]
+			}
+			response["webstream"] = map[string]any{
+				"id":   webstream.ID,
+				"name": webstream.Name,
+				"url":  url,
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // ScheduleRefresh triggers a schedule refresh
