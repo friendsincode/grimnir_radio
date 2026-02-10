@@ -563,7 +563,7 @@ func (i *Importer) importShows(ctx context.Context, ltDB *sql.DB, stationID stri
 
 		// If we have a clock, reference it
 		if hasClockID {
-			scheduleEntry.SourceType = "clock"
+			scheduleEntry.SourceType = "clock_template"
 			scheduleEntry.SourceID = clockID
 		} else {
 			scheduleEntry.SourceType = "show"

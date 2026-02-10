@@ -206,6 +206,16 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 				title = "Live Session"
 			}
 			sourceLabel = "Live"
+		case "show":
+			// Imported shows without a clock - get title from metadata
+			if entry.Metadata != nil {
+				if name, ok := entry.Metadata["show_name"].(string); ok {
+					title = name
+				} else if t, ok := entry.Metadata["title"].(string); ok {
+					title = t
+				}
+			}
+			sourceLabel = "Show"
 		default:
 			title = entry.SourceType
 			sourceLabel = entry.SourceType
