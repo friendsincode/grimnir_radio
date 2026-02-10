@@ -544,6 +544,13 @@ func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEnt
 		}
 		return d.startWebstreamByID(ctx, entry, wsID, clock.ID, clock.Name)
 
+	case models.SlotTypePlaylist:
+		playlistID, ok := slot.Payload["playlist_id"].(string)
+		if !ok {
+			return fmt.Errorf("playlist_id not found in slot payload")
+		}
+		return d.startPlaylistByID(ctx, entry, playlistID, clock.ID, clock.Name)
+
 	case models.SlotTypeStopset:
 		// Stopsets (ad breaks) not implemented yet - skip to next content
 		d.logger.Debug().Str("clock", clock.ID).Msg("skipping stopset slot (not implemented)")
@@ -647,6 +654,55 @@ func (d *Director) playMediaByID(ctx context.Context, entry models.ScheduleEntry
 	return d.playMediaWithState(ctx, entry, media, "clock", clockID, 0, []string{mediaID}, map[string]any{
 		"clock_id":   clockID,
 		"clock_name": clockName,
+	})
+}
+
+// startPlaylistByID plays a playlist by ID (used by clock playlist slots)
+func (d *Director) startPlaylistByID(ctx context.Context, entry models.ScheduleEntry, playlistID, clockID, clockName string) error {
+	// Load playlist with items ordered by position
+	var playlist models.Playlist
+	if err := d.db.WithContext(ctx).Preload("Items", func(db *gorm.DB) *gorm.DB {
+		return db.Order("position ASC")
+	}).First(&playlist, "id = ?", playlistID).Error; err != nil {
+		return fmt.Errorf("failed to load playlist: %w", err)
+	}
+
+	if len(playlist.Items) == 0 {
+		d.logger.Warn().Str("playlist", playlist.ID).Str("clock", clockID).Msg("playlist is empty")
+		d.publishNowPlaying(entry, map[string]any{
+			"clock_id":      clockID,
+			"clock_name":    clockName,
+			"playlist_id":   playlist.ID,
+			"playlist_name": playlist.Name,
+			"error":         "empty playlist",
+		})
+		return nil
+	}
+
+	// Build items list (media IDs in order)
+	items := make([]string, len(playlist.Items))
+	for i, item := range playlist.Items {
+		items[i] = item.MediaID
+	}
+
+	// Load first media item
+	var media models.MediaItem
+	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
+		return fmt.Errorf("failed to load media item: %w", err)
+	}
+
+	d.logger.Info().
+		Str("clock", clockID).
+		Str("playlist", playlist.Name).
+		Int("tracks", len(items)).
+		Msg("starting playlist from clock slot")
+
+	return d.playMediaWithState(ctx, entry, media, "clock", clockID, 0, items, map[string]any{
+		"clock_id":      clockID,
+		"clock_name":    clockName,
+		"playlist_id":   playlist.ID,
+		"playlist_name": playlist.Name,
+		"total_items":   len(items),
 	})
 }
 
