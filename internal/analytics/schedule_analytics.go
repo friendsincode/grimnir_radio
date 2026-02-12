@@ -103,10 +103,10 @@ func (s *ScheduleAnalyticsService) GetShowPerformance(ctx context.Context, stati
 			WHERE sad.station_id = ?
 			AND sad.date >= ? AND sad.date < ?
 			AND sad.scope = 'show'
-			AND sad.show_id != ''
+			AND sad.show_id != ?
 			GROUP BY sad.show_id, sh.name
 			ORDER BY avg_listeners DESC
-		`, stationID, startDay, endDay).Rows()
+		`, stationID, startDay, endDay, models.NilUUIDString).Rows()
 	} else {
 		// Get current period stats from hourly table
 		rows, err = s.db.WithContext(ctx).Raw(`
@@ -361,7 +361,7 @@ func (s *ScheduleAnalyticsService) AggregateDaily(ctx context.Context, stationID
 	var stationRow row
 	if err := s.db.WithContext(ctx).Raw(`
 		SELECT
-			NULL AS show_id,
+			? AS show_id,
 			COUNT(DISTINCT instance_id) AS instance_count,
 			COALESCE(MAX(peak_listeners), 0) AS peak_listeners,
 			COALESCE(SUM(tune_ins), 0) AS tune_ins,
@@ -370,7 +370,7 @@ func (s *ScheduleAnalyticsService) AggregateDaily(ctx context.Context, stationID
 			COUNT(*) AS hours_covered
 		FROM schedule_analytics
 		WHERE station_id = ? AND date = ?
-	`, stationID, day).Scan(&stationRow).Error; err != nil {
+	`, models.NilUUIDString, stationID, day).Scan(&stationRow).Error; err != nil {
 		return fmt.Errorf("daily aggregation query (station): %w", err)
 	}
 
@@ -389,7 +389,7 @@ func (s *ScheduleAnalyticsService) AggregateDaily(ctx context.Context, stationID
 		StationID:            stationID,
 		Date:                 day,
 		Scope:                "station",
-		ShowID:               "",
+		ShowID:               models.NilUUIDString,
 		InstanceCount:        stationRow.InstanceCount,
 		AvgListeners:         toAvg(stationRow.TotalListenerMins, stationRow.HoursCovered),
 		PeakListeners:        stationRow.PeakListeners,
@@ -402,8 +402,8 @@ func (s *ScheduleAnalyticsService) AggregateDaily(ctx context.Context, stationID
 	})
 
 	for _, r := range rows {
-		showID := ""
-		if r.ShowID != nil {
+		showID := models.NilUUIDString
+		if r.ShowID != nil && *r.ShowID != "" {
 			showID = *r.ShowID
 		}
 		upserts = append(upserts, models.ScheduleAnalyticsDaily{

@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// NilUUIDString is a valid UUID literal used as a sentinel "no UUID" value in places where
+// we want NOT NULL uuid columns but still need a "none" representation (e.g. station-scope rollups).
+const NilUUIDString = "00000000-0000-0000-0000-000000000000"
+
 // ListenerSample stores time-series listener snapshots for a station.
 type ListenerSample struct {
 	ID         string    `gorm:"type:uuid;primaryKey" json:"id"`
@@ -53,13 +57,13 @@ func (ScheduleAnalytics) TableName() string {
 
 // ScheduleAnalyticsDaily stores daily rollups derived from schedule_analytics.
 // Scope determines whether the row is a station summary or a show summary.
-// For station summaries, ShowID is empty.
+// For station summaries, ShowID is NilUUIDString.
 type ScheduleAnalyticsDaily struct {
 	ID        string    `gorm:"type:uuid;primaryKey" json:"id"`
 	StationID string    `gorm:"type:uuid;not null;uniqueIndex:idx_schedule_analytics_daily,priority:1" json:"station_id"`
 	Date      time.Time `gorm:"type:date;not null;uniqueIndex:idx_schedule_analytics_daily,priority:2" json:"date"`
 	Scope     string    `gorm:"type:varchar(16);not null;uniqueIndex:idx_schedule_analytics_daily,priority:3" json:"scope"` // "station"|"show"
-	ShowID    string    `gorm:"type:uuid;not null;default:'';uniqueIndex:idx_schedule_analytics_daily,priority:4" json:"show_id,omitempty"`
+	ShowID    string    `gorm:"type:uuid;not null;default:'00000000-0000-0000-0000-000000000000';uniqueIndex:idx_schedule_analytics_daily,priority:4" json:"show_id,omitempty"`
 
 	InstanceCount        int     `json:"instance_count"`
 	AvgListeners         float64 `json:"avg_listeners"`
