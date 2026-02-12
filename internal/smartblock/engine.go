@@ -118,7 +118,86 @@ func (e *Engine) loadDefinition(ctx context.Context, smartBlockID string) (Defin
 	if err := json.Unmarshal(bytes, &def); err != nil {
 		return Definition{}, err
 	}
+
+	// Backward compatibility for legacy Smart Block rules used by dashboard form.
+	def = applyLegacyRuleCompat(def, sb.Rules)
 	return def, nil
+}
+
+func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
+	if rules == nil {
+		return def
+	}
+
+	hasField := func(field string) bool {
+		for _, rule := range def.Include {
+			if strings.EqualFold(rule.Field, field) {
+				return true
+			}
+		}
+		return false
+	}
+	addInclude := func(field string, value any) {
+		if !hasField(field) {
+			def.Include = append(def.Include, FilterRule{Field: field, Value: value})
+		}
+	}
+
+	if s := strings.TrimSpace(toString(rules["text_search"])); s != "" {
+		addInclude("text_search", s)
+	}
+	if s := strings.TrimSpace(toString(rules["genre"])); s != "" {
+		addInclude("genre", s)
+	}
+	if s := strings.TrimSpace(toString(rules["artist"])); s != "" {
+		addInclude("artist", s)
+	}
+	if s := strings.TrimSpace(toString(rules["mood"])); s != "" {
+		addInclude("mood", s)
+	}
+	if s := strings.TrimSpace(toString(rules["language"])); s != "" {
+		addInclude("language", s)
+	}
+
+	if bpm, ok := rules["bpmRange"]; ok && !hasField("bpm") {
+		def.Include = append(def.Include, FilterRule{Field: "bpm", Value: bpm})
+	}
+	if year, ok := rules["yearRange"]; ok && !hasField("year") {
+		def.Include = append(def.Include, FilterRule{Field: "year", Value: year})
+	}
+
+	if excludeExplicit, ok := rules["excludeExplicit"].(bool); ok && excludeExplicit && !hasField("explicit") {
+		// Legacy UI semantics: "exclude explicit" means explicit=false.
+		def.Include = append(def.Include, FilterRule{Field: "explicit", Value: false})
+	}
+
+	if def.Duration.TargetMS <= 0 {
+		if mins := toInt(rules["targetMinutes"]); mins > 0 {
+			def.Duration.TargetMS = int64(mins) * int64(time.Minute/time.Millisecond)
+		}
+	}
+	if def.Duration.Tolerance <= 0 {
+		if sec := toInt(rules["durationAccuracy"]); sec > 0 {
+			def.Duration.Tolerance = int64(sec) * 1000
+		}
+	}
+
+	if sep, ok := rules["separation"].(map[string]any); ok {
+		if def.Separation.ArtistSec == 0 {
+			def.Separation.ArtistSec = toInt(sep["artist"]) * 60
+		}
+		if def.Separation.TitleSec == 0 {
+			def.Separation.TitleSec = toInt(sep["title"]) * 60
+		}
+		if def.Separation.AlbumSec == 0 {
+			def.Separation.AlbumSec = toInt(sep["album"]) * 60
+		}
+		if def.Separation.LabelSec == 0 {
+			def.Separation.LabelSec = toInt(sep["label"]) * 60
+		}
+	}
+
+	return def
 }
 
 func (e *Engine) recentPlays(ctx context.Context, stationID string, windows map[string]time.Duration) ([]models.PlayHistory, error) {
@@ -607,6 +686,10 @@ func toFloat(value interface{}) float64 {
 	default:
 		return 0
 	}
+}
+
+func toInt(value interface{}) int {
+	return int(toFloat(value))
 }
 
 func toBool(value interface{}) bool {
