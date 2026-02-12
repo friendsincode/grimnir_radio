@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package webdj
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -14,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -112,25 +115,55 @@ func (w *WaveformService) generateWaveform(ctx context.Context, mediaID, path st
 		Int64("duration_ms", durationMS).
 		Msg("generating waveform")
 
-	// Default to 10 samples per second for visualization
-	const samplesPerSec int32 = 10
+	// Default to 10 samples per second for visualization, but cap maximum samples to avoid
+	// huge cache blobs for very long recordings.
+	const defaultSamplesPerSec int32 = 10
+	const maxSamples = 200_000
+
+	samplesPerSec := defaultSamplesPerSec
+	if durationMS > 0 {
+		estSamples := (durationMS * int64(samplesPerSec)) / 1000
+		if estSamples > maxSamples {
+			// Reduce sample rate to fit in maxSamples, but keep >= 1.
+			sps := int32((maxSamples * 1000) / durationMS)
+			if sps < 1 {
+				sps = 1
+			}
+			samplesPerSec = sps
+		}
+	}
 
 	// Check if media engine client is available
 	if w.meClient == nil || !w.meClient.IsConnected() {
-		w.logger.Warn().Msg("media engine not connected, using placeholder waveform")
-		return w.generatePlaceholderWaveform(mediaID, durationMS)
+		w.logger.Warn().Msg("media engine not connected, generating waveform via ffmpeg fallback")
+		if data, err := w.generateWaveformFFmpeg(ctx, mediaID, path, durationMS, int(samplesPerSec)); err == nil {
+			return data, nil
+		} else {
+			w.logger.Warn().Err(err).Str("media_id", mediaID).Msg("ffmpeg waveform fallback failed, using placeholder")
+			return w.generatePlaceholderWaveform(mediaID, durationMS)
+		}
 	}
 
 	// Call media engine to generate waveform
 	resp, err := w.meClient.GenerateWaveform(ctx, path, samplesPerSec, pb.WaveformType_WAVEFORM_TYPE_PEAK)
 	if err != nil {
-		w.logger.Warn().Err(err).Str("media_id", mediaID).Msg("media engine waveform generation failed, using placeholder")
-		return w.generatePlaceholderWaveform(mediaID, durationMS)
+		w.logger.Warn().Err(err).Str("media_id", mediaID).Msg("media engine waveform generation failed, generating via ffmpeg fallback")
+		if data, err := w.generateWaveformFFmpeg(ctx, mediaID, path, durationMS, int(samplesPerSec)); err == nil {
+			return data, nil
+		} else {
+			w.logger.Warn().Err(err).Str("media_id", mediaID).Msg("ffmpeg waveform fallback failed, using placeholder")
+			return w.generatePlaceholderWaveform(mediaID, durationMS)
+		}
 	}
 
 	if !resp.Success {
-		w.logger.Warn().Str("error", resp.Error).Str("media_id", mediaID).Msg("waveform generation returned error, using placeholder")
-		return w.generatePlaceholderWaveform(mediaID, durationMS)
+		w.logger.Warn().Str("error", resp.Error).Str("media_id", mediaID).Msg("waveform generation returned error, generating via ffmpeg fallback")
+		if data, err := w.generateWaveformFFmpeg(ctx, mediaID, path, durationMS, int(samplesPerSec)); err == nil {
+			return data, nil
+		} else {
+			w.logger.Warn().Err(err).Str("media_id", mediaID).Msg("ffmpeg waveform fallback failed, using placeholder")
+			return w.generatePlaceholderWaveform(mediaID, durationMS)
+		}
 	}
 
 	// Convert proto float slices to float32 slices
@@ -158,6 +191,151 @@ func (w *WaveformService) generateWaveform(ctx context.Context, mediaID, path st
 		Msg("waveform generated via media engine")
 
 	return data, nil
+}
+
+func (w *WaveformService) generateWaveformFFmpeg(ctx context.Context, mediaID, path string, durationMS int64, samplesPerSec int) (*WaveformData, error) {
+	if samplesPerSec <= 0 {
+		samplesPerSec = 10
+	}
+
+	// Decode with ffmpeg at a low sample rate to keep CPU/memory bounded. We only need
+	// rough peaks for a waveform overview, not sample-accurate maxima.
+	resampleRate := samplesPerSec * 200
+	if resampleRate < 200 {
+		resampleRate = 200
+	}
+
+	cmd := exec.CommandContext(ctx,
+		"ffmpeg",
+		"-hide_banner",
+		"-nostdin",
+		"-loglevel", "error",
+		"-i", path,
+		"-vn", "-sn", "-dn",
+		"-f", "s16le",
+		"-ac", "2",
+		"-ar", fmt.Sprintf("%d", resampleRate),
+		"pipe:1",
+	)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("ffmpeg stdout pipe: %w", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("ffmpeg start: %w", err)
+	}
+
+	peakLeft, peakRight, frames, err := computePeaksFromPCM(bufio.NewReaderSize(stdout, 64*1024), resampleRate, samplesPerSec)
+	if err != nil {
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("ffmpeg pcm peak compute: %w", err)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return nil, fmt.Errorf("ffmpeg wait: %w (stderr: %s)", err, stderr.String())
+	}
+
+	genDurationMS := durationMS
+	if frames > 0 {
+		genDurationMS = int64(math.Round((float64(frames) / float64(resampleRate)) * 1000))
+	}
+
+	if len(peakLeft) == 0 {
+		return nil, fmt.Errorf("ffmpeg produced no samples")
+	}
+
+	w.logger.Info().
+		Str("media_id", mediaID).
+		Int("samples_per_sec", samplesPerSec).
+		Int("num_samples", len(peakLeft)).
+		Msg("waveform generated via ffmpeg fallback")
+
+	return &WaveformData{
+		MediaID:       mediaID,
+		SamplesPerSec: samplesPerSec,
+		DurationMS:    genDurationMS,
+		PeakLeft:      peakLeft,
+		PeakRight:     peakRight,
+		GeneratedAt:   time.Now(),
+	}, nil
+}
+
+func computePeaksFromPCM(r *bufio.Reader, sampleRate int, samplesPerSec int) ([]float32, []float32, int64, error) {
+	if sampleRate <= 0 || samplesPerSec <= 0 {
+		return nil, nil, 0, fmt.Errorf("invalid sampleRate/samplesPerSec")
+	}
+	samplesPerWindow := sampleRate / samplesPerSec
+	if samplesPerWindow <= 0 {
+		samplesPerWindow = 1
+	}
+
+	var (
+		peakLeft  []float32
+		peakRight []float32
+
+		windowCount int
+		maxL        int16
+		maxR        int16
+		frames      int64
+	)
+
+	flushWindow := func() {
+		if windowCount == 0 {
+			return
+		}
+		peakLeft = append(peakLeft, float32(abs16(maxL))/32768.0)
+		peakRight = append(peakRight, float32(abs16(maxR))/32768.0)
+		windowCount = 0
+		maxL = 0
+		maxR = 0
+	}
+
+	// Each frame is 4 bytes (s16le stereo: L,R).
+	buf := make([]byte, 4*4096)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			// Ensure we only parse complete frames.
+			n -= n % 4
+			for i := 0; i < n; i += 4 {
+				l := int16(binary.LittleEndian.Uint16(buf[i : i+2]))
+				rr := int16(binary.LittleEndian.Uint16(buf[i+2 : i+4]))
+				if abs16(l) > abs16(maxL) {
+					maxL = l
+				}
+				if abs16(rr) > abs16(maxR) {
+					maxR = rr
+				}
+
+				windowCount++
+				frames++
+				if windowCount >= samplesPerWindow {
+					flushWindow()
+				}
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				flushWindow()
+				return peakLeft, peakRight, frames, nil
+			}
+			return nil, nil, frames, err
+		}
+	}
+}
+
+func abs16(v int16) int16 {
+	if v == -32768 {
+		return 32767
+	}
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // generatePlaceholderWaveform creates synthetic waveform data when media engine is unavailable.
