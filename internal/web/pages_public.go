@@ -22,6 +22,103 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
+type stationWithStream struct {
+	Station     models.Station
+	StreamURL   string
+	StreamURLLQ string
+	MountName   string
+}
+
+func stationMountMap(db *gorm.DB, stations []models.Station) map[string]models.Mount {
+	ids := make([]string, 0, len(stations))
+	for _, s := range stations {
+		if s.ID != "" {
+			ids = append(ids, s.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return map[string]models.Mount{}
+	}
+
+	var mounts []models.Mount
+	db.Where("station_id IN ?", ids).Order("created_at ASC").Find(&mounts)
+
+	out := make(map[string]models.Mount, len(ids))
+	for _, m := range mounts {
+		// first mount per station wins
+		if _, ok := out[m.StationID]; ok {
+			continue
+		}
+		out[m.StationID] = m
+	}
+	return out
+}
+
+func buildStationsWithStreams(stations []models.Station, mountsByStationID map[string]models.Mount) []stationWithStream {
+	out := make([]stationWithStream, 0, len(stations))
+	for _, s := range stations {
+		sw := stationWithStream{Station: s}
+		if m, ok := mountsByStationID[s.ID]; ok && m.ID != "" {
+			sw.StreamURL = "/live/" + m.Name
+			sw.StreamURLLQ = "/live/" + m.Name + "-lq"
+			sw.MountName = m.Name
+		}
+		out = append(out, sw)
+	}
+	return out
+}
+
+func reorderStationsForStationLanding(platformOrdered []models.Station, currentStationID string, placement string) []models.Station {
+	if len(platformOrdered) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(platformOrdered)+2)
+	out := make([]models.Station, 0, len(platformOrdered)+1)
+
+	add := func(s models.Station) {
+		if s.ID == "" {
+			return
+		}
+		if _, ok := seen[s.ID]; ok {
+			return
+		}
+		seen[s.ID] = struct{}{}
+		out = append(out, s)
+	}
+
+	// Find current station in the platform list if present.
+	var current models.Station
+	foundCurrent := false
+	for _, s := range platformOrdered {
+		if s.ID == currentStationID {
+			current = s
+			foundCurrent = true
+			break
+		}
+	}
+	platformFirst := platformOrdered[0]
+
+	switch placement {
+	case "after_platform_first":
+		add(platformFirst)
+		if foundCurrent {
+			add(current)
+		}
+	default:
+		// Default: current first, then platform #1, then the rest.
+		if foundCurrent {
+			add(current)
+		}
+		add(platformFirst)
+	}
+
+	for _, s := range platformOrdered {
+		add(s)
+	}
+	return out
+}
+
 // Landing renders the public platform landing page
 func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 	// Get platform landing page config
@@ -191,37 +288,59 @@ func (h *Handler) StationLanding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get station's mount for the player
-	var mount models.Mount
-	h.db.Where("station_id = ?", station.ID).First(&mount)
-
-	// Build stream URLs
-	streamURL := ""
-	streamURLLQ := ""
-	if mount.ID != "" {
-		streamURL = "/live/" + mount.Name
-		streamURLLQ = "/live/" + mount.Name + "-lq"
-	}
-
-	// Get station's landing page config
+	// Load station landing page config + theme.
 	var config map[string]any
+	var theme *landingpage.Theme
 	if h.landingPageSvc != nil {
 		page, err := h.landingPageSvc.Get(r.Context(), station.ID)
 		if err == nil && page != nil {
 			config = page.PublishedConfig
+
+			themeID := "daw-dark"
+			if tid, ok := config["theme"].(string); ok && tid != "" {
+				themeID = tid
+			}
+			theme = h.landingPageSvc.GetTheme(themeID)
+			if theme == nil {
+				theme = h.landingPageSvc.GetTheme("daw-dark")
+			}
 		}
 	}
 
-	h.Render(w, r, "pages/public/station-landing", PageData{
+	// Platform station order source-of-truth (platform landing page config stationOrder, else sort_order).
+	var platformConfig map[string]any
+	if h.landingPageSvc != nil {
+		page, err := h.landingPageSvc.GetOrCreatePlatform(r.Context())
+		if err == nil && page != nil {
+			platformConfig = page.PublishedConfig
+		}
+	}
+
+	// Get all public stations and order them using the platform rules.
+	var stations []models.Station
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).
+		Order("sort_order, name").
+		Find(&stations)
+
+	platformOrdered := orderStationsByConfig(stations, platformConfig)
+
+	// Station-scoped ordering variants.
+	currentFirst := reorderStationsForStationLanding(platformOrdered, station.ID, "current_first")
+	afterPlatformFirst := reorderStationsForStationLanding(platformOrdered, station.ID, "after_platform_first")
+
+	mountsByStationID := stationMountMap(h.db, stations)
+
+	h.Render(w, r, "pages/public/platform-landing-preview", PageData{
 		Title: station.Name,
 		Data: map[string]any{
-			"Station":     station,
-			"StationID":   station.ID,
-			"StationName": station.Name,
-			"MountName":   mount.Name,
-			"StreamURL":   streamURL,
-			"StreamURLLQ": streamURLLQ,
-			"Config":      config,
+			"Config":                          config,
+			"Theme":                           theme,
+			"Stations":                        stations,
+			"OrderedStations":                 buildStationsWithStreams(currentFirst, mountsByStationID),
+			"OrderedStationsAfterPlatformFirst": buildStationsWithStreams(afterPlatformFirst, mountsByStationID),
+			"IsPreview":                       false,
+			"IsPlatform":                      false,
+			"CurrentStationID":                station.ID,
 		},
 	})
 }

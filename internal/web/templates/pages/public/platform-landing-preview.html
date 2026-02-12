@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{if .Data.Config.seo.title}}{{.Data.Config.seo.title}}{{else}}Platform Preview{{end}}</title>
+    <title>{{if .Data.Config.seo.title}}{{.Data.Config.seo.title}}{{else}}{{.Title}}{{end}}</title>
     {{if .Data.Config.seo.description}}
     <meta name="description" content="{{.Data.Config.seo.description}}">
     {{end}}
@@ -209,14 +209,18 @@
 
             {{if eq $wtype "stations-grid"}}
             <!-- Stations Grid Widget -->
-            <div class="col-md-{{$wcolWidth}}">
-                <div class="widget-stations">
-                    {{if $wconfig.title}}<h2 class="text-center mb-4 section-title">{{$wconfig.title}}</h2>{{else}}<h2 class="text-center mb-4 section-title">Our Stations</h2>{{end}}
-                    <div class="row g-4 justify-content-center">
-                        {{range $.Data.OrderedStations}}
-                        <div class="col-md-{{if eq $columns 2}}6{{else if eq $columns 4}}3{{else}}4{{end}}">
-                            <div class="card station-card h-100">
-                                <div class="card-body text-center">
+	            <div class="col-md-{{$wcolWidth}}">
+	                <div class="widget-stations">
+	                    {{if $wconfig.title}}<h2 class="text-center mb-4 section-title">{{$wconfig.title}}</h2>{{else}}<h2 class="text-center mb-4 section-title">Our Stations</h2>{{end}}
+	                    <div class="row g-4 justify-content-center">
+	                        {{$stationList := $.Data.OrderedStations}}
+	                        {{if and (eq $wconfig.placement "after_platform_first") ($.Data.OrderedStationsAfterPlatformFirst)}}
+	                            {{$stationList = $.Data.OrderedStationsAfterPlatformFirst}}
+	                        {{end}}
+	                        {{range $stationList}}
+	                        <div class="col-md-{{if eq $columns 2}}6{{else if eq $columns 4}}3{{else}}4{{end}}">
+	                            <div class="card station-card h-100">
+	                                <div class="card-body text-center">
                                     {{if $showLogo}}
                                         {{if .Station.Logo}}
                                         <img src="/api/v1/stations/{{.Station.ID}}/logo" alt="{{.Station.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
