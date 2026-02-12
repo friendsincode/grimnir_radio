@@ -122,7 +122,7 @@ type User struct {
 	PlatformRole       PlatformRole          `gorm:"type:varchar(20);default:'user'"` // Global platform role
 	Suspended          bool                  `gorm:"default:false"`                   // Platform-level suspension
 	SuspendedReason    string                `gorm:"type:text"`
-	CalendarColorTheme string                `gorm:"type:varchar(32);default:'default'"` // Calendar color theme preset
+	CalendarColorTheme string                `gorm:"type:varchar(32);default:'default'"`  // Calendar color theme preset
 	Theme              string                `gorm:"type:varchar(32);default:'daw-dark'"` // Dashboard UI theme
 	Stations           []StationUser         `gorm:"foreignKey:UserID"`
 	PlatformGroups     []PlatformGroupMember `gorm:"foreignKey:UserID"`
@@ -346,6 +346,12 @@ type Station struct {
 	// Archive defaults for new media
 	DefaultShowInArchive bool `gorm:"default:true"` // Default: show new media in public archive
 	DefaultAllowDownload bool `gorm:"default:true"` // Default: allow downloads for new media
+
+	// Schedule boundary policy
+	// hard: enforce schedule boundaries (default)
+	// soft: allow overrun up to ScheduleSoftOverrunSeconds before forcing a cut
+	ScheduleBoundaryMode       string `gorm:"type:varchar(8);not null;default:'hard'"`
+	ScheduleSoftOverrunSeconds int    `gorm:"not null;default:0"`
 
 	// Branding - imported from source systems (AzuraCast/LibreTime)
 	Logo         []byte            `gorm:"type:bytea"` // Station logo (JPEG/PNG)

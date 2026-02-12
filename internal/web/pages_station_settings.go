@@ -9,6 +9,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -68,6 +69,24 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 	station.Timezone = r.FormValue("timezone")
 	station.DefaultShowInArchive = r.FormValue("default_show_in_archive") == "on"
 	station.DefaultAllowDownload = r.FormValue("default_allow_download") == "on"
+
+	// Schedule boundary policy
+	switch r.FormValue("schedule_boundary_mode") {
+	case "soft":
+		station.ScheduleBoundaryMode = "soft"
+	default:
+		station.ScheduleBoundaryMode = "hard"
+	}
+	if raw := r.FormValue("schedule_soft_overrun_minutes"); raw != "" {
+		mins, err := strconv.Atoi(raw)
+		if err == nil && mins >= 0 {
+			// Keep it bounded to avoid accidental huge values. A week is plenty.
+			if mins > 7*24*60 {
+				mins = 7 * 24 * 60
+			}
+			station.ScheduleSoftOverrunSeconds = mins * 60
+		}
+	}
 
 	if station.Name == "" {
 		if r.Header.Get("HX-Request") == "true" {

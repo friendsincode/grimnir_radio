@@ -58,6 +58,28 @@
 
                     <hr class="my-4">
 
+                    <h6 class="mb-3"><i class="bi bi-calendar2-range me-2"></i>Schedule Boundary Policy</h6>
+                    <div class="form-text mb-3">
+                        Hard mode enforces schedule start/stop times. Soft mode can allow overruns up to a configured limit.
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="scheduleBoundaryMode" class="form-label">Boundary Mode</label>
+                        <select class="form-select" id="scheduleBoundaryMode" name="schedule_boundary_mode">
+                            <option value="hard" {{if eq .Data.Station.ScheduleBoundaryMode "hard"}}selected{{end}}>Hard (on time)</option>
+                            <option value="soft" {{if eq .Data.Station.ScheduleBoundaryMode "soft"}}selected{{end}}>Soft (allow overrun)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="softOverrunRow">
+                        <label for="scheduleSoftOverrunMinutes" class="form-label">Max Overrun (minutes)</label>
+                        <input type="number" class="form-control" id="scheduleSoftOverrunMinutes" name="schedule_soft_overrun_minutes"
+                               min="0" max="10080" value="{{div .Data.Station.ScheduleSoftOverrunSeconds 60}}">
+                        <div class="form-text">Only applies in Soft mode. Set to 0 to disable overruns.</div>
+                    </div>
+
+                    <hr class="my-4">
+
                     <h6 class="mb-3"><i class="bi bi-archive me-2"></i>Public Archive Defaults</h6>
                     <div class="form-text mb-3">These settings apply as defaults when new media is uploaded.</div>
 
@@ -233,4 +255,21 @@
         </div>
     </div>
 </div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+    (function () {
+        const mode = document.getElementById('scheduleBoundaryMode');
+        const overrun = document.getElementById('softOverrunRow');
+        if (!mode || !overrun) return;
+
+        function sync() {
+            overrun.classList.toggle('d-none', mode.value !== 'soft');
+        }
+
+        mode.addEventListener('change', sync);
+        sync();
+    })();
+</script>
 {{end}}
