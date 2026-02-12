@@ -513,28 +513,29 @@ tr:has(.preview-playing) {
 
 #playerTitle {
     position: relative;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     white-space: nowrap;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+#playerTitle::-webkit-scrollbar {
+    display: none;
+}
+
+#playerTitle.scrollable {
+    cursor: grab;
+    user-select: none;
+}
+
+#playerTitle.dragging-title {
+    cursor: grabbing;
 }
 
 #playerTitle .title-scroll {
     display: inline-block;
     white-space: nowrap;
-}
-
-#playerTitle.marquee .title-scroll {
-    padding-right: 1.5rem;
-    animation: player-title-marquee var(--title-scroll-duration, 12s) linear infinite;
-    will-change: transform;
-}
-
-@keyframes player-title-marquee {
-    0%, 10% {
-        transform: translateX(0);
-    }
-    90%, 100% {
-        transform: translateX(calc(-1 * var(--title-scroll-distance, 0px)));
-    }
 }
 
 /* Live indicator */

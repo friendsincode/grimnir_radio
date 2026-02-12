@@ -592,6 +592,12 @@ class GlobalPlayer {
         this.durationEl = document.getElementById('playerDuration');
         this.stationSelector = document.getElementById('playerStationSelector');
         this.stationMenu = document.getElementById('playerStationMenu');
+        this.titleAutoScrollRaf = null;
+        this.titleAutoScrollPausedUntil = 0;
+        this.titleScrollPxPerSecond = 10;
+        this.titleDragActive = false;
+        this.titlePointerStartX = 0;
+        this.titleScrollStart = 0;
 
         // Cached stations for quick switching
         this.publicStations = [];
@@ -650,6 +656,7 @@ class GlobalPlayer {
 
         // Recalculate marquee when viewport changes
         window.addEventListener('resize', () => this.updateTitleMarquee());
+        this.initTitleScrollControls();
 
         // Save state when navigating away
         window.addEventListener('beforeunload', () => {
@@ -665,6 +672,124 @@ class GlobalPlayer {
 
         // Load public stations for the station selector
         this.loadPublicStations();
+    }
+
+    initTitleScrollControls() {
+        if (!this.titleEl) return;
+
+        const startDrag = (clientX) => {
+            if (!this.titleEl.classList.contains('scrollable')) return;
+            this.titleDragActive = true;
+            this.titlePointerStartX = clientX;
+            this.titleScrollStart = this.titleEl.scrollLeft;
+            this.titleEl.classList.add('dragging-title');
+            this.pauseTitleAutoScroll(2000);
+        };
+
+        const onDrag = (clientX) => {
+            if (!this.titleDragActive) return;
+            const dx = clientX - this.titlePointerStartX;
+            this.titleEl.scrollLeft = this.titleScrollStart - dx;
+        };
+
+        const endDrag = () => {
+            if (!this.titleDragActive) return;
+            this.titleDragActive = false;
+            this.titleEl.classList.remove('dragging-title');
+            this.pauseTitleAutoScroll(1500);
+        };
+
+        this.titleEl.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            startDrag(e.clientX);
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => onDrag(e.clientX));
+        document.addEventListener('mouseup', endDrag);
+
+        this.titleEl.addEventListener('touchstart', (e) => {
+            if (!e.touches || e.touches.length === 0) return;
+            startDrag(e.touches[0].clientX);
+        }, { passive: true });
+        document.addEventListener('touchmove', (e) => {
+            if (!this.titleDragActive || !e.touches || e.touches.length === 0) return;
+            onDrag(e.touches[0].clientX);
+            e.preventDefault();
+        }, { passive: false });
+        document.addEventListener('touchend', endDrag);
+        document.addEventListener('touchcancel', endDrag);
+
+        this.titleEl.addEventListener('wheel', (e) => {
+            if (!this.titleEl.classList.contains('scrollable')) return;
+            const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            if (!delta) return;
+            this.pauseTitleAutoScroll(1400);
+            this.titleEl.scrollLeft += delta;
+            e.preventDefault();
+        }, { passive: false });
+    }
+
+    pauseTitleAutoScroll(ms = 1500) {
+        this.titleAutoScrollPausedUntil = Date.now() + ms;
+    }
+
+    stopTitleAutoScroll() {
+        if (this.titleAutoScrollRaf) {
+            cancelAnimationFrame(this.titleAutoScrollRaf);
+            this.titleAutoScrollRaf = null;
+        }
+    }
+
+    startTitleAutoScroll() {
+        if (!this.titleEl) return;
+
+        this.stopTitleAutoScroll();
+        let lastTs = 0;
+        let holdUntil = Date.now() + 1200;
+        let resetPending = false;
+
+        const tick = (ts) => {
+            this.titleAutoScrollRaf = requestAnimationFrame(tick);
+
+            const maxScroll = this.titleEl.scrollWidth - this.titleEl.clientWidth;
+            if (maxScroll <= 4 || !this.titleEl.classList.contains('scrollable')) {
+                return;
+            }
+
+            if (!lastTs) {
+                lastTs = ts;
+                return;
+            }
+
+            const now = Date.now();
+            if (this.titleDragActive || now < this.titleAutoScrollPausedUntil || now < holdUntil) {
+                lastTs = ts;
+                return;
+            }
+
+            if (resetPending) {
+                this.titleEl.scrollLeft = 0;
+                resetPending = false;
+                holdUntil = now + 1000;
+                lastTs = ts;
+                return;
+            }
+
+            const dt = (ts - lastTs) / 1000;
+            lastTs = ts;
+            const next = this.titleEl.scrollLeft + (dt * this.titleScrollPxPerSecond);
+
+            if (next >= maxScroll) {
+                this.titleEl.scrollLeft = maxScroll;
+                holdUntil = now + 2200;
+                resetPending = true;
+                return;
+            }
+
+            this.titleEl.scrollLeft = next;
+        };
+
+        this.titleAutoScrollRaf = requestAnimationFrame(tick);
     }
 
     async loadPublicStations() {
@@ -1377,9 +1502,9 @@ class GlobalPlayer {
         if (this.prevBtn) this.prevBtn.style.visibility = this.playlist.length > 0 ? 'visible' : 'hidden';
         if (this.nextBtn) this.nextBtn.style.visibility = this.playlist.length > 0 ? 'visible' : 'hidden';
 
-        // Show station selector for live streams (if we have stations loaded)
+        // Show station selector for live streams.
         if (this.stationSelector) {
-            this.stationSelector.style.display = this.isLive && this.publicStations.length > 0 ? 'block' : 'none';
+            this.stationSelector.style.display = this.isLive ? 'block' : 'none';
         }
     }
 
@@ -1584,20 +1709,15 @@ class GlobalPlayer {
         const titleSpan = this.titleEl.querySelector('.title-scroll');
         if (!titleSpan) return;
 
-        // Reset first so we can measure natural width accurately.
-        this.titleEl.classList.remove('marquee');
-        this.titleEl.style.removeProperty('--title-scroll-distance');
-        this.titleEl.style.removeProperty('--title-scroll-duration');
+        this.stopTitleAutoScroll();
+        this.titleEl.classList.remove('scrollable');
+        this.titleEl.scrollLeft = 0;
 
         const overflow = titleSpan.scrollWidth - this.titleEl.clientWidth;
         if (overflow <= 4) return;
 
-        const travel = overflow + 24; // small gap before restart
-        const duration = Math.max(10, Math.min(30, Math.round(travel / 30)));
-
-        this.titleEl.style.setProperty('--title-scroll-distance', `${travel}px`);
-        this.titleEl.style.setProperty('--title-scroll-duration', `${duration}s`);
-        this.titleEl.classList.add('marquee');
+        this.titleEl.classList.add('scrollable');
+        this.startTitleAutoScroll();
     }
 
     formatTime(seconds) {
