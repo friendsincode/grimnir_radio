@@ -14,10 +14,20 @@
 {{define "main"}}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-music-note-list me-2"></i>Media Library</h4>
-    <a href="/dashboard/media/upload" class="btn btn-primary">
-        <i class="bi bi-upload me-2"></i>Upload
-    </a>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-warning"
+                hx-post="/dashboard/media/reanalyze-durations"
+                hx-confirm="Queue duration refresh analysis for this station's media library?"
+                hx-target="#durationRefreshResult"
+                hx-swap="innerHTML">
+            <i class="bi bi-arrow-repeat me-2"></i>Recalculate Durations
+        </button>
+        <a href="/dashboard/media/upload" class="btn btn-primary">
+            <i class="bi bi-upload me-2"></i>Upload
+        </a>
+    </div>
 </div>
+<div id="durationRefreshResult" class="mb-3"></div>
 
 <!-- Filters -->
 <div class="card mb-4">
