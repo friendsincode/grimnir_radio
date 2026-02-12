@@ -594,7 +594,7 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 		}
 		// Artist filter
 		if artist, ok := rules["artist"].(string); ok && artist != "" {
-			query = query.Where("artist = ?", artist)
+			query = query.Where(normalizedSQLExpr("artist")+" = ?", normalizeSearchText(artist))
 		}
 		// Mood filter
 		if mood, ok := rules["mood"].(string); ok && mood != "" {

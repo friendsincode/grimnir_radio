@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"gorm.io/gorm"
@@ -82,9 +81,7 @@ func (h *Handler) WebDJLibrarySearch(w http.ResponseWriter, r *http.Request) {
 	db := h.db.Where("station_id = ?", station.ID)
 
 	if query != "" {
-		searchQuery := "%" + strings.ToLower(query) + "%"
-		db = db.Where("LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
-			searchQuery, searchQuery, searchQuery)
+		db = applyLooseMediaSearch(db, query)
 	}
 
 	if genre != "" {

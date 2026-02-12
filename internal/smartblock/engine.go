@@ -201,17 +201,30 @@ func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
 	}
 
 	switch field {
-	case "genre", "mood", "language", "artist", "album", "title", "label":
+	case "genre", "mood", "language", "album", "title", "label":
 		return cond(field+" = ?", value)
+	case "artist":
+		normalized := normalizeMatchText(toString(value))
+		expr := normalizedSQLExprSB("artist")
+		if positive {
+			return query.Where(expr+" = ?", normalized)
+		}
+		return query.Where("NOT ("+expr+" = ?)", normalized)
 	case "text_search":
 		// Search across multiple text fields using ILIKE
 		if searchText, ok := value.(string); ok && searchText != "" {
-			pattern := "%" + searchText + "%"
-			searchClause := "(LOWER(title) LIKE LOWER(?) OR LOWER(artist) LIKE LOWER(?) OR LOWER(album) LIKE LOWER(?))"
+			pattern := "%" + strings.ToLower(searchText) + "%"
+			normPattern := "%" + normalizeMatchText(searchText) + "%"
+			searchClause := fmt.Sprintf(
+				"(LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ?)",
+				normalizedSQLExprSB("title"),
+				normalizedSQLExprSB("artist"),
+				normalizedSQLExprSB("album"),
+			)
 			if positive {
-				return query.Where(searchClause, pattern, pattern, pattern)
+				return query.Where(searchClause, pattern, pattern, pattern, normPattern, normPattern, normPattern)
 			}
-			return query.Where("NOT "+searchClause, pattern, pattern, pattern)
+			return query.Where("NOT "+searchClause, pattern, pattern, pattern, normPattern, normPattern, normPattern)
 		}
 		return query
 	case "bpm":
@@ -447,7 +460,7 @@ func matchesQuota(rule QuotaRule, item models.MediaItem, tags map[string]struct{
 	case "label":
 		return contains(rule.Values, item.Label)
 	case "artist":
-		return contains(rule.Values, item.Artist)
+		return containsNormalized(rule.Values, item.Artist)
 	case "explicit":
 		target := strings.EqualFold(rule.Values[0], "true")
 		return item.Explicit == target
@@ -462,6 +475,45 @@ func contains(values []string, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func containsNormalized(values []string, candidate string) bool {
+	normCandidate := normalizeMatchText(candidate)
+	for _, value := range values {
+		if normalizeMatchText(value) == normCandidate {
+			return true
+		}
+	}
+	return false
+}
+
+var matchNormalizer = strings.NewReplacer(
+	" ", "",
+	".", "",
+	"-", "",
+	"_", "",
+	"'", "",
+	"\"", "",
+	"/", "",
+	"\\", "",
+	"(", "",
+	")", "",
+	"[", "",
+	"]", "",
+	",", "",
+	";", "",
+	":", "",
+)
+
+func normalizeMatchText(s string) string {
+	return matchNormalizer.Replace(strings.ToLower(strings.TrimSpace(s)))
+}
+
+func normalizedSQLExprSB(col string) string {
+	return fmt.Sprintf(
+		`REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(%s), ' ', ''), '.', ''), '-', ''), '_', ''), '''', ''), '"', ''), '/', ''), '\\', ''), '(', ''), ')', ''), '[', ''), ']', ''), ',', ''), ';', '')`,
+		col,
+	)
 }
 
 func buildRecentCache(plays []models.PlayHistory) map[string]map[string]time.Time {
@@ -601,7 +653,7 @@ func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool 
 	case "mood":
 		match = strings.EqualFold(item.Mood, toString(rule.Value))
 	case "artist":
-		match = strings.EqualFold(item.Artist, toString(rule.Value))
+		match = normalizeMatchText(item.Artist) == normalizeMatchText(toString(rule.Value))
 	case "album":
 		match = strings.EqualFold(item.Album, toString(rule.Value))
 	case "label":

@@ -112,20 +112,26 @@ func (d *Director) tick(ctx context.Context) error {
 
 	var entries []models.ScheduleEntry
 	err := d.db.WithContext(ctx).
-		Where("starts_at <= ?", now.Add(5*time.Second)).
-		Where("ends_at >= ?", now.Add(-30*time.Second)).
+		Where("(starts_at <= ? AND ends_at >= ?) OR (recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = ? AND starts_at <= ?)",
+			now.Add(5*time.Second), now.Add(-30*time.Second), false, now.Add(5*time.Second)).
+		Where("recurrence_end_date IS NULL OR recurrence_end_date >= ?", now.AddDate(0, 0, -1).Truncate(24*time.Hour)).
 		Order("starts_at ASC").
 		Find(&entries).Error
 	if err != nil {
 		return err
 	}
 
-	for _, entry := range entries {
+	for _, rawEntry := range entries {
+		entry, playKey, playUntil, ok := resolveEntryForNow(rawEntry, now)
+		if !ok {
+			continue
+		}
+
 		if entry.StartsAt.After(now) {
 			continue
 		}
 
-		if d.isPlayed(entry.ID) {
+		if d.isPlayed(playKey) {
 			continue
 		}
 
@@ -134,11 +140,123 @@ func (d *Director) tick(ctx context.Context) error {
 			continue
 		}
 
-		d.markPlayed(entry.ID, entry.EndsAt)
+		d.markPlayed(playKey, playUntil)
 	}
 
 	d.emitHealthSnapshot()
 	return nil
+}
+
+func resolveEntryForNow(entry models.ScheduleEntry, now time.Time) (models.ScheduleEntry, string, time.Time, bool) {
+	startWindow := now.Add(-30 * time.Second)
+	endWindow := now.Add(5 * time.Second)
+
+	if entry.RecurrenceType == models.RecurrenceNone || entry.IsInstance {
+		if entry.StartsAt.After(endWindow) || entry.EndsAt.Before(startWindow) {
+			return models.ScheduleEntry{}, "", time.Time{}, false
+		}
+		return entry, playbackKey(entry.ID, entry.StartsAt), entry.EndsAt, true
+	}
+
+	occStart, occEnd, ok := resolveRecurringOccurrenceWindow(entry, now)
+	if !ok {
+		return models.ScheduleEntry{}, "", time.Time{}, false
+	}
+
+	resolved := entry
+	resolved.StartsAt = occStart
+	resolved.EndsAt = occEnd
+	return resolved, playbackKey(entry.ID, occStart), occEnd, true
+}
+
+func playbackKey(entryID string, startsAt time.Time) string {
+	return fmt.Sprintf("%s@%s", entryID, startsAt.UTC().Format(time.RFC3339Nano))
+}
+
+func resolveRecurringOccurrenceWindow(entry models.ScheduleEntry, now time.Time) (time.Time, time.Time, bool) {
+	if entry.RecurrenceType == models.RecurrenceNone || entry.IsInstance {
+		return time.Time{}, time.Time{}, false
+	}
+
+	duration := entry.EndsAt.Sub(entry.StartsAt)
+	if duration <= 0 {
+		return time.Time{}, time.Time{}, false
+	}
+
+	now = now.UTC()
+	templateStart := entry.StartsAt.UTC()
+	startWindow := now.Add(-30 * time.Second)
+	endWindow := now.Add(5 * time.Second)
+
+	candidateDays := []time.Time{
+		time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC),
+		time.Date(now.AddDate(0, 0, -1).Year(), now.AddDate(0, 0, -1).Month(), now.AddDate(0, 0, -1).Day(), 0, 0, 0, 0, time.UTC),
+	}
+
+	var bestStart time.Time
+	var bestEnd time.Time
+	found := false
+
+	for _, day := range candidateDays {
+		occStart := time.Date(day.Year(), day.Month(), day.Day(), templateStart.Hour(), templateStart.Minute(), templateStart.Second(), templateStart.Nanosecond(), time.UTC)
+		occEnd := occStart.Add(duration)
+
+		if occStart.Before(templateStart) {
+			continue
+		}
+		if entry.RecurrenceEndDate != nil && occurrenceDateAfter(occStart, *entry.RecurrenceEndDate) {
+			continue
+		}
+		if !matchesRecurringDay(entry, occStart.Weekday()) {
+			continue
+		}
+		if occStart.After(endWindow) || occEnd.Before(startWindow) {
+			continue
+		}
+		if !found || occStart.After(bestStart) {
+			bestStart = occStart
+			bestEnd = occEnd
+			found = true
+		}
+	}
+
+	return bestStart, bestEnd, found
+}
+
+func occurrenceDateAfter(a, b time.Time) bool {
+	ay, am, ad := a.UTC().Date()
+	by, bm, bd := b.UTC().Date()
+	if ay != by {
+		return ay > by
+	}
+	if am != bm {
+		return am > bm
+	}
+	return ad > bd
+}
+
+func matchesRecurringDay(entry models.ScheduleEntry, day time.Weekday) bool {
+	switch entry.RecurrenceType {
+	case models.RecurrenceDaily:
+		return true
+	case models.RecurrenceWeekdays:
+		return day != time.Saturday && day != time.Sunday
+	case models.RecurrenceWeekly:
+		return day == entry.StartsAt.UTC().Weekday()
+	case models.RecurrenceCustom:
+		if len(entry.RecurrenceDays) == 0 {
+			return true
+		}
+		wd := int(day)
+		for _, d := range entry.RecurrenceDays {
+			if d == wd {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }
 
 func (d *Director) handleEntry(ctx context.Context, entry models.ScheduleEntry) error {
