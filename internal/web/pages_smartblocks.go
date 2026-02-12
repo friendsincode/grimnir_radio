@@ -588,6 +588,10 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 	query := h.db.Where("station_id = ?", stationID)
 
 	if rules != nil {
+		// Free text search across title/artist/album
+		if textSearch, ok := rules["text_search"].(string); ok && strings.TrimSpace(textSearch) != "" {
+			query = applyLooseMediaSearch(query, textSearch)
+		}
 		// Genre filter
 		if genre, ok := rules["genre"].(string); ok && genre != "" {
 			query = query.Where("genre = ?", genre)

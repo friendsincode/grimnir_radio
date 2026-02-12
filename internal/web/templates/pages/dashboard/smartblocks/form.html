@@ -609,8 +609,11 @@
     function updateFilterCount() {
         let count = 0;
         document.querySelectorAll('.filter-field').forEach(f => {
-            if (f.type === 'checkbox' && f.checked) count++;
-            else if (f.value) count++;
+            if (f.type === 'checkbox') {
+                if (f.checked) count++;
+                return;
+            }
+            if (f.value) count++;
         });
         const badge = document.getElementById('filterCount');
         badge.textContent = count + ' active';
