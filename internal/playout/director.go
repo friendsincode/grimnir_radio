@@ -113,7 +113,7 @@ func (d *Director) tick(ctx context.Context) error {
 	var entries []models.ScheduleEntry
 	err := d.db.WithContext(ctx).
 		Where("(starts_at <= ? AND ends_at >= ?) OR (recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = ? AND starts_at <= ?)",
-			now.Add(5*time.Second), now.Add(-30*time.Second), false, now.Add(5*time.Second)).
+			now, now.Add(-2*time.Second), false, now).
 		Where("recurrence_end_date IS NULL OR recurrence_end_date >= ?", now.AddDate(0, 0, -1).Truncate(24*time.Hour)).
 		Order("starts_at ASC").
 		Find(&entries).Error
@@ -148,8 +148,8 @@ func (d *Director) tick(ctx context.Context) error {
 }
 
 func resolveEntryForNow(entry models.ScheduleEntry, now time.Time) (models.ScheduleEntry, string, time.Time, bool) {
-	startWindow := now.Add(-30 * time.Second)
-	endWindow := now.Add(5 * time.Second)
+	startWindow := now.Add(-2 * time.Second)
+	endWindow := now
 
 	if entry.RecurrenceType == models.RecurrenceNone || entry.IsInstance {
 		if entry.StartsAt.After(endWindow) || entry.EndsAt.Before(startWindow) {
@@ -185,8 +185,8 @@ func resolveRecurringOccurrenceWindow(entry models.ScheduleEntry, now time.Time)
 
 	now = now.UTC()
 	templateStart := entry.StartsAt.UTC()
-	startWindow := now.Add(-30 * time.Second)
-	endWindow := now.Add(5 * time.Second)
+	startWindow := now.Add(-2 * time.Second)
+	endWindow := now
 
 	candidateDays := []time.Time{
 		time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC),
@@ -815,7 +815,7 @@ func (d *Director) startPlaylistByID(ctx context.Context, entry models.ScheduleE
 		Int("tracks", len(items)).
 		Msg("starting playlist from clock slot")
 
-	return d.playMediaWithState(ctx, entry, media, "clock", clockID, 0, items, map[string]any{
+	return d.playMediaWithState(ctx, entry, media, "clock_playlist", playlist.ID, 0, items, map[string]any{
 		"clock_id":      clockID,
 		"clock_name":    clockName,
 		"playlist_id":   playlist.ID,
@@ -1237,6 +1237,15 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 	switch state.SourceType {
 	case "playlist":
 		// Playlists wrap around
+		nextPos := (state.Position + 1) % state.TotalItems
+		if len(state.Items) > nextPos {
+			d.updateEntryPosition(entry.ID, nextPos)
+			d.playNextFromState(entry, state, nextPos, mountName)
+			return
+		}
+
+	case "clock_playlist":
+		// Playlist slots inside clocks should also wrap around until slot end.
 		nextPos := (state.Position + 1) % state.TotalItems
 		if len(state.Items) > nextPos {
 			d.updateEntryPosition(entry.ID, nextPos)
