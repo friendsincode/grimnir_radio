@@ -88,6 +88,19 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Crossfade defaults
+	station.CrossfadeEnabled = r.FormValue("crossfade_enabled") == "on"
+	if raw := r.FormValue("crossfade_duration_ms"); raw != "" {
+		ms, err := strconv.Atoi(raw)
+		if err == nil && ms >= 0 {
+			// Keep it bounded to avoid silly values.
+			if ms > 30000 {
+				ms = 30000
+			}
+			station.CrossfadeDurationMs = ms
+		}
+	}
+
 	if station.Name == "" {
 		if r.Header.Get("HX-Request") == "true" {
 			w.WriteHeader(http.StatusBadRequest)

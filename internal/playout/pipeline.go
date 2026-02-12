@@ -28,6 +28,7 @@ type Pipeline struct {
 	cmd     *exec.Cmd
 	mountID string
 	stdout  io.ReadCloser
+	stdin   io.WriteCloser
 	done    chan struct{} // signals when the process has exited
 }
 
@@ -77,6 +78,7 @@ func (p *Pipeline) StartWithOutput(ctx context.Context, launch string, outputHan
 
 	p.cmd = cmd
 	p.done = make(chan struct{})
+	p.stdin = nil
 
 	// Handle stdout if provided
 	if outputHandler != nil && p.stdout != nil {
@@ -95,6 +97,110 @@ func (p *Pipeline) StartWithOutput(ctx context.Context, launch string, outputHan
 	}(p.done, cmd)
 
 	return nil
+}
+
+// StartWithDualOutputAndInput launches a pipeline that accepts stdin (fd=0) and outputs HQ/LQ via fd=3/fd=4.
+// Returns a writer connected to the process stdin.
+func (p *Pipeline) StartWithDualOutputAndInput(ctx context.Context, launch string, hqHandler, lqHandler func(io.Reader)) (io.WriteCloser, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.cmd != nil && p.done != nil {
+		select {
+		case <-p.done:
+			// Previous process has exited, ok to start new one
+		default:
+			// Already running; return existing stdin if available.
+			if p.stdin != nil {
+				return p.stdin, nil
+			}
+			return nil, fmt.Errorf("pipeline already running")
+		}
+	}
+
+	// Create pipes for HQ (fd=3) and LQ (fd=4) outputs
+	hqReader, hqWriter, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("create HQ pipe: %w", err)
+	}
+
+	lqReader, lqWriter, err := os.Pipe()
+	if err != nil {
+		hqReader.Close()
+		hqWriter.Close()
+		return nil, fmt.Errorf("create LQ pipe: %w", err)
+	}
+
+	// Use shell to properly parse the GStreamer pipeline string
+	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
+	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
+	cmd.Stderr = nil
+	cmd.Stdout = nil
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		hqReader.Close()
+		hqWriter.Close()
+		lqReader.Close()
+		lqWriter.Close()
+		return nil, fmt.Errorf("create stdin pipe: %w", err)
+	}
+
+	// Pass extra file descriptors: fd=3 for HQ, fd=4 for LQ
+	cmd.ExtraFiles = []*os.File{hqWriter, lqWriter}
+
+	if err := cmd.Start(); err != nil {
+		stdin.Close()
+		hqReader.Close()
+		hqWriter.Close()
+		lqReader.Close()
+		lqWriter.Close()
+		return nil, fmt.Errorf("start pipeline: %w", err)
+	}
+
+	// Close write ends in parent process (GStreamer has them now)
+	hqWriter.Close()
+	lqWriter.Close()
+
+	p.cmd = cmd
+	p.stdin = stdin
+	p.done = make(chan struct{})
+
+	// Handle HQ output
+	if hqHandler != nil {
+		go func() {
+			hqHandler(hqReader)
+			hqReader.Close()
+		}()
+	} else {
+		hqReader.Close()
+	}
+
+	// Handle LQ output
+	if lqHandler != nil {
+		go func() {
+			lqHandler(lqReader)
+			lqReader.Close()
+		}()
+	} else {
+		lqReader.Close()
+	}
+
+	// Single goroutine to wait for process completion
+	go func(done chan struct{}, c *exec.Cmd, in io.WriteCloser) {
+		err := c.Wait()
+		close(done)
+		if in != nil {
+			_ = in.Close()
+		}
+		if err != nil {
+			p.logger.Debug().Err(err).Str("mount", p.mountID).Msg("gstreamer pipeline exited")
+		} else {
+			p.logger.Info().Str("mount", p.mountID).Msg("gstreamer pipeline stopped")
+		}
+	}(p.done, cmd, stdin)
+
+	return stdin, nil
 }
 
 // StartWithDualOutput launches a pipeline that outputs to two streams (HQ and LQ).
@@ -148,6 +254,7 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, hqHan
 
 	p.cmd = cmd
 	p.done = make(chan struct{})
+	p.stdin = nil
 
 	// Handle HQ output
 	if hqHandler != nil {

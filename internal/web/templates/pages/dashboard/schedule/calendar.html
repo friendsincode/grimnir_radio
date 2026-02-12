@@ -725,6 +725,33 @@
                     <span id="editDurationText">Duration: --</span>
                 </div>
 
+                <!-- Crossfade -->
+                <div class="mb-3">
+                    <label class="form-label"><i class="bi bi-music-note-beamed me-1"></i>Crossfade</label>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="editCrossfadeOverride">
+                        <label class="form-check-label" for="editCrossfadeOverride">
+                            Override station crossfade for this entry
+                        </label>
+                    </div>
+                    <div class="row g-2 align-items-end" id="editCrossfadeFields">
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1" for="editCrossfadeEnabled">Enabled</label>
+                            <select class="form-select form-select-sm" id="editCrossfadeEnabled">
+                                <option value="inherit" selected>Inherit station default</option>
+                                <option value="on">On</option>
+                                <option value="off">Off</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1" for="editCrossfadeDurationMs">Duration (ms)</label>
+                            <input type="number" class="form-control form-control-sm" id="editCrossfadeDurationMs"
+                                   min="0" max="30000" step="250" value="0">
+                        </div>
+                    </div>
+                    <div class="form-text">Crossfade overlaps and fades between items at schedule transitions.</div>
+                </div>
+
                 <hr>
 
                 <!-- Recurrence Options (shown for "all occurrences" mode) -->
@@ -2424,6 +2451,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
         document.getElementById('editEntryName').textContent = props.source_name || event.title;
 
+        // Populate crossfade controls from metadata (if present)
+        const md = props.metadata || {};
+        const cf = md.crossfade || {};
+        const override = !!cf.override;
+        const overrideEl = document.getElementById('editCrossfadeOverride');
+        if (overrideEl) overrideEl.checked = override;
+        const enabledEl = document.getElementById('editCrossfadeEnabled');
+        if (enabledEl) enabledEl.value = (typeof cf.enabled === 'string') ? cf.enabled : 'inherit';
+        const durEl = document.getElementById('editCrossfadeDurationMs');
+        if (durEl) durEl.value = (typeof cf.duration_ms === 'number') ? cf.duration_ms : 0;
+        updateEditCrossfadeUI();
+
         // Store source type/id for potential changes
         document.getElementById('editSourceType').value = props.source_type;
 
@@ -2602,6 +2641,30 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
+        // Crossfade override (stored in metadata.crossfade)
+        const baseMetadata = (selectedEvent && selectedEvent.extendedProps && selectedEvent.extendedProps.metadata)
+            ? JSON.parse(JSON.stringify(selectedEvent.extendedProps.metadata))
+            : {};
+
+        const override = document.getElementById('editCrossfadeOverride')?.checked;
+        if (override) {
+            const enabledSel = document.getElementById('editCrossfadeEnabled')?.value || 'inherit';
+            const durMs = parseInt(document.getElementById('editCrossfadeDurationMs')?.value || '0', 10) || 0;
+            baseMetadata.crossfade = {
+                override: true,
+                enabled: enabledSel,
+                duration_ms: Math.max(0, Math.min(30000, durMs))
+            };
+        } else {
+            if (baseMetadata && baseMetadata.crossfade) {
+                delete baseMetadata.crossfade;
+            }
+        }
+        payload.metadata = baseMetadata;
+        if (selectedEvent && selectedEvent.extendedProps) {
+            selectedEvent.setExtendedProp('metadata', baseMetadata);
+        }
+
         try {
             const response = await fetch(`/dashboard/schedule/entries/${entryId}`, {
                 method: 'PUT',
@@ -2621,6 +2684,17 @@ document.addEventListener('DOMContentLoaded', function() {
             grimnirUtils.showToast('Failed to update entry', 'error');
         }
     });
+
+    // Crossfade UI toggle
+    function updateEditCrossfadeUI() {
+        const override = document.getElementById('editCrossfadeOverride');
+        const fields = document.getElementById('editCrossfadeFields');
+        if (!override || !fields) return;
+        fields.querySelectorAll('input,select').forEach(el => {
+            el.disabled = !override.checked;
+        });
+    }
+    document.getElementById('editCrossfadeOverride')?.addEventListener('change', updateEditCrossfadeUI);
 
     // Delete from edit modal
     document.getElementById('editDeleteBtn')?.addEventListener('click', function() {
