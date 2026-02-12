@@ -53,6 +53,14 @@
         <div class="global-player-header" id="playerDragHandle">
             <span class="drag-handle"><i class="bi bi-grip-horizontal"></i> Drag to move</span>
             <div class="d-flex gap-1">
+                <div class="dropdown" id="playerTransportSelector" style="display: none;">
+                    <button class="btn btn-sm btn-link text-body p-1 dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Streaming Transport">
+                        <i class="bi bi-wifi"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" id="playerTransportMenu">
+                        <li><span class="dropdown-item-text text-body-secondary small">Loading options...</span></li>
+                    </ul>
+                </div>
                 <!-- Station Selector -->
                 <div class="dropdown" id="playerStationSelector" style="display: none;">
                     <button class="btn btn-sm btn-link text-body p-1 dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Switch Station">

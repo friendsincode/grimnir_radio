@@ -643,6 +643,8 @@ class GlobalPlayer {
         this.durationEl = document.getElementById('playerDuration');
         this.stationSelector = document.getElementById('playerStationSelector');
         this.stationMenu = document.getElementById('playerStationMenu');
+        this.transportSelector = document.getElementById('playerTransportSelector');
+        this.transportMenu = document.getElementById('playerTransportMenu');
         this.titleAutoScrollRaf = null;
         this.titleAutoScrollPausedUntil = 0;
         this.titleScrollPxPerSecond = 10;
@@ -848,6 +850,7 @@ class GlobalPlayer {
             const response = await fetch('/api/v1/public/stations');
             if (response.ok) {
                 this.publicStations = await response.json();
+                this.updateTransportMenu();
                 this.updateStationMenu();
             }
         } catch (e) {
@@ -855,12 +858,11 @@ class GlobalPlayer {
         }
     }
 
-    updateStationMenu() {
-        if (!this.stationMenu || this.publicStations.length === 0) return;
+    updateTransportMenu() {
+        if (!this.transportMenu) return;
 
         const transport = this.getLiveTransport();
-        let html = `
-            <li><h6 class="dropdown-header">Transport</h6></li>
+        this.transportMenu.innerHTML = `
             <li>
                 <a class="dropdown-item small ${transport === 'http' ? 'active' : ''}" href="#"
                    onclick="globalPlayer.setLiveTransport('http'); return false;">
@@ -873,8 +875,18 @@ class GlobalPlayer {
                     <i class="bi bi-check2 ${transport === 'webrtc' ? '' : 'invisible'} me-1"></i>Low Latency (WebRTC)
                 </a>
             </li>
-            <li><hr class="dropdown-divider"></li>
         `;
+    }
+
+    updateStationMenu() {
+        if (!this.stationMenu) return;
+
+        if (this.publicStations.length === 0) {
+            this.stationMenu.innerHTML = '<li><span class="dropdown-item-text text-body-secondary small">No stations available</span></li>';
+            return;
+        }
+
+        let html = '';
         for (const station of this.publicStations) {
             if (station.mounts && station.mounts.length > 0) {
                 html += `<li><h6 class="dropdown-header">${this.escapeHtml(station.name)}</h6></li>`;
@@ -909,7 +921,7 @@ class GlobalPlayer {
         const next = mode === 'webrtc' ? 'webrtc' : 'http';
         this.liveTransport = next;
         localStorage.setItem('grimnir-live-transport', next);
-        this.updateStationMenu();
+        this.updateTransportMenu();
     }
 
     getLiveTransport() {
@@ -1570,6 +1582,9 @@ class GlobalPlayer {
         // Show station selector for live streams.
         if (this.stationSelector) {
             this.stationSelector.style.display = this.isLive ? 'block' : 'none';
+        }
+        if (this.transportSelector) {
+            this.transportSelector.style.display = this.isLive ? 'block' : 'none';
         }
     }
 

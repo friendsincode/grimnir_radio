@@ -589,12 +589,28 @@ tr:has(.preview-playing) {
     font-weight: bold;
     padding: 1px 6px;
     border-radius: 2px;
-    animation: pulse 1.5s infinite;
+    animation: on-air-breathe 3.8s ease-in-out infinite;
 }
 
 .global-player.is-live-dj::before {
     content: 'LIVE';
     background: var(--bs-danger);
+}
+
+@keyframes on-air-breathe {
+    0%, 100% {
+        opacity: 0.72;
+        box-shadow: 0 0 0 0 rgba(var(--bs-primary-rgb), 0.08);
+    }
+    50% {
+        opacity: 1;
+        box-shadow: 0 0 10px 2px rgba(var(--bs-primary-rgb), 0.24);
+    }
+}
+
+#playerStationMenu {
+    max-height: 320px;
+    overflow-y: auto;
 }
 
 /* Body class when player is visible - no longer needed for floating player */
