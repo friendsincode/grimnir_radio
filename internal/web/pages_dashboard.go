@@ -46,6 +46,7 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 
 	// Upcoming schedule (including recurring entries expanded into instances)
 	data.UpcomingEntries = h.loadDashboardUpcomingEntries(station.ID, time.Now(), 6*time.Hour, 10)
+	data.UpcomingEntries = h.enrichDashboardUpcomingEntries(data.UpcomingEntries)
 
 	// Recent media uploads
 	h.db.Where("station_id = ?", station.ID).
@@ -131,6 +132,123 @@ func (h *Handler) loadDashboardUpcomingEntries(stationID string, from time.Time,
 		deduped = deduped[:limit]
 	}
 	return deduped
+}
+
+func (h *Handler) enrichDashboardUpcomingEntries(entries []models.ScheduleEntry) []models.ScheduleEntry {
+	if len(entries) == 0 {
+		return entries
+	}
+
+	playlistNames := make(map[string]string)
+	smartBlockNames := make(map[string]string)
+	clockNames := make(map[string]string)
+	webstreamNames := make(map[string]string)
+	mediaNames := make(map[string]string)
+
+	var playlistIDs, smartBlockIDs, clockIDs, webstreamIDs, mediaIDs []string
+	for _, entry := range entries {
+		switch entry.SourceType {
+		case "playlist":
+			if entry.SourceID != "" {
+				playlistIDs = append(playlistIDs, entry.SourceID)
+			}
+		case "smart_block":
+			if entry.SourceID != "" {
+				smartBlockIDs = append(smartBlockIDs, entry.SourceID)
+			}
+		case "clock_template":
+			if entry.SourceID != "" {
+				clockIDs = append(clockIDs, entry.SourceID)
+			}
+		case "webstream":
+			if entry.SourceID != "" {
+				webstreamIDs = append(webstreamIDs, entry.SourceID)
+			}
+		case "media":
+			if entry.SourceID != "" {
+				mediaIDs = append(mediaIDs, entry.SourceID)
+			}
+		}
+	}
+
+	if len(playlistIDs) > 0 {
+		var playlists []models.Playlist
+		h.db.Select("id, name").Where("id IN ?", playlistIDs).Find(&playlists)
+		for _, p := range playlists {
+			playlistNames[p.ID] = p.Name
+		}
+	}
+	if len(smartBlockIDs) > 0 {
+		var blocks []models.SmartBlock
+		h.db.Select("id, name").Where("id IN ?", smartBlockIDs).Find(&blocks)
+		for _, b := range blocks {
+			smartBlockNames[b.ID] = b.Name
+		}
+	}
+	if len(clockIDs) > 0 {
+		var clocks []models.ClockHour
+		h.db.Select("id, name").Where("id IN ?", clockIDs).Find(&clocks)
+		for _, c := range clocks {
+			clockNames[c.ID] = c.Name
+		}
+	}
+	if len(webstreamIDs) > 0 {
+		var streams []models.Webstream
+		h.db.Select("id, name").Where("id IN ?", webstreamIDs).Find(&streams)
+		for _, ws := range streams {
+			webstreamNames[ws.ID] = ws.Name
+		}
+	}
+	if len(mediaIDs) > 0 {
+		var items []models.MediaItem
+		h.db.Select("id, title, artist").Where("id IN ?", mediaIDs).Find(&items)
+		for _, m := range items {
+			if m.Artist != "" {
+				mediaNames[m.ID] = m.Artist + " - " + m.Title
+			} else {
+				mediaNames[m.ID] = m.Title
+			}
+		}
+	}
+
+	for i := range entries {
+		title := ""
+		switch entries[i].SourceType {
+		case "playlist":
+			title = playlistNames[entries[i].SourceID]
+		case "smart_block":
+			title = smartBlockNames[entries[i].SourceID]
+		case "clock_template":
+			title = clockNames[entries[i].SourceID]
+		case "webstream":
+			title = webstreamNames[entries[i].SourceID]
+		case "media":
+			title = mediaNames[entries[i].SourceID]
+		case "live":
+			if entries[i].Metadata != nil {
+				if sessionName, ok := entries[i].Metadata["session_name"].(string); ok {
+					title = sessionName
+				}
+			}
+			if title == "" {
+				title = "Live Session"
+			}
+		case "stopset":
+			title = "Stopset"
+		}
+
+		if title == "" {
+			continue
+		}
+		if entries[i].Metadata == nil {
+			entries[i].Metadata = make(map[string]any)
+		}
+		if _, ok := entries[i].Metadata["title"]; !ok {
+			entries[i].Metadata["title"] = title
+		}
+	}
+
+	return entries
 }
 
 // DashboardData holds data for the dashboard overview
