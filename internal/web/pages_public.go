@@ -333,14 +333,14 @@ func (h *Handler) StationLanding(w http.ResponseWriter, r *http.Request) {
 	h.Render(w, r, "pages/public/platform-landing-preview", PageData{
 		Title: station.Name,
 		Data: map[string]any{
-			"Config":                          config,
-			"Theme":                           theme,
-			"Stations":                        stations,
-			"OrderedStations":                 buildStationsWithStreams(currentFirst, mountsByStationID),
+			"Config":                            config,
+			"Theme":                             theme,
+			"Stations":                          stations,
+			"OrderedStations":                   buildStationsWithStreams(currentFirst, mountsByStationID),
 			"OrderedStationsAfterPlatformFirst": buildStationsWithStreams(afterPlatformFirst, mountsByStationID),
-			"IsPreview":                       false,
-			"IsPlatform":                      false,
-			"CurrentStationID":                station.ID,
+			"IsPreview":                         false,
+			"IsPlatform":                        false,
+			"CurrentStationID":                  station.ID,
 		},
 	})
 }

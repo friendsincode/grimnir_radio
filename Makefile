@@ -30,10 +30,12 @@ help:
 	@echo "  make run-media   # Run media engine locally"
 
 fmt:
-	@gofmt -s -w .
+	@files=$$(git ls-files '*.go'); \
+	gofmt -s -w $$files
 
 fmt-check:
-	@unformatted=$$(gofmt -l .); \
+	@files=$$(git ls-files '*.go'); \
+	unformatted=$$(gofmt -l $$files); \
 	if [ -n "$$unformatted" ]; then \
 		echo "Unformatted Go files:"; echo "$$unformatted"; \
 		exit 1; \
@@ -111,4 +113,3 @@ test-frontend: test-e2e
 test-routes:
 	@echo "Running route tests..."
 	@$(GO) test $(GOFLAGS) -v -run TestTemplateRendering ./test/e2e/...
-

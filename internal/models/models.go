@@ -359,8 +359,8 @@ type Station struct {
 
 	// Crossfade defaults for scheduled playout.
 	// When enabled, transitions between items will overlap and fade.
-	CrossfadeEnabled     bool `gorm:"not null;default:false"`
-	CrossfadeDurationMs  int  `gorm:"not null;default:0"` // 0 means "disabled"
+	CrossfadeEnabled    bool `gorm:"not null;default:false"`
+	CrossfadeDurationMs int  `gorm:"not null;default:0"` // 0 means "disabled"
 
 	// Branding - imported from source systems (AzuraCast/LibreTime)
 	Logo         []byte            `gorm:"type:bytea"` // Station logo (JPEG/PNG)
