@@ -149,6 +149,40 @@ body.sidebar-collapsed .sidebar > .p-2.border-top {
     font-weight: 500;
 }
 
+/* Dashboard header now-playing strip */
+#nowPlaying {
+    min-width: 360px;
+    max-width: 520px;
+    overflow: hidden;
+}
+
+#nowPlaying .dashboard-now-playing-track {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+#nowPlaying .dashboard-now-playing-text {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+#nowPlaying .dashboard-now-playing-track.is-scrolling .dashboard-now-playing-text {
+    animation: dashboard-now-playing-marquee var(--np-scroll-duration, 16s) linear infinite;
+    will-change: transform;
+}
+
+@keyframes dashboard-now-playing-marquee {
+    0%, 14% {
+        transform: translateX(0);
+    }
+    86%, 100% {
+        transform: translateX(calc(-1 * var(--np-scroll-distance, 0px)));
+    }
+}
+
 /* On-Air Status */
 .on-air-indicator {
     animation: pulse 2s infinite;
@@ -538,24 +572,29 @@ tr:has(.preview-playing) {
     white-space: nowrap;
 }
 
-/* Live indicator */
-.global-player.is-live #playerPlayIcon {
+/* On-air / live DJ indicator */
+.global-player.is-on-air #playerPlayIcon {
     color: var(--bs-danger);
 }
 
-.global-player.is-live::before {
-    content: 'LIVE';
+.global-player.is-on-air::before {
+    content: 'On-Air';
     position: absolute;
     top: 8px;
     left: 50%;
     transform: translateX(-50%);
-    background: var(--bs-danger);
+    background: var(--bs-primary);
     color: white;
     font-size: 0.65rem;
     font-weight: bold;
     padding: 1px 6px;
     border-radius: 2px;
     animation: pulse 1.5s infinite;
+}
+
+.global-player.is-live-dj::before {
+    content: 'LIVE';
+    background: var(--bs-danger);
 }
 
 /* Body class when player is visible - no longer needed for floating player */
