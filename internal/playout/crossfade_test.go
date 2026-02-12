@@ -29,4 +29,3 @@ func TestEffectiveCrossfade_DefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("expected 5s, got %s", got.Duration)
 	}
 }
-

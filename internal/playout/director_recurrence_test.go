@@ -88,4 +88,3 @@ func TestResolveEntryForNowUsesOccurrenceKey(t *testing.T) {
 		t.Fatalf("until = %v, want 2026-02-12 11:00:00 +0000 UTC", until)
 	}
 }
-

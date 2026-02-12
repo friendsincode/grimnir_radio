@@ -191,9 +191,9 @@ func (h *WebDJWebSocket) sendInitialState(ctx context.Context, conn *ws.Conn, se
 	}
 
 	stateData := map[string]interface{}{
-		"deck_a":          session.DeckAState,
-		"deck_b":          session.DeckBState,
-		"mixer":           session.MixerState,
+		"deck_a":           session.DeckAState,
+		"deck_b":           session.DeckBState,
+		"mixer":            session.MixerState,
 		"crossfader_curve": session.CrossfaderCurve,
 	}
 

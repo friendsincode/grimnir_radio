@@ -61,4 +61,3 @@ func applyLooseMediaSearch(db *gorm.DB, query string) *gorm.DB {
 
 	return db.Where(where, pattern, pattern, pattern, norm, norm, norm)
 }
-

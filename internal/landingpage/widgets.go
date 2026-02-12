@@ -82,10 +82,10 @@ var WidgetRegistry = []WidgetDefinition{
 		Icon:        "broadcast",
 		Category:    "core",
 		Defaults: map[string]any{
-			"title":       "Our Stations",
-			"columns":     3,
-			"showLogo":    true,
-			"showDesc":    true,
+			"title":        "Our Stations",
+			"columns":      3,
+			"showLogo":     true,
+			"showDesc":     true,
 			"centerSingle": true,
 		},
 		ConfigSpec: []ConfigField{

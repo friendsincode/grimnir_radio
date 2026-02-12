@@ -14,15 +14,15 @@ import (
 
 // WebDJSession represents an active WebDJ console session.
 type WebDJSession struct {
-	ID              string      `gorm:"type:uuid;primaryKey"`
-	LiveSessionID   string      `gorm:"type:uuid;index"` // Links to existing LiveSession
-	StationID       string      `gorm:"type:uuid;index"`
-	UserID          string      `gorm:"type:uuid;index"`
-	DeckAState      DeckState   `gorm:"type:jsonb;serializer:json"`
-	DeckBState      DeckState   `gorm:"type:jsonb;serializer:json"`
-	MixerState      MixerState  `gorm:"type:jsonb;serializer:json"`
-	CrossfaderCurve string      `gorm:"type:varchar(32);default:'linear'"`
-	Active          bool        `gorm:"default:true;index"`
+	ID              string     `gorm:"type:uuid;primaryKey"`
+	LiveSessionID   string     `gorm:"type:uuid;index"` // Links to existing LiveSession
+	StationID       string     `gorm:"type:uuid;index"`
+	UserID          string     `gorm:"type:uuid;index"`
+	DeckAState      DeckState  `gorm:"type:jsonb;serializer:json"`
+	DeckBState      DeckState  `gorm:"type:jsonb;serializer:json"`
+	MixerState      MixerState `gorm:"type:jsonb;serializer:json"`
+	CrossfaderCurve string     `gorm:"type:varchar(32);default:'linear'"`
+	Active          bool       `gorm:"default:true;index"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -41,7 +41,7 @@ type DeckState struct {
 	PositionMS int64      `json:"position_ms"`
 	State      string     `json:"state"` // idle, loading, cued, playing, paused
 	BPM        float64    `json:"bpm,omitempty"`
-	Pitch      float64    `json:"pitch"` // -8 to +8 percent
+	Pitch      float64    `json:"pitch"`  // -8 to +8 percent
 	Volume     float64    `json:"volume"` // 0.0 to 1.0
 	HotCues    []CuePoint `json:"hot_cues,omitempty"`
 	LoopInMS   *int64     `json:"loop_in_ms,omitempty"`
@@ -72,7 +72,7 @@ func (d *DeckState) Scan(value interface{}) error {
 
 // CuePoint represents a hot cue or loop marker.
 type CuePoint struct {
-	ID         int    `json:"id"`         // 1-8 for hot cues
+	ID         int    `json:"id"` // 1-8 for hot cues
 	PositionMS int64  `json:"position_ms"`
 	Label      string `json:"label,omitempty"`
 	Color      string `json:"color,omitempty"` // Hex color
@@ -80,13 +80,13 @@ type CuePoint struct {
 
 // MixerState represents the state of the mixer controls.
 type MixerState struct {
-	Crossfader    float64 `json:"crossfader"`    // 0.0 = A, 0.5 = center, 1.0 = B
-	MasterVolume  float64 `json:"master_volume"` // 0.0 to 1.0
-	CueSplit      bool    `json:"cue_split"`     // Monitor cue split mode
-	CueMixLevel   float64 `json:"cue_mix_level"` // Monitor cue mix level
-	MicActive     bool    `json:"mic_active"`
-	MicVolume     float64 `json:"mic_volume"`
-	TalkoverDuck  float64 `json:"talkover_duck"` // How much to duck when mic active
+	Crossfader   float64 `json:"crossfader"`    // 0.0 = A, 0.5 = center, 1.0 = B
+	MasterVolume float64 `json:"master_volume"` // 0.0 to 1.0
+	CueSplit     bool    `json:"cue_split"`     // Monitor cue split mode
+	CueMixLevel  float64 `json:"cue_mix_level"` // Monitor cue mix level
+	MicActive    bool    `json:"mic_active"`
+	MicVolume    float64 `json:"mic_volume"`
+	TalkoverDuck float64 `json:"talkover_duck"` // How much to duck when mic active
 }
 
 // Value implements driver.Valuer for MixerState.
@@ -154,13 +154,13 @@ const (
 // NewDeckState creates a new deck state with default values.
 func NewDeckState() DeckState {
 	return DeckState{
-		State:    string(DeckStateIdle),
-		Volume:   1.0,
-		Pitch:    0.0,
-		EQHigh:   0.0,
-		EQMid:    0.0,
-		EQLow:    0.0,
-		HotCues:  make([]CuePoint, 0),
+		State:   string(DeckStateIdle),
+		Volume:  1.0,
+		Pitch:   0.0,
+		EQHigh:  0.0,
+		EQMid:   0.0,
+		EQLow:   0.0,
+		HotCues: make([]CuePoint, 0),
 	}
 }
 
