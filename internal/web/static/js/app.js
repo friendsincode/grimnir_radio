@@ -199,6 +199,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        const dashboardPlayLink = document.getElementById('dashboardPlayLink');
+        if (dashboardPlayLink) {
+            dashboardPlayLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                playSelectedStationAudio();
+            });
+        }
+
         // Refresh header now-playing when station context changes.
         const stationSelect = document.querySelector('select[name="station_id"]');
         if (stationSelect) {
