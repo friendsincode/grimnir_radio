@@ -58,6 +58,13 @@
                         </select>
                     </div>
 
+                    <div class="mb-3">
+                        <label for="sort_order" class="form-label">Sort Order</label>
+                        <input type="number" class="form-control" id="sort_order" name="sort_order"
+                               value="{{.Data.Station.SortOrder}}">
+                        <div class="form-text">Lower numbers show first on public station listings.</div>
+                    </div>
+
                     <div class="mb-4">
                         <div class="form-check">
                             <input type="checkbox" class="form-check-input" id="active" name="active"
