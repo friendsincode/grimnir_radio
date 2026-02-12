@@ -10,6 +10,20 @@ import (
 	"time"
 )
 
+// ListenerSample stores time-series listener snapshots for a station.
+type ListenerSample struct {
+	ID         string    `gorm:"type:uuid;primaryKey" json:"id"`
+	StationID  string    `gorm:"type:uuid;index;not null" json:"station_id"`
+	Listeners  int       `gorm:"not null" json:"listeners"`
+	CapturedAt time.Time `gorm:"index;not null" json:"captured_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// TableName returns the table name for GORM.
+func (ListenerSample) TableName() string {
+	return "listener_samples"
+}
+
 // ScheduleAnalytics stores aggregated listener data per hour/show.
 type ScheduleAnalytics struct {
 	ID            string    `gorm:"type:uuid;primaryKey" json:"id"`

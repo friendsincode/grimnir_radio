@@ -317,6 +317,7 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/history", h.AnalyticsHistory)
 					r.Get("/spins", h.AnalyticsSpins)
 					r.Get("/listeners", h.AnalyticsListeners)
+					r.Get("/listeners/timeseries", h.AnalyticsListenersTimeSeries)
 				})
 			})
 
