@@ -482,12 +482,23 @@ func TestLoginFlow(t *testing.T) {
 // Helper functions
 
 func setupTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+	// Use a per-test in-memory database. With plain ":memory:", each new connection gets
+	// a different empty DB, which can cause "no such table" failures under concurrency.
+	// With shared-cache we must ensure each test uses a distinct DSN to avoid cross-test contamination.
+	dsn := fmt.Sprintf("file:grimnir_e2e_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	if err != nil {
 		t.Fatalf("failed to open test db: %v", err)
 	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to get sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	// Migrate all tables
 	err = db.AutoMigrate(
