@@ -1269,9 +1269,13 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		}
 
 	case "clock":
-		// Clocks continue from smart block items if available
-		nextPos := state.Position + 1
-		if nextPos < state.TotalItems && len(state.Items) > nextPos {
+		// Clock-driven sequences should keep cycling until schedule entry ends.
+		// This allows clock templates to back longer blocks (e.g. 2-3 hour shows).
+		if state.TotalItems <= 0 {
+			break
+		}
+		nextPos := (state.Position + 1) % state.TotalItems
+		if len(state.Items) > nextPos {
 			d.playNextFromState(entry, state, nextPos, mountName)
 			return
 		}
