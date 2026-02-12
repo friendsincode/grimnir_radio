@@ -117,4 +117,3 @@ func TestStationLandingOrdersStations_CurrentThenPlatformFirstThenRest(t *testin
 		t.Fatalf("unexpected order: current=%d p1=%d p2=%d\nsnippet=%s", idxCurrent, idxP1, idxP2, orderSnippet)
 	}
 }
-
