@@ -80,14 +80,32 @@ func (b *Builder) validateGraph(graph *pb.DSPGraph) error {
 
 	// Check for duplicate node IDs
 	seen := make(map[string]bool)
+	inputCount := 0
+	outputCount := 0
 	for _, node := range graph.Nodes {
 		if seen[node.Id] {
 			return fmt.Errorf("duplicate node ID: %s", node.Id)
 		}
 		seen[node.Id] = true
+		if node.Type == pb.NodeType_NODE_TYPE_INPUT {
+			inputCount++
+		}
+		if node.Type == pb.NodeType_NODE_TYPE_OUTPUT {
+			outputCount++
+		}
+	}
+
+	if inputCount != 1 {
+		return fmt.Errorf("graph must have exactly one INPUT node, got %d", inputCount)
+	}
+	if outputCount != 1 {
+		return fmt.Errorf("graph must have exactly one OUTPUT node, got %d", outputCount)
 	}
 
 	// Validate connections reference existing nodes
+	inDegree := make(map[string]int, len(graph.Nodes))
+	outDegree := make(map[string]int, len(graph.Nodes))
+	nextNode := make(map[string]string, len(graph.Nodes))
 	for _, conn := range graph.Connections {
 		if !seen[conn.FromNode] {
 			return fmt.Errorf("connection references unknown node: %s", conn.FromNode)
@@ -95,6 +113,77 @@ func (b *Builder) validateGraph(graph *pb.DSPGraph) error {
 		if !seen[conn.ToNode] {
 			return fmt.Errorf("connection references unknown node: %s", conn.ToNode)
 		}
+		if conn.FromNode == conn.ToNode {
+			return fmt.Errorf("self-referential connection on node: %s", conn.FromNode)
+		}
+		inDegree[conn.ToNode]++
+		outDegree[conn.FromNode]++
+		if existing, exists := nextNode[conn.FromNode]; exists && existing != conn.ToNode {
+			return fmt.Errorf("node %s has multiple outgoing connections", conn.FromNode)
+		}
+		nextNode[conn.FromNode] = conn.ToNode
+	}
+
+	nodeByID := make(map[string]*pb.DSPNode, len(graph.Nodes))
+	var inputNode *pb.DSPNode
+	var outputNode *pb.DSPNode
+	for _, node := range graph.Nodes {
+		nodeByID[node.Id] = node
+		switch node.Type {
+		case pb.NodeType_NODE_TYPE_INPUT:
+			inputNode = node
+		case pb.NodeType_NODE_TYPE_OUTPUT:
+			outputNode = node
+		}
+	}
+
+	for _, node := range graph.Nodes {
+		in := inDegree[node.Id]
+		out := outDegree[node.Id]
+		switch node.Type {
+		case pb.NodeType_NODE_TYPE_INPUT:
+			if in != 0 {
+				return fmt.Errorf("INPUT node %s must not have incoming connections", node.Id)
+			}
+			if out != 1 {
+				return fmt.Errorf("INPUT node %s must have exactly one outgoing connection", node.Id)
+			}
+		case pb.NodeType_NODE_TYPE_OUTPUT:
+			if in != 1 {
+				return fmt.Errorf("OUTPUT node %s must have exactly one incoming connection", node.Id)
+			}
+			if out != 0 {
+				return fmt.Errorf("OUTPUT node %s must not have outgoing connections", node.Id)
+			}
+		default:
+			if in != 1 || out != 1 {
+				return fmt.Errorf("node %s must have exactly one incoming and one outgoing connection", node.Id)
+			}
+		}
+	}
+
+	// Ensure the graph is a single chain from INPUT to OUTPUT that visits all nodes.
+	visited := make(map[string]bool, len(graph.Nodes))
+	current := inputNode
+	for current != nil {
+		if visited[current.Id] {
+			return fmt.Errorf("graph contains cycle at node %s", current.Id)
+		}
+		visited[current.Id] = true
+		if current.Id == outputNode.Id {
+			break
+		}
+		nextID, ok := nextNode[current.Id]
+		if !ok {
+			return fmt.Errorf("graph path terminated before OUTPUT at node %s", current.Id)
+		}
+		current = nodeByID[nextID]
+	}
+	if current == nil || current.Id != outputNode.Id {
+		return fmt.Errorf("graph path does not reach OUTPUT node")
+	}
+	if len(visited) != len(graph.Nodes) {
+		return fmt.Errorf("graph contains disconnected nodes")
 	}
 
 	return nil
@@ -134,16 +223,16 @@ func (b *Builder) buildNode(node *pb.DSPNode) (string, error) {
 
 // buildInputNode creates an input element
 func (b *Builder) buildInputNode(node *pb.DSPNode) (string, error) {
-	// Input nodes are typically handled separately in the media engine
-	// This is a placeholder for graph compilation
-	return "identity", nil
+	// INPUT is a graph boundary marker managed by the media pipeline source.
+	// It does not map to a standalone DSP element.
+	return "", nil
 }
 
 // buildOutputNode creates an output element
 func (b *Builder) buildOutputNode(node *pb.DSPNode) (string, error) {
-	// Output nodes are typically handled separately in the media engine
-	// This is a placeholder for graph compilation
-	return "identity", nil
+	// OUTPUT is a graph boundary marker managed by the media pipeline sink.
+	// It does not map to a standalone DSP element.
+	return "", nil
 }
 
 // buildLoudnessNode creates a loudness normalization element (EBU R128)
@@ -315,10 +404,7 @@ func (b *Builder) buildPipeline(graph *pb.DSPGraph, elements map[string]string) 
 	}
 
 	if currentNode == nil {
-		// No input node, just chain all nodes
-		if len(graph.Nodes) > 0 {
-			currentNode = graph.Nodes[0]
-		}
+		return ""
 	}
 
 	// Build linear chain following connections
@@ -329,11 +415,13 @@ func (b *Builder) buildPipeline(graph *pb.DSPGraph, elements map[string]string) 
 		}
 		visited[currentNode.Id] = true
 
-		element := elements[currentNode.Id]
-		if pipeline.Len() > 0 {
-			pipeline.WriteString(" ! ")
+		element := strings.TrimSpace(elements[currentNode.Id])
+		if element != "" {
+			if pipeline.Len() > 0 {
+				pipeline.WriteString(" ! ")
+			}
+			pipeline.WriteString(element)
 		}
-		pipeline.WriteString(element)
 
 		// Find next node
 		nextNodeID, hasNext := connections[currentNode.Id]

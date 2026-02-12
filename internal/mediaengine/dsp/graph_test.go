@@ -95,6 +95,37 @@ func TestBuilder_Build(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "missing output boundary",
+			graph: &pb.DSPGraph{
+				Nodes: []*pb.DSPNode{
+					{Id: "input", Type: pb.NodeType_NODE_TYPE_INPUT},
+					{Id: "comp", Type: pb.NodeType_NODE_TYPE_COMPRESSOR},
+				},
+				Connections: []*pb.DSPConnection{
+					{FromNode: "input", ToNode: "comp"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "branching graph is rejected",
+			graph: &pb.DSPGraph{
+				Nodes: []*pb.DSPNode{
+					{Id: "input", Type: pb.NodeType_NODE_TYPE_INPUT},
+					{Id: "a", Type: pb.NodeType_NODE_TYPE_COMPRESSOR},
+					{Id: "b", Type: pb.NodeType_NODE_TYPE_GATE},
+					{Id: "output", Type: pb.NodeType_NODE_TYPE_OUTPUT},
+				},
+				Connections: []*pb.DSPConnection{
+					{FromNode: "input", ToNode: "a"},
+					{FromNode: "input", ToNode: "b"},
+					{FromNode: "a", ToNode: "output"},
+					{FromNode: "b", ToNode: "output"},
+				},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -127,6 +158,18 @@ func TestBuilder_BuildNode(t *testing.T) {
 		wantErr  bool
 		contains string // substring that should be in the output
 	}{
+		{
+			name:     "input boundary node",
+			node:     &pb.DSPNode{Id: "input", Type: pb.NodeType_NODE_TYPE_INPUT},
+			wantErr:  false,
+			contains: "",
+		},
+		{
+			name:     "output boundary node",
+			node:     &pb.DSPNode{Id: "output", Type: pb.NodeType_NODE_TYPE_OUTPUT},
+			wantErr:  false,
+			contains: "",
+		},
 		{
 			name:     "loudness normalize node",
 			node:     &pb.DSPNode{Id: "loud", Type: pb.NodeType_NODE_TYPE_LOUDNESS_NORMALIZE, Params: map[string]string{"target_lufs": "-16"}},
@@ -196,7 +239,7 @@ func TestBuilder_BuildNode(t *testing.T) {
 				return
 			}
 			if !tt.wantErr {
-				if element == "" {
+				if tt.node.Type != pb.NodeType_NODE_TYPE_INPUT && tt.node.Type != pb.NodeType_NODE_TYPE_OUTPUT && element == "" {
 					t.Error("Builder.buildNode() returned empty element")
 					return
 				}
