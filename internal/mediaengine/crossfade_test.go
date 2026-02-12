@@ -18,7 +18,7 @@ import (
 func TestCrossfadeManager_New(t *testing.T) {
 	logger := zerolog.Nop()
 
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	if cfm.stationID != "station-123" {
 		t.Errorf("stationID = %s, want station-123", cfm.stationID)
@@ -33,7 +33,7 @@ func TestCrossfadeManager_New(t *testing.T) {
 
 func TestCrossfadeManager_GetFadeState(t *testing.T) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	state := cfm.GetFadeState()
 	if state != FadeStateIdle {
@@ -43,7 +43,7 @@ func TestCrossfadeManager_GetFadeState(t *testing.T) {
 
 func TestCrossfadeManager_CalculateFadeTiming(t *testing.T) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	tests := []struct {
 		name         string
@@ -169,7 +169,7 @@ func durationsEqual(a, b, tolerance time.Duration) bool {
 
 func TestCrossfadeManager_CalculateFadeTiming_Defaults(t *testing.T) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	// Test with zero fade durations (should use defaults)
 	timing := cfm.calculateFadeTiming(
@@ -192,7 +192,7 @@ func TestCrossfadeManager_CalculateFadeTiming_Defaults(t *testing.T) {
 
 func TestCrossfadeManager_buildCrossfadePipeline(t *testing.T) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	currentTrack := &Track{
 		SourceType: pb.SourceType_SOURCE_TYPE_MEDIA,
@@ -249,7 +249,7 @@ func TestCrossfadeManager_buildCrossfadePipeline(t *testing.T) {
 
 func TestCrossfadeManager_buildSourceElement(t *testing.T) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	tests := []struct {
 		name         string
@@ -305,7 +305,7 @@ func TestCrossfadeManager_buildSourceElement(t *testing.T) {
 
 func TestCrossfadeManager_buildFadeController(t *testing.T) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	fadeIn := cfm.buildFadeController("next", pb.FadeCurve_FADE_CURVE_LINEAR, 3*time.Second, true)
 	if !contains(fadeIn, "volume") {
@@ -326,7 +326,7 @@ func TestCrossfadeManager_buildFadeController(t *testing.T) {
 
 func TestCrossfadeManager_GetCurrentTrack(t *testing.T) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	// Initially nil
 	track := cfm.GetCurrentTrack()
@@ -380,7 +380,7 @@ func TestFadeTiming_OverlapCalculation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := zerolog.Nop()
-			cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+			cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 			timing := cfm.calculateFadeTiming(
 				&Track{Duration: 180 * time.Second},
@@ -400,7 +400,7 @@ func TestFadeTiming_OverlapCalculation(t *testing.T) {
 
 func BenchmarkCrossfadeManager_calculateFadeTiming(b *testing.B) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	currentTrack := &Track{
 		Duration: 180 * time.Second,
@@ -429,7 +429,7 @@ func BenchmarkCrossfadeManager_calculateFadeTiming(b *testing.B) {
 
 func BenchmarkCrossfadeManager_buildCrossfadePipeline(b *testing.B) {
 	logger := zerolog.Nop()
-	cfm := NewCrossfadeManager("station-123", "mount-456", logger)
+	cfm := NewCrossfadeManager("station-123", "mount-456", nil, logger)
 
 	currentTrack := &Track{
 		SourceType: pb.SourceType_SOURCE_TYPE_MEDIA,

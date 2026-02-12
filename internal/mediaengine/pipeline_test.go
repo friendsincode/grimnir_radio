@@ -356,7 +356,7 @@ func TestPipeline_Stop(t *testing.T) {
 		},
 		NextTrack:    nil,
 		logger:       logger,
-		crossfadeMgr: NewCrossfadeManager("station-123", "mount-456", logger),
+		crossfadeMgr: NewCrossfadeManager("station-123", "mount-456", nil, logger),
 	}
 
 	err := pipeline.Stop()

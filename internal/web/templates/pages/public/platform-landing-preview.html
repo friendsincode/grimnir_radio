@@ -416,6 +416,11 @@
         turnUsername: "{{.WebRTCTURNUsername}}",
         turnPassword: "{{.WebRTCTURNPassword}}"
     };
+    window.GRIMNIR_STATION_ORDER = [
+        {{- range $i, $s := .Data.OrderedStations -}}
+        {{- if $i}}, {{end -}}"{{$s.Station.ID}}"
+        {{- end -}}
+    ];
     </script>
 
     <!-- App JS with Global Player -->

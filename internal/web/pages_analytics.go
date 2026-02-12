@@ -8,6 +8,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -213,12 +214,20 @@ func (h *Handler) AnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: Integrate with Icecast/streaming server stats
+	currentListeners := 0
+	if h.director != nil {
+		if listeners, err := h.director.ListenerCount(r.Context(), station.ID); err == nil {
+			currentListeners = listeners
+		} else {
+			h.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to load listener counts")
+		}
+	}
 
 	h.Render(w, r, "pages/dashboard/analytics/listeners", PageData{
 		Title:    "Listener Stats",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"Message": "Listener statistics coming soon",
+			"CurrentListeners": currentListeners,
 		},
 	})
 }
@@ -233,15 +242,23 @@ func (h *Handler) PlayoutSkip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Call playout manager to skip
+	if h.director == nil {
+		http.Error(w, "Playout system unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	skipped, err := h.director.SkipStation(r.Context(), station.ID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to skip track: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		w.Write([]byte(`<div class="alert alert-success">Skip command sent</div>`))
+		w.Write([]byte(fmt.Sprintf(`<div class="alert alert-success">Skipped on %d active mount(s)</div>`, skipped)))
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "mounts": skipped})
 }
 
 // PlayoutStop stops playout
@@ -252,14 +269,23 @@ func (h *Handler) PlayoutStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Call playout manager to stop
+	if h.director == nil {
+		http.Error(w, "Playout system unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	stopped, err := h.director.StopStation(r.Context(), station.ID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to stop playout: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		w.Write([]byte(`<div class="alert alert-warning">Playout stopped</div>`))
+		w.Write([]byte(fmt.Sprintf(`<div class="alert alert-warning">Playout stopped on %d mount(s)</div>`, stopped)))
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "mounts": stopped})
 }
 
 // PlayoutReload reloads the playout pipeline
@@ -270,12 +296,21 @@ func (h *Handler) PlayoutReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Call playout manager to reload
+	if h.director == nil {
+		http.Error(w, "Playout system unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	reloaded, err := h.director.ReloadStation(r.Context(), station.ID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to reload playout: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		w.Write([]byte(`<div class="alert alert-info">Playout reload initiated</div>`))
+		w.Write([]byte(fmt.Sprintf(`<div class="alert alert-info">Playout reload initiated on %d mount(s)</div>`, reloaded)))
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "mounts": reloaded})
 }

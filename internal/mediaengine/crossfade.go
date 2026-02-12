@@ -24,6 +24,7 @@ type CrossfadeManager struct {
 	stationID string
 	mountID   string
 	logger    zerolog.Logger
+	outputCfg EncoderConfig
 
 	mu                  sync.RWMutex
 	currentTrack        *Track
@@ -46,11 +47,23 @@ const (
 )
 
 // NewCrossfadeManager creates a new crossfade manager
-func NewCrossfadeManager(stationID, mountID string, logger zerolog.Logger) *CrossfadeManager {
+func NewCrossfadeManager(stationID, mountID string, outputCfg *EncoderConfig, logger zerolog.Logger) *CrossfadeManager {
+	cfg := EncoderConfig{
+		OutputType: OutputTypeTest,
+		Format:     AudioFormatMP3,
+		Bitrate:    128,
+		SampleRate: 44100,
+		Channels:   2,
+	}
+	if outputCfg != nil {
+		cfg = *outputCfg
+	}
+
 	return &CrossfadeManager{
 		stationID: stationID,
 		mountID:   mountID,
 		logger:    logger.With().Str("component", "crossfade").Logger(),
+		outputCfg: cfg,
 		fadeState: FadeStateIdle,
 	}
 }
@@ -194,9 +207,18 @@ func (cfm *CrossfadeManager) buildCrossfadePipeline(current, next *Track, timing
 	pipeline.WriteString(nextFadeIn)
 	pipeline.WriteString(" ! queue name=next_queue ! mix. ")
 
-	// Mixer output
+	// Mixer output -> configured encoder/output chain.
+	encoder := NewEncoderBuilder(cfm.outputCfg)
+	if err := encoder.ValidateConfig(); err != nil {
+		return "", fmt.Errorf("invalid crossfade output config: %w", err)
+	}
+	outputChain, err := encoder.Build()
+	if err != nil {
+		return "", fmt.Errorf("build crossfade output chain: %w", err)
+	}
+
 	pipeline.WriteString("mix. ! audioconvert ! audioresample ! ")
-	pipeline.WriteString("autoaudiosink") // TODO: Replace with encoder/streamer
+	pipeline.WriteString(outputChain)
 
 	return pipeline.String(), nil
 }

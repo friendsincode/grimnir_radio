@@ -849,13 +849,29 @@ class GlobalPlayer {
         try {
             const response = await fetch('/api/v1/public/stations');
             if (response.ok) {
-                this.publicStations = await response.json();
+                const stations = await response.json();
+                this.publicStations = this.applyPreferredStationOrder(stations);
                 this.updateTransportMenu();
                 this.updateStationMenu();
             }
         } catch (e) {
             console.debug('Failed to load public stations:', e);
         }
+    }
+
+    applyPreferredStationOrder(stations) {
+        if (!Array.isArray(stations)) return [];
+        const preferred = Array.isArray(window.GRIMNIR_STATION_ORDER) ? window.GRIMNIR_STATION_ORDER : [];
+        if (preferred.length === 0) return stations;
+
+        const rank = new Map();
+        preferred.forEach((id, idx) => rank.set(id, idx));
+        return [...stations].sort((a, b) => {
+            const ra = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER;
+            const rb = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER;
+            if (ra !== rb) return ra - rb;
+            return (a.name || '').localeCompare(b.name || '');
+        });
     }
 
     updateTransportMenu() {

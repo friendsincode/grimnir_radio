@@ -9,6 +9,9 @@ package mediaengine
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -121,7 +124,7 @@ func (pm *PipelineManager) CreatePipeline(ctx context.Context, stationID, mountI
 		logger:       pipelineLogger,
 		cancelFunc:   cancel,
 		telemetry:    &TelemetryCollector{},
-		crossfadeMgr: NewCrossfadeManager(stationID, mountID, pipelineLogger),
+		crossfadeMgr: NewCrossfadeManager(stationID, mountID, outputConfig, pipelineLogger),
 	}
 
 	pm.pipelines[stationID] = pipeline
@@ -501,15 +504,109 @@ func (p *Pipeline) RouteLive(ctx context.Context, input *pb.LiveInputConfig) err
 		StartedAt:  time.Now(),
 	}
 
+	// Stop any existing live/playback process first.
+	if p.process != nil {
+		if err := p.process.Stop(); err != nil {
+			p.logger.Warn().Err(err).Msg("failed to stop existing process before live route")
+			if killErr := p.process.Kill(); killErr != nil {
+				p.logger.Warn().Err(killErr).Msg("failed to kill existing process before live route")
+			}
+		}
+		p.process = nil
+	}
+
+	source := p.buildLiveSource(input.InputUrl)
+
+	var dspChain string
+	if input.ApplyProcessing && p.Graph != nil && p.Graph.Pipeline != "" {
+		dspChain = " ! " + p.Graph.Pipeline
+	}
+
+	encoder := NewEncoderBuilder(*p.OutputConfig)
+	if err := encoder.ValidateConfig(); err != nil {
+		return fmt.Errorf("invalid encoder config for live route: %w", err)
+	}
+	outputChain, err := encoder.Build()
+	if err != nil {
+		return fmt.Errorf("build live output chain: %w", err)
+	}
+
+	pipelineStr := source + dspChain + " ! " + outputChain
+	processID := fmt.Sprintf("%s-%s-live", p.StationID, p.MountID)
+
+	p.process = NewGStreamerProcess(ctx, GStreamerProcessConfig{
+		ID:       processID,
+		Pipeline: pipelineStr,
+		LogLevel: "info",
+		OnStateChange: func(state ProcessState) {
+			p.logger.Debug().
+				Str("process_state", string(state)).
+				Msg("live route process state changed")
+		},
+		OnTelemetry: func(gstTelem *GStreamerTelemetry) {
+			p.telemetry.mu.Lock()
+			p.telemetry.AudioLevelL = gstTelem.AudioLevelL
+			p.telemetry.AudioLevelR = gstTelem.AudioLevelR
+			p.telemetry.PeakLevelL = gstTelem.PeakLevelL
+			p.telemetry.PeakLevelR = gstTelem.PeakLevelR
+			p.telemetry.BufferDepthMS = gstTelem.BufferDepthMS
+			p.telemetry.BufferFillPct = gstTelem.BufferFillPct
+			p.telemetry.UnderrunCount = gstTelem.UnderrunCount
+			p.telemetry.mu.Unlock()
+		},
+		OnExit: func(exitCode int, err error) {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			p.State = pb.PlaybackState_PLAYBACK_STATE_IDLE
+			p.CurrentTrack = nil
+			if err != nil {
+				p.logger.Error().Err(err).Int("exit_code", exitCode).Msg("live route process exited with error")
+				return
+			}
+			p.logger.Info().Int("exit_code", exitCode).Msg("live route process exited")
+		},
+	}, p.logger)
+
+	if err := p.process.Start(pipelineStr); err != nil {
+		return fmt.Errorf("failed to start live route process: %w", err)
+	}
+
 	p.CurrentTrack = track
 	p.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
 
-	// TODO: Implement live input routing
-	// 1. Use souphttpsrc or tcpserversrc for input
-	// 2. Apply DSP graph if input.ApplyProcessing is true
-	// 3. Route to output
-
 	return nil
+}
+
+func (p *Pipeline) buildLiveSource(inputURL string) string {
+	u := strings.TrimSpace(inputURL)
+	if u == "" {
+		return "tcpserversrc port=8001 ! decodebin"
+	}
+
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return fmt.Sprintf("souphttpsrc location=\"%s\" ! decodebin", u)
+	}
+
+	switch strings.ToLower(parsed.Scheme) {
+	case "tcp":
+		port := parsed.Port()
+		if port == "" {
+			port = "8001"
+		}
+		return fmt.Sprintf("tcpserversrc port=%s ! decodebin", port)
+	case "udp", "rtp":
+		port := parsed.Port()
+		if port == "" {
+			port = "5004"
+		}
+		if _, convErr := strconv.Atoi(port); convErr != nil {
+			port = "5004"
+		}
+		return fmt.Sprintf("udpsrc port=%s ! application/x-rtp ! decodebin", port)
+	default:
+		return fmt.Sprintf("souphttpsrc location=\"%s\" ! decodebin", u)
+	}
 }
 
 // GetTelemetry returns current telemetry data
@@ -569,6 +666,10 @@ func (p *Pipeline) buildPlaybackPipeline(track *Track) (string, error) {
 	case pb.SourceType_SOURCE_TYPE_MEDIA:
 		// File playback
 		source = fmt.Sprintf("filesrc location=%s ! decodebin", track.Path)
+		if track.CuePoints != nil && track.CuePoints.IntroEnd > 0 {
+			seekTime := int64(track.CuePoints.IntroEnd * 1000000000) // seconds -> nanoseconds
+			source += fmt.Sprintf(" ! queue ! audiorate ! audioconvert ! audio/x-raw ! identity sync=true start-time=%d", seekTime)
+		}
 	case pb.SourceType_SOURCE_TYPE_WEBSTREAM:
 		// HTTP stream
 		source = fmt.Sprintf("souphttpsrc location=%s ! decodebin", track.Path)
