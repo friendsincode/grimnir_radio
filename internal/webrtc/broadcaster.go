@@ -49,6 +49,8 @@ type Broadcaster struct {
 	lastOutTS      uint32 // Last outgoing timestamp
 	ssrc           uint32 // Our fixed SSRC
 	seqInitialized bool   // Whether we've seen the first packet
+	activeSource   string // Active RTP sender (ip:port)
+	lastSourceAt   time.Time
 
 	// Stats
 	totalPeers    int64
@@ -187,6 +189,7 @@ func (b *Broadcaster) Stop() error {
 func (b *Broadcaster) readRTP(ctx context.Context) {
 	buf := make([]byte, 1500)
 	packet := &rtp.Packet{}
+	const sourceStaleAfter = 300 * time.Millisecond
 
 	for {
 		select {
@@ -198,7 +201,7 @@ func (b *Broadcaster) readRTP(ctx context.Context) {
 		// Set read deadline to allow checking context
 		b.rtpConn.SetReadDeadline(time.Now().Add(1 * time.Second))
 
-		n, _, err := b.rtpConn.ReadFromUDP(buf)
+		n, addr, err := b.rtpConn.ReadFromUDP(buf)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || isTimeout(err) {
 				continue
@@ -217,9 +220,36 @@ func (b *Broadcaster) readRTP(ctx context.Context) {
 		}
 
 		b.bytesReceived += int64(n)
+		now := time.Now()
 
 		// Rewrite RTP header for continuous stream across track changes
 		b.mu.Lock()
+		source := ""
+		if addr != nil {
+			source = addr.String()
+		}
+
+		// Keep a single active RTP source. This prevents packet interleaving when
+		// multiple pipelines accidentally send to the same UDP port.
+		if b.activeSource == "" {
+			b.activeSource = source
+			b.lastSourceAt = now
+			b.logger.Info().Str("source", b.activeSource).Msg("RTP source locked")
+		} else if source != "" && source != b.activeSource {
+			if now.Sub(b.lastSourceAt) < sourceStaleAfter {
+				b.mu.Unlock()
+				continue
+			}
+			b.logger.Info().
+				Str("old_source", b.activeSource).
+				Str("new_source", source).
+				Msg("RTP source switched")
+			b.activeSource = source
+			b.lastSourceAt = now
+		} else {
+			b.lastSourceAt = now
+		}
+
 		if !b.seqInitialized {
 			// First packet - initialize tracking
 			b.seqInitialized = true
