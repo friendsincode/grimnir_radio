@@ -68,6 +68,12 @@ type cachedCrossfadeConfig struct {
 	loadedAt time.Time
 }
 
+type cachedScheduleSnapshot struct {
+	entries  []models.ScheduleEntry
+	loadedAt time.Time
+	dirty    bool
+}
+
 // Director drives schedule execution and emits now playing events.
 type Director struct {
 	db            *gorm.DB
@@ -99,6 +105,9 @@ type Director struct {
 
 	xfadeCfgMu    sync.Mutex
 	xfadeCfgCache map[string]cachedCrossfadeConfig // stationID -> config
+
+	scheduleMu    sync.Mutex
+	scheduleCache cachedScheduleSnapshot
 }
 
 // NewDirector creates a playout director.
@@ -121,6 +130,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		webrtcCache:   make(map[string]cachedWebRTCPort),
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
 		xfadeCfgCache: make(map[string]cachedCrossfadeConfig),
+		scheduleCache: cachedScheduleSnapshot{dirty: true},
 	}
 }
 
@@ -135,6 +145,23 @@ func (d *Director) Run(ctx context.Context) error {
 	// Tight tick interval reduces schedule boundary jitter.
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
+
+	sub := d.bus.Subscribe(events.EventScheduleUpdate)
+	defer d.bus.Unsubscribe(events.EventScheduleUpdate, sub)
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-sub:
+				if !ok {
+					return
+				}
+				d.markScheduleDirty()
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -153,13 +180,7 @@ func (d *Director) tick(ctx context.Context) error {
 	now := time.Now().UTC()
 	d.prunePlayed(now)
 
-	var entries []models.ScheduleEntry
-	err := d.db.WithContext(ctx).
-		Where("(starts_at <= ? AND ends_at >= ?) OR (recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = ? AND starts_at <= ?)",
-			now.Add(30*time.Second), now.Add(-2*time.Second), false, now.Add(30*time.Second)).
-		Where("recurrence_end_date IS NULL OR recurrence_end_date >= ?", now.AddDate(0, 0, -1).Truncate(24*time.Hour)).
-		Order("starts_at ASC").
-		Find(&entries).Error
+	entries, err := d.getScheduleSnapshot(ctx, now)
 	if err != nil {
 		return err
 	}
@@ -212,6 +233,62 @@ func (d *Director) tick(ctx context.Context) error {
 
 	d.emitHealthSnapshot()
 	return nil
+}
+
+func (d *Director) markScheduleDirty() {
+	d.scheduleMu.Lock()
+	d.scheduleCache.dirty = true
+	d.scheduleMu.Unlock()
+}
+
+func (d *Director) getScheduleSnapshot(ctx context.Context, now time.Time) ([]models.ScheduleEntry, error) {
+	// Keep the director tick fast/accurate (250ms) without hammering the DB.
+	// Refresh on schedule updates and periodically to catch edge cases.
+	const refreshMinInterval = 2 * time.Second
+
+	d.scheduleMu.Lock()
+	dirty := d.scheduleCache.dirty
+	loadedAt := d.scheduleCache.loadedAt
+	haveCache := len(d.scheduleCache.entries) > 0
+	d.scheduleMu.Unlock()
+
+	needRefresh := dirty || now.Sub(loadedAt) >= refreshMinInterval || !haveCache
+	if !needRefresh {
+		d.scheduleMu.Lock()
+		out := append([]models.ScheduleEntry(nil), d.scheduleCache.entries...)
+		d.scheduleMu.Unlock()
+		return out, nil
+	}
+
+	lookahead := 30 * time.Second
+	lookback := 2 * time.Second
+
+	var entries []models.ScheduleEntry
+	err := d.db.WithContext(ctx).
+		Where("(starts_at <= ? AND ends_at >= ?) OR (recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = ? AND starts_at <= ?)",
+			now.Add(lookahead), now.Add(-lookback), false, now.Add(lookahead)).
+		Where("recurrence_end_date IS NULL OR recurrence_end_date >= ?", now.AddDate(0, 0, -1).Truncate(24*time.Hour)).
+		Order("starts_at ASC").
+		Find(&entries).Error
+	if err != nil {
+		// If we have a cache, keep running and try again next tick.
+		d.scheduleMu.Lock()
+		d.scheduleCache.dirty = true
+		out := append([]models.ScheduleEntry(nil), d.scheduleCache.entries...)
+		d.scheduleMu.Unlock()
+		if len(out) > 0 {
+			return out, nil
+		}
+		return nil, err
+	}
+
+	d.scheduleMu.Lock()
+	d.scheduleCache.entries = entries
+	d.scheduleCache.loadedAt = now
+	d.scheduleCache.dirty = false
+	out := append([]models.ScheduleEntry(nil), d.scheduleCache.entries...)
+	d.scheduleMu.Unlock()
+	return out, nil
 }
 
 func (d *Director) getScheduleBoundaryPolicy(ctx context.Context, stationID string) scheduleBoundaryPolicy {

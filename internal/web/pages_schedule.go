@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -433,6 +434,20 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+			"entry_id":    entry.ID,
+			"station_id":  entry.StationID,
+			"mount_id":    entry.MountID,
+			"starts_at":   entry.StartsAt,
+			"ends_at":     entry.EndsAt,
+			"source_type": entry.SourceType,
+			"source_id":   entry.SourceID,
+			"metadata":    entry.Metadata,
+			"event":       "create",
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(entry)
 }
@@ -516,6 +531,20 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if h.eventBus != nil {
+			h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+				"entry_id":    newEntry.ID,
+				"station_id":  newEntry.StationID,
+				"mount_id":    newEntry.MountID,
+				"starts_at":   newEntry.StartsAt,
+				"ends_at":     newEntry.EndsAt,
+				"source_type": newEntry.SourceType,
+				"source_id":   newEntry.SourceID,
+				"metadata":    newEntry.Metadata,
+				"event":       "create_instance",
+			})
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(newEntry)
 		return
@@ -556,17 +585,57 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+			"entry_id":    entry.ID,
+			"station_id":  entry.StationID,
+			"mount_id":    entry.MountID,
+			"starts_at":   entry.StartsAt,
+			"ends_at":     entry.EndsAt,
+			"source_type": entry.SourceType,
+			"source_id":   entry.SourceID,
+			"metadata":    entry.Metadata,
+			"event":       "update",
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(entry)
 }
 
 // ScheduleDeleteEntry deletes a schedule entry
 func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	id := chi.URLParam(r, "id")
+
+	var entry models.ScheduleEntry
+	if err := h.db.First(&entry, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	if err := h.db.Delete(&models.ScheduleEntry{}, "id = ?", id).Error; err != nil {
 		http.Error(w, "Failed to delete entry", http.StatusInternalServerError)
 		return
+	}
+
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+			"entry_id":    entry.ID,
+			"station_id":  station.ID,
+			"mount_id":    entry.MountID,
+			"starts_at":   entry.StartsAt,
+			"ends_at":     entry.EndsAt,
+			"source_type": entry.SourceType,
+			"source_id":   entry.SourceID,
+			"metadata":    entry.Metadata,
+			"event":       "delete",
+		})
 	}
 
 	w.WriteHeader(http.StatusNoContent)
