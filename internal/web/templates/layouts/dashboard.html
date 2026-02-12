@@ -48,16 +48,17 @@
         {{if .Station}}{{if gt (len .Stations) 0}}
         <div class="sidebar-section p-3 border-bottom">
             <label class="form-label small text-body-secondary mb-1 sidebar-text">Station</label>
-            <select class="form-select form-select-sm"
-                    hx-post="/dashboard/stations/select"
-                    hx-trigger="change"
-                    hx-swap="none"
-                    name="station_id">
-                {{$currentID := .Station.ID}}
-                {{range .Stations}}
-                <option value="{{.ID}}" {{if eq .ID $currentID}}selected{{end}}>{{.Name}}</option>
-                {{end}}
-            </select>
+            <form method="POST" action="/dashboard/stations/select" class="m-0 p-0">
+                <select id="stationSelector"
+                        class="form-select form-select-sm"
+                        name="station_id"
+                        onchange="this.form.submit()">
+                    {{$currentID := .Station.ID}}
+                    {{range .Stations}}
+                    <option value="{{.ID}}" {{if eq .ID $currentID}}selected{{end}}>{{.Name}}</option>
+                    {{end}}
+                </select>
+            </form>
         </div>
         {{end}}{{end}}
 
