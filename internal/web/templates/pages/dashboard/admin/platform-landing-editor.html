@@ -436,6 +436,10 @@
 }
 .station-order-item {
     cursor: move;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
     padding: 0.5rem;
     background: var(--bs-body-bg);
     border: 1px solid var(--bs-border-color);
@@ -940,8 +944,21 @@ function initStationOrder() {
 
     container.innerHTML = orderedStations.map((station, i) => `
         <div class="station-order-item" draggable="true" data-station-id="${station.id}">
-            <i class="bi bi-grip-vertical me-2 text-muted"></i>
-            <span>${station.name}</span>
+            <div class="d-flex align-items-center gap-2 flex-grow-1">
+                <i class="bi bi-grip-vertical text-muted"></i>
+                <span class="badge text-bg-secondary station-order-index">${i + 1}</span>
+                <span>${station.name}</span>
+            </div>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Reorder station">
+                <button type="button" class="btn btn-outline-secondary py-0 px-1"
+                        onclick="moveStation('${station.id}', -1); event.stopPropagation();" title="Move up">
+                    <i class="bi bi-chevron-up"></i>
+                </button>
+                <button type="button" class="btn btn-outline-secondary py-0 px-1"
+                        onclick="moveStation('${station.id}', 1); event.stopPropagation();" title="Move down">
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+            </div>
         </div>
     `).join('');
 
@@ -953,6 +970,8 @@ function initStationOrder() {
         item.addEventListener('dragover', handleDragOver);
         item.addEventListener('drop', handleDrop);
     });
+
+    updateStationOrderIndices();
 }
 
 let draggedItem = null;
@@ -1002,6 +1021,8 @@ function getDragAfterElement(container, y) {
 }
 
 function saveStationOrder() {
+    updateStationOrderIndices();
+
     const items = document.querySelectorAll('#stationOrderList .station-order-item');
     const order = Array.from(items).map(item => item.dataset.stationId);
 
@@ -1012,6 +1033,38 @@ function saveStationOrder() {
     // Debounce refresh
     if (updateTimeout) clearTimeout(updateTimeout);
     updateTimeout = setTimeout(() => refreshPreview(), 500);
+}
+
+function moveStation(stationId, direction) {
+    const container = document.getElementById('stationOrderList');
+    if (!container) return;
+
+    const items = Array.from(container.querySelectorAll('.station-order-item'));
+    const index = items.findIndex(item => item.dataset.stationId === stationId);
+    if (index === -1) return;
+
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= items.length) return;
+
+    const current = items[index];
+    const target = items[nextIndex];
+
+    if (direction < 0) {
+        container.insertBefore(current, target);
+    } else {
+        container.insertBefore(target, current);
+    }
+
+    updateStationOrderIndices();
+    saveStationOrder();
+}
+
+function updateStationOrderIndices() {
+    const items = document.querySelectorAll('#stationOrderList .station-order-item');
+    items.forEach((item, idx) => {
+        const badge = item.querySelector('.station-order-index');
+        if (badge) badge.textContent = String(idx + 1);
+    });
 }
 
 // Logo upload
