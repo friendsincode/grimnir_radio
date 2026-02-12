@@ -78,6 +78,7 @@ type Handler struct {
 	scheduler        SchedulerService              // Scheduler service for schedule refresh
 	webstreamSvc     WebstreamService              // Webstream service for failover/reset
 	liveSvc          LiveService                   // Live service for token/session management
+	maxUploadBytes   int64                         // Optional global upload limit override (bytes)
 
 	// WebRTC ICE server config (passed to client)
 	webrtcSTUNURL      string
@@ -123,7 +124,7 @@ type WebRTCConfig struct {
 }
 
 // NewHandler creates a new web handler.
-func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, eventBus *events.Bus, director *playout.Director, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, maxUploadBytes int64, eventBus *events.Bus, director *playout.Director, logger zerolog.Logger) (*Handler, error) {
 	// Create migration service
 	migrationService := migration.NewService(db, eventBus, logger)
 
@@ -152,6 +153,7 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 		webrtcTURNURL:      webrtcCfg.TURNURL,
 		webrtcTURNUsername: webrtcCfg.TURNUsername,
 		webrtcTURNPassword: webrtcCfg.TURNPassword,
+		maxUploadBytes:     maxUploadBytes,
 	}
 
 	if err := h.loadTemplates(); err != nil {
@@ -159,6 +161,13 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 	}
 
 	return h, nil
+}
+
+func (h *Handler) multipartLimit(defaultBytes int64) int64 {
+	if h.maxUploadBytes > 0 {
+		return h.maxUploadBytes
+	}
+	return defaultBytes
 }
 
 // StartUpdateChecker starts the background version checker.

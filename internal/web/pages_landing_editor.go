@@ -354,8 +354,8 @@ func (h *Handler) LandingPageAssetUpload(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Parse multipart form (max 10MB)
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	// Parse multipart form (default 10MB, configurable via GRIMNIR_MAX_UPLOAD_SIZE_MB)
+	if err := r.ParseMultipartForm(h.multipartLimit(10 << 20)); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_multipart")
 		return
 	}
@@ -873,7 +873,7 @@ func (h *Handler) PlatformLandingPageAssetUpload(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	if err := r.ParseMultipartForm(h.multipartLimit(10 << 20)); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "file_too_large")
 		return
 	}

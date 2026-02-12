@@ -40,8 +40,8 @@ func (h *Handler) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		"metrics_enabled":     dbSettings.MetricsEnabled,
 		"log_level":           dbSettings.LogLevel,
 		// Config-backed (read-only)
-		"media_root":       h.mediaRoot,
-		"leader_election":  h.eventBus != nil, // Leader election requires event bus (Redis/NATS)
+		"media_root":      h.mediaRoot,
+		"leader_election": h.eventBus != nil, // Leader election requires event bus (Redis/NATS)
 		// Validation options for dropdowns
 		"valid_lookaheads": models.ValidSchedulerLookaheads,
 		"valid_log_levels": models.ValidLogLevels,
@@ -145,7 +145,8 @@ func (h *Handler) MigrationsPage(w http.ResponseWriter, r *http.Request) {
 
 // MigrationsImport handles import file upload
 func (h *Handler) MigrationsImport(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB max
+	// Default 100MB, configurable via GRIMNIR_MAX_UPLOAD_SIZE_MB.
+	if err := r.ParseMultipartForm(h.multipartLimit(100 << 20)); err != nil {
 		http.Error(w, "File too large", http.StatusBadRequest)
 		return
 	}
