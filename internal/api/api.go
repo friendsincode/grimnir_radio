@@ -1259,17 +1259,49 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 		status = "playing"
 	}
 
+	typeStr := ""
+	sourceType := ""
+	if history.Metadata != nil {
+		if v, ok := history.Metadata["type"].(string); ok {
+			typeStr = v
+		}
+		if v, ok := history.Metadata["source_type"].(string); ok {
+			sourceType = v
+		}
+	}
+	if sourceType == "" && typeStr == "live" {
+		sourceType = "live"
+	}
+	if sourceType == "" && strings.EqualFold(history.Title, "Live DJ") {
+		sourceType = "live"
+	}
+
+	isLiveDJ := sourceType == "live"
+	if !isLiveDJ {
+		var activeSessions int64
+		if err := a.db.WithContext(r.Context()).
+			Model(&models.LiveSession{}).
+			Where("station_id = ? AND active = ?", stationID, true).
+			Count(&activeSessions).Error; err == nil && activeSessions > 0 {
+			isLiveDJ = true
+			sourceType = "live"
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":         history.ID,
-		"station_id": history.StationID,
-		"mount_id":   history.MountID,
-		"media_id":   history.MediaID,
-		"artist":     history.Artist,
-		"title":      history.Title,
-		"album":      history.Album,
-		"started_at": history.StartedAt,
-		"ended_at":   history.EndedAt,
-		"status":     status,
+		"id":          history.ID,
+		"station_id":  history.StationID,
+		"mount_id":    history.MountID,
+		"media_id":    history.MediaID,
+		"artist":      history.Artist,
+		"title":       history.Title,
+		"album":       history.Album,
+		"started_at":  history.StartedAt,
+		"ended_at":    history.EndedAt,
+		"status":      status,
+		"type":        typeStr,
+		"source_type": sourceType,
+		"is_live_dj":  isLiveDJ,
 	})
 }
 

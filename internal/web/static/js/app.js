@@ -170,10 +170,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Fetch initial now-playing state
         fetchNowPlaying();
+        // Keep header now-playing fresh even if websocket events are missed.
+        window._grimnirNowPlayingPoll = setInterval(fetchNowPlaying, 15000);
 
-        // Update on-air status
-        window.grimnirWS.on('now_playing', (data) => {
-            updateNowPlaying(data);
+        // Always resolve now-playing from the currently selected station.
+        // WebSocket events may include updates for other stations.
+        window.grimnirWS.on('now_playing', () => {
+            fetchNowPlaying();
         });
 
         window.grimnirWS.on('schedule_update', (data) => {
@@ -195,6 +198,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 playSelectedStationAudio();
             });
         }
+
+        // Refresh header now-playing when station context changes.
+        const stationSelect = document.querySelector('select[name="station_id"]');
+        if (stationSelect) {
+            stationSelect.addEventListener('change', () => {
+                setTimeout(fetchNowPlaying, 150);
+            });
+        }
+
+        window.addEventListener('resize', () => updateDashboardNowPlayingMarquee());
     }
 });
 
@@ -264,17 +277,23 @@ function updateNowPlaying(data) {
     if (!container) return;
 
     if (data && data.title) {
-        container.innerHTML = `
-            <i class="bi bi-music-note text-success"></i>
-            <span class="text-truncate" style="max-width: 200px;" title="${data.artist} - ${data.title}">
-                ${data.artist} - ${data.title}
-            </span>
-        `;
+        const icon = document.createElement('i');
+        icon.className = 'bi bi-music-note text-success';
+
+        const trackWrap = document.createElement('span');
+        trackWrap.className = 'dashboard-now-playing-track';
+
+        const trackText = document.createElement('span');
+        trackText.className = 'dashboard-now-playing-text';
+        const line = `${data.artist || ''}${data.artist ? ' - ' : ''}${data.title || ''}`.trim();
+        trackText.textContent = line || 'Now playing';
+        trackText.title = line || 'Now playing';
+
+        trackWrap.appendChild(trackText);
+        container.replaceChildren(icon, trackWrap);
+        updateDashboardNowPlayingMarquee();
     } else {
-        container.innerHTML = `
-            <i class="bi bi-music-note"></i>
-            <span class="text-body-secondary">Nothing playing</span>
-        `;
+        container.innerHTML = '<i class="bi bi-music-note"></i><span class="text-body-secondary">Nothing playing</span>';
     }
 
     // Update on-air status
@@ -288,6 +307,25 @@ function updateNowPlaying(data) {
             statusBadge.innerHTML = '<i class="bi bi-record-circle me-1"></i>OFF AIR';
         }
     }
+}
+
+function updateDashboardNowPlayingMarquee() {
+    const wrap = document.querySelector('#nowPlaying .dashboard-now-playing-track');
+    const text = document.querySelector('#nowPlaying .dashboard-now-playing-text');
+    if (!wrap || !text) return;
+
+    wrap.classList.remove('is-scrolling');
+    wrap.style.removeProperty('--np-scroll-distance');
+    wrap.style.removeProperty('--np-scroll-duration');
+
+    const overflow = text.scrollWidth - wrap.clientWidth;
+    if (overflow <= 6) return;
+
+    const travel = overflow + 20;
+    const duration = Math.max(10, Math.min(40, Math.round(travel / 12)));
+    wrap.style.setProperty('--np-scroll-distance', `${travel}px`);
+    wrap.style.setProperty('--np-scroll-duration', `${duration}s`);
+    wrap.classList.add('is-scrolling');
 }
 
 // Update health status indicators
@@ -561,6 +599,7 @@ class GlobalPlayer {
         this.playlist = [];
         this.playlistIndex = 0;
         this.isLive = false;
+        this.isLiveDJ = false;
         this.isMinimized = false;
 
         this.webrtcEnabled = true;
@@ -971,6 +1010,7 @@ class GlobalPlayer {
         // track: { url, title, artist, artwork, id, type: 'media'|'live'|'playlist' }
         this.currentTrack = track;
         this.isLive = track.type === 'live';
+        this.isLiveDJ = false;
         this.audio.src = track.url;
         this.audio.play().catch(e => console.error('Play error:', e));
 
@@ -1020,6 +1060,7 @@ class GlobalPlayer {
             stationId: stationId
         };
         this.isLive = true;
+        this.isLiveDJ = false;
         this.updateUI();
         this.show();
 
@@ -1205,7 +1246,7 @@ class GlobalPlayer {
                     this.audio.play().then(() => {
                         console.log('WebRTC audio playing');
                         if (this.artistEl) {
-                            this.artistEl.textContent = 'LIVE (WebRTC)';
+                            this.artistEl.textContent = 'On-Air (WebRTC)';
                         }
                     }).catch(e => console.error('WebRTC play error:', e));
                 }
@@ -1229,7 +1270,7 @@ class GlobalPlayer {
                 if (state === 'connected') {
                     this._webrtcReconnectAttempts = 0;
                     if (this.artistEl && this.currentTrack) {
-                        const artistText = this.currentTrack.artist || 'LIVE';
+                        const artistText = this.currentTrack.artist || 'On-Air';
                         this.artistEl.textContent = artistText + ' (WebRTC)';
                     }
                 } else if (state === 'failed' || state === 'disconnected') {
@@ -1344,10 +1385,17 @@ class GlobalPlayer {
                 if (data.album) {
                     artistText += artistText ? ` • ${data.album}` : data.album;
                 }
-                if (!artistText) artistText = 'LIVE';
+                if (!artistText) artistText = 'On-Air';
                 // Add connection type indicator
                 const connectionType = this.useWebRTC ? ' (WebRTC)' : '';
                 if (this.artistEl) this.artistEl.textContent = artistText + connectionType;
+
+                this.isLiveDJ = data.is_live_dj === true || data.source_type === 'live' || data.type === 'live';
+                if (this.container) {
+                    this.container.classList.toggle('is-on-air', this.isLive);
+                    this.container.classList.toggle('is-live-dj', this.isLive && this.isLiveDJ);
+                    this.container.classList.remove('is-live');
+                }
 
                 // Update artwork if media_id is available
                 if (this.artworkEl && data.media_id) {
@@ -1364,7 +1412,7 @@ class GlobalPlayer {
 
                 // Also update the current track object
                 this.currentTrack.title = data.title;
-                this.currentTrack.artist = data.artist || 'LIVE';
+                this.currentTrack.artist = data.artist || 'On-Air';
                 this.currentTrack.mediaId = data.media_id;
 
                 // Start local time ticker if not already running
@@ -1457,6 +1505,7 @@ class GlobalPlayer {
         this.closeWebRTC();  // Clean up WebRTC connection
         this.currentTrack = null;
         this.isLive = false;
+        this.isLiveDJ = false;
         this.stopMetadataPolling();
         this.stopLiveTimeTicker();
         this.hide();
@@ -1467,6 +1516,8 @@ class GlobalPlayer {
         if (this.container) {
             this.container.style.display = 'block';
             document.body.classList.add('player-active');
+            // Recalculate after becoming visible; hidden elements report 0 widths.
+            requestAnimationFrame(() => this.updateTitleMarquee());
         }
     }
 
@@ -1495,7 +1546,9 @@ class GlobalPlayer {
 
         // Update live indicator
         if (this.container) {
-            this.container.classList.toggle('is-live', this.isLive);
+            this.container.classList.toggle('is-on-air', this.isLive);
+            this.container.classList.toggle('is-live-dj', this.isLive && this.isLiveDJ);
+            this.container.classList.remove('is-live');
         }
 
         // Update prev/next button visibility
@@ -1609,7 +1662,7 @@ class GlobalPlayer {
                 this._savedArtist = null;
             } else if (this.artistEl.textContent === 'Connecting...') {
                 // Initial connection complete
-                const connectionType = this.useWebRTC ? 'LIVE (WebRTC)' : 'LIVE';
+                const connectionType = this.useWebRTC ? 'On-Air (WebRTC)' : 'On-Air';
                 this.artistEl.textContent = connectionType;
             }
         }
@@ -1708,6 +1761,10 @@ class GlobalPlayer {
 
         const titleSpan = this.titleEl.querySelector('.title-scroll');
         if (!titleSpan) return;
+        if (this.titleEl.clientWidth <= 0) {
+            setTimeout(() => this.updateTitleMarquee(), 60);
+            return;
+        }
 
         this.stopTitleAutoScroll();
         this.titleEl.classList.remove('scrollable');
