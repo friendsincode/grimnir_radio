@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -701,12 +700,8 @@ func (h *Handler) PlaylistMediaSearch(w http.ResponseWriter, r *http.Request) {
 		dbQuery = dbQuery.Where("station_id = ?", station.ID)
 	}
 
-	// Text search (use LOWER for cross-database compatibility)
-	if query != "" {
-		searchPattern := "%" + strings.ToLower(query) + "%"
-		dbQuery = dbQuery.Where("LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?",
-			searchPattern, searchPattern, searchPattern)
-	}
+	// Text search with punctuation/spacing normalization.
+	dbQuery = applyLooseMediaSearch(dbQuery, query)
 
 	// Genre filter
 	if genre != "" {
