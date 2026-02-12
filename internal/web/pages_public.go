@@ -109,7 +109,9 @@ func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Listen(w http.ResponseWriter, r *http.Request) {
 	// Get public, approved, active stations and their mounts
 	var stations []models.Station
-	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).Find(&stations)
+	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).
+		Order("sort_order ASC, name ASC").
+		Find(&stations)
 
 	type mountWithURL struct {
 		models.Mount
