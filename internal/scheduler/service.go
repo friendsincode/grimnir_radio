@@ -173,9 +173,21 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 				return err
 			}
 			entriesCreated++
-		case string(models.SlotTypeHardItem), string(models.SlotTypeStopset), string(models.SlotTypeWebstream):
-			if err := s.createPlaceholderEntry(ctx, stationID, plan); err != nil {
-				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "create_placeholder").Inc()
+		case string(models.SlotTypeHardItem):
+			if err := s.createHardItemEntry(ctx, stationID, plan); err != nil {
+				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "create_hard_item_entry").Inc()
+				return err
+			}
+			entriesCreated++
+		case string(models.SlotTypeStopset):
+			if err := s.createStopsetEntry(ctx, stationID, plan); err != nil {
+				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "create_stopset_entry").Inc()
+				return err
+			}
+			entriesCreated++
+		case string(models.SlotTypeWebstream):
+			if err := s.createWebstreamEntry(ctx, stationID, plan); err != nil {
+				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "create_webstream_entry").Inc()
 				return err
 			}
 			entriesCreated++
@@ -354,14 +366,18 @@ func (s *Service) createPlaylistEntry(ctx context.Context, stationID string, pla
 	return s.db.WithContext(ctx).Create(&entry).Error
 }
 
-func (s *Service) createPlaceholderEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {
+func (s *Service) createHardItemEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {
 	mountID := stringValue(plan.Payload["mount_id"])
-	// If mount_id is missing, use the station's default mount
 	if mountID == "" {
 		mountID = s.getDefaultMountID(ctx, stationID)
 	}
 	if mountID == "" {
-		s.logger.Warn().Str("slot", plan.SlotID).Str("station", stationID).Msg("no mount found for placeholder entry")
+		s.logger.Warn().Str("slot", plan.SlotID).Str("station", stationID).Msg("no mount found for hard item entry")
+		return nil
+	}
+	mediaID := stringValue(plan.Payload["media_id"])
+	if mediaID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Msg("hard item slot missing media_id")
 		return nil
 	}
 	entry := models.ScheduleEntry{
@@ -370,8 +386,81 @@ func (s *Service) createPlaceholderEntry(ctx context.Context, stationID string, 
 		MountID:    mountID,
 		StartsAt:   plan.StartsAt,
 		EndsAt:     plan.EndsAt,
-		SourceType: plan.SlotType,
-		Metadata:   plan.Payload,
+		SourceType: "media",
+		SourceID:   mediaID,
+		Metadata: map[string]any{
+			"slot_type": string(models.SlotTypeHardItem),
+		},
+	}
+	for k, v := range plan.Payload {
+		entry.Metadata[k] = v
+	}
+	return s.db.WithContext(ctx).Create(&entry).Error
+}
+
+func (s *Service) createStopsetEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {
+	mountID := stringValue(plan.Payload["mount_id"])
+	if mountID == "" {
+		mountID = s.getDefaultMountID(ctx, stationID)
+	}
+	if mountID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Str("station", stationID).Msg("no mount found for stopset entry")
+		return nil
+	}
+
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		StartsAt:   plan.StartsAt,
+		EndsAt:     plan.EndsAt,
+		SourceType: "stopset",
+		Metadata: map[string]any{
+			"slot_type": string(models.SlotTypeStopset),
+		},
+	}
+	for k, v := range plan.Payload {
+		entry.Metadata[k] = v
+	}
+
+	if playlistID := stringValue(plan.Payload["playlist_id"]); playlistID != "" {
+		entry.SourceType = "playlist"
+		entry.SourceID = playlistID
+	} else if mediaID := stringValue(plan.Payload["media_id"]); mediaID != "" {
+		entry.SourceType = "media"
+		entry.SourceID = mediaID
+	}
+	return s.db.WithContext(ctx).Create(&entry).Error
+}
+
+func (s *Service) createWebstreamEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {
+	mountID := stringValue(plan.Payload["mount_id"])
+	if mountID == "" {
+		mountID = s.getDefaultMountID(ctx, stationID)
+	}
+	if mountID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Str("station", stationID).Msg("no mount found for webstream entry")
+		return nil
+	}
+	webstreamID := stringValue(plan.Payload["webstream_id"])
+	if webstreamID == "" {
+		s.logger.Warn().Str("slot", plan.SlotID).Msg("webstream slot missing webstream_id")
+		return nil
+	}
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		StartsAt:   plan.StartsAt,
+		EndsAt:     plan.EndsAt,
+		SourceType: "webstream",
+		SourceID:   webstreamID,
+		Metadata: map[string]any{
+			"slot_type": string(models.SlotTypeWebstream),
+		},
+	}
+	for k, v := range plan.Payload {
+		entry.Metadata[k] = v
 	}
 	return s.db.WithContext(ctx).Create(&entry).Error
 }
