@@ -12,6 +12,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"math"
 	"os"
@@ -355,12 +358,21 @@ func (a *Analyzer) ExtractArtwork(ctx context.Context, req *pb.ExtractArtworkReq
 		mimeType = "image/webp"
 	}
 
-	// TODO: Get actual image dimensions
-	// For now, return without dimensions
+	width := int32(0)
+	height := int32(0)
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
+		width = int32(cfg.Width)
+		height = int32(cfg.Height)
+	} else {
+		a.logger.Debug().Err(err).Msg("failed to decode extracted artwork dimensions")
+	}
+
 	return &pb.ExtractArtworkResponse{
 		Success:     true,
 		ArtworkData: data,
 		MimeType:    mimeType,
+		Width:       width,
+		Height:      height,
 	}, nil
 }
 

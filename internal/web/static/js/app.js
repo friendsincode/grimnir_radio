@@ -216,6 +216,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stationSelect) {
             stationSelect.addEventListener('change', () => {
                 setTimeout(fetchNowPlaying, 150);
+                // Keep audio stream and dashboard station context aligned.
+                if (window.globalPlayer?.isLive) {
+                    playSelectedStationAudio();
+                }
             });
         }
 
@@ -235,7 +239,7 @@ function getSelectedStationInfo() {
 }
 
 async function playSelectedStationAudio() {
-    if (!window.globalPlayer || typeof window.globalPlayer.playLive !== 'function') return;
+    if (!window.globalPlayer || typeof window.globalPlayer.switchToStation !== 'function') return;
 
     const station = getSelectedStationInfo();
     if (!station) return;
@@ -257,9 +261,7 @@ async function playSelectedStationAudio() {
         const mount = sorted[0];
         if (!mount?.name) return;
 
-        window.globalPlayer.playLive(`/live/${mount.name}`, station.stationName, station.stationId, {
-            transport: window.globalPlayer.getLiveTransport?.() || 'http'
-        });
+        window.globalPlayer.switchToStation(station.stationId, `/live/${mount.name}`, station.stationName);
     } catch (e) {
         console.debug('Failed to start station audio from now-playing header:', e);
     }
@@ -928,8 +930,25 @@ class GlobalPlayer {
     }
 
     switchToStation(stationId, mountUrl, stationName) {
+        // WebRTC signaling is currently global and not station-scoped; enforce HTTP on
+        // station switches so audio reliably changes with the selected station.
+        const preferred = this.getLiveTransport();
+        const forceHTTP = preferred === 'webrtc';
+        if (forceHTTP) {
+            console.debug('Forcing HTTP transport for station switch until station-scoped WebRTC is available');
+        }
+
+        // Hard-reset current playback state before switching streams.
+        this.stopMetadataPolling();
+        this.stopLiveTimeTicker();
+        this.audio.pause();
+        this.audio.removeAttribute('src');
+        this.audio.srcObject = null;
+        this.audio.load();
+        this.closeWebRTC();
+
         this.playLive(mountUrl, stationName, stationId, {
-            transport: this.getLiveTransport()
+            transport: forceHTTP ? 'http' : preferred
         });
     }
 

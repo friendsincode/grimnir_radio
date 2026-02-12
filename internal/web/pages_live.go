@@ -110,9 +110,14 @@ func (h *Handler) LiveGenerateToken(w http.ResponseWriter, r *http.Request) {
 		}
 		h.logger.Info().Str("station_id", station.ID).Str("user_id", user.ID).Msg("live token generated")
 	} else {
-		// Fallback placeholder if service not available
-		token = "live-token-placeholder-" + user.ID
-		h.logger.Warn().Msg("live service not available, using placeholder token")
+		h.logger.Error().Msg("live service not available for token generation")
+		if r.Header.Get("HX-Request") == "true" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`<div class="alert alert-danger">Live token service unavailable</div>`))
+			return
+		}
+		http.Error(w, "Live token service unavailable", http.StatusServiceUnavailable)
+		return
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
