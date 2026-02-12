@@ -204,11 +204,25 @@ func (h *Handler) Landing(w http.ResponseWriter, r *http.Request) {
 
 // Listen renders the public listening page
 func (h *Handler) Listen(w http.ResponseWriter, r *http.Request) {
+	// Platform station order source-of-truth: platform landing page config `content.stationOrder`.
+	// If not present, we fall back to station.sort_order then name.
+	var platformConfig map[string]any
+	{
+		var lp models.LandingPage
+		// Avoid dependency on landingPageSvc; just read from DB if present.
+		if err := h.db.Where("station_id IS NULL").First(&lp).Error; err == nil && lp.PublishedConfig != nil {
+			platformConfig = lp.PublishedConfig
+		}
+	}
+
 	// Get public, approved, active stations and their mounts
 	var stations []models.Station
 	h.db.Where("active = ? AND public = ? AND approved = ?", true, true, true).
 		Order("sort_order ASC, name ASC").
 		Find(&stations)
+
+	// Order stations based on platform config (if any).
+	stations = orderStationsByConfig(stations, platformConfig)
 
 	type mountWithURL struct {
 		models.Mount
