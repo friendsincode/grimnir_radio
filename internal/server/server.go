@@ -77,6 +77,7 @@ type Server struct {
 	notificationSvc      *notifications.Service
 	webhookSvc           *webhooks.Service
 	webrtcBroadcaster    *webrtc.Broadcaster
+	listenerAnalyticsSvc *analytics.ListenerAnalyticsService
 
 	bgCancel context.CancelFunc
 	bgWG     sync.WaitGroup
@@ -284,6 +285,7 @@ func (s *Server) initDependencies() error {
 
 	s.playout = playout.NewManager(s.cfg, s.logger)
 	s.director = playout.NewDirector(database, s.cfg, s.playout, s.bus, webstreamService, broadcastSrv, s.logger)
+	s.listenerAnalyticsSvc = analytics.NewListenerAnalyticsService(database, s.director, s.logger)
 
 	// Priority and executor services (needed by live service)
 	priorityService := priority.NewService(database, s.bus, s.logger)
@@ -428,7 +430,16 @@ func (s *Server) DeferClose(fn func() error) {
 }
 
 func (s *Server) startBackgroundWorkers() {
-	if s.scheduler == nil && s.analyzer == nil {
+	if s.scheduler == nil &&
+		s.analyzer == nil &&
+		s.director == nil &&
+		s.auditSvc == nil &&
+		s.notificationSvc == nil &&
+		s.webhookSvc == nil &&
+		s.webrtcBroadcaster == nil &&
+		s.listenerAnalyticsSvc == nil &&
+		s.cache == nil &&
+		s.webHandler == nil {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -529,6 +540,15 @@ func (s *Server) startBackgroundWorkers() {
 		go func() {
 			defer s.bgWG.Done()
 			s.webhookSvc.Start(ctx)
+		}()
+	}
+
+	// Start listener analytics sampler
+	if s.listenerAnalyticsSvc != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			s.listenerAnalyticsSvc.Start(ctx)
 		}()
 	}
 

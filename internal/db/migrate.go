@@ -70,6 +70,7 @@ func Migrate(database *gorm.DB) error {
 		&models.WebhookLog{},
 
 		// Analytics, Syndication, Underwriting (Phase 8H)
+		&models.ListenerSample{},
 		&models.ScheduleAnalytics{},
 		&models.Network{},
 		&models.NetworkShow{},

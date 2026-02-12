@@ -15,6 +15,8 @@
 {{define "main"}}
 {{$data := .Data}}
 {{$currentListeners := index $data "CurrentListeners"}}
+{{$peakToday := index $data "PeakToday"}}
+{{$avg24h := index $data "Avg24h"}}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-headphones me-2"></i>Listener Stats</h4>
     <a href="/dashboard/analytics" class="btn btn-outline-secondary">
@@ -37,7 +39,7 @@
         <div class="card text-center">
             <div class="card-body py-4">
                 <i class="bi bi-graph-up fs-1 text-success mb-3 d-block"></i>
-                <h2 class="display-4 fw-bold mb-0">{{$currentListeners}}</h2>
+                <h2 class="display-4 fw-bold mb-0">{{$peakToday}}</h2>
                 <p class="text-body-secondary mb-0">Peak Today</p>
             </div>
         </div>
@@ -46,33 +48,69 @@
         <div class="card text-center">
             <div class="card-body py-4">
                 <i class="bi bi-clock fs-1 text-info mb-3 d-block"></i>
-                <h2 class="display-4 fw-bold mb-0">--</h2>
-                <p class="text-body-secondary mb-0">Avg. Listen Time</p>
+                <h2 class="display-4 fw-bold mb-0">{{printf "%.1f" $avg24h}}</h2>
+                <p class="text-body-secondary mb-0">Avg Listeners (24h)</p>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Info Message -->
-<div class="card">
-    <div class="card-body text-center py-4">
-        <i class="bi bi-broadcast fs-3 text-body-secondary mb-2 d-block"></i>
-        <p class="text-body-secondary mb-0">
-            Current listeners are pulled from active broadcast mounts (HQ + LQ). Peak/avg analytics are pending.
-        </p>
-    </div>
-</div>
-
-<!-- Listener Graph Placeholder -->
 <div class="card mt-4">
     <div class="card-header">
         <h5 class="mb-0">Listeners Over Time (24h)</h5>
     </div>
     <div class="card-body">
-        <div class="bg-body-tertiary rounded p-5 text-center">
-            <i class="bi bi-bar-chart-line fs-1 text-body-secondary"></i>
-            <p class="text-body-secondary mt-2 mb-0">Chart will appear here when data is available</p>
+        <div id="listenersChart" class="bg-body-tertiary rounded p-3" style="height: 260px;">
+            <div class="text-center text-body-secondary py-5">
+                <i class="bi bi-bar-chart-line fs-1"></i>
+                <p class="mb-0">Loading listener chart...</p>
+            </div>
         </div>
     </div>
 </div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+const listenerPoints = {{jsonMarshal (index .Data "SeriesPoints")}};
+
+function renderListenerChart(points) {
+    const chartEl = document.getElementById('listenersChart');
+    if (!chartEl) return;
+
+    if (!Array.isArray(points) || points.length === 0) {
+        chartEl.innerHTML = `
+            <div class="text-center text-body-secondary py-5">
+                <i class="bi bi-bar-chart-line fs-1"></i>
+                <p class="mb-0">No listener data yet</p>
+            </div>
+        `;
+        return;
+    }
+
+    const max = Math.max(...points.map(p => p.listeners || 0), 1);
+    const labelsEvery = Math.max(1, Math.floor(points.length / 8));
+
+    chartEl.innerHTML = `
+        <div class="d-flex align-items-end justify-content-between h-100">
+            ${points.map((point, idx) => {
+                const count = point.listeners || 0;
+                const height = Math.max(2, Math.round((count / max) * 100));
+                const dt = new Date(point.timestamp);
+                const hour = String(dt.getHours()).padStart(2, '0');
+                const minute = String(dt.getMinutes()).padStart(2, '0');
+                const showLabel = idx % labelsEvery === 0 || idx === points.length - 1;
+                return `
+                    <div class="text-center flex-fill" style="padding: 0 1px;" title="${hour}:${minute} • ${count} listeners">
+                        <div class="bg-info" style="height: ${height}%; border-radius: 2px 2px 0 0;"></div>
+                        <small class="text-body-secondary" style="font-size: 0.62rem;">${showLabel ? `${hour}:${minute}` : '&nbsp;'}</small>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+renderListenerChart(listenerPoints);
+</script>
 {{end}}

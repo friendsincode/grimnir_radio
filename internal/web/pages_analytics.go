@@ -7,6 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +18,11 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+type listenerSeriesPoint struct {
+	Timestamp string `json:"timestamp"`
+	Listeners int    `json:"listeners"`
+}
 
 // AnalyticsDashboard renders the main analytics page
 func (h *Handler) AnalyticsDashboard(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +212,7 @@ func (h *Handler) AnalyticsSpins(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// AnalyticsListeners renders listener statistics (placeholder)
+// AnalyticsListeners renders listener statistics.
 func (h *Handler) AnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
 	if station == nil {
@@ -213,7 +220,18 @@ func (h *Handler) AnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Integrate with Icecast/streaming server stats
+	now := time.Now()
+	windowStart := now.Add(-24 * time.Hour)
+
+	loc := time.UTC
+	if station.Timezone != "" {
+		if loaded, err := time.LoadLocation(station.Timezone); err == nil {
+			loc = loaded
+		}
+	}
+	todayStartLocal := time.Date(now.In(loc).Year(), now.In(loc).Month(), now.In(loc).Day(), 0, 0, 0, 0, loc)
+	todayStartUTC := todayStartLocal.UTC()
+
 	currentListeners := 0
 	if h.director != nil {
 		if listeners, err := h.director.ListenerCount(r.Context(), station.ID); err == nil {
@@ -223,13 +241,109 @@ func (h *Handler) AnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	peakToday := currentListeners
+	var peakTodayDB sql.NullInt64
+	if err := h.db.Model(&models.ListenerSample{}).
+		Select("MAX(listeners)").
+		Where("station_id = ? AND captured_at >= ?", station.ID, todayStartUTC).
+		Scan(&peakTodayDB).Error; err == nil && peakTodayDB.Valid && int(peakTodayDB.Int64) > peakToday {
+		peakToday = int(peakTodayDB.Int64)
+	}
+
+	avg24h := float64(currentListeners)
+	var avg24hDB sql.NullFloat64
+	if err := h.db.Model(&models.ListenerSample{}).
+		Select("AVG(listeners)").
+		Where("station_id = ? AND captured_at >= ?", station.ID, windowStart.UTC()).
+		Scan(&avg24hDB).Error; err == nil && avg24hDB.Valid {
+		avg24h = avg24hDB.Float64
+	}
+
+	series, err := h.buildListenerSeries(r.Context(), station.ID, windowStart, now, 5*time.Minute)
+	if err != nil {
+		h.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to build listener time series")
+		series = []listenerSeriesPoint{}
+	}
+
 	h.Render(w, r, "pages/dashboard/analytics/listeners", PageData{
 		Title:    "Listener Stats",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
 			"CurrentListeners": currentListeners,
+			"PeakToday":        peakToday,
+			"Avg24h":           avg24h,
+			"SeriesPoints":     series,
 		},
 	})
+}
+
+// AnalyticsListenersTimeSeries returns JSON listener time-series data for charts.
+func (h *Handler) AnalyticsListenersTimeSeries(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now()
+	windowStart := now.Add(-24 * time.Hour)
+	series, err := h.buildListenerSeries(r.Context(), station.ID, windowStart, now, 5*time.Minute)
+	if err != nil {
+		http.Error(w, "Failed to load listener time series", http.StatusInternalServerError)
+		return
+	}
+
+	currentListeners := 0
+	if h.director != nil {
+		if listeners, err := h.director.ListenerCount(r.Context(), station.ID); err == nil {
+			currentListeners = listeners
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{
+		"station_id": station.ID,
+		"from":       windowStart.UTC(),
+		"to":         now.UTC(),
+		"current":    currentListeners,
+		"points":     series,
+	})
+}
+
+func (h *Handler) buildListenerSeries(ctx context.Context, stationID string, from, to time.Time, bucketSize time.Duration) ([]listenerSeriesPoint, error) {
+	if bucketSize <= 0 {
+		bucketSize = 5 * time.Minute
+	}
+
+	var samples []models.ListenerSample
+	if err := h.db.WithContext(ctx).
+		Where("station_id = ? AND captured_at >= ? AND captured_at <= ?", stationID, from.UTC(), to.UTC()).
+		Order("captured_at ASC").
+		Find(&samples).Error; err != nil {
+		return nil, err
+	}
+
+	bucketSums := map[int64]int{}
+	bucketCounts := map[int64]int{}
+	for _, sample := range samples {
+		ts := sample.CapturedAt.UTC().Truncate(bucketSize).Unix()
+		bucketSums[ts] += sample.Listeners
+		bucketCounts[ts]++
+	}
+
+	points := make([]listenerSeriesPoint, 0, int(to.Sub(from)/bucketSize)+1)
+	for t := from.UTC().Truncate(bucketSize); !t.After(to.UTC()); t = t.Add(bucketSize) {
+		ts := t.Unix()
+		listeners := 0
+		if count := bucketCounts[ts]; count > 0 {
+			listeners = bucketSums[ts] / count
+		}
+		points = append(points, listenerSeriesPoint{
+			Timestamp: t.Format(time.RFC3339),
+			Listeners: listeners,
+		})
+	}
+
+	return points, nil
 }
 
 // Playout control handlers
