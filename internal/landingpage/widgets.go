@@ -93,6 +93,8 @@ var WidgetRegistry = []WidgetDefinition{
 			{Key: "columns", Label: "Columns", Type: "select", Default: 3, Options: []any{2, 3, 4}},
 			{Key: "showLogo", Label: "Show Station Logo", Type: "boolean", Default: true},
 			{Key: "showDesc", Label: "Show Description", Type: "boolean", Default: true},
+			// Station landing pages can optionally place the current station after the platform's first station.
+			{Key: "placement", Label: "Station Page Placement", Type: "select", Default: "current_first", Options: []any{"current_first", "after_platform_first"}},
 		},
 	},
 	{
