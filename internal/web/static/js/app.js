@@ -186,8 +186,57 @@ document.addEventListener('DOMContentLoaded', () => {
         window.grimnirWS.on('health', (data) => {
             updateHealthStatus(data);
         });
+
+        const nowPlaying = document.getElementById('nowPlaying');
+        if (nowPlaying) {
+            nowPlaying.style.cursor = 'pointer';
+            nowPlaying.title = 'Play current station audio';
+            nowPlaying.addEventListener('click', () => {
+                playSelectedStationAudio();
+            });
+        }
     }
 });
+
+function getSelectedStationInfo() {
+    const stationSelect = document.querySelector('select[name="station_id"]');
+    if (!stationSelect || !stationSelect.value) return null;
+
+    const option = stationSelect.options[stationSelect.selectedIndex];
+    return {
+        stationId: stationSelect.value,
+        stationName: option?.textContent?.trim() || 'Live Stream'
+    };
+}
+
+async function playSelectedStationAudio() {
+    if (!window.globalPlayer || typeof window.globalPlayer.playLive !== 'function') return;
+
+    const station = getSelectedStationInfo();
+    if (!station) return;
+
+    try {
+        const headers = {};
+        if (window.GRIMNIR_WS_TOKEN) {
+            headers['Authorization'] = 'Bearer ' + window.GRIMNIR_WS_TOKEN;
+        }
+
+        const response = await fetch(`/api/v1/stations/${station.stationId}/mounts`, { headers });
+        if (!response.ok) return;
+
+        const mounts = await response.json();
+        if (!Array.isArray(mounts) || mounts.length === 0) return;
+
+        // Prefer highest bitrate mount as default.
+        const sorted = [...mounts].sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        const mount = sorted[0];
+        if (!mount?.name) return;
+
+        window.globalPlayer.playLive(`/live/${mount.name}`, station.stationName, station.stationId);
+    } catch (e) {
+        console.debug('Failed to start station audio from now-playing header:', e);
+    }
+}
 
 // Fetch current now-playing state from API
 async function fetchNowPlaying() {
