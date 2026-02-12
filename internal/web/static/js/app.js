@@ -232,7 +232,9 @@ async function playSelectedStationAudio() {
         const mount = sorted[0];
         if (!mount?.name) return;
 
-        window.globalPlayer.playLive(`/live/${mount.name}`, station.stationName, station.stationId);
+        window.globalPlayer.playLive(`/live/${mount.name}`, station.stationName, station.stationId, {
+            transport: window.globalPlayer.getLiveTransport?.() || 'http'
+        });
     } catch (e) {
         console.debug('Failed to start station audio from now-playing header:', e);
     }
@@ -561,8 +563,8 @@ class GlobalPlayer {
         this.isLive = false;
         this.isMinimized = false;
 
-        // WebRTC state - enabled for lower latency when available
-        this.webrtcEnabled = true;  // Try WebRTC first, fall back to HTTP
+        this.webrtcEnabled = true;
+        this.liveTransport = localStorage.getItem('grimnir-live-transport') || 'http';
         this.peerConnection = null;
         this.signalingWs = null;
         this.useWebRTC = false;  // Currently using WebRTC vs HTTP
@@ -680,7 +682,23 @@ class GlobalPlayer {
     updateStationMenu() {
         if (!this.stationMenu || this.publicStations.length === 0) return;
 
-        let html = '';
+        const transport = this.getLiveTransport();
+        let html = `
+            <li><h6 class="dropdown-header">Transport</h6></li>
+            <li>
+                <a class="dropdown-item small ${transport === 'http' ? 'active' : ''}" href="#"
+                   onclick="globalPlayer.setLiveTransport('http'); return false;">
+                    <i class="bi bi-check2 ${transport === 'http' ? '' : 'invisible'} me-1"></i>Standard (HTTP)
+                </a>
+            </li>
+            <li>
+                <a class="dropdown-item small ${transport === 'webrtc' ? 'active' : ''}" href="#"
+                   onclick="globalPlayer.setLiveTransport('webrtc'); return false;">
+                    <i class="bi bi-check2 ${transport === 'webrtc' ? '' : 'invisible'} me-1"></i>Low Latency (WebRTC)
+                </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+        `;
         for (const station of this.publicStations) {
             if (station.mounts && station.mounts.length > 0) {
                 html += `<li><h6 class="dropdown-header">${this.escapeHtml(station.name)}</h6></li>`;
@@ -706,7 +724,20 @@ class GlobalPlayer {
     }
 
     switchToStation(stationId, mountUrl, stationName) {
-        this.playLive(mountUrl, stationName, stationId);
+        this.playLive(mountUrl, stationName, stationId, {
+            transport: this.getLiveTransport()
+        });
+    }
+
+    setLiveTransport(mode) {
+        const next = mode === 'webrtc' ? 'webrtc' : 'http';
+        this.liveTransport = next;
+        localStorage.setItem('grimnir-live-transport', next);
+        this.updateStationMenu();
+    }
+
+    getLiveTransport() {
+        return this.liveTransport === 'webrtc' ? 'webrtc' : 'http';
     }
 
     initDrag() {
@@ -834,7 +865,7 @@ class GlobalPlayer {
         });
     }
 
-    playLive(url, stationName, stationId) {
+    playLive(url, stationName, stationId, options = {}) {
         // Guard against empty URLs
         if (!url) {
             console.warn('playLive called with empty URL');
@@ -875,8 +906,11 @@ class GlobalPlayer {
             return;
         }
 
-        // Try WebRTC for HQ low-latency streaming (no retries - fail fast to HTTP)
-        if (this.webrtcEnabled && 'RTCPeerConnection' in window) {
+        const transport = options.transport || this.getLiveTransport();
+        const useWebRTCTransport = transport === 'webrtc';
+
+        // Try WebRTC only when explicitly selected.
+        if (useWebRTCTransport && this.webrtcEnabled && 'RTCPeerConnection' in window) {
             this.connectWebRTC().then(connected => {
                 if (!connected) {
                     // Fall back to HTTP LQ streaming immediately
@@ -888,7 +922,7 @@ class GlobalPlayer {
                 this.fallbackToHTTP(lqUrl);
             });
         } else {
-            // WebRTC not available, use HTTP LQ streaming
+            // Default path: HTTP streaming
             this.fallbackToHTTP(lqUrl);
         }
 
