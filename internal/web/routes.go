@@ -54,6 +54,7 @@ func (h *Handler) Routes(r chi.Router) {
 
 			// Station landing pages by shortcode
 			r.Get("/s/{shortcode}", h.StationLanding)
+			r.Get("/stations/{shortcode}", h.StationLanding)
 
 			// Embeddable widgets (Phase 8G)
 			r.Get("/embed/schedule", h.EmbedSchedule)

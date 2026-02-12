@@ -9,6 +9,8 @@ package mediaengine
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -128,10 +130,9 @@ func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.
 	engine.GraphHandle = graphHandle
 	s.mu.Unlock()
 
-	// Create pipeline with graph
-	// TODO: Get output config from request
-	// For now, use default (test sink)
-	_, err = s.pipelineManager.CreatePipeline(ctx, req.StationId, req.MountId, graph, nil)
+	// Create pipeline with graph and output configuration from graph output node params.
+	outputCfg := outputConfigFromGraph(req.Graph)
+	_, err = s.pipelineManager.CreatePipeline(ctx, req.StationId, req.MountId, graph, outputCfg)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("failed to create pipeline")
 		telemetry.MediaEngineOperations.WithLabelValues(req.StationId, req.MountId, "load_graph", "failure").Inc()
@@ -159,6 +160,93 @@ func (s *Service) LoadGraph(ctx context.Context, req *pb.LoadGraphRequest) (*pb.
 		GraphHandle: graphHandle,
 		Success:     true,
 	}, nil
+}
+
+func outputConfigFromGraph(graph *pb.DSPGraph) *EncoderConfig {
+	cfg := &EncoderConfig{
+		OutputType: OutputTypeTest,
+		Format:     AudioFormatMP3,
+		Bitrate:    128,
+		SampleRate: 44100,
+		Channels:   2,
+	}
+	if graph == nil {
+		return cfg
+	}
+
+	var outputNode *pb.DSPNode
+	for _, node := range graph.Nodes {
+		if node != nil && node.Type == pb.NodeType_NODE_TYPE_OUTPUT {
+			outputNode = node
+			break
+		}
+	}
+	if outputNode == nil {
+		return cfg
+	}
+
+	params := outputNode.Params
+	if params == nil {
+		return cfg
+	}
+
+	switch strings.ToLower(strings.TrimSpace(params["output_type"])) {
+	case "icecast":
+		cfg.OutputType = OutputTypeIcecast
+	case "shoutcast":
+		cfg.OutputType = OutputTypeShoutcast
+	case "http":
+		cfg.OutputType = OutputTypeHTTP
+	case "file":
+		cfg.OutputType = OutputTypeFile
+	case "stdout":
+		cfg.OutputType = OutputTypeStdout
+	case "rtp":
+		cfg.OutputType = OutputTypeRTP
+	case "test", "":
+		cfg.OutputType = OutputTypeTest
+	}
+
+	switch strings.ToLower(strings.TrimSpace(params["format"])) {
+	case "aac":
+		cfg.Format = AudioFormatAAC
+	case "opus":
+		cfg.Format = AudioFormatOpus
+	case "vorbis":
+		cfg.Format = AudioFormatVorbis
+	case "flac":
+		cfg.Format = AudioFormatFLAC
+	case "mp3", "":
+		cfg.Format = AudioFormatMP3
+	}
+
+	if v, err := strconv.Atoi(strings.TrimSpace(params["bitrate"])); err == nil && v > 0 {
+		cfg.Bitrate = v
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(params["sample_rate"])); err == nil && v > 0 {
+		cfg.SampleRate = v
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(params["channels"])); err == nil && v > 0 {
+		cfg.Channels = v
+	}
+
+	cfg.OutputURL = strings.TrimSpace(params["output_url"])
+	cfg.Mount = strings.TrimSpace(params["mount"])
+	cfg.Username = strings.TrimSpace(params["username"])
+	cfg.Password = strings.TrimSpace(params["password"])
+	cfg.StreamName = strings.TrimSpace(params["stream_name"])
+	if cfg.OutputURL == "" {
+		cfg.OutputURL = strings.TrimSpace(params["file_path"])
+	}
+	cfg.RTPHost = strings.TrimSpace(params["rtp_host"])
+	if v, err := strconv.Atoi(strings.TrimSpace(params["rtp_port"])); err == nil && v > 0 {
+		cfg.RTPPort = v
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(params["pt"])); err == nil && v > 0 {
+		cfg.RTPPayloadType = v
+	}
+
+	return cfg
 }
 
 // Play starts playback of a media source.

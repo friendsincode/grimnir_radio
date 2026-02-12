@@ -7,8 +7,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package notifications
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/smtp"
 	"os"
 	"strconv"
@@ -361,15 +364,9 @@ func (s *Service) Send(ctx context.Context, notification *models.Notification, u
 		now := time.Now()
 		notification.SentAt = &now
 	case models.NotificationChannelSMS:
-		// SMS not implemented yet
-		s.logger.Warn().Str("channel", "sms").Msg("SMS notifications not implemented")
-		notification.Status = models.NotificationStatusFailed
-		notification.Error = "SMS notifications not implemented"
+		err = s.sendSMS(ctx, notification, user)
 	case models.NotificationChannelPush:
-		// Push not implemented yet
-		s.logger.Warn().Str("channel", "push").Msg("Push notifications not implemented")
-		notification.Status = models.NotificationStatusFailed
-		notification.Error = "Push notifications not implemented"
+		err = s.sendPush(ctx, notification, user)
 	default:
 		err = fmt.Errorf("unknown notification channel: %s", notification.Channel)
 	}
@@ -440,6 +437,108 @@ func (s *Service) sendEmail(ctx context.Context, notification *models.Notificati
 		Str("subject", notification.Subject).
 		Msg("email notification sent")
 
+	return nil
+}
+
+func (s *Service) sendSMS(ctx context.Context, notification *models.Notification, user *models.User) error {
+	if user == nil {
+		return fmt.Errorf("user required for sms notification")
+	}
+	webhookURL := getEnv("GRIMNIR_SMS_WEBHOOK_URL", "")
+	if webhookURL == "" {
+		return fmt.Errorf("sms webhook not configured")
+	}
+
+	to, _ := notification.Metadata["phone"].(string)
+	if strings.TrimSpace(to) == "" {
+		to, _ = notification.Metadata["to"].(string)
+	}
+	if strings.TrimSpace(to) == "" {
+		return fmt.Errorf("missing sms destination (metadata.phone)")
+	}
+
+	payload := map[string]any{
+		"to":      to,
+		"subject": notification.Subject,
+		"body":    notification.Body,
+		"user_id": notification.UserID,
+		"user": map[string]any{
+			"id":    user.ID,
+			"email": user.Email,
+		},
+		"metadata": notification.Metadata,
+	}
+
+	if err := s.sendWebhook(ctx, webhookURL, payload); err != nil {
+		return fmt.Errorf("sms webhook failed: %w", err)
+	}
+
+	notification.Status = models.NotificationStatusSent
+	now := time.Now()
+	notification.SentAt = &now
+	return nil
+}
+
+func (s *Service) sendPush(ctx context.Context, notification *models.Notification, user *models.User) error {
+	if user == nil {
+		return fmt.Errorf("user required for push notification")
+	}
+	webhookURL := getEnv("GRIMNIR_PUSH_WEBHOOK_URL", "")
+	if webhookURL == "" {
+		return fmt.Errorf("push webhook not configured")
+	}
+
+	token, _ := notification.Metadata["device_token"].(string)
+	if strings.TrimSpace(token) == "" {
+		token, _ = notification.Metadata["token"].(string)
+	}
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("missing push destination (metadata.device_token)")
+	}
+
+	payload := map[string]any{
+		"token":   token,
+		"title":   notification.Subject,
+		"body":    notification.Body,
+		"user_id": notification.UserID,
+		"user": map[string]any{
+			"id":    user.ID,
+			"email": user.Email,
+		},
+		"metadata": notification.Metadata,
+	}
+
+	if err := s.sendWebhook(ctx, webhookURL, payload); err != nil {
+		return fmt.Errorf("push webhook failed: %w", err)
+	}
+
+	notification.Status = models.NotificationStatusSent
+	now := time.Now()
+	notification.SentAt = &now
+	return nil
+}
+
+func (s *Service) sendWebhook(ctx context.Context, webhookURL string, payload map[string]any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
 	return nil
 }
 

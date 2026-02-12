@@ -8,6 +8,7 @@ package mediaengine
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -257,6 +258,11 @@ func (s *Supervisor) restartPipeline(stationID string, reason string) {
 	telemetry.MediaEnginePipelineRestarts.WithLabelValues(stationID, stationID, reason).Inc()
 
 	// Destroy old pipeline
+	oldPipeline, oldErr := s.pipelineManager.GetPipeline(stationID)
+	if oldErr != nil {
+		s.logger.Warn().Str("station_id", stationID).Err(oldErr).Msg("failed to get old pipeline before restart")
+	}
+
 	if err := s.pipelineManager.DestroyPipeline(stationID); err != nil {
 		s.logger.Error().
 			Str("station_id", stationID).
@@ -264,9 +270,33 @@ func (s *Supervisor) restartPipeline(stationID string, reason string) {
 			Msg("failed to destroy pipeline during restart")
 	}
 
-	// TODO: Recreate pipeline with saved configuration
-	// This would require storing the original graph configuration
-	// For now, we just destroy the pipeline and wait for control plane to recreate
+	// Recreate pipeline with previous graph/output configuration when available.
+	if oldErr == nil && oldPipeline != nil {
+		_, createErr := s.pipelineManager.CreatePipeline(
+			context.Background(),
+			oldPipeline.StationID,
+			oldPipeline.MountID,
+			oldPipeline.Graph,
+			oldPipeline.OutputConfig,
+		)
+		if createErr != nil {
+			s.logger.Error().
+				Str("station_id", stationID).
+				Err(createErr).
+				Msg("failed to recreate pipeline during restart")
+			return
+		}
+
+		s.logger.Info().
+			Str("station_id", stationID).
+			Str("mount_id", oldPipeline.MountID).
+			Msg("pipeline recreated after restart")
+	} else {
+		s.logger.Warn().
+			Str("station_id", stationID).
+			Err(fmt.Errorf("old pipeline unavailable")).
+			Msg("pipeline destroyed; waiting for control plane to recreate")
+	}
 
 	s.logger.Info().
 		Str("station_id", stationID).

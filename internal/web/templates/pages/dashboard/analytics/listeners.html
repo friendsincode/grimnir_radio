@@ -14,7 +14,7 @@
 
 {{define "main"}}
 {{$data := .Data}}
-{{$message := index $data "Message"}}
+{{$currentListeners := index $data "CurrentListeners"}}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-headphones me-2"></i>Listener Stats</h4>
     <a href="/dashboard/analytics" class="btn btn-outline-secondary">
@@ -28,7 +28,7 @@
         <div class="card text-center">
             <div class="card-body py-4">
                 <i class="bi bi-people fs-1 text-primary mb-3 d-block"></i>
-                <h2 class="display-4 fw-bold mb-0">--</h2>
+                <h2 class="display-4 fw-bold mb-0">{{$currentListeners}}</h2>
                 <p class="text-body-secondary mb-0">Current Listeners</p>
             </div>
         </div>
@@ -37,7 +37,7 @@
         <div class="card text-center">
             <div class="card-body py-4">
                 <i class="bi bi-graph-up fs-1 text-success mb-3 d-block"></i>
-                <h2 class="display-4 fw-bold mb-0">--</h2>
+                <h2 class="display-4 fw-bold mb-0">{{$currentListeners}}</h2>
                 <p class="text-body-secondary mb-0">Peak Today</p>
             </div>
         </div>
@@ -53,13 +53,12 @@
     </div>
 </div>
 
-<!-- Placeholder Message -->
+<!-- Info Message -->
 <div class="card">
-    <div class="card-body text-center py-5">
-        <i class="bi bi-broadcast fs-1 text-body-secondary mb-3 d-block"></i>
-        <h5>{{$message}}</h5>
+    <div class="card-body text-center py-4">
+        <i class="bi bi-broadcast fs-3 text-body-secondary mb-2 d-block"></i>
         <p class="text-body-secondary mb-0">
-            Real-time listener statistics will be available once integrated with your streaming server (Icecast, Shoutcast, etc.).
+            Current listeners are pulled from active broadcast mounts (HQ + LQ). Peak/avg analytics are pending.
         </p>
     </div>
 </div>

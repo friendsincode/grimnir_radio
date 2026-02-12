@@ -150,17 +150,41 @@ func (h *Handler) Listen(w http.ResponseWriter, r *http.Request) {
 
 // StationLanding renders the public landing page for a specific station by shortcode
 func (h *Handler) StationLanding(w http.ResponseWriter, r *http.Request) {
-	shortcode := chi.URLParam(r, "shortcode")
-	if shortcode == "" {
+	stationRef := strings.TrimSpace(chi.URLParam(r, "shortcode"))
+	if stationRef == "" {
 		http.NotFound(w, r)
 		return
 	}
 
-	// Find station by shortcode
+	refLower := strings.ToLower(stationRef)
+	refAsName := strings.TrimSpace(strings.ReplaceAll(refLower, "-", " "))
+
+	// Find station by shortcode first, then by slugified name fallback.
 	var station models.Station
-	err := h.db.Where("shortcode = ? AND active = ? AND public = ? AND approved = ?",
-		shortcode, true, true, true).First(&station).Error
+	err := h.db.
+		Where("LOWER(shortcode) = ? AND active = ? AND public = ? AND approved = ?", refLower, true, true, true).
+		First(&station).Error
 	if err != nil {
+		// Try direct station name match.
+		err = h.db.
+			Where("LOWER(name) = ? AND active = ? AND public = ? AND approved = ?", refAsName, true, true, true).
+			First(&station).Error
+	}
+	if err != nil {
+		var stations []models.Station
+		if err := h.db.
+			Where("active = ? AND public = ? AND approved = ?", true, true, true).
+			Find(&stations).Error; err == nil {
+			for _, s := range stations {
+				if models.GenerateMountName(s.Name) == refLower || strings.ToLower(strings.TrimSpace(s.Name)) == refAsName {
+					station = s
+					err = nil
+					break
+				}
+			}
+		}
+	}
+	if err != nil || station.ID == "" {
 		http.NotFound(w, r)
 		return
 	}

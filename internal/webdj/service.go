@@ -542,6 +542,13 @@ func (s *Service) Play(ctx context.Context, sessionID string, deck models.DeckID
 		return err
 	}
 
+	// Trigger actual media playback when media engine is connected.
+	if s.meClient != nil && s.meClient.IsConnected() {
+		if err := s.playDeckOnMediaEngine(ctx, sessionID, deckState.MediaID, 0); err != nil {
+			s.logger.Warn().Err(err).Str("session_id", sessionID).Str("deck", string(deck)).Msg("media engine play failed")
+		}
+	}
+
 	s.logger.Debug().
 		Str("session_id", sessionID).
 		Str("deck", string(deck)).
@@ -573,6 +580,18 @@ func (s *Service) Pause(ctx context.Context, sessionID string, deck models.DeckI
 
 	if err := s.updateDeckState(ctx, sessionID, deck, *deckState); err != nil {
 		return err
+	}
+
+	// Pause currently maps to non-immediate stop at media engine level.
+	if s.meClient != nil && s.meClient.IsConnected() {
+		session, err := s.getActiveSession(ctx, sessionID)
+		if err == nil {
+			if mountID, mountErr := s.getStationMountID(ctx, session.StationID); mountErr == nil && mountID != "" {
+				if stopErr := s.meClient.Stop(ctx, session.StationID, mountID, false); stopErr != nil {
+					s.logger.Warn().Err(stopErr).Str("session_id", sessionID).Str("deck", string(deck)).Msg("media engine pause(stop) failed")
+				}
+			}
+		}
 	}
 
 	s.logger.Debug().
@@ -616,6 +635,13 @@ func (s *Service) Seek(ctx context.Context, sessionID string, deck models.DeckID
 		return err
 	}
 
+	// Seek by restarting playback with cue-in at requested position.
+	if s.meClient != nil && s.meClient.IsConnected() {
+		if err := s.playDeckOnMediaEngine(ctx, sessionID, deckState.MediaID, positionMS); err != nil {
+			s.logger.Warn().Err(err).Str("session_id", sessionID).Str("deck", string(deck)).Int64("position_ms", positionMS).Msg("media engine seek failed")
+		}
+	}
+
 	s.broadcastUpdate(sessionID, &StateUpdate{
 		Type:      "deck_position",
 		SessionID: sessionID,
@@ -627,6 +653,57 @@ func (s *Service) Seek(ctx context.Context, sessionID string, deck models.DeckID
 	})
 
 	return nil
+}
+
+func (s *Service) getStationMountID(ctx context.Context, stationID string) (string, error) {
+	var mount models.Mount
+	if err := s.db.WithContext(ctx).
+		Where("station_id = ?", stationID).
+		Order("created_at ASC").
+		First(&mount).Error; err != nil {
+		return "", err
+	}
+	return mount.ID, nil
+}
+
+func (s *Service) playDeckOnMediaEngine(ctx context.Context, sessionID, mediaID string, positionMS int64) error {
+	if mediaID == "" {
+		return ErrNoTrackLoaded
+	}
+	session, err := s.getActiveSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	mountID, err := s.getStationMountID(ctx, session.StationID)
+	if err != nil {
+		return fmt.Errorf("resolve station mount: %w", err)
+	}
+
+	var mediaItem models.MediaItem
+	if err := s.db.WithContext(ctx).First(&mediaItem, "id = ?", mediaID).Error; err != nil {
+		return fmt.Errorf("load media item: %w", err)
+	}
+
+	req := &pb.PlayRequest{
+		StationId: session.StationID,
+		MountId:   mountID,
+		Source: &pb.SourceConfig{
+			Type:     pb.SourceType_SOURCE_TYPE_MEDIA,
+			SourceId: mediaItem.ID,
+			Path:     mediaItem.Path,
+			Metadata: map[string]string{
+				"title":  mediaItem.Title,
+				"artist": mediaItem.Artist,
+				"album":  mediaItem.Album,
+			},
+		},
+	}
+	if positionMS > 0 {
+		req.CuePoints = &pb.CuePoints{IntroEnd: float32(positionMS) / 1000.0}
+	}
+
+	_, err = s.meClient.Play(ctx, req)
+	return err
 }
 
 // SetCue sets a hot cue point on a deck.

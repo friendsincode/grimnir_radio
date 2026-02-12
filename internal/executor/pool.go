@@ -10,10 +10,12 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"os"
 	"sort"
 	"sync"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	meclient "github.com/friendsincode/grimnir_radio/internal/mediaengine/client"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
 	"github.com/rs/zerolog"
@@ -28,6 +30,7 @@ type Pool struct {
 	stateManager *StateManager
 	prioritySvc  *priority.Service
 	bus          *events.Bus
+	mediaClient  *meclient.Client
 	logger       zerolog.Logger
 
 	mu        sync.RWMutex
@@ -123,7 +126,7 @@ func hashKey(key string) uint32 {
 }
 
 // NewPool creates a new executor pool.
-func NewPool(instanceID string, db *gorm.DB, stateManager *StateManager, prioritySvc *priority.Service, bus *events.Bus, logger zerolog.Logger) *Pool {
+func NewPool(instanceID string, db *gorm.DB, stateManager *StateManager, prioritySvc *priority.Service, bus *events.Bus, mediaClient *meclient.Client, logger zerolog.Logger) *Pool {
 	ring := newConsistentHashRing(150) // 150 virtual nodes per instance for better distribution
 	ring.addNode(instanceID)
 
@@ -133,6 +136,7 @@ func NewPool(instanceID string, db *gorm.DB, stateManager *StateManager, priorit
 		stateManager: stateManager,
 		prioritySvc:  prioritySvc,
 		bus:          bus,
+		mediaClient:  mediaClient,
 		logger:       logger.With().Str("component", "executor_pool").Logger(),
 		executors:    make(map[string]*Executor),
 		instances:    []string{instanceID},
@@ -180,10 +184,18 @@ func (p *Pool) StartExecutor(ctx context.Context, stationID string) error {
 		return fmt.Errorf("station %s not assigned to this instance (assigned to %s)", stationID, assignedInstance)
 	}
 
-	// Create media controller (this would need to be passed in or created properly)
-	// For now, we'll create it with nil (would need proper initialization)
-	// TODO: Proper media engine client connection
-	mediaCtrl := NewMediaController(nil, stationID, "", p.logger)
+	meClient, err := p.ensureMediaClient(ctx)
+	if err != nil {
+		return fmt.Errorf("media engine client unavailable: %w", err)
+	}
+
+	mountID := ""
+	var mount models.Mount
+	if err := p.db.WithContext(ctx).Where("station_id = ?", stationID).Order("created_at ASC").First(&mount).Error; err == nil {
+		mountID = mount.ID
+	}
+
+	mediaCtrl := NewMediaController(meClient, stationID, mountID, p.logger)
 
 	// Create and start executor
 	executor := New(stationID, p.db, p.stateManager, p.prioritySvc, p.bus, mediaCtrl, p.logger)
@@ -199,6 +211,28 @@ func (p *Pool) StartExecutor(ctx context.Context, stationID string) error {
 		Msg("executor started")
 
 	return nil
+}
+
+func (p *Pool) ensureMediaClient(ctx context.Context) (*meclient.Client, error) {
+	if p.mediaClient != nil && p.mediaClient.IsConnected() {
+		return p.mediaClient, nil
+	}
+
+	addr := os.Getenv("GRIMNIR_MEDIA_ENGINE_GRPC_ADDR")
+	if addr == "" {
+		addr = os.Getenv("MEDIA_ENGINE_GRPC_ADDR")
+	}
+	if addr == "" {
+		addr = "mediaengine:9091"
+	}
+
+	cfg := meclient.DefaultConfig(addr)
+	client := meclient.New(cfg, p.logger)
+	if err := client.Connect(ctx); err != nil {
+		return nil, err
+	}
+	p.mediaClient = client
+	return p.mediaClient, nil
 }
 
 // StopExecutor stops the executor for the given station.

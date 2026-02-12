@@ -670,15 +670,46 @@ func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEnt
 		return d.startPlaylistByID(ctx, entry, playlistID, clock.ID, clock.Name)
 
 	case models.SlotTypeStopset:
-		// Stopsets (ad breaks) not implemented yet - skip to next content
-		d.logger.Debug().Str("clock", clock.ID).Msg("skipping stopset slot (not implemented)")
-		d.publishNowPlaying(entry, map[string]any{
+		// Stopset support:
+		// 1) Preferred: explicit playlist_id in slot payload.
+		// 2) Fallback: explicit media_id hard item.
+		// 3) Final fallback: random analyzed media.
+		if playlistID, ok := slot.Payload["playlist_id"].(string); ok && playlistID != "" {
+			d.logger.Debug().
+				Str("clock", clock.ID).
+				Str("playlist_id", playlistID).
+				Msg("executing stopset slot from playlist")
+			return d.startPlaylistByID(ctx, entry, playlistID, clock.ID, clock.Name)
+		}
+		if mediaID, ok := slot.Payload["media_id"].(string); ok && mediaID != "" {
+			d.logger.Debug().
+				Str("clock", clock.ID).
+				Str("media_id", mediaID).
+				Msg("executing stopset slot from media item")
+			return d.playMediaByID(ctx, entry, mediaID, clock.ID, clock.Name)
+		}
+
+		d.logger.Debug().Str("clock", clock.ID).Msg("stopset slot missing payload, falling back to random")
+		var media models.MediaItem
+		err := d.db.WithContext(ctx).
+			Where("station_id = ?", entry.StationID).
+			Where("analysis_state = ?", models.AnalysisComplete).
+			Order("RANDOM()").
+			First(&media).Error
+		if err != nil {
+			d.publishNowPlaying(entry, map[string]any{
+				"clock_id":   clock.ID,
+				"clock_name": clock.Name,
+				"slot_type":  "stopset",
+				"status":     "no_media",
+			})
+			return nil
+		}
+		return d.playMedia(ctx, entry, media, map[string]any{
 			"clock_id":   clock.ID,
 			"clock_name": clock.Name,
 			"slot_type":  "stopset",
-			"status":     "skipped",
 		})
-		return nil
 
 	default:
 		// Unknown slot type - fall back to random
@@ -1699,4 +1730,98 @@ func (d *Director) StopStation(ctx context.Context, stationID string) (int, erro
 		Msg("emergency stop executed for station")
 
 	return stopped, nil
+}
+
+// SkipStation skips the current track on all active mounts for a station.
+// It advances to the next item in the active sequence (playlist/clock/smart block)
+// when possible, or falls back to random next-track selection.
+func (d *Director) SkipStation(ctx context.Context, stationID string) (int, error) {
+	var mounts []models.Mount
+	if err := d.db.WithContext(ctx).Where("station_id = ?", stationID).Find(&mounts).Error; err != nil {
+		return 0, fmt.Errorf("failed to load station mounts: %w", err)
+	}
+
+	skipped := 0
+	for _, mount := range mounts {
+		d.mu.Lock()
+		state, ok := d.active[mount.ID]
+		d.mu.Unlock()
+		if !ok {
+			continue
+		}
+
+		if err := d.manager.StopPipeline(mount.ID); err != nil {
+			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline for skip")
+		}
+
+		entry := models.ScheduleEntry{
+			ID:        state.EntryID,
+			StationID: state.StationID,
+			MountID:   mount.ID,
+			EndsAt:    state.Ends,
+		}
+
+		skipped++
+		go d.handleTrackEnded(entry, mount.Name)
+	}
+
+	d.logger.Info().
+		Str("station_id", stationID).
+		Int("mounts_skipped", skipped).
+		Msg("skip station executed")
+
+	return skipped, nil
+}
+
+// ReloadStation stops active pipelines for a station and clears active state so
+// the director tick can rebuild playout from current schedule.
+func (d *Director) ReloadStation(ctx context.Context, stationID string) (int, error) {
+	var mounts []models.Mount
+	if err := d.db.WithContext(ctx).Where("station_id = ?", stationID).Find(&mounts).Error; err != nil {
+		return 0, fmt.Errorf("failed to load station mounts: %w", err)
+	}
+
+	reloaded := 0
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, mount := range mounts {
+		if err := d.manager.StopPipeline(mount.ID); err != nil {
+			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline during reload")
+		}
+		if _, ok := d.active[mount.ID]; ok {
+			delete(d.active, mount.ID)
+			reloaded++
+		}
+	}
+
+	d.logger.Info().
+		Str("station_id", stationID).
+		Int("mounts_reloaded", reloaded).
+		Msg("station playout reloaded")
+
+	return reloaded, nil
+}
+
+// ListenerCount returns current connected listeners across the station's HQ/LQ mounts.
+func (d *Director) ListenerCount(ctx context.Context, stationID string) (int, error) {
+	if d.broadcast == nil {
+		return 0, nil
+	}
+
+	var mounts []models.Mount
+	if err := d.db.WithContext(ctx).Where("station_id = ?", stationID).Find(&mounts).Error; err != nil {
+		return 0, fmt.Errorf("failed to load station mounts: %w", err)
+	}
+
+	total := 0
+	for _, mount := range mounts {
+		if m := d.broadcast.GetMount(mount.Name); m != nil {
+			total += m.ClientCount()
+		}
+		if lq := d.broadcast.GetMount(mount.Name + "-lq"); lq != nil {
+			total += lq.ClientCount()
+		}
+	}
+
+	return total, nil
 }
