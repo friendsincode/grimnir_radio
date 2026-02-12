@@ -8,6 +8,7 @@ package web
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -43,12 +44,8 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 	// Gather dashboard data
 	var data DashboardData
 
-	// Upcoming schedule
-	h.db.Where("station_id = ? AND starts_at >= ? AND starts_at <= ?",
-		station.ID, time.Now(), time.Now().Add(6*time.Hour)).
-		Order("starts_at ASC").
-		Limit(10).
-		Find(&data.UpcomingEntries)
+	// Upcoming schedule (including recurring entries expanded into instances)
+	data.UpcomingEntries = h.loadDashboardUpcomingEntries(station.ID, time.Now(), 6*time.Hour, 10)
 
 	// Recent media uploads
 	h.db.Where("station_id = ?", station.ID).
@@ -76,6 +73,64 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 		Stations: h.LoadStations(r),
 		Data:     data,
 	})
+}
+
+func (h *Handler) loadDashboardUpcomingEntries(stationID string, from time.Time, horizon time.Duration, limit int) []models.ScheduleEntry {
+	if limit <= 0 {
+		limit = 10
+	}
+	to := from.Add(horizon)
+
+	// Load non-recurring entries and already-materialized instances.
+	var entries []models.ScheduleEntry
+	h.db.Where("station_id = ? AND starts_at >= ? AND starts_at <= ? AND (recurrence_type = '' OR recurrence_type IS NULL OR is_instance = true)",
+		stationID, from, to).
+		Order("starts_at ASC").
+		Find(&entries)
+
+	// Load recurring parent entries and expand virtual instances in-range.
+	var recurringEntries []models.ScheduleEntry
+	h.db.Where("station_id = ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false",
+		stationID).
+		Find(&recurringEntries)
+
+	for _, re := range recurringEntries {
+		instances := h.expandRecurringEntry(re, from, to)
+		entries = append(entries, instances...)
+	}
+
+	// Dedupe by source+mount+time window to avoid repeated rows when both materialized and virtual rows exist.
+	type entryKey struct {
+		mountID    string
+		sourceType string
+		sourceID   string
+		startUnix  int64
+		endUnix    int64
+	}
+	seen := make(map[entryKey]struct{}, len(entries))
+	deduped := make([]models.ScheduleEntry, 0, len(entries))
+	for _, e := range entries {
+		k := entryKey{
+			mountID:    e.MountID,
+			sourceType: e.SourceType,
+			sourceID:   e.SourceID,
+			startUnix:  e.StartsAt.Unix(),
+			endUnix:    e.EndsAt.Unix(),
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		deduped = append(deduped, e)
+	}
+
+	sort.Slice(deduped, func(i, j int) bool {
+		return deduped[i].StartsAt.Before(deduped[j].StartsAt)
+	})
+	if len(deduped) > limit {
+		deduped = deduped[:limit]
+	}
+	return deduped
 }
 
 // DashboardData holds data for the dashboard overview
