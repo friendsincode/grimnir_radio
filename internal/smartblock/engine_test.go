@@ -289,3 +289,27 @@ func TestToStringSlice(t *testing.T) {
 		})
 	}
 }
+
+func TestExcludeFilterSemantics(t *testing.T) {
+	item := models.MediaItem{
+		Artist: "Hal Anthony",
+		Title:  "Behind The Woodshed",
+	}
+
+	// No exclude rules => item passes exclude checks.
+	if !matchesFilters(item, nil, false) {
+		t.Fatal("empty exclude rules should pass")
+	}
+
+	// Matching exclude rule => item fails exclude checks.
+	excludeArtist := []FilterRule{{Field: "artist", Value: "Hal Anthony"}}
+	if matchesFilters(item, excludeArtist, false) {
+		t.Fatal("matching exclude rule should fail")
+	}
+
+	// Non-matching exclude rule => item passes exclude checks.
+	excludeOther := []FilterRule{{Field: "artist", Value: "Someone Else"}}
+	if !matchesFilters(item, excludeOther, false) {
+		t.Fatal("non-matching exclude rule should pass")
+	}
+}
