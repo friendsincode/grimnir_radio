@@ -8,6 +8,7 @@ package web
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -63,6 +64,7 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		Active:      true,                   // Active by default
 		Public:      false,                  // Private by default
 		Approved:    user.IsPlatformAdmin(), // Auto-approve for admins, otherwise needs approval
+		SortOrder:   parseIntOrDefault(r.FormValue("sort_order"), 0),
 	}
 
 	// Platform admins can set active status
@@ -191,6 +193,7 @@ func (h *Handler) StationUpdate(w http.ResponseWriter, r *http.Request) {
 	station.Description = r.FormValue("description")
 	station.Timezone = r.FormValue("timezone")
 	station.Active = r.FormValue("active") == "on"
+	station.SortOrder = parseIntOrDefault(r.FormValue("sort_order"), station.SortOrder)
 
 	if station.Name == "" {
 		h.renderStationFormError(w, r, station, false, "Name is required")
@@ -398,11 +401,14 @@ func (h *Handler) MountCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mount := models.Mount{
-		ID:        uuid.New().String(),
-		StationID: stationID,
-		Name:      r.FormValue("name"),
-		URL:       r.FormValue("url"),
-		Format:    r.FormValue("format"),
+		ID:         uuid.New().String(),
+		StationID:  stationID,
+		Name:       r.FormValue("name"),
+		URL:        r.FormValue("url"),
+		Format:     r.FormValue("format"),
+		Bitrate:    parseIntOrDefault(r.FormValue("bitrate"), 128),
+		Channels:   parseIntOrDefault(r.FormValue("channels"), 2),
+		SampleRate: parseIntOrDefault(r.FormValue("sample_rate"), 44100),
 	}
 
 	if err := h.db.Create(&mount).Error; err != nil {
@@ -475,6 +481,9 @@ func (h *Handler) MountUpdate(w http.ResponseWriter, r *http.Request) {
 	mount.Name = r.FormValue("name")
 	mount.URL = r.FormValue("url")
 	mount.Format = r.FormValue("format")
+	mount.Bitrate = parseIntOrDefault(r.FormValue("bitrate"), mount.Bitrate)
+	mount.Channels = parseIntOrDefault(r.FormValue("channels"), mount.Channels)
+	mount.SampleRate = parseIntOrDefault(r.FormValue("sample_rate"), mount.SampleRate)
 
 	if err := h.db.Save(&mount).Error; err != nil {
 		http.Error(w, "Failed to update mount", http.StatusInternalServerError)
@@ -532,4 +541,15 @@ func (h *Handler) publishMountCacheEvent(eventType events.EventType, mountID, st
 		"mount_id":   mountID,
 		"station_id": stationID,
 	})
+}
+
+func parseIntOrDefault(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return v
 }

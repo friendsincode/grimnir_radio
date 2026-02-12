@@ -75,6 +75,26 @@
                             <option value="flac" {{if eq $mount.Format "flac"}}selected{{end}}>FLAC</option>
                         </select>
                     </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Bitrate (kbps)</label>
+                            <input type="number" class="form-control" name="bitrate" min="16" step="1"
+                                   value="{{if gt $mount.Bitrate 0}}{{$mount.Bitrate}}{{else}}128{{end}}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Channels</label>
+                            <select class="form-select" name="channels">
+                                <option value="1" {{if eq $mount.Channels 1}}selected{{end}}>Mono (1)</option>
+                                <option value="2" {{if or (eq $mount.Channels 0) (eq $mount.Channels 2)}}selected{{end}}>Stereo (2)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Sample Rate (Hz)</label>
+                            <input type="number" class="form-control" name="sample_rate" min="8000" step="1000"
+                                   value="{{if gt $mount.SampleRate 0}}{{$mount.SampleRate}}{{else}}44100{{end}}">
+                        </div>
+                    </div>
                 </div>
                 <div class="card-footer d-flex gap-2">
                     <button type="submit" class="btn btn-primary">
