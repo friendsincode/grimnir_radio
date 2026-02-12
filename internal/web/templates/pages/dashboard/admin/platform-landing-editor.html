@@ -485,11 +485,11 @@ let isDirty = false;
 let updateTimeout = null;
 
 // Station data from server
-const stationsData = [
-    {{range .Data.Stations}}
-    { id: "{{.ID}}", name: "{{.Name}}", sortOrder: {{.SortOrder}} },
-    {{end}}
-];
+const stationsData = ({{jsonMarshal .Data.Stations}} || []).map(station => ({
+    id: station.ID,
+    name: station.Name,
+    sortOrder: Number(station.SortOrder || 0),
+}));
 
 // Widget definitions
 const widgetDefs = {
