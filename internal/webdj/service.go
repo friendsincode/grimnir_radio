@@ -118,6 +118,10 @@ func (s *Service) StartSession(ctx context.Context, req StartSessionRequest) (*m
 		Where("station_id = ? AND user_id = ? AND active = ?", req.StationID, req.UserID, true).
 		First(&existing).Error
 	if err == nil {
+		// Ensure persisted sessions are available in memory for websocket subscribe/state updates.
+		if loadErr := s.LoadSessionFromDB(ctx, existing.ID); loadErr != nil && !errors.Is(loadErr, ErrSessionNotFound) {
+			s.logger.Warn().Err(loadErr).Str("session_id", existing.ID).Msg("failed to load existing session into memory")
+		}
 		// Return existing session
 		s.logger.Info().
 			Str("session_id", existing.ID).
