@@ -249,7 +249,8 @@ func (e *Engine) fetchCandidates(ctx context.Context, def Definition, stationID 
 
 	candidates := make([]candidate, 0, len(items))
 	for _, item := range items {
-		if !matchesFilters(item, def.Include, true) || matchesFilters(item, def.Exclude, false) {
+		// Keep items that satisfy include rules AND pass exclude rules.
+		if !matchesFilters(item, def.Include, true) || !matchesFilters(item, def.Exclude, false) {
 			continue
 		}
 		if violatesSeparation(item, recentCache, windows) {
