@@ -8,12 +8,14 @@ package analytics
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -76,24 +78,55 @@ type HourlyStats struct {
 func (s *ScheduleAnalyticsService) GetShowPerformance(ctx context.Context, stationID string, start, end time.Time) ([]models.ShowPerformance, error) {
 	var results []models.ShowPerformance
 
-	// Get current period stats
-	rows, err := s.db.WithContext(ctx).Raw(`
-		SELECT
-			sa.show_id,
-			sh.name as show_name,
-			COUNT(DISTINCT sa.instance_id) as instance_count,
-			AVG(sa.avg_listeners) as avg_listeners,
-			MAX(sa.peak_listeners) as peak_listeners,
-			SUM(sa.tune_ins) as total_tune_ins,
-			SUM(sa.total_minutes) as total_minutes
-		FROM schedule_analytics sa
-		JOIN shows sh ON sa.show_id = sh.id
-		WHERE sa.station_id = ?
-		AND sa.date >= ? AND sa.date < ?
-		AND sa.show_id IS NOT NULL
-		GROUP BY sa.show_id, sh.name
-		ORDER BY avg_listeners DESC
-	`, stationID, start, end).Rows()
+	startDay := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	endDay := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, time.UTC)
+	// Query daily rollups if available; fall back to hourly table if none exist yet.
+	var dailyCount int64
+	_ = s.db.WithContext(ctx).Model(&models.ScheduleAnalyticsDaily{}).
+		Where("station_id = ? AND date >= ? AND date < ? AND scope = ?", stationID, startDay, endDay, "show").
+		Count(&dailyCount).Error
+
+	var rows *sql.Rows
+	var err error
+	if dailyCount > 0 {
+		rows, err = s.db.WithContext(ctx).Raw(`
+			SELECT
+				sad.show_id,
+				sh.name as show_name,
+				SUM(sad.instance_count) as instance_count,
+				AVG(sad.avg_listeners) as avg_listeners,
+				MAX(sad.peak_listeners) as peak_listeners,
+				SUM(sad.tune_ins) as total_tune_ins,
+				SUM(sad.total_listener_minutes) as total_minutes
+			FROM schedule_analytics_daily sad
+			JOIN shows sh ON sad.show_id = sh.id
+			WHERE sad.station_id = ?
+			AND sad.date >= ? AND sad.date < ?
+			AND sad.scope = 'show'
+			AND sad.show_id != ''
+			GROUP BY sad.show_id, sh.name
+			ORDER BY avg_listeners DESC
+		`, stationID, startDay, endDay).Rows()
+	} else {
+		// Get current period stats from hourly table
+		rows, err = s.db.WithContext(ctx).Raw(`
+			SELECT
+				sa.show_id,
+				sh.name as show_name,
+				COUNT(DISTINCT sa.instance_id) as instance_count,
+				AVG(sa.avg_listeners) as avg_listeners,
+				MAX(sa.peak_listeners) as peak_listeners,
+				SUM(sa.tune_ins) as total_tune_ins,
+				SUM(sa.total_minutes) as total_minutes
+			FROM schedule_analytics sa
+			JOIN shows sh ON sa.show_id = sh.id
+			WHERE sa.station_id = ?
+			AND sa.date >= ? AND sa.date < ?
+			AND sa.show_id IS NOT NULL
+			GROUP BY sa.show_id, sh.name
+			ORDER BY avg_listeners DESC
+		`, stationID, start, end).Rows()
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query show performance: %w", err)
@@ -115,12 +148,23 @@ func (s *ScheduleAnalyticsService) GetShowPerformance(ctx context.Context, stati
 
 	for i := range results {
 		var prevAvg float64
-		s.db.WithContext(ctx).Raw(`
-			SELECT AVG(avg_listeners)
-			FROM schedule_analytics
-			WHERE station_id = ? AND show_id = ?
-			AND date >= ? AND date < ?
-		`, stationID, results[i].ShowID, prevStart, prevEnd).Scan(&prevAvg)
+		if dailyCount > 0 {
+			prevStartDay := time.Date(prevStart.Year(), prevStart.Month(), prevStart.Day(), 0, 0, 0, 0, time.UTC)
+			prevEndDay := time.Date(prevEnd.Year(), prevEnd.Month(), prevEnd.Day(), 0, 0, 0, 0, time.UTC)
+			s.db.WithContext(ctx).Raw(`
+				SELECT AVG(avg_listeners)
+				FROM schedule_analytics_daily
+				WHERE station_id = ? AND show_id = ? AND scope = 'show'
+				AND date >= ? AND date < ?
+			`, stationID, results[i].ShowID, prevStartDay, prevEndDay).Scan(&prevAvg)
+		} else {
+			s.db.WithContext(ctx).Raw(`
+				SELECT AVG(avg_listeners)
+				FROM schedule_analytics
+				WHERE station_id = ? AND show_id = ?
+				AND date >= ? AND date < ?
+			`, stationID, results[i].ShowID, prevStart, prevEnd).Scan(&prevAvg)
+		}
 
 		if prevAvg > 0 {
 			results[i].TrendPercent = ((results[i].AvgListeners - prevAvg) / prevAvg) * 100
@@ -282,11 +326,145 @@ func min(a, b int) int {
 
 // AggregateDaily aggregates hourly stats into daily summaries.
 func (s *ScheduleAnalyticsService) AggregateDaily(ctx context.Context, stationID string, date time.Time) error {
-	// This is a placeholder for more complex aggregation logic
-	// Could be expanded to create daily/weekly/monthly summary tables
-	s.logger.Debug().
+	day := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
+
+	type row struct {
+		ShowID            *string
+		InstanceCount     int
+		PeakListeners     int
+		TuneIns           int
+		TuneOuts          int
+		TotalListenerMins int
+		HoursCovered      int
+	}
+
+	// Per-show rollups.
+	var rows []row
+	if err := s.db.WithContext(ctx).Raw(`
+		SELECT
+			show_id,
+			COUNT(DISTINCT instance_id) AS instance_count,
+			COALESCE(MAX(peak_listeners), 0) AS peak_listeners,
+			COALESCE(SUM(tune_ins), 0) AS tune_ins,
+			COALESCE(SUM(tune_outs), 0) AS tune_outs,
+			COALESCE(SUM(total_minutes), 0) AS total_listener_mins,
+			COUNT(*) AS hours_covered
+		FROM schedule_analytics
+		WHERE station_id = ? AND date = ? AND show_id IS NOT NULL
+		GROUP BY show_id
+	`, stationID, day).Scan(&rows).Error; err != nil {
+		return fmt.Errorf("daily aggregation query (show): %w", err)
+	}
+
+	// Station rollup.
+	var stationRow row
+	if err := s.db.WithContext(ctx).Raw(`
+		SELECT
+			NULL AS show_id,
+			COUNT(DISTINCT instance_id) AS instance_count,
+			COALESCE(MAX(peak_listeners), 0) AS peak_listeners,
+			COALESCE(SUM(tune_ins), 0) AS tune_ins,
+			COALESCE(SUM(tune_outs), 0) AS tune_outs,
+			COALESCE(SUM(total_minutes), 0) AS total_listener_mins,
+			COUNT(*) AS hours_covered
+		FROM schedule_analytics
+		WHERE station_id = ? AND date = ?
+	`, stationID, day).Scan(&stationRow).Error; err != nil {
+		return fmt.Errorf("daily aggregation query (station): %w", err)
+	}
+
+	// Build upserts. Average listeners is derived from listener-minutes / minutes-covered.
+	toAvg := func(totalListenerMinutes, hoursCovered int) float64 {
+		if totalListenerMinutes <= 0 || hoursCovered <= 0 {
+			return 0
+		}
+		return float64(totalListenerMinutes) / float64(hoursCovered*60)
+	}
+
+	var upserts []models.ScheduleAnalyticsDaily
+	// Station summary row.
+	upserts = append(upserts, models.ScheduleAnalyticsDaily{
+		ID:                   uuid.NewString(),
+		StationID:            stationID,
+		Date:                 day,
+		Scope:                "station",
+		ShowID:               "",
+		InstanceCount:        stationRow.InstanceCount,
+		AvgListeners:         toAvg(stationRow.TotalListenerMins, stationRow.HoursCovered),
+		PeakListeners:        stationRow.PeakListeners,
+		TuneIns:              stationRow.TuneIns,
+		TuneOuts:             stationRow.TuneOuts,
+		TotalListenerMinutes: stationRow.TotalListenerMins,
+		HoursCovered:         stationRow.HoursCovered,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	})
+
+	for _, r := range rows {
+		showID := ""
+		if r.ShowID != nil {
+			showID = *r.ShowID
+		}
+		upserts = append(upserts, models.ScheduleAnalyticsDaily{
+			ID:                   uuid.NewString(),
+			StationID:            stationID,
+			Date:                 day,
+			Scope:                "show",
+			ShowID:               showID,
+			InstanceCount:        r.InstanceCount,
+			AvgListeners:         toAvg(r.TotalListenerMins, r.HoursCovered),
+			PeakListeners:        r.PeakListeners,
+			TuneIns:              r.TuneIns,
+			TuneOuts:             r.TuneOuts,
+			TotalListenerMinutes: r.TotalListenerMins,
+			HoursCovered:         r.HoursCovered,
+			CreatedAt:            now,
+			UpdatedAt:            now,
+		})
+	}
+
+	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "station_id"},
+			{Name: "date"},
+			{Name: "scope"},
+			{Name: "show_id"},
+		},
+		DoUpdates: clause.Assignments(map[string]any{
+			"instance_count":         gorm.Expr("excluded.instance_count"),
+			"avg_listeners":          gorm.Expr("excluded.avg_listeners"),
+			"peak_listeners":         gorm.Expr("excluded.peak_listeners"),
+			"tune_ins":               gorm.Expr("excluded.tune_ins"),
+			"tune_outs":              gorm.Expr("excluded.tune_outs"),
+			"total_listener_minutes": gorm.Expr("excluded.total_listener_minutes"),
+			"hours_covered":          gorm.Expr("excluded.hours_covered"),
+			"updated_at":             gorm.Expr("excluded.updated_at"),
+		}),
+	}).Create(&upserts).Error; err != nil {
+		return fmt.Errorf("daily aggregation upsert: %w", err)
+	}
+
+	s.logger.Info().
 		Str("station", stationID).
-		Time("date", date).
-		Msg("Daily aggregation completed")
+		Time("date", day).
+		Int("rows", len(upserts)).
+		Msg("daily schedule analytics aggregated")
+	return nil
+}
+
+// BackfillDaily runs AggregateDaily for each date in [start, end] inclusive.
+func (s *ScheduleAnalyticsService) BackfillDaily(ctx context.Context, stationID string, start, end time.Time) error {
+	startDay := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	endDay := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, time.UTC)
+	if endDay.Before(startDay) {
+		startDay, endDay = endDay, startDay
+	}
+
+	for d := startDay; !d.After(endDay); d = d.AddDate(0, 0, 1) {
+		if err := s.AggregateDaily(ctx, stationID, d); err != nil {
+			return err
+		}
+	}
 	return nil
 }
