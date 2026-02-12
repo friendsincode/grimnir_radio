@@ -8,8 +8,11 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -683,18 +686,35 @@ func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mediaID := uuid.NewString()
+	hasher := sha256.New()
 
-	storedPath, err := a.media.Store(r.Context(), stationID, mediaID, file)
+	storedPath, err := a.media.Store(r.Context(), stationID, mediaID, io.TeeReader(file, hasher))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "media_store_failed")
 		return
 	}
+	contentHash := hex.EncodeToString(hasher.Sum(nil))
 	success := false
 	defer func() {
 		if !success && storedPath != "" {
 			_ = os.Remove(storedPath)
 		}
 	}()
+
+	// Reject duplicate content within a station.
+	var existing models.MediaItem
+	err = a.db.WithContext(r.Context()).
+		Select("id").
+		Where("station_id = ? AND content_hash = ?", stationID, contentHash).
+		First(&existing).Error
+	if err == nil {
+		writeError(w, http.StatusConflict, "duplicate_media")
+		return
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
 
 	item := models.MediaItem{
 		ID:            mediaID,
@@ -704,6 +724,7 @@ func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 		Album:         album,
 		Duration:      duration,
 		Path:          storedPath,
+		ContentHash:   contentHash,
 		AnalysisState: models.AnalysisPending,
 	}
 

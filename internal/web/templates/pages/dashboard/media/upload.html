@@ -68,13 +68,11 @@ const progress = document.getElementById('uploadProgress');
 const progressBar = progress.querySelector('.progress-bar');
 const results = document.getElementById('uploadResults');
 
-// Track files being uploaded to prevent duplicates
-const uploadingFiles = new Map(); // fileKey -> {loaded, total}
-let activeUploads = 0;
+let isUploading = false;
+let currentBatch = null;
 
 uploadZone.addEventListener('click', (e) => {
-    // Prevent click if we're already uploading
-    if (uploadZone.classList.contains('uploading')) return;
+    if (isUploading) return;
     fileInput.click();
 });
 
@@ -102,120 +100,171 @@ fileInput.addEventListener('change', () => {
 });
 
 function handleFiles(files) {
-    // Upload files sequentially to avoid overwhelming the server
+    if (isUploading) return;
+
     const fileArray = Array.from(files);
-    uploadFilesSequentially(fileArray, 0);
-}
+    if (fileArray.length === 0) return;
 
-function uploadFilesSequentially(files, index) {
-    if (index >= files.length) return;
-    uploadFile(files[index], () => {
-        uploadFilesSequentially(files, index + 1);
-    });
-}
+    const dedupedFiles = dedupeBatchFiles(fileArray);
+    const totalBytes = dedupedFiles.reduce((sum, file) => sum + (file.size || 0), 0);
 
-function updateOverallProgress() {
-    let totalLoaded = 0;
-    let totalSize = 0;
-    uploadingFiles.forEach(info => {
-        totalLoaded += info.loaded;
-        totalSize += info.total;
-    });
-    if (totalSize > 0) {
-        const percent = Math.round((totalLoaded / totalSize) * 100);
-        progressBar.style.width = percent + '%';
-        progressBar.textContent = `${percent}% (${activeUploads} file${activeUploads > 1 ? 's' : ''})`;
-    }
-}
+    currentBatch = {
+        files: dedupedFiles,
+        totalBytes,
+        completedBytes: 0,
+        currentFileLoaded: 0,
+        uploadedCount: 0,
+        failedCount: 0
+    };
 
-function uploadFile(file, onComplete) {
-    // Create unique key for this file (name + size + lastModified)
-    const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
-
-    // Skip if already uploading this exact file
-    if (uploadingFiles.has(fileKey)) {
-        console.log('Skipping duplicate upload:', file.name);
-        if (onComplete) onComplete();
-        return;
-    }
-
-    uploadingFiles.set(fileKey, { loaded: 0, total: file.size });
-    activeUploads++;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    progress.classList.remove('d-none');
+    isUploading = true;
     uploadZone.classList.add('uploading');
-    updateOverallProgress();
+    progress.classList.remove('d-none');
+    updateProgressUI();
+    uploadFilesSequentially();
+}
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/dashboard/media/upload');
+function dedupeBatchFiles(files) {
+    const seen = new Set();
+    const deduped = [];
 
-    xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-            uploadingFiles.set(fileKey, { loaded: e.loaded, total: e.total });
-            updateOverallProgress();
+    for (const file of files) {
+        const key = `${file.name}|${file.size}|${file.lastModified}`;
+        if (seen.has(key)) {
+            addResult(file.name, 'warning', 'Skipped duplicate in this batch');
+            continue;
         }
+        seen.add(key);
+        deduped.push(file);
+    }
+
+    return deduped;
+}
+
+function uploadFilesSequentially() {
+    const run = async () => {
+        for (const file of currentBatch.files) {
+            await uploadFile(file);
+        }
+        finishBatch();
+    };
+    run();
+}
+
+function updateProgressUI() {
+    if (!currentBatch) return;
+
+    const total = currentBatch.totalBytes;
+    const loaded = currentBatch.completedBytes + currentBatch.currentFileLoaded;
+    const percent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+
+    progressBar.style.width = `${percent}%`;
+    progressBar.textContent = `${percent}% (${currentBatch.uploadedCount + currentBatch.failedCount}/${currentBatch.files.length} files)`;
+}
+
+function finishBatch() {
+    if (!currentBatch) return;
+
+    progressBar.style.width = '100%';
+    progressBar.textContent = `100% (${currentBatch.files.length}/${currentBatch.files.length} files)`;
+
+    isUploading = false;
+    uploadZone.classList.remove('uploading');
+
+    setTimeout(() => {
+        progress.classList.add('d-none');
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+    }, 1200);
+
+    currentBatch = null;
+}
+
+function uploadFile(file) {
+    return new Promise((resolve) => {
+        const fileSize = file.size || 0;
+        let lastLoaded = 0;
+
+        currentBatch.currentFileLoaded = 0;
+        updateProgressUI();
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/dashboard/media/upload');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+        xhr.upload.addEventListener('progress', (e) => {
+            if (!e.lengthComputable || !currentBatch) return;
+
+            const clamped = Math.min(fileSize, Math.max(lastLoaded, e.loaded));
+            lastLoaded = clamped;
+            currentBatch.currentFileLoaded = clamped;
+            updateProgressUI();
+        });
+
+        xhr.addEventListener('load', () => {
+            const ok = xhr.status >= 200 && xhr.status < 300;
+
+            currentBatch.completedBytes += fileSize;
+            currentBatch.currentFileLoaded = 0;
+
+            if (ok) {
+                currentBatch.uploadedCount += 1;
+                addResult(file.name, 'success', 'Uploaded successfully');
+            } else if (xhr.status === 409) {
+                currentBatch.failedCount += 1;
+                addResult(file.name, 'warning', 'Skipped duplicate (already in library)');
+            } else {
+                currentBatch.failedCount += 1;
+                addResult(file.name, 'danger', 'Upload failed: ' + (xhr.responseText || `HTTP ${xhr.status}`));
+            }
+
+            updateProgressUI();
+            resolve();
+        });
+
+        xhr.addEventListener('error', () => {
+            currentBatch.completedBytes += fileSize;
+            currentBatch.currentFileLoaded = 0;
+            currentBatch.failedCount += 1;
+            addResult(file.name, 'danger', 'Upload failed - network error');
+            updateProgressUI();
+            resolve();
+        });
+
+        xhr.send(formData);
     });
-
-    xhr.addEventListener('load', () => {
-        activeUploads--;
-        uploadingFiles.delete(fileKey);
-
-        if (xhr.status >= 200 && xhr.status < 300) {
-            addResult(file.name, 'success', 'Uploaded successfully');
-        } else {
-            addResult(file.name, 'danger', 'Upload failed: ' + (xhr.responseText || 'Unknown error'));
-        }
-
-        // Only reset UI when ALL uploads are done
-        if (activeUploads === 0) {
-            uploadZone.classList.remove('uploading');
-            setTimeout(() => {
-                progress.classList.add('d-none');
-                progressBar.style.width = '0%';
-                progressBar.textContent = '0%';
-            }, 1000);
-        } else {
-            updateOverallProgress();
-        }
-
-        if (onComplete) onComplete();
-    });
-
-    xhr.addEventListener('error', () => {
-        activeUploads--;
-        uploadingFiles.delete(fileKey);
-        addResult(file.name, 'danger', 'Upload failed - network error');
-
-        if (activeUploads === 0) {
-            uploadZone.classList.remove('uploading');
-            setTimeout(() => {
-                progress.classList.add('d-none');
-                progressBar.style.width = '0%';
-                progressBar.textContent = '0%';
-            }, 1000);
-        } else {
-            updateOverallProgress();
-        }
-
-        if (onComplete) onComplete();
-    });
-
-    xhr.send(formData);
 }
 
 function addResult(filename, status, message) {
+    const icon = status === 'success'
+        ? 'check-circle'
+        : status === 'warning'
+            ? 'exclamation-triangle'
+            : 'exclamation-circle';
+    const safeFilename = escapeHtml(filename);
+    const safeMessage = escapeHtml(message);
+
     const div = document.createElement('div');
     div.className = `alert alert-${status} d-flex align-items-center`;
     div.innerHTML = `
-        <i class="bi bi-${status === 'success' ? 'check-circle' : 'exclamation-circle'} me-2"></i>
+        <i class="bi bi-${icon} me-2"></i>
         <div class="flex-grow-1">
-            <strong>${filename}</strong> - ${message}
+            <strong>${safeFilename}</strong> - ${safeMessage}
         </div>
     `;
-    results.appendChild(div);
+    results.prepend(div);
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 </script>
 {{end}}

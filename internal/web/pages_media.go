@@ -7,8 +7,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -215,17 +218,34 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 	defer dst.Close()
 
 	// Copy file content
-	written, err := io.Copy(dst, file)
+	hasher := sha256.New()
+	written, err := io.Copy(dst, io.TeeReader(file, hasher))
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to write media file")
 		os.Remove(fullPath) // Clean up partial file
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
 		return
 	}
+	contentHash := hex.EncodeToString(hasher.Sum(nil))
 
 	// Sync file to disk to ensure it's fully written before analysis
 	if err := dst.Sync(); err != nil {
 		h.logger.Warn().Err(err).Msg("failed to sync media file")
+	}
+
+	// Reject duplicate content in the same station.
+	var existing models.MediaItem
+	err = h.db.Select("id").Where("station_id = ? AND content_hash = ?", station.ID, contentHash).First(&existing).Error
+	if err == nil {
+		_ = os.Remove(fullPath)
+		http.Error(w, "Duplicate file already exists in media library", http.StatusConflict)
+		return
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		h.logger.Error().Err(err).Str("station_id", station.ID).Str("content_hash", contentHash).Msg("failed duplicate media lookup")
+		_ = os.Remove(fullPath)
+		http.Error(w, "Failed to validate upload", http.StatusInternalServerError)
+		return
 	}
 
 	// Create media item record with station's default archive settings
@@ -234,6 +254,7 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 		StationID:     station.ID,
 		Title:         strings.TrimSuffix(header.Filename, ext),
 		Path:          relPath,
+		ContentHash:   contentHash,
 		ShowInArchive: station.DefaultShowInArchive,
 		AllowDownload: station.DefaultAllowDownload,
 	}
@@ -263,7 +284,7 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 		Msg("media file uploaded")
 
 	// Return success
-	if r.Header.Get("HX-Request") == "true" {
+	if r.Header.Get("HX-Request") == "true" || r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(fmt.Sprintf(`<div class="alert alert-success">File uploaded successfully! <a href="/dashboard/media/%s">View details</a></div>`, mediaID)))
 		return
