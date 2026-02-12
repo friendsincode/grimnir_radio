@@ -37,7 +37,7 @@ func createTestHandler(t *testing.T, db *gorm.DB) *web.Handler {
 	eventBus := events.NewBus()
 	webrtcCfg := web.WebRTCConfig{}
 	// Pass nil for mediaService and director since they're optional for basic route testing
-	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, eventBus, nil, logger)
+	handler, err := web.NewHandler(db, []byte("test-jwt-secret"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, 0, eventBus, nil, logger)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -601,7 +601,7 @@ func BenchmarkPageLoad(b *testing.B) {
 	eventBus := events.NewBus()
 	webrtcCfg := web.WebRTCConfig{}
 	// Pass nil for mediaService and director since they're optional for basic route testing
-	handler, err := web.NewHandler(db, []byte("test"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, eventBus, nil, logger)
+	handler, err := web.NewHandler(db, []byte("test"), "/tmp/grimnir-test-media", nil, "", "", webrtcCfg, 0, eventBus, nil, logger)
 	if err != nil {
 		b.Fatalf("failed to create handler: %v", err)
 	}

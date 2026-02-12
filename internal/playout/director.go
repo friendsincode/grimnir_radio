@@ -52,6 +52,11 @@ type cachedScheduleBoundaryPolicy struct {
 	loadedAt time.Time
 }
 
+type cachedWebRTCPort struct {
+	port     int
+	loadedAt time.Time
+}
+
 // Director drives schedule execution and emits now playing events.
 type Director struct {
 	db            *gorm.DB
@@ -66,7 +71,7 @@ type Director struct {
 
 	// WebRTC RTP output configuration
 	webrtcEnabled bool
-	webrtcRTPPort int
+	webrtcRTPPort int // base port; per-station port is loaded from DB (Station.WebRTCRTPPort)
 
 	mu     sync.Mutex
 	played map[string]time.Time
@@ -74,6 +79,9 @@ type Director struct {
 
 	policyMu    sync.Mutex
 	policyCache map[string]cachedScheduleBoundaryPolicy
+
+	webrtcMu    sync.Mutex
+	webrtcCache map[string]cachedWebRTCPort
 }
 
 // NewDirector creates a playout director.
@@ -93,6 +101,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		played:        make(map[string]time.Time),
 		active:        make(map[string]playoutState),
 		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
+		webrtcCache:   make(map[string]cachedWebRTCPort),
 	}
 }
 
@@ -205,6 +214,51 @@ func (d *Director) getScheduleBoundaryPolicy(ctx context.Context, stationID stri
 	d.policyCache[stationID] = cachedScheduleBoundaryPolicy{policy: policy, loadedAt: now}
 	d.policyMu.Unlock()
 	return policy
+}
+
+func (d *Director) getWebRTCRTPPortForStation(ctx context.Context, stationID string) int {
+	if !d.webrtcEnabled {
+		return 0
+	}
+
+	// Cache for a short time to avoid hammering DB at 250ms tick rate.
+	const ttl = 30 * time.Second
+	now := time.Now()
+
+	d.webrtcMu.Lock()
+	if cached, ok := d.webrtcCache[stationID]; ok && now.Sub(cached.loadedAt) < ttl {
+		port := cached.port
+		d.webrtcMu.Unlock()
+		if port != 0 {
+			return port
+		}
+		return d.webrtcRTPPort
+	}
+	d.webrtcMu.Unlock()
+
+	type row struct {
+		WebRTCRTPPort int `gorm:"column:web_rtc_rtp_port"`
+	}
+	var r row
+	if err := d.db.WithContext(ctx).
+		Model(&models.Station{}).
+		Select("web_rtc_rtp_port").
+		Where("id = ?", stationID).
+		Take(&r).Error; err != nil {
+		d.logger.Debug().Err(err).Str("station_id", stationID).Msg("failed to load station webrtc port; falling back to base")
+		return d.webrtcRTPPort
+	}
+
+	port := r.WebRTCRTPPort
+
+	d.webrtcMu.Lock()
+	d.webrtcCache[stationID] = cachedWebRTCPort{port: port, loadedAt: now}
+	d.webrtcMu.Unlock()
+
+	if port != 0 {
+		return port
+	}
+	return d.webrtcRTPPort
 }
 
 func resolveEntryForNow(entry models.ScheduleEntry, now time.Time) (models.ScheduleEntry, string, time.Time, bool) {
@@ -970,7 +1024,8 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 	lqBitrate := 64
 
 	// Build single GStreamer pipeline for both HQ and LQ (using tee for perfect sync)
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate)
+	webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort)
 	if err != nil {
 		return fmt.Errorf("build pipeline: %w", err)
 	}
@@ -1090,7 +1145,8 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	lqBitrate := 64
 
 	// Build single GStreamer pipeline for both HQ and LQ
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate)
+	webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort)
 	if err != nil {
 		return fmt.Errorf("build pipeline: %w", err)
 	}
@@ -1243,7 +1299,7 @@ func (d *Director) buildBroadcastPipeline(filePath string, mount models.Mount) (
 // Uses tee to split decoded audio, encodes to HQ (fd=3) and LQ (fd=4) simultaneously.
 // If WebRTC is enabled, also outputs RTP/Opus to UDP for low-latency streaming.
 // This ensures all streams are perfectly synchronized from the same decode.
-func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Mount, hqBitrate, lqBitrate int) (string, error) {
+func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Mount, hqBitrate, lqBitrate int, webrtcRTPPort int) (string, error) {
 	// Determine format
 	format := mount.Format
 	if format == "" {
@@ -1289,12 +1345,9 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 	// Without it, GStreamer processes the file as fast as possible (sub-second for a 7-min track)
 
 	var webrtcBranch string
-	if d.webrtcEnabled {
+	if d.webrtcEnabled && webrtcRTPPort > 0 {
 		// WebRTC branch: resample to 48kHz for Opus, encode, packetize, send via UDP
-		rtpPort := d.webrtcRTPPort
-		if rtpPort == 0 {
-			rtpPort = 5004
-		}
+		rtpPort := webrtcRTPPort
 		// Opus requires 48kHz, so we resample here since the main tee outputs at mount sampleRate
 		webrtcBranch = fmt.Sprintf(
 			` t. ! queue ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=128000 ! rtpopuspay pt=111 ! udpsink host=127.0.0.1 port=%d`,
@@ -1314,7 +1367,8 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 		Str("mount", mount.Name).
 		Int("hq_bitrate", hqBitrate).
 		Int("lq_bitrate", lqBitrate).
-		Bool("webrtc", d.webrtcEnabled).
+		Bool("webrtc", d.webrtcEnabled && webrtcRTPPort > 0).
+		Int("webrtc_rtp_port", webrtcRTPPort).
 		Msg("built dual broadcast pipeline")
 
 	return pipeline, nil
@@ -1439,7 +1493,8 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 	if !filepath.IsAbs(media.Path) {
 		fullPath = filepath.Join(d.mediaRoot, media.Path)
 	}
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate)
+	webrtcPort := d.getWebRTCRTPPortForStation(context.Background(), entry.StationID)
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort)
 	if err != nil {
 		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
 		return
@@ -1543,7 +1598,8 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 	if !filepath.IsAbs(media.Path) {
 		fullPath = filepath.Join(d.mediaRoot, media.Path)
 	}
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate)
+	webrtcPort := d.getWebRTCRTPPortForStation(context.Background(), entry.StationID)
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort)
 	if err != nil {
 		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
 		return
