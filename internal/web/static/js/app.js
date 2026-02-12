@@ -597,6 +597,9 @@ class GlobalPlayer {
         // Restore last playing track from sessionStorage
         this.restoreState();
 
+        // Recalculate marquee when viewport changes
+        window.addEventListener('resize', () => this.updateTitleMarquee());
+
         // Save state when navigating away
         window.addEventListener('beforeunload', () => {
             this.saveState();
@@ -1126,7 +1129,7 @@ class GlobalPlayer {
 
             if (data && data.title) {
                 // Update player UI with the track info
-                if (this.titleEl) this.titleEl.textContent = data.title;
+                this.setTitle(data.title);
 
                 // Show artist and album if available
                 let artistText = data.artist || '';
@@ -1270,7 +1273,7 @@ class GlobalPlayer {
         if (!this.currentTrack) return;
 
         // Update track info
-        if (this.titleEl) this.titleEl.textContent = this.currentTrack.title;
+        this.setTitle(this.currentTrack.title);
         if (this.artistEl) this.artistEl.textContent = this.currentTrack.artist;
 
         // Update artwork
@@ -1475,6 +1478,43 @@ class GlobalPlayer {
                 }
             });
         }, delay);
+    }
+
+    setTitle(title) {
+        if (!this.titleEl) return;
+
+        const text = (title || '-').toString();
+        let titleSpan = this.titleEl.querySelector('.title-scroll');
+        if (!titleSpan) {
+            titleSpan = document.createElement('span');
+            titleSpan.className = 'title-scroll';
+            this.titleEl.replaceChildren(titleSpan);
+        }
+        titleSpan.textContent = text;
+
+        requestAnimationFrame(() => this.updateTitleMarquee());
+    }
+
+    updateTitleMarquee() {
+        if (!this.titleEl) return;
+
+        const titleSpan = this.titleEl.querySelector('.title-scroll');
+        if (!titleSpan) return;
+
+        // Reset first so we can measure natural width accurately.
+        this.titleEl.classList.remove('marquee');
+        this.titleEl.style.removeProperty('--title-scroll-distance');
+        this.titleEl.style.removeProperty('--title-scroll-duration');
+
+        const overflow = titleSpan.scrollWidth - this.titleEl.clientWidth;
+        if (overflow <= 4) return;
+
+        const travel = overflow + 24; // small gap before restart
+        const duration = Math.max(10, Math.min(30, Math.round(travel / 30)));
+
+        this.titleEl.style.setProperty('--title-scroll-distance', `${travel}px`);
+        this.titleEl.style.setProperty('--title-scroll-duration', `${duration}s`);
+        this.titleEl.classList.add('marquee');
     }
 
     formatTime(seconds) {
