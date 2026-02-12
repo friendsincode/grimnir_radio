@@ -61,6 +61,19 @@ func (m *Manager) EnsurePipelineWithDualOutput(ctx context.Context, mountID stri
 	return pipeline.StartWithDualOutput(ctx, launch, hqHandler, lqHandler)
 }
 
+// EnsurePipelineWithDualOutputAndInput starts a pipeline that consumes stdin (fd=0) and emits HQ/LQ outputs.
+func (m *Manager) EnsurePipelineWithDualOutputAndInput(ctx context.Context, mountID string, launch string, hqHandler, lqHandler func(io.Reader)) (io.WriteCloser, error) {
+	m.mu.Lock()
+	pipeline, ok := m.pipelines[mountID]
+	if !ok {
+		pipeline = NewPipeline(m.cfg, mountID, m.logger)
+		m.pipelines[mountID] = pipeline
+	}
+	m.mu.Unlock()
+
+	return pipeline.StartWithDualOutputAndInput(ctx, launch, hqHandler, lqHandler)
+}
+
 // StopPipeline stops the pipeline for a mount.
 func (m *Manager) StopPipeline(mountID string) error {
 	m.mu.Lock()

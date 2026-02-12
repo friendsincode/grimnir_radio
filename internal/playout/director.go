@@ -57,6 +57,17 @@ type cachedWebRTCPort struct {
 	loadedAt time.Time
 }
 
+type crossfadeConfig struct {
+	Enabled bool
+	// Duration of overlap. 0 disables crossfade even if Enabled is true.
+	Duration time.Duration
+}
+
+type cachedCrossfadeConfig struct {
+	cfg      crossfadeConfig
+	loadedAt time.Time
+}
+
 // Director drives schedule execution and emits now playing events.
 type Director struct {
 	db            *gorm.DB
@@ -82,6 +93,12 @@ type Director struct {
 
 	webrtcMu    sync.Mutex
 	webrtcCache map[string]cachedWebRTCPort
+
+	xfadeMu       sync.Mutex
+	xfadeSessions map[string]*pcmCrossfadeSession // mountID -> session
+
+	xfadeCfgMu    sync.Mutex
+	xfadeCfgCache map[string]cachedCrossfadeConfig // stationID -> config
 }
 
 // NewDirector creates a playout director.
@@ -102,6 +119,8 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		active:        make(map[string]playoutState),
 		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
 		webrtcCache:   make(map[string]cachedWebRTCPort),
+		xfadeSessions: make(map[string]*pcmCrossfadeSession),
+		xfadeCfgCache: make(map[string]cachedCrossfadeConfig),
 	}
 }
 
@@ -137,7 +156,7 @@ func (d *Director) tick(ctx context.Context) error {
 	var entries []models.ScheduleEntry
 	err := d.db.WithContext(ctx).
 		Where("(starts_at <= ? AND ends_at >= ?) OR (recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = ? AND starts_at <= ?)",
-			now, now.Add(-2*time.Second), false, now).
+			now.Add(30*time.Second), now.Add(-2*time.Second), false, now.Add(30*time.Second)).
 		Where("recurrence_end_date IS NULL OR recurrence_end_date >= ?", now.AddDate(0, 0, -1).Truncate(24*time.Hour)).
 		Order("starts_at ASC").
 		Find(&entries).Error
@@ -151,10 +170,6 @@ func (d *Director) tick(ctx context.Context) error {
 			continue
 		}
 
-		if entry.StartsAt.After(now) {
-			continue
-		}
-
 		// Soft boundary mode: if something is currently active on this mount, allow it to overrun
 		// up to a station-defined limit before starting the next scheduled entry.
 		d.mu.Lock()
@@ -163,6 +178,22 @@ func (d *Director) tick(ctx context.Context) error {
 		if hasActive && active.EntryID != entry.ID && active.StationID == entry.StationID {
 			policy := d.getScheduleBoundaryPolicy(ctx, entry.StationID)
 			if policy.Mode == "soft" && now.Before(active.Ends) {
+				continue
+			}
+		}
+
+		// Crossfade lookahead: allow starting the next entry a little early so the fade completes
+		// exactly at the schedule boundary.
+		if entry.StartsAt.After(now) {
+			if !hasActive || active.EntryID == entry.ID || active.StationID != entry.StationID {
+				continue
+			}
+			stationXFade := d.getCrossfadeConfig(ctx, entry.StationID)
+			xfade := effectiveCrossfade(entry, stationXFade)
+			if !xfade.Enabled || xfade.Duration <= 0 {
+				continue
+			}
+			if entry.StartsAt.Sub(now) > xfade.Duration {
 				continue
 			}
 		}
@@ -259,6 +290,91 @@ func (d *Director) getWebRTCRTPPortForStation(ctx context.Context, stationID str
 		return port
 	}
 	return d.webrtcRTPPort
+}
+
+func (d *Director) getCrossfadeConfig(ctx context.Context, stationID string) crossfadeConfig {
+	// Cache for a short time to avoid hammering DB at 250ms tick rate.
+	const ttl = 30 * time.Second
+	now := time.Now()
+
+	d.xfadeCfgMu.Lock()
+	if cached, ok := d.xfadeCfgCache[stationID]; ok && now.Sub(cached.loadedAt) < ttl {
+		cfg := cached.cfg
+		d.xfadeCfgMu.Unlock()
+		return cfg
+	}
+	d.xfadeCfgMu.Unlock()
+
+	cfg := crossfadeConfig{Enabled: false, Duration: 0}
+	var station models.Station
+	if err := d.db.WithContext(ctx).
+		Select("id", "crossfade_enabled", "crossfade_duration_ms").
+		First(&station, "id = ?", stationID).Error; err == nil {
+		cfg.Enabled = station.CrossfadeEnabled
+		if station.CrossfadeDurationMs > 0 {
+			cfg.Duration = time.Duration(station.CrossfadeDurationMs) * time.Millisecond
+		}
+	}
+
+	d.xfadeCfgMu.Lock()
+	d.xfadeCfgCache[stationID] = cachedCrossfadeConfig{cfg: cfg, loadedAt: now}
+	d.xfadeCfgMu.Unlock()
+	return cfg
+}
+
+func effectiveCrossfade(entry models.ScheduleEntry, stationCfg crossfadeConfig) crossfadeConfig {
+	// Default: station config.
+	out := stationCfg
+
+	if entry.Metadata == nil {
+		return out
+	}
+	raw, ok := entry.Metadata["crossfade"]
+	if !ok || raw == nil {
+		return out
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return out
+	}
+	override, _ := m["override"].(bool)
+	if !override {
+		return out
+	}
+
+	// enabled: "inherit"|"on"|"off"
+	if s, ok := m["enabled"].(string); ok {
+		switch s {
+		case "on":
+			out.Enabled = true
+		case "off":
+			out.Enabled = false
+		default:
+			// inherit: keep station setting
+		}
+	}
+
+	// duration_ms: number
+	switch v := m["duration_ms"].(type) {
+	case float64:
+		if v >= 0 {
+			ms := int(v)
+			if ms > 30000 {
+				ms = 30000
+			}
+			out.Duration = time.Duration(ms) * time.Millisecond
+		}
+	case int:
+		if v >= 0 {
+			ms := v
+			if ms > 30000 {
+				ms = 30000
+			}
+			out.Duration = time.Duration(ms) * time.Millisecond
+		}
+	}
+
+	return out
 }
 
 func resolveEntryForNow(entry models.ScheduleEntry, now time.Time) (models.ScheduleEntry, string, time.Time, bool) {
@@ -1023,12 +1139,8 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 	}
 	lqBitrate := 64
 
-	// Build single GStreamer pipeline for both HQ and LQ (using tee for perfect sync)
-	webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort)
-	if err != nil {
-		return fmt.Errorf("build pipeline: %w", err)
-	}
+	stationXFade := d.getCrossfadeConfig(ctx, entry.StationID)
+	xfade := effectiveCrossfade(entry, stationXFade)
 
 	stopAt := entry.EndsAt
 	policy := d.getScheduleBoundaryPolicy(ctx, entry.StationID)
@@ -1040,9 +1152,21 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 	d.active[entry.MountID] = playoutState{MediaID: media.ID, EntryID: entry.ID, StationID: entry.StationID, Started: entry.StartsAt, Ends: stopAt}
 	d.mu.Unlock()
 
-	// Stop any existing pipeline
-	if err := d.manager.StopPipeline(entry.MountID); err != nil {
-		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
+	// Stop any existing pipeline if needed.
+	if xfade.Enabled && xfade.Duration > 0 {
+		// For crossfade mode we prefer to keep a persistent PCM-input encoder running.
+		// If the mount doesn't have a session yet, stop any existing file-input pipeline
+		// so we can start the PCM encoder.
+		d.xfadeMu.Lock()
+		_, hasSess := d.xfadeSessions[entry.MountID]
+		d.xfadeMu.Unlock()
+		if !hasSess {
+			_ = d.manager.StopPipeline(entry.MountID)
+		}
+	} else {
+		if err := d.manager.StopPipeline(entry.MountID); err != nil {
+			d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
+		}
 	}
 
 	// Ensure broadcast mounts exist (HQ and LQ)
@@ -1079,25 +1203,70 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 	broadcastMount.ClearBuffer()
 	lqMount.ClearBuffer()
 
-	// HQ output handler (fd=3) - triggers next track when done
+	// Output handlers for encoder pipeline.
 	hqHandler := func(r io.Reader) {
 		if err := broadcastMount.FeedFrom(r); err != nil {
 			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
 		}
-		// Track ended - try to start next track if still within schedule window
-		d.handleTrackEnded(entry, mount.Name)
 	}
-
-	// LQ output handler (fd=4)
 	lqHandler := func(r io.Reader) {
 		if err := lqMount.FeedFrom(r); err != nil {
 			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
 		}
 	}
 
-	// Start single pipeline with dual output (HQ and LQ perfectly synchronized)
-	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
-		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
+	if xfade.Enabled && xfade.Duration > 0 {
+		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+		launch, err := d.buildPCMEncoderPipeline(mount, mountBitrate, lqBitrate, webrtcPort)
+		if err != nil {
+			return fmt.Errorf("build pcm encoder pipeline: %w", err)
+		}
+
+		stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, entry.MountID, launch, hqHandler, lqHandler)
+		if err != nil {
+			return fmt.Errorf("start pcm encoder pipeline: %w", err)
+		}
+
+		d.xfadeMu.Lock()
+		sess := d.xfadeSessions[entry.MountID]
+		if sess == nil {
+			sess = newPCMCrossfadeSession(sessionConfig{
+				GStreamerBin: d.cfg.GStreamerBin,
+				SampleRate:   mount.SampleRate,
+				Channels:     mount.Channels,
+			}, stdin, d.logger.With().Str("mount_id", entry.MountID).Logger(), func() {
+				d.handleTrackEnded(entry, mount.Name)
+			})
+			d.xfadeSessions[entry.MountID] = sess
+			go func() {
+				_ = sess.Pump(ctx)
+			}()
+		}
+		sess.SetEncoderIn(stdin)
+		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
+		d.xfadeMu.Unlock()
+
+		if err := sess.Play(ctx, fullPath, xfade.Duration); err != nil {
+			return fmt.Errorf("crossfade play: %w", err)
+		}
+	} else {
+		// Build single GStreamer pipeline for both HQ and LQ (using tee for perfect sync)
+		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort)
+		if err != nil {
+			return fmt.Errorf("build pipeline: %w", err)
+		}
+
+		// HQ output handler triggers next track when the pipeline ends (EOF).
+		hqHandlerWithEnd := func(r io.Reader) {
+			if err := broadcastMount.FeedFrom(r); err != nil {
+				d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
+			}
+			d.handleTrackEnded(entry, mount.Name)
+		}
+		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandlerWithEnd, lqHandler); err != nil {
+			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
+		}
 	}
 
 	payload := map[string]any{
@@ -1144,12 +1313,8 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	}
 	lqBitrate := 64
 
-	// Build single GStreamer pipeline for both HQ and LQ
-	webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort)
-	if err != nil {
-		return fmt.Errorf("build pipeline: %w", err)
-	}
+	stationXFade := d.getCrossfadeConfig(ctx, entry.StationID)
+	xfade := effectiveCrossfade(entry, stationXFade)
 
 	// Store enhanced state
 	d.mu.Lock()
@@ -1173,9 +1338,18 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	}
 	d.mu.Unlock()
 
-	// Stop any existing pipeline
-	if err := d.manager.StopPipeline(entry.MountID); err != nil {
-		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
+	// Stop any existing pipeline if needed.
+	if xfade.Enabled && xfade.Duration > 0 {
+		d.xfadeMu.Lock()
+		_, hasSess := d.xfadeSessions[entry.MountID]
+		d.xfadeMu.Unlock()
+		if !hasSess {
+			_ = d.manager.StopPipeline(entry.MountID)
+		}
+	} else {
+		if err := d.manager.StopPipeline(entry.MountID); err != nil {
+			d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
+		}
 	}
 
 	// Ensure broadcast mounts exist
@@ -1211,22 +1385,65 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	broadcastMount.ClearBuffer()
 	lqMount.ClearBuffer()
 
-	// HQ output handler - triggers context-aware next track
 	hqHandler := func(r io.Reader) {
 		if err := broadcastMount.FeedFrom(r); err != nil {
 			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
 		}
-		d.handleTrackEnded(entry, mount.Name)
 	}
-
 	lqHandler := func(r io.Reader) {
 		if err := lqMount.FeedFrom(r); err != nil {
 			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
 		}
 	}
 
-	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
-		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
+	if xfade.Enabled && xfade.Duration > 0 {
+		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+		launch, err := d.buildPCMEncoderPipeline(mount, mountBitrate, lqBitrate, webrtcPort)
+		if err != nil {
+			return fmt.Errorf("build pcm encoder pipeline: %w", err)
+		}
+		stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, entry.MountID, launch, hqHandler, lqHandler)
+		if err != nil {
+			return fmt.Errorf("start pcm encoder pipeline: %w", err)
+		}
+
+		d.xfadeMu.Lock()
+		sess := d.xfadeSessions[entry.MountID]
+		if sess == nil {
+			sess = newPCMCrossfadeSession(sessionConfig{
+				GStreamerBin: d.cfg.GStreamerBin,
+				SampleRate:   mount.SampleRate,
+				Channels:     mount.Channels,
+			}, stdin, d.logger.With().Str("mount_id", entry.MountID).Logger(), func() {
+				d.handleTrackEnded(entry, mount.Name)
+			})
+			d.xfadeSessions[entry.MountID] = sess
+			go func() {
+				_ = sess.Pump(ctx)
+			}()
+		}
+		sess.SetEncoderIn(stdin)
+		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
+		d.xfadeMu.Unlock()
+
+		if err := sess.Play(ctx, fullPath, xfade.Duration); err != nil {
+			return fmt.Errorf("crossfade play: %w", err)
+		}
+	} else {
+		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort)
+		if err != nil {
+			return fmt.Errorf("build pipeline: %w", err)
+		}
+		hqHandlerWithEnd := func(r io.Reader) {
+			if err := broadcastMount.FeedFrom(r); err != nil {
+				d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
+			}
+			d.handleTrackEnded(entry, mount.Name)
+		}
+		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandlerWithEnd, lqHandler); err != nil {
+			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
+		}
 	}
 
 	payload := map[string]any{
@@ -1374,6 +1591,58 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 	return pipeline, nil
 }
 
+func (d *Director) buildPCMEncoderPipeline(mount models.Mount, hqBitrate, lqBitrate int, webrtcRTPPort int) (string, error) {
+	format := mount.Format
+	if format == "" {
+		format = "mp3"
+	}
+	sampleRate := mount.SampleRate
+	if sampleRate == 0 {
+		sampleRate = 44100
+	}
+	channels := mount.Channels
+	if channels == 0 {
+		channels = 2
+	}
+	if hqBitrate == 0 {
+		hqBitrate = 128
+	}
+	if lqBitrate == 0 {
+		lqBitrate = 64
+	}
+
+	var hqEncoder, lqEncoder string
+	switch format {
+	case "aac":
+		hqEncoder = fmt.Sprintf("faac bitrate=%d ! audio/mpeg,mpegversion=4", hqBitrate*1000)
+		lqEncoder = fmt.Sprintf("faac bitrate=%d ! audio/mpeg,mpegversion=4", lqBitrate*1000)
+	case "ogg", "vorbis":
+		hqEncoder = fmt.Sprintf("vorbisenc bitrate=%d ! oggmux", hqBitrate*1000)
+		lqEncoder = fmt.Sprintf("vorbisenc bitrate=%d ! oggmux", lqBitrate*1000)
+	default:
+		hqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", hqBitrate)
+		lqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", lqBitrate)
+	}
+
+	var webrtcBranch string
+	if d.webrtcEnabled && webrtcRTPPort > 0 {
+		webrtcBranch = fmt.Sprintf(
+			` t. ! queue ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=128000 ! rtpopuspay pt=111 ! udpsink host=127.0.0.1 port=%d`,
+			webrtcRTPPort,
+		)
+	}
+
+	// Read raw PCM from stdin, encode to HQ/LQ and optionally RTP/Opus.
+	pipeline := fmt.Sprintf(
+		`fdsrc fd=0 ! queue ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! audioconvert ! audioresample ! tee name=t `+
+			`t. ! queue ! %s ! fdsink fd=3 `+
+			`t. ! queue ! %s ! fdsink fd=4%s`,
+		sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
+	)
+
+	return pipeline, nil
+}
+
 // handleTrackEnded picks and plays the next track when the current one finishes
 func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string) {
 	now := time.Now().UTC()
@@ -1493,12 +1762,8 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 	if !filepath.IsAbs(media.Path) {
 		fullPath = filepath.Join(d.mediaRoot, media.Path)
 	}
-	webrtcPort := d.getWebRTCRTPPortForStation(context.Background(), entry.StationID)
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort)
-	if err != nil {
-		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
-		return
-	}
+	stationXFade := d.getCrossfadeConfig(context.Background(), entry.StationID)
+	xfade := effectiveCrossfade(entry, stationXFade)
 
 	// Update active state with new position
 	d.mu.Lock()
@@ -1546,17 +1811,62 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 		if err := broadcastMount.FeedFrom(r); err != nil {
 			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
 		}
-		d.handleTrackEnded(entry, mount.Name)
 	}
-
 	lqHandler := func(r io.Reader) {
 		if err := lqMount.FeedFrom(r); err != nil {
 			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
 		}
 	}
 
-	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
-		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track pipeline")
+	if xfade.Enabled && xfade.Duration > 0 {
+		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+		encLaunch, err := d.buildPCMEncoderPipeline(mount, hqBitrate, lqBitrate, webrtcPort)
+		if err != nil {
+			d.logger.Warn().Err(err).Msg("failed to build pcm encoder pipeline")
+			return
+		}
+		stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, entry.MountID, encLaunch, hqHandler, lqHandler)
+		if err != nil {
+			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start pcm encoder pipeline")
+			return
+		}
+
+		d.xfadeMu.Lock()
+		sess := d.xfadeSessions[entry.MountID]
+		if sess == nil {
+			sess = newPCMCrossfadeSession(sessionConfig{
+				GStreamerBin: d.cfg.GStreamerBin,
+				SampleRate:   mount.SampleRate,
+				Channels:     mount.Channels,
+			}, stdin, d.logger.With().Str("mount_id", entry.MountID).Logger(), func() {
+				d.handleTrackEnded(entry, mount.Name)
+			})
+			d.xfadeSessions[entry.MountID] = sess
+			go func() { _ = sess.Pump(ctx) }()
+		}
+		sess.SetEncoderIn(stdin)
+		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
+		d.xfadeMu.Unlock()
+
+		if err := sess.Play(ctx, fullPath, xfade.Duration); err != nil {
+			d.logger.Warn().Err(err).Msg("crossfade play failed")
+		}
+	} else {
+		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort)
+		if err != nil {
+			d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
+			return
+		}
+		hqHandlerWithEnd := func(r io.Reader) {
+			if err := broadcastMount.FeedFrom(r); err != nil {
+				d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
+			}
+			d.handleTrackEnded(entry, mount.Name)
+		}
+		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandlerWithEnd, lqHandler); err != nil {
+			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track pipeline")
+		}
 	}
 
 	d.publishNowPlaying(entry, map[string]any{
@@ -1669,6 +1979,7 @@ func (d *Director) scheduleStop(ctx context.Context, stationID, mountID string, 
 	if policy.Mode == "soft" && policy.SoftOverrun > 0 {
 		stopAt = stopAt.Add(policy.SoftOverrun)
 	}
+	xfade := d.getCrossfadeConfig(ctx, stationID)
 
 	delay := time.Until(stopAt)
 	if delay < 0 {
@@ -1688,8 +1999,12 @@ func (d *Director) scheduleStop(ctx context.Context, stationID, mountID string, 
 		delete(d.active, mountID)
 		d.mu.Unlock()
 
-		if err := d.manager.StopPipeline(mountID); err != nil {
-			d.logger.Debug().Err(err).Str("mount", mountID).Msg("scheduled stop failed")
+		// In crossfade mode we keep a persistent encoder pipeline per-mount so transitions can overlap.
+		// We only stop the pipeline when explicitly requested (emergency stop/skip/etc.).
+		if !(xfade.Enabled && xfade.Duration > 0) {
+			if err := d.manager.StopPipeline(mountID); err != nil {
+				d.logger.Debug().Err(err).Str("mount", mountID).Msg("scheduled stop failed")
+			}
 		}
 		d.bus.Publish(events.EventHealth, events.Payload{
 			"station_id": state.StationID,
@@ -1842,6 +2157,14 @@ func (d *Director) StopStation(ctx context.Context, stationID string) (int, erro
 	defer d.mu.Unlock()
 
 	for _, mount := range mounts {
+		// Stop crossfade session for this mount (if any).
+		d.xfadeMu.Lock()
+		if sess := d.xfadeSessions[mount.ID]; sess != nil {
+			_ = sess.Close()
+			delete(d.xfadeSessions, mount.ID)
+		}
+		d.xfadeMu.Unlock()
+
 		// Stop pipeline for this mount
 		if err := d.manager.StopPipeline(mount.ID); err != nil {
 			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline")
@@ -1884,6 +2207,19 @@ func (d *Director) SkipStation(ctx context.Context, stationID string) (int, erro
 
 	skipped := 0
 	for _, mount := range mounts {
+		// If crossfade session exists, cancel decoders and keep encoder alive;
+		// then let handleTrackEnded pick the next item.
+		d.xfadeMu.Lock()
+		sess := d.xfadeSessions[mount.ID]
+		d.xfadeMu.Unlock()
+		if sess != nil {
+			// Best-effort: stop current decoder by closing the session and recreating on next play.
+			_ = sess.Close()
+			d.xfadeMu.Lock()
+			delete(d.xfadeSessions, mount.ID)
+			d.xfadeMu.Unlock()
+		}
+
 		d.mu.Lock()
 		state, ok := d.active[mount.ID]
 		d.mu.Unlock()
