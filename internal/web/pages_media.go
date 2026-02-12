@@ -28,6 +28,91 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
+// MediaReanalyzeDurations queues analysis jobs for station media to refresh
+// durations and metadata after imports with bad timing data.
+func (h *Handler) MediaReanalyzeDurations(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+	if !h.HasStationPermission(r, "edit_metadata") {
+		http.Error(w, "Permission denied", http.StatusForbidden)
+		return
+	}
+
+	pendingStatuses := []string{"pending", "running"}
+
+	// Queue only media that do not already have a pending/running analysis job.
+	var mediaIDs []string
+	if err := h.db.
+		Table("media_items m").
+		Select("m.id").
+		Joins("LEFT JOIN analysis_jobs aj ON aj.media_id = m.id AND aj.status IN ?", pendingStatuses).
+		Where("m.station_id = ? AND aj.id IS NULL", station.ID).
+		Pluck("m.id", &mediaIDs).Error; err != nil {
+		h.logger.Error().Err(err).Str("station_id", station.ID).Msg("failed to fetch media for duration reanalysis")
+		http.Error(w, "Failed to queue duration refresh", http.StatusInternalServerError)
+		return
+	}
+
+	if len(mediaIDs) == 0 {
+		msg := "No media queued (already pending/running or no media found)"
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-info">` + msg + `</div>`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":  "ok",
+			"queued":  0,
+			"message": msg,
+		})
+		return
+	}
+
+	jobs := make([]models.AnalysisJob, 0, len(mediaIDs))
+	for _, mediaID := range mediaIDs {
+		jobs = append(jobs, models.AnalysisJob{
+			ID:      uuid.NewString(),
+			MediaID: mediaID,
+			Status:  "pending",
+		})
+	}
+
+	if err := h.db.Create(&jobs).Error; err != nil {
+		h.logger.Error().Err(err).Str("station_id", station.ID).Int("count", len(jobs)).Msg("failed to create duration reanalysis jobs")
+		http.Error(w, "Failed to queue duration refresh", http.StatusInternalServerError)
+		return
+	}
+
+	// Mark these media as pending so UI reflects that refresh is in progress.
+	if err := h.db.Model(&models.MediaItem{}).
+		Where("id IN ?", mediaIDs).
+		Update("analysis_state", models.AnalysisPending).Error; err != nil {
+		h.logger.Warn().Err(err).Str("station_id", station.ID).Int("count", len(mediaIDs)).Msg("failed to mark media as pending during duration refresh")
+	}
+
+	h.logger.Info().
+		Str("station_id", station.ID).
+		Int("queued", len(jobs)).
+		Msg("queued media duration reanalysis jobs")
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Write([]byte(fmt.Sprintf(
+			`<div class="alert alert-success">Queued duration refresh for %d tracks. Metadata analyzer will update durations in the background.</div>`,
+			len(jobs),
+		)))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok",
+		"queued": len(jobs),
+	})
+}
+
 // MediaList renders the media library
 func (h *Handler) MediaList(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)

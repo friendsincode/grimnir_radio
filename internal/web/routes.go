@@ -162,6 +162,7 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Route("/media", func(r chi.Router) {
 					r.Get("/", h.MediaList)
 					r.Post("/bulk", h.MediaBulk)
+					r.With(h.RequireStationPermission("edit_metadata")).Post("/reanalyze-durations", h.MediaReanalyzeDurations)
 					r.Get("/upload", h.MediaUploadPage)
 					r.Post("/upload", h.MediaUpload)
 					r.Get("/{id}", h.MediaDetail)
