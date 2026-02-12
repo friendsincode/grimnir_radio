@@ -72,6 +72,7 @@ func Migrate(database *gorm.DB) error {
 		// Analytics, Syndication, Underwriting (Phase 8H)
 		&models.ListenerSample{},
 		&models.ScheduleAnalytics{},
+		&models.ScheduleAnalyticsDaily{},
 		&models.Network{},
 		&models.NetworkShow{},
 		&models.NetworkSubscription{},

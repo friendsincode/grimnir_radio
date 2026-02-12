@@ -51,6 +51,33 @@ func (ScheduleAnalytics) TableName() string {
 	return "schedule_analytics"
 }
 
+// ScheduleAnalyticsDaily stores daily rollups derived from schedule_analytics.
+// Scope determines whether the row is a station summary or a show summary.
+// For station summaries, ShowID is empty.
+type ScheduleAnalyticsDaily struct {
+	ID        string    `gorm:"type:uuid;primaryKey" json:"id"`
+	StationID string    `gorm:"type:uuid;not null;uniqueIndex:idx_schedule_analytics_daily,priority:1" json:"station_id"`
+	Date      time.Time `gorm:"type:date;not null;uniqueIndex:idx_schedule_analytics_daily,priority:2" json:"date"`
+	Scope     string    `gorm:"type:varchar(16);not null;uniqueIndex:idx_schedule_analytics_daily,priority:3" json:"scope"` // "station"|"show"
+	ShowID    string    `gorm:"type:uuid;not null;default:'';uniqueIndex:idx_schedule_analytics_daily,priority:4" json:"show_id,omitempty"`
+
+	InstanceCount        int     `json:"instance_count"`
+	AvgListeners         float64 `json:"avg_listeners"`
+	PeakListeners        int     `json:"peak_listeners"`
+	TuneIns              int     `json:"tune_ins"`
+	TuneOuts             int     `json:"tune_outs"`
+	TotalListenerMinutes int     `json:"total_listener_minutes"`
+	HoursCovered         int     `json:"hours_covered"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TableName returns the table name for GORM.
+func (ScheduleAnalyticsDaily) TableName() string {
+	return "schedule_analytics_daily"
+}
+
 // ShowPerformance represents aggregated performance metrics for a show.
 type ShowPerformance struct {
 	ShowID        string  `json:"show_id"`
