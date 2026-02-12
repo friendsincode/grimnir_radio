@@ -391,6 +391,11 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !input.EndsAt.After(input.StartsAt) {
+		http.Error(w, "End time must be after start time", http.StatusBadRequest)
+		return
+	}
+
 	// If no mount specified, use the first mount for this station
 	mountID := input.MountID
 	if mountID == "" {
@@ -470,6 +475,11 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if !input.EndsAt.After(input.StartsAt) {
+		http.Error(w, "End time must be after start time", http.StatusBadRequest)
 		return
 	}
 
