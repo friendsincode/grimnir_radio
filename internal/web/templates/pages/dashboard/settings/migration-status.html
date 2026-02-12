@@ -70,11 +70,15 @@
 <!-- Active Jobs -->
 <div id="active-jobs">
 {{range $jobs}}
-{{if eq .Status "running"}}
+{{if or (eq .Status "running") (eq .Status "analyzing")}}
 <div class="card mb-3 border-primary" data-job-id="{{.ID}}">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
         <span><i class="bi bi-arrow-repeat me-2 spin"></i><strong>{{.SourceType.String | title}} Import</strong></span>
+        {{if eq .Status "analyzing"}}
+        <span class="badge bg-light text-primary">Analyzing</span>
+        {{else}}
         <span class="badge bg-light text-primary">Running</span>
+        {{end}}
     </div>
     <div class="card-body">
         <div class="progress mb-3" style="height: 24px;">
@@ -106,6 +110,17 @@
         <div class="mt-2 text-body-secondary">
             <small><i class="bi bi-arrow-right-circle me-1"></i><span data-current-step>{{.Progress.CurrentStep}}</span></small>
         </div>
+
+        {{if .Progress.StepHistory}}
+        <details class="mt-3">
+            <summary class="text-body-secondary small">Recent steps</summary>
+            <ul class="small text-body-secondary mt-2 mb-0">
+                {{range .Progress.StepHistory}}
+                <li><span class="text-body-secondary">{{.At | timeago}}:</span> {{if .Phase}}[{{.Phase}}] {{end}}{{.Step}}</li>
+                {{end}}
+            </ul>
+        </details>
+        {{end}}
     </div>
 </div>
 {{end}}
@@ -114,7 +129,7 @@
 {{/* Check if there are no active jobs */}}
 {{$hasActiveJobs := false}}
 {{range $jobs}}
-{{if eq .Status "running"}}{{$hasActiveJobs = true}}{{end}}
+{{if or (eq .Status "running") (eq .Status "analyzing")}}{{$hasActiveJobs = true}}{{end}}
 {{end}}
 {{if not $hasActiveJobs}}
 <div class="alert alert-info">
@@ -128,7 +143,7 @@
 <h5 class="mt-4 mb-3"><i class="bi bi-clock-history me-2"></i>History</h5>
 <div class="list-group">
 {{range $jobs}}
-{{if ne .Status "running"}}
+{{if and (ne .Status "running") (ne .Status "analyzing")}}
 <div class="list-group-item d-flex justify-content-between align-items-start">
     <div class="ms-2 me-auto">
         <div class="fw-bold">{{.SourceType.String | title}} Import</div>
@@ -169,6 +184,15 @@
         {{end}}
     </div>
     <div class="d-flex align-items-center gap-2">
+        {{if eq .Status "staged"}}
+        {{if .StagedImportID}}
+        <a class="btn btn-sm btn-outline-primary"
+           href="/dashboard/settings/migrations/review/{{.StagedImportID}}"
+           title="Review staged import">
+            <i class="bi bi-clipboard-check"></i>
+        </a>
+        {{end}}
+        {{end}}
         {{if or (eq .Status "failed") (eq .Status "cancelled")}}
         <button class="btn btn-sm btn-outline-primary"
                 hx-post="/dashboard/settings/migrations/jobs/{{.ID}}/restart"
@@ -187,6 +211,8 @@
         {{end}}
         {{if eq .Status "completed"}}
         <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completed</span>
+        {{else if eq .Status "staged"}}
+        <span class="badge bg-primary"><i class="bi bi-clipboard-check me-1"></i>Ready for Review</span>
         {{else if eq .Status "failed"}}
         <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>
         {{else if eq .Status "cancelled"}}
@@ -204,7 +230,7 @@
 {{/* Check if there are no completed jobs */}}
 {{$hasCompletedJobs := false}}
 {{range $jobs}}
-{{if ne .Status "running"}}{{$hasCompletedJobs = true}}{{end}}
+{{if and (ne .Status "running") (ne .Status "analyzing")}}{{$hasCompletedJobs = true}}{{end}}
 {{end}}
 {{if not $hasCompletedJobs}}
 <div class="list-group-item text-center text-body-secondary py-4">
@@ -227,12 +253,21 @@
 <script>
 // Subscribe to migration events via WebSocket for real-time updates
 document.addEventListener('DOMContentLoaded', function() {
+    const hasActiveJobs = document.querySelector('[data-job-id]');
+
+    // Faster fallback auto-refresh if WS isn't available while a job is active.
+    if (hasActiveJobs && (!window.grimnirWS || typeof window.grimnirWS.on !== 'function')) {
+        setInterval(function() {
+            location.reload();
+        }, 3000);
+    }
+
     if (window.grimnirWS) {
         window.grimnirWS.on('migration', function(data) {
             const card = document.querySelector('[data-job-id="' + data.job_id + '"]');
             if (!card) {
                 // New job started, reload to show it
-                if (data.status === 'running') {
+                if (data.status === 'running' || data.status === 'analyzing') {
                     location.reload();
                 }
                 return;
@@ -272,7 +307,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // Handle completion
-            if (data.status === 'completed' || data.status === 'failed') {
+            if (data.status && data.status !== 'running' && data.status !== 'analyzing') {
                 // Delay reload slightly to ensure server has updated
                 setTimeout(function() {
                     location.reload();
@@ -281,8 +316,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Auto-refresh every 30 seconds if there are active jobs
-    const hasActiveJobs = document.querySelector('[data-job-id]');
+    // Slow fallback auto-refresh (in case WS stalls) while a job is active.
     if (hasActiveJobs) {
         setInterval(function() {
             location.reload();

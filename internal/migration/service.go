@@ -114,6 +114,8 @@ func (s *Service) CreateJob(ctx context.Context, sourceType SourceType, options 
 		},
 		CreatedAt: time.Now(),
 	}
+	// Stamp job id into options for provenance tracking.
+	job.Options.JobID = job.ID
 
 	// Save to database
 	if err := s.db.WithContext(ctx).Create(job).Error; err != nil {
@@ -207,6 +209,33 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 
 	// Create progress callback
 	progressCallback := func(progress Progress) {
+		// Preserve and extend step history for UI visibility.
+		history := job.Progress.StepHistory
+		if len(history) == 0 && len(progress.StepHistory) > 0 {
+			history = progress.StepHistory
+		}
+		// Append when changed (phase/step).
+		lastStep := ""
+		lastPhase := ""
+		if n := len(history); n > 0 {
+			lastStep = history[n-1].Step
+			lastPhase = history[n-1].Phase
+		}
+		if progress.CurrentStep != "" || progress.Phase != "" {
+			if progress.CurrentStep != lastStep || progress.Phase != lastPhase {
+				history = append(history, ProgressStep{
+					At:         time.Now(),
+					Phase:      progress.Phase,
+					Step:       progress.CurrentStep,
+					Percentage: progress.Percentage,
+				})
+				// Cap to last 50 entries.
+				if len(history) > 50 {
+					history = history[len(history)-50:]
+				}
+			}
+		}
+		progress.StepHistory = history
 		job.Progress = progress
 		if err := s.updateJob(ctx, job); err != nil {
 			s.logger.Error().Err(err).Str("job_id", job.ID).Msg("failed to update progress")
@@ -264,6 +293,232 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 	s.mu.Lock()
 	delete(s.cancels, job.ID)
 	s.mu.Unlock()
+}
+
+// StartStagedJob runs analysis for a staged import job and produces a staged import record for review.
+func (s *Service) StartStagedJob(parentCtx context.Context, jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.jobs[jobID]
+	if !ok {
+		job = &Job{}
+		if err := s.db.WithContext(parentCtx).First(job, "id = ?", jobID).Error; err != nil {
+			return fmt.Errorf("job not found: %w", err)
+		}
+		s.jobs[jobID] = job
+	}
+
+	if job.Status != JobStatusAnalyzing {
+		return fmt.Errorf("job is not in analyzing state: %s", job.Status)
+	}
+
+	importer, ok := s.importers[job.SourceType]
+	if !ok {
+		return fmt.Errorf("no importer registered for source type: %s", job.SourceType)
+	}
+
+	analyzer, ok := importer.(interface {
+		AnalyzeForStaging(ctx context.Context, jobID string, options Options) (*models.StagedImport, error)
+	})
+	if !ok {
+		return fmt.Errorf("importer does not support staged analysis: %s", job.SourceType)
+	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
+	s.cancels[jobID] = cancel
+
+	// Mark started time if not set.
+	now := time.Now()
+	job.StartedAt = &now
+	job.Progress = Progress{
+		Phase:       "analyzing",
+		TotalSteps:  1,
+		StartTime:   now,
+		Percentage:  0,
+		CurrentStep: "Analyzing source data for review...",
+		StepHistory: []ProgressStep{{
+			At:    now,
+			Phase: "analyzing",
+			Step:  "Analyzing source data for review...",
+		}},
+	}
+	_ = s.updateJob(ctx, job)
+
+	go func() {
+		defer cancel()
+		defer func() {
+			s.mu.Lock()
+			delete(s.cancels, jobID)
+			s.mu.Unlock()
+		}()
+
+		staged, err := analyzer.AnalyzeForStaging(ctx, jobID, job.Options)
+		if err != nil {
+			s.logger.Error().Err(err).Str("job_id", jobID).Msg("staged analysis failed")
+			job.Status = JobStatusFailed
+			job.Error = err.Error()
+			done := time.Now()
+			job.CompletedAt = &done
+			job.Progress.Phase = "failed"
+			job.Progress.CurrentStep = "Analysis failed"
+			_ = s.updateJob(context.Background(), job)
+			s.bus.Publish(events.EventMigration, events.Payload{
+				"job_id":      jobID,
+				"status":      string(job.Status),
+				"staged_mode": true,
+				"error":       job.Error,
+			})
+			return
+		}
+
+		job.Status = JobStatusStaged
+		job.Error = ""
+		if staged != nil && staged.ID != "" {
+			job.StagedImportID = &staged.ID
+		}
+		job.Progress.Phase = "staged"
+		job.Progress.Percentage = 100
+		job.Progress.CurrentStep = "Analysis complete. Ready for review."
+		job.Progress.StepHistory = append(job.Progress.StepHistory, ProgressStep{
+			At:         time.Now(),
+			Phase:      "staged",
+			Step:       "Analysis complete. Ready for review.",
+			Percentage: 100,
+		})
+		_ = s.updateJob(context.Background(), job)
+
+		s.bus.Publish(events.EventMigration, events.Payload{
+			"job_id":      jobID,
+			"status":      string(job.Status),
+			"staged_mode": true,
+			"staged_id":   job.StagedImportID,
+		})
+	}()
+
+	s.logger.Info().Str("job_id", jobID).Msg("staged migration analysis started")
+	return nil
+}
+
+// CommitStagedImport starts importing selected items from a staged import.
+func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string) error {
+	// Load staged import and job.
+	staged, err := s.GetStagedImport(parentCtx, stagedID)
+	if err != nil {
+		return fmt.Errorf("staged import not found: %w", err)
+	}
+	if staged.Status != models.StagedImportStatusReady {
+		return fmt.Errorf("staged import is not ready: %s", staged.Status)
+	}
+
+	job, err := s.GetJob(parentCtx, staged.JobID)
+	if err != nil {
+		return fmt.Errorf("job not found: %w", err)
+	}
+
+	importer, ok := s.importers[job.SourceType]
+	if !ok {
+		return fmt.Errorf("no importer registered for source type: %s", job.SourceType)
+	}
+
+	committer, ok := importer.(interface {
+		CommitStagedImport(ctx context.Context, staged *models.StagedImport, jobID string, options Options, cb ProgressCallback) (*Result, error)
+	})
+	if !ok {
+		return fmt.Errorf("importer does not support staged commit: %s", job.SourceType)
+	}
+
+	// Create cancellable context.
+	ctx, cancel := context.WithCancel(parentCtx)
+	s.mu.Lock()
+	s.cancels[job.ID] = cancel
+	s.mu.Unlock()
+
+	// Run commit in background.
+	go func() {
+		defer cancel()
+		defer func() {
+			s.mu.Lock()
+			delete(s.cancels, job.ID)
+			s.mu.Unlock()
+		}()
+
+		startTime := time.Now()
+		job.Status = JobStatusRunning
+		job.Error = ""
+		job.StartedAt = &startTime
+		job.CompletedAt = nil
+		job.Progress = Progress{
+			Phase:       "importing_selected",
+			TotalSteps:  1,
+			StartTime:   startTime,
+			Percentage:  0,
+			CurrentStep: "Starting staged import...",
+			StepHistory: []ProgressStep{{
+				At:    startTime,
+				Phase: "importing_selected",
+				Step:  "Starting staged import...",
+			}},
+		}
+		_ = s.updateJob(context.Background(), job)
+
+		progressCallback := func(p Progress) {
+			// Preserve and extend step history.
+			history := job.Progress.StepHistory
+			lastStep := ""
+			lastPhase := ""
+			if n := len(history); n > 0 {
+				lastStep = history[n-1].Step
+				lastPhase = history[n-1].Phase
+			}
+			if p.CurrentStep != "" || p.Phase != "" {
+				if p.CurrentStep != lastStep || p.Phase != lastPhase {
+					history = append(history, ProgressStep{
+						At:         time.Now(),
+						Phase:      p.Phase,
+						Step:       p.CurrentStep,
+						Percentage: p.Percentage,
+					})
+					if len(history) > 50 {
+						history = history[len(history)-50:]
+					}
+				}
+			}
+			p.StepHistory = history
+			job.Progress = p
+			_ = s.updateJob(context.Background(), job)
+			s.bus.Publish(events.EventMigration, events.Payload{
+				"job_id":     job.ID,
+				"status":     string(job.Status),
+				"progress":   p,
+				"percentage": p.Percentage,
+				"staged_id":  stagedID,
+			})
+		}
+
+		result, err := committer.CommitStagedImport(ctx, staged, job.ID, job.Options, progressCallback)
+		if err != nil {
+			s.logger.Error().Err(err).Str("job_id", job.ID).Msg("staged import commit failed")
+			job.Status = JobStatusFailed
+			job.Error = err.Error()
+		} else {
+			job.Status = JobStatusCompleted
+			job.Result = result
+		}
+		done := time.Now()
+		job.CompletedAt = &done
+		_ = s.updateJob(context.Background(), job)
+
+		s.bus.Publish(events.EventMigration, events.Payload{
+			"job_id":    job.ID,
+			"status":    string(job.Status),
+			"result":    result,
+			"error":     job.Error,
+			"staged_id": stagedID,
+		})
+	}()
+
+	return nil
 }
 
 // GetJob retrieves a migration job by ID.
@@ -554,6 +809,8 @@ func (s *Service) CreateStagedJob(ctx context.Context, sourceType SourceType, op
 		},
 		CreatedAt: time.Now(),
 	}
+	// Stamp job id into options for provenance tracking.
+	job.Options.JobID = job.ID
 
 	// Save job to database
 	if err := s.db.WithContext(ctx).Create(job).Error; err != nil {

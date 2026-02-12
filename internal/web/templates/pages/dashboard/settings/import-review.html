@@ -16,7 +16,7 @@
             </button>
             <button type="button" class="btn btn-primary"
                     hx-post="/dashboard/settings/migrations/review/{{ .Data.Staged.ID }}/commit"
-                    hx-confirm="Start importing {{ .Data.SelectedCount }} selected items?">
+                    hx-confirm="Start importing selected items?">
                 <i class="bi bi-check-circle me-1"></i> Import Selected
             </button>
         </div>
@@ -131,6 +131,11 @@
         </li>
     </ul>
 
+    <form id="importSelectionsForm"
+          hx-post="/dashboard/settings/migrations/review/{{ .Data.Staged.ID }}/selections"
+          hx-trigger="change delay:300ms"
+          hx-target="#selectedCountBadge"
+          hx-swap="outerHTML">
     <div class="tab-content border border-top-0 rounded-bottom p-3 bg-body" id="importTabsContent">
         <!-- Media Tab -->
         <div class="tab-pane fade show active" id="media" role="tabpanel">
@@ -148,7 +153,7 @@
                     </button>
                     {{ end }}
                 </div>
-                <span id="mediaSelectionCount" class="badge bg-primary">{{ .Data.MediaCount }} selected</span>
+                <span id="selectedCountBadge" class="badge bg-primary">{{ .Data.SelectedCount }} selected</span>
             </div>
             <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
                 <table class="table table-sm table-hover">
@@ -386,6 +391,7 @@
             </div>
         </div>
     </div>
+    </form>
 </div>
 
 <script>
@@ -404,8 +410,10 @@ function deselectDuplicates() {
 }
 
 function updateMediaCount() {
-    const count = document.querySelectorAll('.media-checkbox:checked').length;
-    document.getElementById('mediaSelectionCount').textContent = count + ' selected';
+    // Selection badge updates server-side via HTMX; this is quick local feedback while waiting.
+    const count = document.querySelectorAll('#importSelectionsForm input[type="checkbox"]:checked').length;
+    const badge = document.getElementById('selectedCountBadge');
+    if (badge) badge.textContent = count + ' selected';
 }
 
 document.querySelectorAll('.media-checkbox').forEach(cb => {
