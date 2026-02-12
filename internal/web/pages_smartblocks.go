@@ -1200,16 +1200,16 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 	if r.FormValue("separation_enabled") == "on" {
 		rules["separationEnabled"] = true
 		separation := make(map[string]int)
-		if sep := parseInt(r.FormValue("sep_artist"), 0); sep > 0 {
+		if sep := parseSeparationMinutes(r.FormValue("sep_artist"), r.FormValue("sep_artist_unit")); sep > 0 {
 			separation["artist"] = sep
 		}
-		if sep := parseInt(r.FormValue("sep_album"), 0); sep > 0 {
+		if sep := parseSeparationMinutes(r.FormValue("sep_album"), r.FormValue("sep_album_unit")); sep > 0 {
 			separation["album"] = sep
 		}
-		if sep := parseInt(r.FormValue("sep_title"), 0); sep > 0 {
+		if sep := parseSeparationMinutes(r.FormValue("sep_title"), r.FormValue("sep_title_unit")); sep > 0 {
 			separation["title"] = sep
 		}
-		if sep := parseInt(r.FormValue("sep_label"), 0); sep > 0 {
+		if sep := parseSeparationMinutes(r.FormValue("sep_label"), r.FormValue("sep_label_unit")); sep > 0 {
 			separation["label"] = sep
 		}
 		if len(separation) > 0 {
@@ -1350,4 +1350,22 @@ func parseFloat(s string, def float64) float64 {
 		return def
 	}
 	return val
+}
+
+func parseSeparationMinutes(value, unit string) int {
+	n := parseInt(value, 0)
+	if n <= 0 {
+		return 0
+	}
+
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "hours":
+		return n * 60
+	case "days":
+		return n * 60 * 24
+	case "weeks":
+		return n * 60 * 24 * 7
+	default:
+		return n
+	}
 }

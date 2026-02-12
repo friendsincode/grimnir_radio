@@ -264,29 +264,53 @@
                                     <div class="col-6 col-md-3">
                                         <label class="form-label small text-uppercase text-muted">Artist</label>
                                         <div class="input-group">
-                                            <input type="number" class="form-control" name="sep_artist" value="{{with $sep}}{{index . "artist" | default 30}}{{else}}30{{end}}" min="0" max="999">
-                                            <span class="input-group-text">min</span>
+                                            {{$sepArtist := 30}}{{with $sep}}{{with index . "artist"}}{{$sepArtist = .}}{{end}}{{end}}
+                                            <input type="number" class="form-control" name="sep_artist" value="{{$sepArtist}}" min="0">
+                                            <select class="form-select" name="sep_artist_unit" style="max-width: 90px;">
+                                                <option value="minutes" selected>min</option>
+                                                <option value="hours">hrs</option>
+                                                <option value="days">days</option>
+                                                <option value="weeks">weeks</option>
+                                            </select>
                                         </div>
                                     </div>
                                     <div class="col-6 col-md-3">
                                         <label class="form-label small text-uppercase text-muted">Title</label>
                                         <div class="input-group">
-                                            <input type="number" class="form-control" name="sep_title" value="{{with $sep}}{{index . "title" | default 180}}{{else}}180{{end}}" min="0" max="999">
-                                            <span class="input-group-text">min</span>
+                                            {{$sepTitle := 180}}{{with $sep}}{{with index . "title"}}{{$sepTitle = .}}{{end}}{{end}}
+                                            <input type="number" class="form-control" name="sep_title" value="{{$sepTitle}}" min="0">
+                                            <select class="form-select" name="sep_title_unit" style="max-width: 90px;">
+                                                <option value="minutes" selected>min</option>
+                                                <option value="hours">hrs</option>
+                                                <option value="days">days</option>
+                                                <option value="weeks">weeks</option>
+                                            </select>
                                         </div>
                                     </div>
                                     <div class="col-6 col-md-3">
                                         <label class="form-label small text-uppercase text-muted">Album</label>
                                         <div class="input-group">
-                                            <input type="number" class="form-control" name="sep_album" value="{{with $sep}}{{index . "album" | default 15}}{{else}}15{{end}}" min="0" max="999">
-                                            <span class="input-group-text">min</span>
+                                            {{$sepAlbum := 15}}{{with $sep}}{{with index . "album"}}{{$sepAlbum = .}}{{end}}{{end}}
+                                            <input type="number" class="form-control" name="sep_album" value="{{$sepAlbum}}" min="0">
+                                            <select class="form-select" name="sep_album_unit" style="max-width: 90px;">
+                                                <option value="minutes" selected>min</option>
+                                                <option value="hours">hrs</option>
+                                                <option value="days">days</option>
+                                                <option value="weeks">weeks</option>
+                                            </select>
                                         </div>
                                     </div>
                                     <div class="col-6 col-md-3">
                                         <label class="form-label small text-uppercase text-muted">Label</label>
                                         <div class="input-group">
-                                            <input type="number" class="form-control" name="sep_label" value="{{with $sep}}{{index . "label" | default 0}}{{else}}0{{end}}" min="0" max="999">
-                                            <span class="input-group-text">min</span>
+                                            {{$sepLabel := 0}}{{with $sep}}{{with index . "label"}}{{$sepLabel = .}}{{end}}{{end}}
+                                            <input type="number" class="form-control" name="sep_label" value="{{$sepLabel}}" min="0">
+                                            <select class="form-select" name="sep_label_unit" style="max-width: 90px;">
+                                                <option value="minutes" selected>min</option>
+                                                <option value="hours">hrs</option>
+                                                <option value="days">days</option>
+                                                <option value="weeks">weeks</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
