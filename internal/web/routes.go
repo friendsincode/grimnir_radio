@@ -377,10 +377,11 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// All stations management
 				r.Get("/stations", h.AdminStationsList)
-				r.Post("/stations/bulk", h.AdminStationsBulk)
-				r.Post("/stations/{id}/toggle-active", h.AdminStationToggleActive)
-				r.Post("/stations/{id}/toggle-public", h.AdminStationTogglePublic)
-				r.Post("/stations/{id}/toggle-approved", h.AdminStationToggleApproved)
+					r.Post("/stations/bulk", h.AdminStationsBulk)
+					r.Post("/stations/{id}/toggle-active", h.AdminStationToggleActive)
+					r.Post("/stations/{id}/toggle-public", h.AdminStationTogglePublic)
+					r.Post("/stations/{id}/toggle-approved", h.AdminStationToggleApproved)
+					r.Delete("/stations/{id}", h.AdminStationDelete)
 
 				// All users management
 				r.Get("/users", h.AdminUsersList)

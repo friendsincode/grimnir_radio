@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -152,6 +153,93 @@ func (h *Handler) AdminStationToggleApproved(w http.ResponseWriter, r *http.Requ
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Refresh", "true")
+		return
+	}
+	http.Redirect(w, r, "/dashboard/admin/stations", http.StatusSeeOther)
+}
+
+// AdminStationDelete deletes a station from the platform admin "All Stations" page.
+func (h *Handler) AdminStationDelete(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+
+	// Verify station exists
+	var station models.Station
+	if err := h.db.First(&station, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Delete in transaction to ensure consistency
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleEntry{}).Error; err != nil {
+			return err
+		}
+
+		var clockHourIDs []string
+		tx.Model(&models.ClockHour{}).Where("station_id = ?", id).Pluck("id", &clockHourIDs)
+		if len(clockHourIDs) > 0 {
+			if err := tx.Where("clock_hour_id IN ?", clockHourIDs).Delete(&models.ClockSlot{}).Error; err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Where("station_id = ?", id).Delete(&models.ClockHour{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("station_id = ?", id).Delete(&models.Clock{}).Error; err != nil {
+			return err
+		}
+
+		var playlistIDs []string
+		tx.Model(&models.Playlist{}).Where("station_id = ?", id).Pluck("id", &playlistIDs)
+		if len(playlistIDs) > 0 {
+			if err := tx.Where("playlist_id IN ?", playlistIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("station_id = ?", id).Delete(&models.Playlist{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("station_id = ?", id).Delete(&models.SmartBlock{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("station_id = ?", id).Delete(&models.MediaItem{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("station_id = ?", id).Delete(&models.Webstream{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("station_id = ?", id).Delete(&models.Mount{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("station_id = ?", id).Delete(&models.StationUser{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("station_id = ?", id).Delete(&models.PlayHistory{}).Error; err != nil {
+			return err
+		}
+
+		return tx.Delete(&station).Error
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Str("station_id", id).Msg("failed to delete station from admin")
+		http.Error(w, "Failed to delete station", http.StatusInternalServerError)
+		return
+	}
+
+	h.publishCacheEvent(events.EventStationDeleted, id)
+	h.logger.Info().Str("station_id", id).Str("station_name", station.Name).Str("admin_id", user.ID).Msg("station deleted from admin")
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	http.Redirect(w, r, "/dashboard/admin/stations", http.StatusSeeOther)
