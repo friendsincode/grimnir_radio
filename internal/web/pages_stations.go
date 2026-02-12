@@ -129,6 +129,10 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 
 	tx.Commit()
 
+	// Switch current context to the station that was just created so subsequent
+	// dashboard actions target the new station by default.
+	h.SetStation(w, station.ID)
+
 	// Publish cache invalidation event
 	h.publishCacheEvent(events.EventStationCreated, station.ID)
 
