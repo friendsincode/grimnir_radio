@@ -9,6 +9,9 @@ package mediaengine
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +41,8 @@ type LiveInputManager struct {
 	inputs map[string]*LiveInput // key: session_id
 	logger zerolog.Logger
 }
+
+const defaultWebRTCRTPPort = 5006
 
 // NewLiveInputManager creates a new live input manager.
 func NewLiveInputManager(logger zerolog.Logger) *LiveInputManager {
@@ -71,23 +76,46 @@ func (lim *LiveInputManager) RouteLive(ctx context.Context, req *pb.RouteLiveReq
 	// Build live input pipeline
 	// Input source depends on the type specified
 	var sourcePipeline string
+	inputURL := strings.TrimSpace(req.InputUrl)
+	if inputURL == "" && req.Input != nil {
+		// Backward compatibility for callers still using the legacy field.
+		inputURL = strings.TrimSpace(req.Input.InputUrl)
+	}
 	switch req.InputType {
 	case pb.LiveInputType_LIVE_INPUT_TYPE_ICECAST:
 		// Icecast source client (harbor-style)
 		// Format: souphttpsrc location=http://source:pass@host:port/mount
-		sourcePipeline = fmt.Sprintf("souphttpsrc location=\"%s\"", req.InputUrl)
+		if inputURL == "" {
+			return nil, fmt.Errorf("input_url required for ICECAST input")
+		}
+		sourcePipeline = fmt.Sprintf("souphttpsrc location=\"%s\"", inputURL)
 
 	case pb.LiveInputType_LIVE_INPUT_TYPE_RTP:
 		// RTP input
-		sourcePipeline = fmt.Sprintf("udpsrc port=%d ! application/x-rtp", req.Port)
+		port := int(req.Port)
+		if port <= 0 {
+			port = 5004
+		}
+		sourcePipeline = fmt.Sprintf("udpsrc port=%d ! application/x-rtp", port)
 
 	case pb.LiveInputType_LIVE_INPUT_TYPE_SRT:
 		// SRT input (Secure Reliable Transport)
-		sourcePipeline = fmt.Sprintf("srtsrc uri=\"%s\"", req.InputUrl)
+		if inputURL == "" {
+			return nil, fmt.Errorf("input_url required for SRT input")
+		}
+		sourcePipeline = fmt.Sprintf("srtsrc uri=\"%s\"", inputURL)
 
 	case pb.LiveInputType_LIVE_INPUT_TYPE_WEBRTC:
-		// WebRTC input (placeholder - requires signaling server)
-		return nil, fmt.Errorf("WebRTC input not yet implemented")
+		// WebRTC ingest contract:
+		// a signaling/ingest component must bridge browser WebRTC audio into RTP.
+		// Media engine consumes that RTP stream here.
+		rtpHost, rtpPort := resolveWebRTCRTPBridge(inputURL, int(req.Port))
+		inputURL = fmt.Sprintf("udp://%s:%d", rtpHost, rtpPort)
+		sourcePipeline = fmt.Sprintf(
+			"udpsrc address=%s port=%d caps=\"application/x-rtp,media=audio,encoding-name=OPUS,payload=111,clock-rate=48000\" ! rtpopusdepay ! opusdec",
+			rtpHost,
+			rtpPort,
+		)
 
 	default:
 		return nil, fmt.Errorf("unsupported input type: %v", req.InputType)
@@ -114,7 +142,7 @@ func (lim *LiveInputManager) RouteLive(ctx context.Context, req *pb.RouteLiveReq
 		SessionID:   sessionID,
 		StationID:   req.StationId,
 		MountID:     req.MountId,
-		SourceURL:   req.InputUrl,
+		SourceURL:   inputURL,
 		Connected:   true,
 		ConnectedAt: time.Now(),
 		Pipeline:    sourcePipeline,
@@ -136,6 +164,26 @@ func (lim *LiveInputManager) RouteLive(ctx context.Context, req *pb.RouteLiveReq
 		SessionId: sessionID,
 		Message:   "live input routed successfully",
 	}, nil
+}
+
+func resolveWebRTCRTPBridge(inputURL string, reqPort int) (host string, port int) {
+	host = "127.0.0.1"
+	port = defaultWebRTCRTPPort
+
+	if parsed, err := url.Parse(strings.TrimSpace(inputURL)); err == nil {
+		if h := strings.TrimSpace(parsed.Hostname()); h != "" {
+			host = h
+		}
+		if p, err := strconv.Atoi(parsed.Port()); err == nil && p > 0 {
+			port = p
+		}
+	}
+
+	if reqPort > 0 {
+		port = reqPort
+	}
+
+	return host, port
 }
 
 // DisconnectLive disconnects a live input.
