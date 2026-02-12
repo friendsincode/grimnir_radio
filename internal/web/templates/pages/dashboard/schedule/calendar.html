@@ -2932,7 +2932,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let end = view.activeEnd || new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
 
         try {
-            const response = await fetch(`/api/v1/schedule/validate?station_id=${stationID}&start=${start.toISOString()}&end=${end.toISOString()}`);
+            const response = await fetch(`/dashboard/schedule/validate?start=${start.toISOString()}&end=${end.toISOString()}`);
             if (!response.ok) {
                 throw new Error('Validation failed');
             }
@@ -3069,7 +3069,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Silently update validation badge after a delay
         setTimeout(async () => {
             try {
-                const response = await fetch(`/api/v1/schedule/validate?station_id=${stationID}&start=${info.startStr}&end=${info.endStr}`);
+                const response = await fetch(`/dashboard/schedule/validate?start=${info.startStr}&end=${info.endStr}`);
                 if (response.ok) {
                     const result = await response.json();
                     const badge = document.getElementById('validationBadge');

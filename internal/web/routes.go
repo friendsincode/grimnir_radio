@@ -225,15 +225,16 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Post("/{id}/simulate", h.ClockSimulate)
 				})
 
-				// Schedule
-				r.Route("/schedule", func(r chi.Router) {
-					r.Get("/", h.ScheduleCalendar)
-					r.Get("/events", h.ScheduleEvents) // JSON for calendar
-					r.Post("/entries", h.ScheduleCreateEntry)
-					r.Get("/entries/{id}/details", h.ScheduleEntryDetails)
-					r.Put("/entries/{id}", h.ScheduleUpdateEntry)
-					r.Delete("/entries/{id}", h.ScheduleDeleteEntry)
-					r.Post("/refresh", h.ScheduleRefresh)
+					// Schedule
+					r.Route("/schedule", func(r chi.Router) {
+						r.Get("/", h.ScheduleCalendar)
+						r.Get("/events", h.ScheduleEvents) // JSON for calendar
+						r.Get("/validate", h.ScheduleValidate) // JSON validation for calendar (web auth)
+						r.Post("/entries", h.ScheduleCreateEntry)
+						r.Get("/entries/{id}/details", h.ScheduleEntryDetails)
+						r.Put("/entries/{id}", h.ScheduleUpdateEntry)
+						r.Delete("/entries/{id}", h.ScheduleDeleteEntry)
+						r.Post("/refresh", h.ScheduleRefresh)
 
 					// JSON endpoints for schedule dropdowns
 					r.Get("/playlists.json", h.SchedulePlaylistsJSON)

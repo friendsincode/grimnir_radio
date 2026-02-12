@@ -14,10 +14,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/scheduling"
 )
 
 // ScheduleCalendar renders the schedule calendar page
@@ -47,6 +49,50 @@ func (h *Handler) ScheduleCalendar(w http.ResponseWriter, r *http.Request) {
 			"ColorTheme": colorTheme,
 		},
 	})
+}
+
+// ScheduleValidate validates the schedule for the current station (web-authenticated).
+// This mirrors the API endpoint but works with the dashboard session auth (no JWT required).
+func (h *Handler) ScheduleValidate(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	// Parse date range
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+
+	start := time.Now()
+	end := start.Add(7 * 24 * time.Hour) // Default: next 7 days
+
+	if startStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, startStr); err == nil {
+			start = parsed
+		}
+	}
+	if endStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, endStr); err == nil {
+			end = parsed
+		}
+	}
+
+	// Limit validation range to 90 days
+	if end.Sub(start) > 90*24*time.Hour {
+		end = start.Add(90 * 24 * time.Hour)
+	}
+
+	validator := scheduling.NewValidator(h.db, zerolog.Nop())
+	result, err := validator.Validate(station.ID, start, end)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("schedule validation failed")
+		http.Error(w, "Validation failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 // ScheduleEvents returns schedule entries as JSON for FullCalendar
