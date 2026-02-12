@@ -103,9 +103,19 @@ func (h *Handler) ImportReviewUpdateSelections(w http.ResponseWriter, r *http.Re
 		SmartBlockIDs: r.Form["smartblock_ids"],
 		ShowIDs:       r.Form["show_ids"],
 		WebstreamIDs:  r.Form["webstream_ids"],
-		ShowsAsShows:  r.Form["shows_as_shows"],
-		ShowsAsClocks: r.Form["shows_as_clocks"],
+		ShowsAsShows:  nil,
+		ShowsAsClocks: nil,
 		CustomRRules:  make(map[string]string),
+	}
+
+	// Derive show-vs-clock preference from the show_type_{sourceID} radio input.
+	for _, showID := range selections.ShowIDs {
+		v := r.FormValue("show_type_" + showID)
+		if v == "show" {
+			selections.ShowsAsShows = append(selections.ShowsAsShows, showID)
+		} else if v == "clock" {
+			selections.ShowsAsClocks = append(selections.ShowsAsClocks, showID)
+		}
 	}
 
 	// Extract custom RRULEs
@@ -152,7 +162,7 @@ func (h *Handler) ImportReviewUpdateSelections(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(fmt.Sprintf(`<span class="badge bg-primary">%d selected</span>`, selectedCount)))
+	w.Write([]byte(fmt.Sprintf(`<span class="badge bg-primary" id="selectedCountBadge">%d selected</span>`, selectedCount)))
 }
 
 // ImportReviewCommit handles the commit action for a staged import.
@@ -170,9 +180,9 @@ func (h *Handler) ImportReviewCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start the job in background
-	if err := h.migrationService.StartJob(context.Background(), staged.JobID); err != nil {
-		writeHTMXError(w, fmt.Sprintf("Failed to start import: %v", err))
+	// Start the staged commit in background.
+	if err := h.migrationService.CommitStagedImport(context.Background(), stagedID); err != nil {
+		writeHTMXError(w, fmt.Sprintf("Failed to start staged import: %v", err))
 		return
 	}
 

@@ -365,6 +365,7 @@ func (h *Handler) AzuraCastAPIImport(w http.ResponseWriter, r *http.Request) {
 	apiKey := r.FormValue("api_key")
 	username := r.FormValue("username")
 	password := r.FormValue("password")
+	stagedMode := r.FormValue("staged_mode") == "on"
 	skipMedia := r.FormValue("skip_media") == "on"
 	skipUsers := r.FormValue("skip_users") == "on"
 	dryRun := r.FormValue("dry_run") == "on"
@@ -402,6 +403,7 @@ func (h *Handler) AzuraCastAPIImport(w http.ResponseWriter, r *http.Request) {
 		AzuraCastAPIKey:   apiKey,
 		AzuraCastUsername: username,
 		AzuraCastPassword: password,
+		StagedMode:        stagedMode,
 		SkipMedia:         skipMedia,
 		SkipUsers:         skipUsers,
 		ImportingUserID:   importingUserID,
@@ -534,14 +536,14 @@ func (h *Handler) AzuraCastAPIImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create job through migration service for tracking
+	// Staged mode (review before import) is currently implemented for LibreTime.
+	// AzuraCast imports can be very large; we keep this as a tracked background job for now.
+	// If user requested staged_mode, we still run as a job and direct them to status.
 	job, err := h.migrationService.CreateJob(ctx, migration.SourceTypeAzuraCast, options)
 	if err != nil {
 		writeHTMXError(w, fmt.Sprintf("Failed to create import job: %v", err))
 		return
 	}
-
-	// Start job in background
 	if err := h.migrationService.StartJob(context.Background(), job.ID); err != nil {
 		writeHTMXError(w, fmt.Sprintf("Failed to start import job: %v", err))
 		return
@@ -588,6 +590,8 @@ func (h *Handler) MigrationStatusPage(w http.ResponseWriter, r *http.Request) {
 			importedMedia = job.Progress.MediaImported
 			totalPlaylists = job.Progress.PlaylistsTotal
 			importedPlaylists = job.Progress.PlaylistsImported
+		case migration.JobStatusAnalyzing:
+			hasRunning = true
 		case migration.JobStatusCompleted:
 			if job.Result != nil {
 				importedMedia += job.Result.MediaItemsImported
@@ -793,6 +797,7 @@ func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
 	apiURL := r.FormValue("libretime_url")
 	apiKey := r.FormValue("api_key")
 	targetStationID := r.FormValue("target_station_id")
+	stagedMode := r.FormValue("staged_mode") == "on"
 	skipMedia := r.FormValue("skip_media") == "on"
 	skipPlaylists := r.FormValue("skip_playlists") == "on"
 	skipSchedules := r.FormValue("skip_schedules") == "on"
@@ -833,6 +838,7 @@ func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
 		LibreTimeAPIURL: apiURL,
 		LibreTimeAPIKey: apiKey,
 		TargetStationID: targetStationID,
+		StagedMode:      stagedMode,
 		SkipMedia:       skipMedia,
 		SkipPlaylists:   skipPlaylists,
 		SkipSchedules:   skipSchedules,
@@ -850,7 +856,31 @@ func (h *Handler) LibreTimeAPIImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dry run - just analyze with detailed report
+	// Staged review mode: analyze asynchronously and present a review page once ready.
+	if stagedMode {
+		job, err := h.migrationService.CreateStagedJob(ctx, migration.SourceTypeLibreTime, options)
+		if err != nil {
+			writeHTMXError(w, fmt.Sprintf("Failed to create staged import job: %v", err))
+			return
+		}
+		if err := h.migrationService.StartStagedJob(context.Background(), job.ID); err != nil {
+			writeHTMXError(w, fmt.Sprintf("Failed to start staged analysis: %v", err))
+			return
+		}
+
+		h.logger.Info().Str("job_id", job.ID).Msg("LibreTime staged import analysis started")
+		html := fmt.Sprintf(`<div class="alert alert-success">
+			<i class="bi bi-check-circle me-2"></i>
+			<strong>Analysis started!</strong>
+			<p class="mb-0 mt-2">We are analyzing your LibreTime instance to prepare a reviewable import plan.</p>
+			<p class="mb-0 mt-2"><a href="/dashboard/settings/migrations/status" class="alert-link">View import status</a> (you will get a Review button when ready)</p>
+		</div>`)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html))
+		return
+	}
+
+	// Dry run (non-staged) - just analyze with detailed report
 	if dryRun {
 		report, err := importer.AnalyzeDetailed(ctx, options)
 		if err != nil {

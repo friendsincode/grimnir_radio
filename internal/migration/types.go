@@ -68,6 +68,9 @@ type Job struct {
 
 // Options contains migration-specific configuration.
 type Options struct {
+	// Internal tracking
+	JobID string `json:"job_id,omitempty"` // Filled by migration service when creating a job
+
 	// Common options
 	SkipMedia       bool `json:"skip_media"`
 	SkipSchedules   bool `json:"skip_schedules"`
@@ -128,6 +131,16 @@ type Progress struct {
 	Percentage         float64   `json:"percentage"`
 	EstimatedRemaining string    `json:"estimated_remaining,omitempty"`
 	StartTime          time.Time `json:"start_time"`
+
+	// StepHistory keeps a rolling log of progress updates for UI visibility.
+	StepHistory []ProgressStep `json:"step_history,omitempty"`
+}
+
+type ProgressStep struct {
+	At         time.Time `json:"at"`
+	Phase      string    `json:"phase,omitempty"`
+	Step       string    `json:"step,omitempty"`
+	Percentage float64   `json:"percentage,omitempty"`
 }
 
 // Result contains the final migration results.
