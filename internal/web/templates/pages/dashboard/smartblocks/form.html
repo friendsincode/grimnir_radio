@@ -480,6 +480,7 @@
                 {{if not $isNew}}
                 <button class="btn btn-sm btn-light" type="button" id="generatePreviewBtn"
                         hx-post="/dashboard/smart-blocks/{{$block.ID}}/preview"
+                        hx-include="#smartBlockForm"
                         hx-target="#previewResults"
                         hx-indicator="#previewSpinner"
                         hx-vals="js:{loop: document.getElementById('loopTracks').checked}">

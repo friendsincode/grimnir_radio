@@ -346,8 +346,19 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 
 	loopEnabled := r.FormValue("loop") == "true"
 
+	// Prefer in-form values when present so preview reflects unsaved edits.
+	rules := block.Rules
+	sequence := block.Sequence
+	if err := r.ParseForm(); err == nil {
+		if r.FormValue("name") != "" || r.FormValue("filter_text_search") != "" ||
+			r.FormValue("filter_genre") != "" || r.FormValue("filter_artist") != "" ||
+			r.FormValue("filter_mood") != "" || r.FormValue("duration_value") != "" {
+			rules, sequence = h.parseSmartBlockForm(r)
+		}
+	}
+
 	// Extract all settings from rules
-	cfg := h.extractPreviewConfig(block.Rules, block.Sequence)
+	cfg := h.extractPreviewConfig(rules, sequence)
 
 	h.logger.Debug().
 		Int("targetMinutes", cfg.targetMinutes).
@@ -357,7 +368,7 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 		Msg("smart block preview starting")
 
 	// Get music tracks
-	musicTracks := h.fetchMusicTracks(station.ID, block.Rules)
+	musicTracks := h.fetchMusicTracks(station.ID, rules)
 	h.logger.Debug().Int("musicTracksCount", len(musicTracks)).Msg("fetched music tracks")
 
 	// Get ad tracks if enabled
