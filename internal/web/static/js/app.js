@@ -164,6 +164,10 @@ class GrimnirWebSocket {
 window.grimnirWS = new GrimnirWebSocket();
 
 // Initialize WebSocket on authenticated pages
+function getStationSelectorElement() {
+    return document.getElementById('stationSelector') || document.querySelector('select[name="station_id"]');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     if (document.body.classList.contains('dashboard-layout')) {
         window.grimnirWS.connect();
@@ -208,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Refresh header now-playing when station context changes.
-        const stationSelect = document.querySelector('select[name="station_id"]');
+        const stationSelect = getStationSelectorElement();
         if (stationSelect) {
             stationSelect.addEventListener('change', () => {
                 setTimeout(fetchNowPlaying, 150);
@@ -220,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function getSelectedStationInfo() {
-    const stationSelect = document.querySelector('select[name="station_id"]');
+    const stationSelect = getStationSelectorElement();
     if (!stationSelect || !stationSelect.value) return null;
 
     const option = stationSelect.options[stationSelect.selectedIndex];
@@ -265,7 +269,7 @@ async function playSelectedStationAudio() {
 async function fetchNowPlaying() {
     try {
         // Get station ID from the page (station selector)
-        const stationSelect = document.querySelector('select[name="station_id"]');
+        const stationSelect = getStationSelectorElement();
         const stationId = stationSelect?.value;
         if (!stationId) return;
 
@@ -1361,7 +1365,7 @@ class GlobalPlayer {
             let stationId = this.currentTrack.stationId;
             if (!stationId) {
                 // Try to get from station selector
-                const stationSelect = document.querySelector('select[name="station_id"]');
+                const stationSelect = getStationSelectorElement();
                 stationId = stationSelect?.value;
             }
             if (!stationId) {
