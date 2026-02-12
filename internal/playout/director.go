@@ -42,6 +42,16 @@ type playoutState struct {
 	Items      []string // pre-loaded media IDs in order
 }
 
+type scheduleBoundaryPolicy struct {
+	Mode        string
+	SoftOverrun time.Duration
+}
+
+type cachedScheduleBoundaryPolicy struct {
+	policy   scheduleBoundaryPolicy
+	loadedAt time.Time
+}
+
 // Director drives schedule execution and emits now playing events.
 type Director struct {
 	db            *gorm.DB
@@ -61,6 +71,9 @@ type Director struct {
 	mu     sync.Mutex
 	played map[string]time.Time
 	active map[string]playoutState
+
+	policyMu    sync.Mutex
+	policyCache map[string]cachedScheduleBoundaryPolicy
 }
 
 // NewDirector creates a playout director.
@@ -79,6 +92,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		webrtcRTPPort: cfg.WebRTCRTPPort,
 		played:        make(map[string]time.Time),
 		active:        make(map[string]playoutState),
+		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
 	}
 }
 
@@ -90,7 +104,8 @@ func (d *Director) Broadcast() *broadcast.Server {
 // Run executes the director loop until context cancellation.
 func (d *Director) Run(ctx context.Context) error {
 	d.logger.Info().Msg("playout director started")
-	ticker := time.NewTicker(2 * time.Second)
+	// Tight tick interval reduces schedule boundary jitter.
+	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -131,6 +146,18 @@ func (d *Director) tick(ctx context.Context) error {
 			continue
 		}
 
+		// Soft boundary mode: if something is currently active on this mount, allow it to overrun
+		// up to a station-defined limit before starting the next scheduled entry.
+		d.mu.Lock()
+		active, hasActive := d.active[entry.MountID]
+		d.mu.Unlock()
+		if hasActive && active.EntryID != entry.ID && active.StationID == entry.StationID {
+			policy := d.getScheduleBoundaryPolicy(ctx, entry.StationID)
+			if policy.Mode == "soft" && now.Before(active.Ends) {
+				continue
+			}
+		}
+
 		if d.isPlayed(playKey) {
 			continue
 		}
@@ -145,6 +172,39 @@ func (d *Director) tick(ctx context.Context) error {
 
 	d.emitHealthSnapshot()
 	return nil
+}
+
+func (d *Director) getScheduleBoundaryPolicy(ctx context.Context, stationID string) scheduleBoundaryPolicy {
+	// Cache for a short time to avoid hammering DB at 250ms tick rate.
+	const ttl = 30 * time.Second
+
+	now := time.Now()
+	d.policyMu.Lock()
+	if cached, ok := d.policyCache[stationID]; ok && now.Sub(cached.loadedAt) < ttl {
+		p := cached.policy
+		d.policyMu.Unlock()
+		return p
+	}
+	d.policyMu.Unlock()
+
+	policy := scheduleBoundaryPolicy{Mode: "hard", SoftOverrun: 0}
+
+	var station models.Station
+	if err := d.db.WithContext(ctx).
+		Select("id", "schedule_boundary_mode", "schedule_soft_overrun_seconds").
+		First(&station, "id = ?", stationID).Error; err == nil {
+		if station.ScheduleBoundaryMode == "soft" {
+			policy.Mode = "soft"
+		}
+		if station.ScheduleSoftOverrunSeconds > 0 {
+			policy.SoftOverrun = time.Duration(station.ScheduleSoftOverrunSeconds) * time.Second
+		}
+	}
+
+	d.policyMu.Lock()
+	d.policyCache[stationID] = cachedScheduleBoundaryPolicy{policy: policy, loadedAt: now}
+	d.policyMu.Unlock()
+	return policy
 }
 
 func resolveEntryForNow(entry models.ScheduleEntry, now time.Time) (models.ScheduleEntry, string, time.Time, bool) {
@@ -361,7 +421,14 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		EntryID:   entry.ID,
 		StationID: entry.StationID,
 		Started:   entry.StartsAt,
-		Ends:      entry.EndsAt,
+		Ends: func() time.Time {
+			stopAt := entry.EndsAt
+			policy := d.getScheduleBoundaryPolicy(ctx, entry.StationID)
+			if policy.Mode == "soft" && policy.SoftOverrun > 0 {
+				stopAt = stopAt.Add(policy.SoftOverrun)
+			}
+			return stopAt
+		}(),
 	}
 	d.mu.Unlock()
 
@@ -410,7 +477,7 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 	}
 
 	d.publishNowPlaying(entry, payload)
-	d.scheduleStop(entry.MountID, entry.EndsAt)
+	d.scheduleStop(ctx, entry.StationID, entry.MountID, entry.EndsAt)
 
 	return nil
 }
@@ -908,8 +975,14 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 		return fmt.Errorf("build pipeline: %w", err)
 	}
 
+	stopAt := entry.EndsAt
+	policy := d.getScheduleBoundaryPolicy(ctx, entry.StationID)
+	if policy.Mode == "soft" && policy.SoftOverrun > 0 {
+		stopAt = stopAt.Add(policy.SoftOverrun)
+	}
+
 	d.mu.Lock()
-	d.active[entry.MountID] = playoutState{MediaID: media.ID, EntryID: entry.ID, StationID: entry.StationID, Started: entry.StartsAt, Ends: entry.EndsAt}
+	d.active[entry.MountID] = playoutState{MediaID: media.ID, EntryID: entry.ID, StationID: entry.StationID, Started: entry.StartsAt, Ends: stopAt}
 	d.mu.Unlock()
 
 	// Stop any existing pipeline
@@ -983,7 +1056,7 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 	}
 
 	d.publishNowPlaying(entry, payload)
-	d.scheduleStop(entry.MountID, entry.EndsAt)
+	d.scheduleStop(ctx, entry.StationID, entry.MountID, entry.EndsAt)
 
 	return nil
 }
@@ -1024,12 +1097,18 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 
 	// Store enhanced state
 	d.mu.Lock()
+	stopAt := entry.EndsAt
+	policy := d.getScheduleBoundaryPolicy(ctx, entry.StationID)
+	if policy.Mode == "soft" && policy.SoftOverrun > 0 {
+		stopAt = stopAt.Add(policy.SoftOverrun)
+	}
+
 	d.active[entry.MountID] = playoutState{
 		MediaID:    media.ID,
 		EntryID:    entry.ID,
 		StationID:  entry.StationID,
 		Started:    time.Now(),
-		Ends:       entry.EndsAt,
+		Ends:       stopAt,
 		SourceType: sourceType,
 		SourceID:   sourceID,
 		Position:   position,
@@ -1106,7 +1185,7 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	}
 
 	d.publishNowPlaying(entry, payload)
-	d.scheduleStop(entry.MountID, entry.EndsAt)
+	d.scheduleStop(ctx, entry.StationID, entry.MountID, entry.EndsAt)
 
 	return nil
 }
@@ -1528,8 +1607,14 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 	})
 }
 
-func (d *Director) scheduleStop(mountID string, endsAt time.Time) {
-	delay := time.Until(endsAt)
+func (d *Director) scheduleStop(ctx context.Context, stationID, mountID string, endsAt time.Time) {
+	policy := d.getScheduleBoundaryPolicy(ctx, stationID)
+	stopAt := endsAt
+	if policy.Mode == "soft" && policy.SoftOverrun > 0 {
+		stopAt = stopAt.Add(policy.SoftOverrun)
+	}
+
+	delay := time.Until(stopAt)
 	if delay < 0 {
 		delay = 0
 	}
@@ -1560,7 +1645,7 @@ func (d *Director) scheduleStop(mountID string, endsAt time.Time) {
 			"event":      "ended",
 			"status":     "ended",
 		})
-	}(endsAt)
+	}(stopAt)
 }
 
 func (d *Director) emitHealthSnapshot() {
