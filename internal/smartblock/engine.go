@@ -207,17 +207,22 @@ func (e *Engine) recentPlays(ctx context.Context, stationID string, windows map[
 			maxWindow = win
 		}
 	}
-	if maxWindow == 0 {
-		return nil, nil
+
+	query := e.db.WithContext(ctx).
+		Where("station_id = ?", stationID).
+		Order("started_at DESC")
+
+	// When separation windows are configured, keep time-bounded history.
+	// Otherwise, still fetch a small recent slice to prevent immediate repeats.
+	if maxWindow > 0 {
+		cutoff := time.Now().Add(-maxWindow)
+		query = query.Where("started_at >= ?", cutoff)
+	} else {
+		query = query.Limit(25)
 	}
 
-	cutoff := time.Now().Add(-maxWindow)
 	var plays []models.PlayHistory
-	err := e.db.WithContext(ctx).
-		Where("station_id = ?", stationID).
-		Where("started_at >= ?", cutoff).
-		Order("started_at DESC").
-		Find(&plays).Error
+	err := query.Find(&plays).Error
 	return plays, err
 }
 
@@ -246,8 +251,10 @@ func (e *Engine) fetchCandidates(ctx context.Context, def Definition, stationID 
 
 	windows := def.Separation.SeparationDurations()
 	recentCache := buildRecentCache(recent)
+	avoidMediaID := mostRecentMediaID(recent)
 
 	candidates := make([]candidate, 0, len(items))
+	avoidedRecent := make([]candidate, 0, 1)
 	for _, item := range items {
 		// Keep items that satisfy include rules AND pass exclude rules.
 		if !matchesFilters(item, def.Include, true) || !matchesFilters(item, def.Exclude, false) {
@@ -263,10 +270,28 @@ func (e *Engine) fetchCandidates(ctx context.Context, def Definition, stationID 
 			Score:  baseScore(item, def.Weights),
 			Tags:   collectTags(item),
 		}
+		if avoidMediaID != "" && item.ID == avoidMediaID {
+			avoidedRecent = append(avoidedRecent, cand)
+			continue
+		}
 		candidates = append(candidates, cand)
 	}
 
+	// Fallback: if strict anti-repeat leaves nothing, allow the recent track.
+	if len(candidates) == 0 && len(avoidedRecent) > 0 {
+		candidates = append(candidates, avoidedRecent...)
+	}
+
 	return candidates, nil
+}
+
+func mostRecentMediaID(plays []models.PlayHistory) string {
+	for _, play := range plays {
+		if strings.TrimSpace(play.MediaID) != "" {
+			return play.MediaID
+		}
+	}
+	return ""
 }
 
 func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {

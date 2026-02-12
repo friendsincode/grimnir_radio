@@ -8,8 +8,10 @@ package web
 
 import (
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -685,6 +687,8 @@ func (h *Handler) fetchFallbackTracks(stationID string, fallbacks []fallbackConf
 }
 
 func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []models.MediaItem, cfg previewConfig, loopEnabled bool) []previewItem {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	var result []previewItem
 	var totalMs int64
 	musicCount := 0
@@ -962,7 +966,9 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 
 				// Prefer tracks that get us closest to target duration
 				// Among equal duration scores, use combined score as tiebreaker
-				if durScore > bestDurScore || (durScore == bestDurScore && combinedScore > bestCombinedScore) {
+				if durScore > bestDurScore ||
+					(durScore == bestDurScore && combinedScore > bestCombinedScore) ||
+					(durScore == bestDurScore && combinedScore == bestCombinedScore && rng.Intn(2) == 0) {
 					bestIdx = i
 					bestDurScore = durScore
 					bestCombinedScore = combinedScore

@@ -313,3 +313,26 @@ func TestExcludeFilterSemantics(t *testing.T) {
 		t.Fatal("non-matching exclude rule should pass")
 	}
 }
+
+func TestMostRecentMediaID(t *testing.T) {
+	now := time.Now()
+	plays := []models.PlayHistory{
+		{MediaID: "newest", StartedAt: now},
+		{MediaID: "older", StartedAt: now.Add(-time.Minute)},
+	}
+
+	if got := mostRecentMediaID(plays); got != "newest" {
+		t.Fatalf("mostRecentMediaID() = %q, want %q", got, "newest")
+	}
+}
+
+func TestMostRecentMediaIDSkipsEmpty(t *testing.T) {
+	plays := []models.PlayHistory{
+		{MediaID: ""},
+		{MediaID: "usable"},
+	}
+
+	if got := mostRecentMediaID(plays); got != "usable" {
+		t.Fatalf("mostRecentMediaID() = %q, want %q", got, "usable")
+	}
+}
