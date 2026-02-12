@@ -748,6 +748,11 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 	// Helper to check if adding a track would stay within accuracy bounds
 	// Returns true only if result is within target ± accuracy
 	fitsWithinAccuracy := func(trackMs int64) bool {
+		// Always allow the first valid track even if it exceeds target.
+		// This matches on-air behavior better for long-form content blocks.
+		if len(result) == 0 {
+			return trackMs > 0
+		}
 		if totalMs >= cfg.targetMs+cfg.accuracyMs {
 			return false
 		}
