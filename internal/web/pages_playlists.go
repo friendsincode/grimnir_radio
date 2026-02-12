@@ -594,8 +594,8 @@ func (h *Handler) PlaylistUploadCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form (5MB max for cover)
-	if err := r.ParseMultipartForm(5 << 20); err != nil {
+	// Parse multipart form (default 5MB, configurable via GRIMNIR_MAX_UPLOAD_SIZE_MB)
+	if err := r.ParseMultipartForm(h.multipartLimit(5 << 20)); err != nil {
 		http.Error(w, "File too large", http.StatusBadRequest)
 		return
 	}

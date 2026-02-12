@@ -37,6 +37,7 @@ type Config struct {
 	SchedulerLookahead time.Duration
 	JWTSigningKey      string
 	MetricsBind        string
+	MaxUploadSizeMB    int // Optional global multipart upload limit override for web handlers (MB)
 
 	// S3 Object Storage configuration
 	S3AccessKeyID     string
@@ -91,6 +92,7 @@ func Load() (*Config, error) {
 		SchedulerLookahead: time.Duration(getEnvIntAny([]string{"GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES", "RLM_SCHEDULER_LOOKAHEAD_MINUTES"}, 48)) * time.Hour,
 		JWTSigningKey:      getEnvAny([]string{"GRIMNIR_JWT_SIGNING_KEY", "RLM_JWT_SIGNING_KEY"}, ""),
 		MetricsBind:        getEnvAny([]string{"GRIMNIR_METRICS_BIND", "RLM_METRICS_BIND"}, "127.0.0.1:9000"),
+		MaxUploadSizeMB:    getEnvIntAny([]string{"GRIMNIR_MAX_UPLOAD_SIZE_MB", "RLM_MAX_UPLOAD_SIZE_MB"}, 0),
 
 		// S3 Object Storage configuration
 		S3AccessKeyID:     getEnvAny([]string{"GRIMNIR_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"}, ""),
@@ -144,6 +146,15 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// MaxUploadSizeBytes returns the configured upload limit in bytes.
+// A value of 0 means "not configured" and callers should use endpoint defaults.
+func (c *Config) MaxUploadSizeBytes() int64 {
+	if c == nil || c.MaxUploadSizeMB <= 0 {
+		return 0
+	}
+	return int64(c.MaxUploadSizeMB) * 1024 * 1024
 }
 
 func getEnv(key, def string) string {

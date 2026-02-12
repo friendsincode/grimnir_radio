@@ -167,8 +167,8 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form (1GB max)
-	if err := r.ParseMultipartForm(1 << 30); err != nil {
+	// Parse multipart form (default 1GB, configurable via GRIMNIR_MAX_UPLOAD_SIZE_MB)
+	if err := r.ParseMultipartForm(h.multipartLimit(1 << 30)); err != nil {
 		http.Error(w, "File too large", http.StatusBadRequest)
 		return
 	}
