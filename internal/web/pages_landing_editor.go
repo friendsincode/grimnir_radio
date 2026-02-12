@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -810,37 +811,54 @@ func orderStationsByConfig(stations []models.Station, config map[string]any) []m
 		return stations
 	}
 
-	orderList, ok := content["stationOrder"].([]any)
-	if !ok || len(orderList) == 0 {
+	rawOrder, ok := content["stationOrder"]
+	if !ok {
+		return stations
+	}
+
+	var orderList []string
+	switch v := rawOrder.(type) {
+	case []any:
+		for _, id := range v {
+			if idStr, ok := id.(string); ok && idStr != "" {
+				orderList = append(orderList, idStr)
+			}
+		}
+	case []string:
+		for _, id := range v {
+			if id != "" {
+				orderList = append(orderList, id)
+			}
+		}
+	}
+
+	if len(orderList) == 0 {
 		return stations
 	}
 
 	// Build order map
 	orderMap := make(map[string]int)
 	for i, id := range orderList {
-		if idStr, ok := id.(string); ok {
-			orderMap[idStr] = i
-		}
+		orderMap[id] = i
 	}
 
-	// Sort stations
+	// Sort stations while preserving original order for stations not in custom order.
 	result := make([]models.Station, len(stations))
 	copy(result, stations)
-
-	// Simple insertion sort based on custom order
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			iOrder, iHasOrder := orderMap[result[i].ID]
-			jOrder, jHasOrder := orderMap[result[j].ID]
-
-			// Items with custom order come first, in their specified order
-			if jHasOrder && !iHasOrder {
-				result[i], result[j] = result[j], result[i]
-			} else if iHasOrder && jHasOrder && jOrder < iOrder {
-				result[i], result[j] = result[j], result[i]
-			}
+	sort.SliceStable(result, func(i, j int) bool {
+		iOrder, iHasOrder := orderMap[result[i].ID]
+		jOrder, jHasOrder := orderMap[result[j].ID]
+		if iHasOrder && jHasOrder {
+			return iOrder < jOrder
 		}
-	}
+		if iHasOrder {
+			return true
+		}
+		if jHasOrder {
+			return false
+		}
+		return false
+	})
 
 	return result
 }
