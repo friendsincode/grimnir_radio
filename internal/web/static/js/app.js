@@ -930,14 +930,6 @@ class GlobalPlayer {
     }
 
     switchToStation(stationId, mountUrl, stationName) {
-        // WebRTC signaling is currently global and not station-scoped; enforce HTTP on
-        // station switches so audio reliably changes with the selected station.
-        const preferred = this.getLiveTransport();
-        const forceHTTP = preferred === 'webrtc';
-        if (forceHTTP) {
-            console.debug('Forcing HTTP transport for station switch until station-scoped WebRTC is available');
-        }
-
         // Hard-reset current playback state before switching streams.
         this.stopMetadataPolling();
         this.stopLiveTimeTicker();
@@ -948,7 +940,7 @@ class GlobalPlayer {
         this.closeWebRTC();
 
         this.playLive(mountUrl, stationName, stationId, {
-            transport: forceHTTP ? 'http' : preferred
+            transport: this.getLiveTransport()
         });
     }
 
@@ -1136,7 +1128,7 @@ class GlobalPlayer {
 
         // Try WebRTC only when explicitly selected.
         if (useWebRTCTransport && this.webrtcEnabled && 'RTCPeerConnection' in window) {
-            this.connectWebRTC().then(connected => {
+            this.connectWebRTC(stationId).then(connected => {
                 if (!connected) {
                     // Fall back to HTTP LQ streaming immediately
                     console.log('WebRTC failed, falling back to HTTP LQ streaming');
@@ -1179,13 +1171,14 @@ class GlobalPlayer {
         this.audio.play().catch(e => console.error('HTTP play error:', e));
     }
 
-    async connectWebRTC() {
+    async connectWebRTC(stationId) {
         // Close any existing connection
         this.closeWebRTC();
 
         return new Promise((resolve) => {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const signalingUrl = `${protocol}//${window.location.host}/webrtc/signal`;
+            const qs = stationId ? `?station_id=${encodeURIComponent(stationId)}` : '';
+            const signalingUrl = `${protocol}//${window.location.host}/webrtc/signal${qs}`;
 
             console.log('Connecting to WebRTC signaling:', signalingUrl);
 

@@ -353,6 +353,10 @@ type Station struct {
 	ScheduleBoundaryMode       string `gorm:"type:varchar(8);not null;default:'hard'"`
 	ScheduleSoftOverrunSeconds int    `gorm:"not null;default:0"`
 
+	// WebRTC low-latency output (per-station RTP input port for the WebRTC broadcaster).
+	// If 0, station will fall back to the global GRIMNIR_WEBRTC_RTP_PORT value.
+	WebRTCRTPPort int `gorm:"not null;default:0"`
+
 	// Branding - imported from source systems (AzuraCast/LibreTime)
 	Logo         []byte            `gorm:"type:bytea"` // Station logo (JPEG/PNG)
 	LogoMime     string            `gorm:"type:varchar(32)"`

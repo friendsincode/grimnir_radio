@@ -76,7 +76,7 @@ type Server struct {
 	auditSvc             *audit.Service
 	notificationSvc      *notifications.Service
 	webhookSvc           *webhooks.Service
-	webrtcBroadcaster    *webrtc.Broadcaster
+	webrtcMgr            *webrtcStationManager
 	listenerAnalyticsSvc *analytics.ListenerAnalyticsService
 
 	bgCancel context.CancelFunc
@@ -265,22 +265,19 @@ func (s *Server) initDependencies() error {
 	// WebRTC broadcaster for low-latency streaming
 	if s.cfg.WebRTCEnabled {
 		webrtcCfg := webrtc.Config{
+			// For per-station WebRTC, this is treated as a base port for allocation.
 			RTPPort:      s.cfg.WebRTCRTPPort,
 			STUNServer:   s.cfg.WebRTCSTUNURL,
 			TURNServer:   s.cfg.WebRTCTURNURL,
 			TURNUsername: s.cfg.WebRTCTURNUsername,
 			TURNPassword: s.cfg.WebRTCTURNPassword,
 		}
-		var err error
-		s.webrtcBroadcaster, err = webrtc.NewBroadcaster(webrtcCfg, s.logger)
-		if err != nil {
-			return fmt.Errorf("create webrtc broadcaster: %w", err)
-		}
-		s.DeferClose(func() error { return s.webrtcBroadcaster.Stop() })
+		s.webrtcMgr = newWebRTCStationManager(database, webrtcCfg, s.logger)
+		s.DeferClose(func() error { return s.webrtcMgr.Stop() })
 		s.logger.Info().
-			Int("rtp_port", s.cfg.WebRTCRTPPort).
+			Int("rtp_port_base", s.cfg.WebRTCRTPPort).
 			Bool("turn_enabled", s.cfg.WebRTCTURNURL != "").
-			Msg("WebRTC broadcaster initialized")
+			Msg("WebRTC station manager initialized")
 	}
 
 	s.playout = playout.NewManager(s.cfg, s.logger)
@@ -436,7 +433,7 @@ func (s *Server) startBackgroundWorkers() {
 		s.auditSvc == nil &&
 		s.notificationSvc == nil &&
 		s.webhookSvc == nil &&
-		s.webrtcBroadcaster == nil &&
+		s.webrtcMgr == nil &&
 		s.listenerAnalyticsSvc == nil &&
 		s.cache == nil &&
 		s.webHandler == nil {
@@ -505,16 +502,7 @@ func (s *Server) startBackgroundWorkers() {
 		}()
 	}
 
-	// Start WebRTC broadcaster
-	if s.webrtcBroadcaster != nil {
-		s.bgWG.Add(1)
-		go func() {
-			defer s.bgWG.Done()
-			if err := s.webrtcBroadcaster.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				s.logger.Error().Err(err).Msg("WebRTC broadcaster failed to start")
-			}
-		}()
-	}
+	// WebRTC broadcasters are started lazily per-station on first signaling request.
 
 	// Start audit service
 	if s.auditSvc != nil {
@@ -684,8 +672,8 @@ func (s *Server) configureRoutes() {
 	})
 
 	// WebRTC signaling endpoint for low-latency streaming
-	if s.webrtcBroadcaster != nil {
-		s.router.HandleFunc("/webrtc/signal", s.webrtcBroadcaster.HandleSignaling)
+	if s.webrtcMgr != nil {
+		s.router.HandleFunc("/webrtc/signal", s.webrtcMgr.HandleSignaling)
 	}
 
 	s.api.Routes(s.router)
