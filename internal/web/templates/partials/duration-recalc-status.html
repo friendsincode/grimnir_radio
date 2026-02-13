@@ -1,0 +1,40 @@
+{{define "partials/duration-recalc-status"}}
+{{if not .HasBatch}}
+<div class="text-body-secondary small">No active duration refresh batch.</div>
+{{else}}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Duration Refresh Status</span>
+        <span class="text-body-secondary small">Updated {{.UpdatedAt.Format "2006-01-02 15:04:05"}} UTC</span>
+    </div>
+    <div class="card-body">
+        <div class="mb-2">
+            <div class="progress" role="progressbar" aria-valuenow="{{.Percent}}" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-bar" style="width: {{.Percent}}%;">{{.Percent}}%</div>
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-3 small">
+            <div><strong>Total:</strong> {{.Total}}</div>
+            <div><strong>Done:</strong> {{.Done}}</div>
+            <div><strong>Pending:</strong> {{.Pending}}</div>
+            <div><strong>Running:</strong> {{.Running}}</div>
+            <div><strong>Failed:</strong> {{.Failed}}</div>
+        </div>
+
+        {{if gt .Failed 0}}
+        <hr>
+        <div class="small">
+            <div class="fw-semibold mb-2">Recent Failures</div>
+            <ul class="mb-0">
+                {{range .RecentFailed}}
+                <li><span class="font-monospace">{{.MediaID}}</span>: {{.Error}}</li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}
+{{end}}
+
