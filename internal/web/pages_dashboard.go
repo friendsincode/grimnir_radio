@@ -47,7 +47,8 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 	// Upcoming schedule (including recurring entries expanded into instances)
 	// Schedule times are stored/compared in UTC throughout the system; use UTC here to avoid
 	// empty dashboards when the server runs in a non-UTC timezone.
-	data.UpcomingEntries = h.loadDashboardUpcomingEntries(station.ID, time.Now().UTC(), 6*time.Hour, 10)
+	// Use a full-day horizon so "Upcoming" is useful at any time of day.
+	data.UpcomingEntries = h.loadDashboardUpcomingEntries(station.ID, time.Now().UTC(), 24*time.Hour, 10)
 	data.UpcomingEntries = h.enrichDashboardUpcomingEntries(data.UpcomingEntries)
 
 	// Recent media uploads
