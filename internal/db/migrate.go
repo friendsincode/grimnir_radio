@@ -40,6 +40,7 @@ func Migrate(database *gorm.DB) error {
 		&models.ClockSlot{},
 		&models.ScheduleEntry{},
 		&models.PlayHistory{},
+		&models.MountPlayoutState{},
 		&models.AnalysisJob{},
 		&models.PrioritySource{},
 		&models.ExecutorState{},
