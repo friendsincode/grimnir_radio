@@ -661,6 +661,27 @@ type AnalysisJob struct {
 	UpdatedAt time.Time
 }
 
+// MountPlayoutState persists the currently playing item per mount so we can resume deterministic
+// sequences (smart blocks, clocks, shuffled playlists) after a process restart without re-rolling.
+//
+// This is intentionally lightweight: we update it on track transitions, not on the director tick.
+type MountPlayoutState struct {
+	MountID   string `gorm:"type:uuid;primaryKey"`
+	StationID string `gorm:"type:uuid;index"`
+	EntryID   string `gorm:"type:uuid;index"`
+	MediaID   string `gorm:"type:uuid;index"`
+
+	SourceType string `gorm:"type:varchar(32);index"` // "media", "playlist", "smart_block", "clock", "clock_playlist", "webstream"
+	SourceID   string `gorm:"type:varchar(64);index"` // UUID in most cases; webstream_id or clock_id
+	Position   int
+	TotalItems int
+	Items      []string `gorm:"type:jsonb;serializer:json"`
+
+	StartedAt time.Time `gorm:"index"`
+	EndsAt    time.Time `gorm:"index"`
+	UpdatedAt time.Time `gorm:"index"`
+}
+
 // Playlist represents a static playlist of media items.
 type Playlist struct {
 	ID             string         `gorm:"type:uuid;primaryKey"`

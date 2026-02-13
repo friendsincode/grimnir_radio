@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type playoutState struct {
@@ -142,6 +143,8 @@ func (d *Director) Broadcast() *broadcast.Server {
 // Run executes the director loop until context cancellation.
 func (d *Director) Run(ctx context.Context) error {
 	d.logger.Info().Msg("playout director started")
+	// Best-effort preload: allows resuming deterministic sequences after process restarts.
+	d.loadPersistedMountStates(ctx)
 	// Tight tick interval reduces schedule boundary jitter.
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -567,6 +570,11 @@ func matchesRecurringDay(entry models.ScheduleEntry, day time.Weekday) bool {
 }
 
 func (d *Director) handleEntry(ctx context.Context, entry models.ScheduleEntry) error {
+	// If we have a persisted/resumable state for this mount+entry, prefer it over re-materializing
+	// non-deterministic sources (smart blocks, clock slots).
+	if d.resumeEntryIfPossible(ctx, entry) {
+		return nil
+	}
 	switch entry.SourceType {
 	case "media":
 		return d.startMediaEntry(ctx, entry)
@@ -586,6 +594,148 @@ func (d *Director) handleEntry(ctx context.Context, entry models.ScheduleEntry) 
 		d.publishNowPlaying(entry, nil)
 		return nil
 	}
+}
+
+func (d *Director) loadPersistedMountStates(ctx context.Context) {
+	// Load last known state for each mount. This runs once at startup and is best-effort.
+	now := time.Now().UTC()
+	var rows []models.MountPlayoutState
+	if err := d.db.WithContext(ctx).Find(&rows).Error; err != nil {
+		d.logger.Debug().Err(err).Msg("failed to load persisted mount playout state")
+		return
+	}
+
+	// Prune obviously stale rows to keep the table small (best effort).
+	cutoff := now.Add(-6 * time.Hour)
+	var staleMountIDs []string
+
+	d.mu.Lock()
+	for _, r := range rows {
+		if r.MountID == "" || r.EntryID == "" || r.StationID == "" {
+			continue
+		}
+		if !r.EndsAt.IsZero() && r.EndsAt.Before(cutoff) {
+			staleMountIDs = append(staleMountIDs, r.MountID)
+			continue
+		}
+		d.active[r.MountID] = playoutState{
+			MediaID:    r.MediaID,
+			EntryID:    r.EntryID,
+			StationID:  r.StationID,
+			Started:    r.StartedAt,
+			Ends:       r.EndsAt,
+			SourceType: r.SourceType,
+			SourceID:   r.SourceID,
+			Position:   r.Position,
+			TotalItems: r.TotalItems,
+			Items:      append([]string(nil), r.Items...),
+		}
+	}
+	d.mu.Unlock()
+
+	if len(staleMountIDs) > 0 {
+		_ = d.db.WithContext(ctx).Where("mount_id IN ?", staleMountIDs).Delete(&models.MountPlayoutState{}).Error
+	}
+}
+
+func (d *Director) persistMountState(ctx context.Context, mountID string, state playoutState) {
+	// Skip incomplete rows (we only persist when we have a real "now playing").
+	if mountID == "" || state.EntryID == "" || state.StationID == "" || state.MediaID == "" {
+		return
+	}
+
+	row := models.MountPlayoutState{
+		MountID:    mountID,
+		StationID:  state.StationID,
+		EntryID:    state.EntryID,
+		MediaID:    state.MediaID,
+		SourceType: state.SourceType,
+		SourceID:   state.SourceID,
+		Position:   state.Position,
+		TotalItems: state.TotalItems,
+		Items:      append([]string(nil), state.Items...),
+		StartedAt:  state.Started.UTC(),
+		EndsAt:     state.Ends.UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}
+
+	// Upsert by mount_id primary key. This is called on transitions only (not the 250ms tick).
+	if err := d.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "mount_id"}},
+			UpdateAll: true,
+		}).
+		Create(&row).Error; err != nil {
+		d.logger.Debug().Err(err).Str("mount_id", mountID).Msg("failed to persist mount playout state")
+	}
+}
+
+func (d *Director) clearPersistedMountState(ctx context.Context, mountID string) {
+	if mountID == "" {
+		return
+	}
+	if err := d.db.WithContext(ctx).Delete(&models.MountPlayoutState{}, "mount_id = ?", mountID).Error; err != nil {
+		d.logger.Debug().Err(err).Str("mount_id", mountID).Msg("failed to clear persisted mount playout state")
+	}
+}
+
+func (d *Director) resumeEntryIfPossible(ctx context.Context, entry models.ScheduleEntry) bool {
+	// Only resume for sources that are non-deterministic without state.
+	switch entry.SourceType {
+	case "playlist", "smart_block", "clock_template":
+		// ok
+	default:
+		return false
+	}
+
+	now := time.Now().UTC()
+	if now.After(entry.EndsAt) {
+		return false
+	}
+
+	d.mu.Lock()
+	state, ok := d.active[entry.MountID]
+	d.mu.Unlock()
+	if !ok || state.EntryID != entry.ID || state.StationID != entry.StationID || state.MediaID == "" {
+		return false
+	}
+
+	// Ensure source type matches when schedule entry is explicit.
+	if entry.SourceType == "playlist" && state.SourceType != "playlist" {
+		return false
+	}
+	if entry.SourceType == "smart_block" && state.SourceType != "smart_block" {
+		return false
+	}
+
+	// If we don't have a sequence, there's nothing special to resume.
+	if len(state.Items) == 0 || state.Position < 0 || state.Position >= len(state.Items) {
+		return false
+	}
+
+	// Prefer the sequence media id at current position.
+	mediaID := state.Items[state.Position]
+	if mediaID == "" {
+		mediaID = state.MediaID
+	}
+
+	var media models.MediaItem
+	if err := d.db.WithContext(ctx).First(&media, "id = ?", mediaID).Error; err != nil {
+		return false
+	}
+
+	d.logger.Info().
+		Str("mount_id", entry.MountID).
+		Str("entry_id", entry.ID).
+		Str("source_type", state.SourceType).
+		Int("position", state.Position).
+		Int("total", len(state.Items)).
+		Msg("resuming mount playout state after restart")
+
+	_ = d.playMediaWithState(ctx, entry, media, state.SourceType, state.SourceID, state.Position, state.Items, map[string]any{
+		"resumed": true,
+	})
+	return true
 }
 
 func (d *Director) startMediaEntry(ctx context.Context, entry models.ScheduleEntry) error {
@@ -678,6 +828,11 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		}(),
 	}
 	d.mu.Unlock()
+	// Persist on transition.
+	d.mu.Lock()
+	s := d.active[entry.MountID]
+	d.mu.Unlock()
+	d.persistMountState(ctx, entry.MountID, s)
 
 	// Stop previous pipeline
 	if err := d.manager.StopPipeline(entry.MountID); err != nil {
@@ -865,6 +1020,12 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 		return fmt.Errorf("failed to load smart block: %w", err)
 	}
 
+	// If we have persisted state for this entry (from before a restart), resume it instead of re-rolling.
+	// This preserves deterministic playback (e.g. contracted underwriting/ads) across reboots.
+	if d.resumeEntryIfPossible(ctx, entry) {
+		return nil
+	}
+
 	// Use SmartBlock Engine to generate a sequence based on rules
 	duration := entry.EndsAt.Sub(entry.StartsAt)
 	req := smartblock.GenerateRequest{
@@ -923,6 +1084,12 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 }
 
 func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEntry) error {
+	// Clock templates can contain smart blocks/playlists that must not re-roll after restarts.
+	// If we have an active persisted sequence for this schedule entry, resume it.
+	if d.resumeEntryIfPossible(ctx, entry) {
+		return nil
+	}
+
 	// Load clock template with slots
 	var clock models.ClockHour
 	if err := d.db.WithContext(ctx).Preload("Slots").First(&clock, "id = ?", entry.SourceID).Error; err != nil {
@@ -1414,6 +1581,11 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 		Items:      items,
 	}
 	d.mu.Unlock()
+	// Persist on transition (not on the 250ms director tick).
+	d.mu.Lock()
+	s := d.active[entry.MountID]
+	d.mu.Unlock()
+	d.persistMountState(ctx, entry.MountID, s)
 
 	// Stop any existing pipeline if needed.
 	if xfade.Enabled && xfade.Duration > 0 {
@@ -1857,6 +2029,10 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 		Items:      state.Items,
 	}
 	d.mu.Unlock()
+	d.mu.Lock()
+	s := d.active[entry.MountID]
+	d.mu.Unlock()
+	d.persistMountState(context.Background(), entry.MountID, s)
 
 	broadcastMount := d.broadcast.GetMount(mount.Name)
 	if broadcastMount == nil {
@@ -2001,6 +2177,10 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 		Ends:      entry.EndsAt,
 	}
 	d.mu.Unlock()
+	d.mu.Lock()
+	s := d.active[entry.MountID]
+	d.mu.Unlock()
+	d.persistMountState(context.Background(), entry.MountID, s)
 
 	broadcastMount := d.broadcast.GetMount(mount.Name)
 	if broadcastMount == nil {
@@ -2075,6 +2255,7 @@ func (d *Director) scheduleStop(ctx context.Context, stationID, mountID string, 
 		}
 		delete(d.active, mountID)
 		d.mu.Unlock()
+		d.clearPersistedMountState(context.Background(), mountID)
 
 		// In crossfade mode we keep a persistent encoder pipeline per-mount so transitions can overlap.
 		// We only stop the pipeline when explicitly requested (emergency stop/skip/etc.).
@@ -2251,6 +2432,7 @@ func (d *Director) StopStation(ctx context.Context, stationID string) (int, erro
 		// Clear active state for this mount
 		if state, ok := d.active[mount.ID]; ok {
 			delete(d.active, mount.ID)
+			d.clearPersistedMountState(ctx, mount.ID)
 			stopped++
 
 			// Publish stop event
@@ -2344,6 +2526,7 @@ func (d *Director) ReloadStation(ctx context.Context, stationID string) (int, er
 		}
 		if _, ok := d.active[mount.ID]; ok {
 			delete(d.active, mount.ID)
+			d.clearPersistedMountState(ctx, mount.ID)
 			reloaded++
 		}
 	}
