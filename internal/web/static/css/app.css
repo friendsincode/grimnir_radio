@@ -10,6 +10,36 @@
     min-height: 100vh;
 }
 
+/* Analyzer queue compact card hover details */
+.analyzer-queue-compact {
+    position: relative;
+    outline: none;
+}
+
+.analyzer-queue-compact__hover {
+    display: none;
+    position: absolute;
+    left: 0;
+    top: 100%;
+    margin-top: 10px;
+    width: min(520px, calc(100vw - 2rem));
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 10px;
+    padding: 12px 12px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    z-index: 50;
+}
+
+.analyzer-queue-compact:hover .analyzer-queue-compact__hover,
+.analyzer-queue-compact:focus-within .analyzer-queue-compact__hover {
+    display: block;
+}
+
+.analyzer-queue-compact__hover .text-truncate {
+    max-width: 480px;
+}
+
 .sidebar {
     width: 260px;
     min-width: 260px;
