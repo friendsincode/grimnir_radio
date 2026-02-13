@@ -94,7 +94,7 @@
     </div>
 
     <!-- Upcoming Schedule -->
-    <div class="col-lg-8">
+    <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-calendar3 me-2"></i>Upcoming Schedule</h5>
@@ -208,7 +208,7 @@
     </div>
 
     <!-- Recent Media -->
-    <div class="col-12">
+    <div class="col-lg-8">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recently Added</h5>
@@ -217,7 +217,7 @@
             <div class="card-body">
                 <div class="row g-3">
                     {{range .Data.RecentMedia}}
-                    <div class="col-md-4 col-lg-2">
+                    <div class="col-6 col-md-4 col-lg-3">
                         <div class="card media-card h-100">
                             <div class="card-body p-2">
                                 <p class="small fw-bold text-truncate mb-0" title="{{.Title}}">{{.Title}}</p>
