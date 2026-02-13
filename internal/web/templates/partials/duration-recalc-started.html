@@ -5,9 +5,8 @@
 
 <div id="durationRecalcStatus"
      hx-get="/dashboard/media/reanalyze-durations/status?since={{.BatchSince}}"
-     hx-trigger="load, every 2s"
+     hx-trigger="load, every 5s"
      hx-swap="innerHTML">
     <div class="text-body-secondary small">Loading status...</div>
 </div>
 {{end}}
-

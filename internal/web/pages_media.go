@@ -204,6 +204,14 @@ func (h *Handler) MediaReanalyzeDurationsCurrentStatus(w http.ResponseWriter, r 
 		return
 	}
 
+	type jobWithMedia struct {
+		MediaID   string    `gorm:"column:media_id"`
+		Error     string    `gorm:"column:error"`
+		UpdatedAt time.Time `gorm:"column:updated_at"`
+		Title     string    `gorm:"column:title"`
+		Artist    string    `gorm:"column:artist"`
+	}
+
 	base := h.db.
 		Table("analysis_jobs aj").
 		Joins("JOIN media_items m ON m.id = aj.media_id").
@@ -214,6 +222,7 @@ func (h *Handler) MediaReanalyzeDurationsCurrentStatus(w http.ResponseWriter, r 
 	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "running").Count(&running).Error
 	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "complete").Count(&complete).Error
 	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "failed").Count(&failed).Error
+	activeCount := pending + running
 
 	// Recent failures (last 24h) for quick debugging.
 	since := time.Now().UTC().Add(-24 * time.Hour)
@@ -226,14 +235,48 @@ func (h *Handler) MediaReanalyzeDurationsCurrentStatus(w http.ResponseWriter, r 
 		Limit(10).
 		Find(&recentFailed).Error
 
-	h.RenderPartial(w, r, "partials/duration-recalc-queue-status", map[string]any{
+	// Last complete/failed for quick confidence/debugging.
+	var lastComplete jobWithMedia
+	_ = h.db.
+		WithContext(r.Context()).
+		Table("analysis_jobs aj").
+		Joins("JOIN media_items m ON m.id = aj.media_id").
+		Select("aj.media_id, aj.updated_at, aj.error, m.title, m.artist").
+		Where("m.station_id = ? AND aj.status = ?", station.ID, "complete").
+		Order("aj.updated_at DESC").
+		Limit(1).
+		Scan(&lastComplete).Error
+
+	var lastFailed jobWithMedia
+	_ = h.db.
+		WithContext(r.Context()).
+		Table("analysis_jobs aj").
+		Joins("JOIN media_items m ON m.id = aj.media_id").
+		Select("aj.media_id, aj.updated_at, aj.error, m.title, m.artist").
+		Where("m.station_id = ? AND aj.status = ?", station.ID, "failed").
+		Order("aj.updated_at DESC").
+		Limit(1).
+		Scan(&lastFailed).Error
+
+	view := r.URL.Query().Get("view")
+	tpl := "partials/duration-recalc-queue-status"
+	if view == "compact" {
+		tpl = "partials/analyzer-queue-compact"
+	}
+
+	data := map[string]any{
 		"Pending":      pending,
 		"Running":      running,
+		"ActiveCount":  activeCount,
 		"Complete":     complete,
 		"Failed":       failed,
 		"RecentFailed": recentFailed,
+		"LastComplete": lastComplete,
+		"LastFailed":   lastFailed,
 		"UpdatedAt":    time.Now().UTC(),
-	})
+	}
+
+	h.RenderPartial(w, r, tpl, data)
 }
 
 // MediaList renders the media library

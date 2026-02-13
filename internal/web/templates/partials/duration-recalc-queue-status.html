@@ -1,36 +1,50 @@
 {{define "partials/duration-recalc-queue-status"}}
-{{if and (eq .Pending 0) (eq .Running 0)}}
-<div class="text-body-secondary small">
-    Analyzer queue idle.
-    {{if gt .Failed 0}} Recent failures (24h): {{.Failed}}.{{end}}
-</div>
-{{else}}
+{{ $active := or (gt .Pending 0) (gt .Running 0) }}
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Analyzer Queue (This Station)</span>
         <span class="text-body-secondary small">Updated {{.UpdatedAt.Format "2006-01-02 15:04:05"}} UTC</span>
     </div>
     <div class="card-body">
-        <div class="d-flex flex-wrap gap-3 small">
-            <div><strong>Pending:</strong> {{.Pending}}</div>
-            <div><strong>Running:</strong> {{.Running}}</div>
-            <div><strong>Complete:</strong> {{.Complete}}</div>
-            <div><strong>Failed:</strong> {{.Failed}}</div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span class="badge {{if $active}}bg-warning text-dark{{else}}bg-secondary{{end}}">
+                {{if $active}}Active{{else}}Idle{{end}}
+            </span>
+            <span class="badge bg-secondary">Pending {{.Pending}}</span>
+            <span class="badge bg-secondary">Running {{.Running}}</span>
+            <span class="badge bg-secondary">Complete {{.Complete}}</span>
+            <span class="badge {{if gt .Failed 0}}bg-danger{{else}}bg-secondary{{end}}">Failed {{.Failed}}</span>
         </div>
 
-        {{if gt .Failed 0}}
-        <hr>
-        <div class="small">
-            <div class="fw-semibold mb-2">Recent Failures (Last 24h)</div>
-            <ul class="mb-0">
-                {{range .RecentFailed}}
-                <li><span class="font-monospace">{{.MediaID}}</span>: {{.Error}}</li>
-                {{end}}
-            </ul>
+        <div class="mt-2 small">
+            {{if .LastComplete.MediaID}}
+            <div class="text-success">
+                Last OK: {{if .LastComplete.Artist}}{{.LastComplete.Artist}} - {{end}}{{if .LastComplete.Title}}{{.LastComplete.Title}}{{else}}{{.LastComplete.MediaID}}{{end}}
+                <span class="text-body-secondary">({{.LastComplete.UpdatedAt.Format "2006-01-02 15:04:05"}})</span>
+            </div>
+            {{end}}
+            {{if .LastFailed.MediaID}}
+            <div class="text-danger">
+                Last Failed: {{if .LastFailed.Artist}}{{.LastFailed.Artist}} - {{end}}{{if .LastFailed.Title}}{{.LastFailed.Title}}{{else}}{{.LastFailed.MediaID}}{{end}}
+                <span class="text-body-secondary">({{.LastFailed.UpdatedAt.Format "2006-01-02 15:04:05"}})</span>
+            </div>
+            {{end}}
+        </div>
+
+        {{if gt (len .RecentFailed) 0}}
+        <div class="mt-3">
+            <details>
+                <summary class="small text-body-secondary">Recent failures (last 24h)</summary>
+                <div class="small mt-2">
+                    <ul class="mb-0">
+                        {{range .RecentFailed}}
+                        <li><span class="font-monospace">{{.MediaID}}</span>: {{.Error}}</li>
+                        {{end}}
+                    </ul>
+                </div>
+            </details>
         </div>
         {{end}}
     </div>
 </div>
 {{end}}
-{{end}}
-
