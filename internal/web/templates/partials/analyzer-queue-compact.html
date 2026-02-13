@@ -1,42 +1,62 @@
 {{define "partials/analyzer-queue-compact"}}
 {{/* Compact, stable-size snippet intended for dashboard stat card */}}
 {{ $active := or (gt .Pending 0) (gt .Running 0) }}
-<div class="d-flex justify-content-between align-items-start">
-    <div>
-        <p class="text-body-secondary mb-1">Analyzer Queue</p>
-        <h3 class="mb-0">
+<div class="analyzer-queue-compact" tabindex="0">
+    <div class="d-flex justify-content-between align-items-start">
+        <div>
+            <p class="text-body-secondary mb-1">Analyzer Queue</p>
+            <h3 class="mb-0">
+                {{if $active}}
+                    {{.ActiveCount}}
+                {{else}}
+                    0
+                {{end}}
+            </h3>
+        </div>
+        <div class="bg-warning bg-opacity-10 rounded-3 p-3">
+            <i class="bi bi-cpu text-warning fs-4"></i>
+        </div>
+    </div>
+
+    <div class="mt-2 small text-body-secondary d-flex justify-content-between gap-2">
+        <span>
             {{if $active}}
-                {{.ActiveCount}}
+                Pending {{.Pending}}, running {{.Running}}.
             {{else}}
-                0
+                Idle.
             {{end}}
-        </h3>
+        </span>
+        <span class="js-local-datetime text-nowrap" data-utc="{{formatRFC3339UTC .UpdatedAt}}">
+            {{.UpdatedAt.Format "15:04:05"}} UTC
+        </span>
     </div>
-    <div class="bg-warning bg-opacity-10 rounded-3 p-3">
-        <i class="bi bi-cpu text-warning fs-4"></i>
-    </div>
-</div>
 
-<div class="mt-2 small text-body-secondary">
-    {{if $active}}
-        Pending {{.Pending}}, running {{.Running}}.
-    {{else}}
-        Idle.
-    {{end}}
-    <span class="ms-2">Updated {{.UpdatedAt.Format "15:04:05"}} UTC</span>
-</div>
+    {{if or .LastComplete.MediaID .LastFailed.MediaID}}
+    <div class="analyzer-queue-compact__hover" aria-hidden="true">
+        <div class="small fw-semibold mb-2">Recent analyzer results</div>
 
-<div class="mt-2 small">
-    {{if .LastComplete.MediaID}}
-    <div class="text-success">
-        Last OK: {{if .LastComplete.Artist}}{{.LastComplete.Artist}} - {{end}}{{if .LastComplete.Title}}{{.LastComplete.Title}}{{else}}{{.LastComplete.MediaID}}{{end}}
-        <span class="text-body-secondary">({{.LastComplete.UpdatedAt.Format "2006-01-02 15:04:05"}})</span>
-    </div>
-    {{end}}
-    {{if .LastFailed.MediaID}}
-    <div class="text-danger">
-        Last Failed: {{if .LastFailed.Artist}}{{.LastFailed.Artist}} - {{end}}{{if .LastFailed.Title}}{{.LastFailed.Title}}{{else}}{{.LastFailed.MediaID}}{{end}}
-        <span class="text-body-secondary">({{.LastFailed.UpdatedAt.Format "2006-01-02 15:04:05"}})</span>
+        {{if .LastComplete.MediaID}}
+        <div class="small text-success mb-2">
+            <span class="fw-semibold">Last OK</span>
+            <span class="text-body-secondary">({{timeago .LastComplete.UpdatedAt}})</span>
+            <div class="text-truncate">
+                {{if .LastComplete.Artist}}{{.LastComplete.Artist}} - {{end}}{{if .LastComplete.Title}}{{.LastComplete.Title}}{{else}}{{.LastComplete.MediaID}}{{end}}
+            </div>
+        </div>
+        {{end}}
+
+        {{if .LastFailed.MediaID}}
+        <div class="small text-danger">
+            <span class="fw-semibold">Last Failed</span>
+            <span class="text-body-secondary">({{timeago .LastFailed.UpdatedAt}})</span>
+            <div class="text-truncate">
+                {{if .LastFailed.Artist}}{{.LastFailed.Artist}} - {{end}}{{if .LastFailed.Title}}{{.LastFailed.Title}}{{else}}{{.LastFailed.MediaID}}{{end}}
+            </div>
+            {{if .LastFailed.Error}}
+            <div class="text-body-secondary mt-1 small text-truncate">{{.LastFailed.Error}}</div>
+            {{end}}
+        </div>
+        {{end}}
     </div>
     {{end}}
 </div>
