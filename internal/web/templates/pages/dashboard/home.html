@@ -115,7 +115,8 @@
                             {{range .Data.UpcomingEntries}}
                             <tr>
                                 <td>
-                                    <span class="text-body-secondary">
+                                    <span class="text-body-secondary js-local-datetime"
+                                          data-utc="{{formatRFC3339UTC .StartsAt}}">
                                         {{formatTime .StartsAt}}
                                     </span>
                                 </td>

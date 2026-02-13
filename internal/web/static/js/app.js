@@ -168,7 +168,31 @@ function getStationSelectorElement() {
     return document.getElementById('stationSelector') || document.querySelector('select[name="station_id"]');
 }
 
+// Render server UTC timestamps in the user's local timezone for designated elements.
+// Elements must include: class="js-local-datetime" data-utc="RFC3339"
+function grimnirUpdateLocalDateTimes(root) {
+    const scope = root || document;
+
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const formatLocalYYYYMMDDHHMMSS = (d) => (
+        `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+    );
+
+    scope.querySelectorAll('.js-local-datetime[data-utc]').forEach((el) => {
+        const utc = el.getAttribute('data-utc');
+        if (!utc) return;
+        const d = new Date(utc);
+        if (isNaN(d.getTime())) return;
+        el.textContent = formatLocalYYYYMMDDHHMMSS(d);
+        if (!el.getAttribute('title')) el.setAttribute('title', `UTC: ${utc}`);
+    });
+}
+
+window.grimnirUpdateLocalDateTimes = grimnirUpdateLocalDateTimes;
+
 document.addEventListener('DOMContentLoaded', () => {
+    grimnirUpdateLocalDateTimes(document);
+
     if (document.body.classList.contains('dashboard-layout')) {
         window.grimnirWS.connect();
 
@@ -457,6 +481,13 @@ document.body.addEventListener('htmx:afterRequest', (e) => {
 
 // Handle page content swaps (SPA navigation)
 document.body.addEventListener('htmx:afterSwap', (e) => {
+    // Always update any local datetime placeholders in swapped content.
+    try {
+        grimnirUpdateLocalDateTimes(e.detail?.target || document);
+    } catch (_) {
+        // non-fatal
+    }
+
     // Only handle page-level swaps
     if (e.detail.target.id === 'page-content') {
         // Re-initialize Bootstrap tooltips
