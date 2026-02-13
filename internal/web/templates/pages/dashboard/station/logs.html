@@ -6,7 +6,11 @@
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3 mb-0"><i class="bi bi-terminal me-2"></i>Station Logs</h1>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 align-items-center">
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="toggleAutoRefresh">
+                <label class="form-check-label small" for="toggleAutoRefresh">Auto-refresh</label>
+            </div>
             <button class="btn btn-outline-secondary" onclick="refreshLogs()">
                 <i class="bi bi-arrow-clockwise me-1"></i>Refresh
             </button>
@@ -33,11 +37,23 @@
                         <option value="">All Components</option>
                     </select>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="form-label small">Search</label>
                     <input type="text" class="form-control form-control-sm" id="filterSearch" placeholder="Search messages...">
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label small">Timeframe</label>
+                    <select class="form-select form-select-sm" id="filterTime">
+                        <option value="" selected>All</option>
+                        <option value="5m">Last 5 min</option>
+                        <option value="15m">Last 15 min</option>
+                        <option value="1h">Last 1 hour</option>
+                        <option value="6h">Last 6 hours</option>
+                        <option value="24h">Last 24 hours</option>
+                        <option value="7d">Last 7 days</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
                     <label class="form-label small">Limit</label>
                     <select class="form-select form-select-sm" id="filterLimit">
                         <option value="100">100</option>
@@ -113,7 +129,7 @@
     <div class="alert alert-info mb-4">
         <i class="bi bi-info-circle me-2"></i>
         Showing logs related to this station only. Use filters to narrow down results.
-        Logs auto-refresh every 30 seconds.
+        Auto-refresh can be enabled in the header.
     </div>
 
     <!-- Log entries -->
@@ -181,6 +197,8 @@
 const wsToken = '{{.WSToken}}';
 const stationID = '{{.Station.ID}}';
 let logDetailModal;
+let autoRefreshTimer = null;
+const autoRefreshMs = 30000;
 
 document.addEventListener('DOMContentLoaded', function() {
     logDetailModal = new bootstrap.Modal(document.getElementById('logDetailModal'));
@@ -188,14 +206,35 @@ document.addEventListener('DOMContentLoaded', function() {
     loadStats();
     refreshLogs();
 
-    // Auto-refresh every 30 seconds
-    setInterval(refreshLogs, 30000);
+    document.getElementById('toggleAutoRefresh').addEventListener('change', function(e) {
+        setAutoRefreshEnabled(e.target.checked);
+    });
 
     // Filter on Enter key
     document.getElementById('filterSearch').addEventListener('keyup', function(e) {
         if (e.key === 'Enter') refreshLogs();
     });
 });
+
+function setAutoRefreshEnabled(enabled) {
+    if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+    }
+    if (enabled) {
+        autoRefreshTimer = setInterval(refreshLogs, autoRefreshMs);
+    }
+}
+
+function parseTimeframeToMs(v) {
+    if (!v) return 0;
+    const n = parseInt(v, 10);
+    if (Number.isNaN(n) || n <= 0) return 0;
+    if (v.endsWith('m')) return n * 60 * 1000;
+    if (v.endsWith('h')) return n * 60 * 60 * 1000;
+    if (v.endsWith('d')) return n * 24 * 60 * 60 * 1000;
+    return 0;
+}
 
 function loadComponents() {
     fetch(`/api/v1/stations/${stationID}/logs/components`, {
@@ -236,12 +275,18 @@ function refreshLogs() {
     const level = document.getElementById('filterLevel').value;
     const component = document.getElementById('filterComponent').value;
     const search = document.getElementById('filterSearch').value;
+    const timeframe = document.getElementById('filterTime').value;
     const limit = document.getElementById('filterLimit').value;
 
     let url = `/api/v1/stations/${stationID}/logs?limit=${limit}`;
     if (level) url += `&level=${encodeURIComponent(level)}`;
     if (component) url += `&component=${encodeURIComponent(component)}`;
     if (search) url += `&search=${encodeURIComponent(search)}`;
+    const ms = parseTimeframeToMs(timeframe);
+    if (ms > 0) {
+        const since = new Date(Date.now() - ms).toISOString();
+        url += `&since=${encodeURIComponent(since)}`;
+    }
 
     fetch(url, {
         headers: { 'Authorization': 'Bearer ' + wsToken }

@@ -43,16 +43,17 @@ func (h *Handler) StationAudit(w http.ResponseWriter, r *http.Request) {
 
 	// Only admin/manager can view audit logs
 	stationUser := h.GetStationRole(user, station.ID)
-	if stationUser == nil {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	if stationUser.Role != models.StationRoleOwner &&
-		stationUser.Role != models.StationRoleAdmin &&
-		stationUser.Role != models.StationRoleManager {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
+	if !user.IsPlatformAdmin() {
+		if stationUser == nil {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		if stationUser.Role != models.StationRoleOwner &&
+			stationUser.Role != models.StationRoleAdmin &&
+			stationUser.Role != models.StationRoleManager {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
 	}
 
 	h.Render(w, r, "pages/dashboard/station/audit", PageData{

@@ -68,6 +68,9 @@ func loadConfig() error {
 
 	// Create log buffer for in-memory log storage (10,000 entries)
 	logBuffer = logbuffer.New(10000)
+	// Keep station log history independent of system log churn.
+	// Capacity is per-station; maxStations caps memory growth.
+	logBuffer.EnableStationBuffers(5000, 200)
 
 	// Setup logging with log buffer capture
 	logWriter := logbuffer.NewWriter(logBuffer, nil)

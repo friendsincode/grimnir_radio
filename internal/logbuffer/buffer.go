@@ -31,6 +31,13 @@ type Buffer struct {
 	capacity int
 	head     int
 	count    int
+
+	// Optional per-station buffers to prevent station logs from being evicted
+	// by high-volume system logs.
+	stationMu         sync.RWMutex
+	stationBuffers    map[string]*Buffer
+	stationCapacity   int
+	maxStationBuffers int
 }
 
 // New creates a new log buffer with the specified capacity.
@@ -44,6 +51,25 @@ func New(capacity int) *Buffer {
 	}
 }
 
+// EnableStationBuffers enables mirroring log entries into per-station ring buffers.
+// This prevents station-scoped log views from losing history due to unrelated
+// system-wide log volume.
+func (b *Buffer) EnableStationBuffers(stationCapacity, maxStations int) {
+	if stationCapacity <= 0 {
+		return
+	}
+	if maxStations <= 0 {
+		maxStations = 200
+	}
+	b.stationMu.Lock()
+	defer b.stationMu.Unlock()
+	if b.stationBuffers == nil {
+		b.stationBuffers = make(map[string]*Buffer)
+	}
+	b.stationCapacity = stationCapacity
+	b.maxStationBuffers = maxStations
+}
+
 // Add adds a log entry to the buffer.
 func (b *Buffer) Add(entry LogEntry) {
 	b.mu.Lock()
@@ -53,6 +79,33 @@ func (b *Buffer) Add(entry LogEntry) {
 	b.head = (b.head + 1) % b.capacity
 	if b.count < b.capacity {
 		b.count++
+	}
+
+	// Mirror to per-station buffer (if enabled).
+	sid, _ := entry.Fields["station_id"].(string)
+	if sid != "" {
+		var stationBuf *Buffer
+		b.stationMu.RLock()
+		stationBuf = b.stationBuffers[sid]
+		stationCap := b.stationCapacity
+		maxStations := b.maxStationBuffers
+		b.stationMu.RUnlock()
+
+		if stationCap > 0 && stationBuf == nil {
+			b.stationMu.Lock()
+			stationBuf = b.stationBuffers[sid]
+			if stationBuf == nil {
+				if maxStations <= 0 || len(b.stationBuffers) < maxStations {
+					stationBuf = New(stationCap)
+					b.stationBuffers[sid] = stationBuf
+				}
+			}
+			b.stationMu.Unlock()
+		}
+
+		if stationBuf != nil {
+			stationBuf.Add(entry)
+		}
 	}
 }
 
@@ -93,6 +146,21 @@ type QueryParams struct {
 
 // Query returns log entries matching the filter criteria.
 func (b *Buffer) Query(params QueryParams) []LogEntry {
+	// If station buffers are enabled, prefer the station-specific buffer for
+	// station-scoped queries. This keeps station history independent from the
+	// global/system buffer eviction.
+	if params.StationID != "" {
+		b.stationMu.RLock()
+		sb := b.stationBuffers[params.StationID]
+		b.stationMu.RUnlock()
+		if sb != nil {
+			// Avoid re-filtering by station_id since this buffer is already station-scoped.
+			p2 := params
+			p2.StationID = ""
+			return sb.Query(p2)
+		}
+	}
+
 	all := b.GetAll()
 
 	// Apply filters
@@ -199,6 +267,14 @@ func (b *Buffer) Stats() Stats {
 // StatsForStation returns buffer statistics filtered by station_id.
 // If stationID is empty, returns stats for all entries.
 func (b *Buffer) StatsForStation(stationID string) Stats {
+	if stationID != "" {
+		b.stationMu.RLock()
+		sb := b.stationBuffers[stationID]
+		b.stationMu.RUnlock()
+		if sb != nil {
+			return sb.Stats()
+		}
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -233,6 +309,14 @@ func (b *Buffer) StatsForStation(stationID string) Stats {
 // GetComponentsForStation returns unique components for a specific station.
 // If stationID is empty, returns all components.
 func (b *Buffer) GetComponentsForStation(stationID string) []string {
+	if stationID != "" {
+		b.stationMu.RLock()
+		sb := b.stationBuffers[stationID]
+		b.stationMu.RUnlock()
+		if sb != nil {
+			return sb.GetComponents()
+		}
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
