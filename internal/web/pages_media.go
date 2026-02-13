@@ -62,7 +62,10 @@ func (h *Handler) MediaReanalyzeDurations(w http.ResponseWriter, r *http.Request
 	if len(mediaIDs) == 0 {
 		msg := "No media queued (already pending/running or no media found)"
 		if r.Header.Get("HX-Request") == "true" {
-			w.Write([]byte(`<div class="alert alert-info">` + msg + `</div>`))
+			h.RenderPartial(w, r, "partials/duration-recalc-empty", map[string]any{
+				"Message":   msg,
+				"StationID": station.ID,
+			})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -184,6 +187,50 @@ func (h *Handler) MediaReanalyzeDurationsStatus(w http.ResponseWriter, r *http.R
 		"Failed":       failed,
 		"Done":         done,
 		"Percent":      percent,
+		"RecentFailed": recentFailed,
+		"UpdatedAt":    time.Now().UTC(),
+	})
+}
+
+// MediaReanalyzeDurationsCurrentStatus returns current station analyzer queue stats (HTMX).
+func (h *Handler) MediaReanalyzeDurationsCurrentStatus(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+	if !h.HasStationPermission(r, "edit_metadata") {
+		http.Error(w, "Permission denied", http.StatusForbidden)
+		return
+	}
+
+	base := h.db.
+		Table("analysis_jobs aj").
+		Joins("JOIN media_items m ON m.id = aj.media_id").
+		Where("m.station_id = ?", station.ID)
+
+	var pending, running, complete, failed int64
+	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "pending").Count(&pending).Error
+	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "running").Count(&running).Error
+	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "complete").Count(&complete).Error
+	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "failed").Count(&failed).Error
+
+	// Recent failures (last 24h) for quick debugging.
+	since := time.Now().UTC().Add(-24 * time.Hour)
+	var recentFailed []models.AnalysisJob
+	_ = h.db.
+		WithContext(r.Context()).
+		Joins("JOIN media_items m ON m.id = analysis_jobs.media_id").
+		Where("m.station_id = ? AND analysis_jobs.updated_at >= ? AND analysis_jobs.status = ?", station.ID, since, "failed").
+		Order("analysis_jobs.updated_at DESC").
+		Limit(10).
+		Find(&recentFailed).Error
+
+	h.RenderPartial(w, r, "partials/duration-recalc-queue-status", map[string]any{
+		"Pending":      pending,
+		"Running":      running,
+		"Complete":     complete,
+		"Failed":       failed,
 		"RecentFailed": recentFailed,
 		"UpdatedAt":    time.Now().UTC(),
 	})

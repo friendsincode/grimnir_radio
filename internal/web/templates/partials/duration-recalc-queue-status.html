@@ -1,0 +1,36 @@
+{{define "partials/duration-recalc-queue-status"}}
+{{if and (eq .Pending 0) (eq .Running 0)}}
+<div class="text-body-secondary small">
+    Analyzer queue idle.
+    {{if gt .Failed 0}} Recent failures (24h): {{.Failed}}.{{end}}
+</div>
+{{else}}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Analyzer Queue (This Station)</span>
+        <span class="text-body-secondary small">Updated {{.UpdatedAt.Format "2006-01-02 15:04:05"}} UTC</span>
+    </div>
+    <div class="card-body">
+        <div class="d-flex flex-wrap gap-3 small">
+            <div><strong>Pending:</strong> {{.Pending}}</div>
+            <div><strong>Running:</strong> {{.Running}}</div>
+            <div><strong>Complete:</strong> {{.Complete}}</div>
+            <div><strong>Failed:</strong> {{.Failed}}</div>
+        </div>
+
+        {{if gt .Failed 0}}
+        <hr>
+        <div class="small">
+            <div class="fw-semibold mb-2">Recent Failures (Last 24h)</div>
+            <ul class="mb-0">
+                {{range .RecentFailed}}
+                <li><span class="font-monospace">{{.MediaID}}</span>: {{.Error}}</li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}
+{{end}}
+

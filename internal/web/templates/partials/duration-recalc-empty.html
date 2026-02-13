@@ -1,0 +1,13 @@
+{{define "partials/duration-recalc-empty"}}
+<div class="alert alert-info mb-3">
+    {{.Message}}
+</div>
+
+<div id="durationRecalcQueueStatus"
+     hx-get="/dashboard/media/reanalyze-durations/current-status"
+     hx-trigger="load, every 5s"
+     hx-swap="innerHTML">
+    <div class="text-body-secondary small">Loading analyzer queue status...</div>
+</div>
+{{end}}
+

@@ -10,6 +10,12 @@
 
 {{define "main"}}
 <div class="row g-4">
+    <div class="col-12">
+        <div id="durationRecalcQueueStatus"
+             hx-get="/dashboard/media/reanalyze-durations/current-status"
+             hx-trigger="load, every 5s"
+             hx-swap="innerHTML"></div>
+    </div>
     <!-- Stats Cards -->
     <div class="col-sm-6 col-xl-3">
         <a href="/dashboard/media" class="card bg-body-tertiary text-decoration-none text-body" style="cursor: pointer;">
