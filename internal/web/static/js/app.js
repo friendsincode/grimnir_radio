@@ -1937,7 +1937,9 @@ document.addEventListener('htmx:confirm', (e) => {
     if (message) {
         e.preventDefault();
         if (confirm(message)) {
-            e.detail.issueRequest();
+            // Tell htmx we've already confirmed, otherwise it will run its own
+            // confirm() after this handler, causing a double prompt.
+            e.detail.issueRequest(true);
         }
     }
 });
