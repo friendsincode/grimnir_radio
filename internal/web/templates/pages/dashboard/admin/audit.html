@@ -201,8 +201,8 @@ function refreshLogs() {
     let url = `/api/v1/audit?limit=${pageSize}&offset=${(currentPage - 1) * pageSize}`;
     if (action) url += `&action=${encodeURIComponent(action)}`;
     if (stationId) url += `&station_id=${encodeURIComponent(stationId)}`;
-    if (startDate) url += `&start=${encodeURIComponent(startDate)}T00:00:00Z`;
-    if (endDate) url += `&end=${encodeURIComponent(endDate)}T23:59:59Z`;
+    if (startDate) url += `&start_time=${encodeURIComponent(startDate)}T00:00:00Z`;
+    if (endDate) url += `&end_time=${encodeURIComponent(endDate)}T23:59:59Z`;
 
     fetch(url, {
         headers: { 'Authorization': 'Bearer ' + wsToken }

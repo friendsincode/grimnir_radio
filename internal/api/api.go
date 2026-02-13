@@ -248,7 +248,7 @@ func (a *API) Routes(r chi.Router) {
 					})
 
 					// Station audit logs (admin/manager only)
-					r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Get("/audit", a.handleStationAuditList)
+					r.With(a.requireRolesOrPlatformAdmin(models.RoleAdmin, models.RoleManager)).Get("/audit", a.handleStationAuditList)
 				})
 			})
 
@@ -1540,6 +1540,36 @@ func (a *API) requirePlatformAdmin() func(http.Handler) http.Handler {
 				}
 			}
 			writeError(w, http.StatusForbidden, "platform_admin_required")
+		})
+	}
+}
+
+func (a *API) requireRolesOrPlatformAdmin(allowed ...models.RoleName) func(http.Handler) http.Handler {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, role := range allowed {
+		allowedSet[string(role)] = struct{}{}
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := auth.ClaimsFromContext(r.Context())
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+
+			for _, role := range claims.Roles {
+				if role == string(models.PlatformRoleAdmin) {
+					next.ServeHTTP(w, r)
+					return
+				}
+				if _, exists := allowedSet[role]; exists {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			writeError(w, http.StatusForbidden, "insufficient_role")
 		})
 	}
 }
