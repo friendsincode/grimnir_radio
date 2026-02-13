@@ -7,11 +7,87 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package smartblock
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/rs/zerolog"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+func TestGenerate_RespectsSourcePlaylistsFilter(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-1"
+	playlistID := "playlist-1"
+
+	in1 := models.MediaItem{ID: "m-in-1", StationID: stationID, Title: "In 1", Duration: 2 * time.Minute, AnalysisState: models.AnalysisComplete}
+	in2 := models.MediaItem{ID: "m-in-2", StationID: stationID, Title: "In 2", Duration: 2 * time.Minute, AnalysisState: models.AnalysisComplete}
+	out1 := models.MediaItem{ID: "m-out-1", StationID: stationID, Title: "Out 1", Duration: 2 * time.Minute, AnalysisState: models.AnalysisComplete}
+
+	if err := db.Create(&[]models.MediaItem{in1, in2, out1}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	pl := models.Playlist{ID: playlistID, StationID: stationID, Name: "Only This Playlist"}
+	if err := db.Create(&pl).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+
+	items := []models.PlaylistItem{
+		{ID: "pi-1", PlaylistID: playlistID, MediaID: in1.ID, Position: 0},
+		{ID: "pi-2", PlaylistID: playlistID, MediaID: in2.ID, Position: 1},
+	}
+	if err := db.Create(&items).Error; err != nil {
+		t.Fatalf("create playlist items: %v", err)
+	}
+
+	sb := models.SmartBlock{
+		ID:        "sb-1",
+		StationID: stationID,
+		Name:      "SB",
+		Rules: map[string]any{
+			"targetMinutes":    10,
+			"durationAccuracy": 2,
+			"sourcePlaylists":  []string{playlistID},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smartblock: %v", err)
+	}
+
+	eng := New(db, zerolog.Nop())
+	res, err := eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         123,
+		Duration:     int64(6 * time.Minute / time.Millisecond),
+		StationID:    stationID,
+		MountID:      "mount-1",
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(res.Items) == 0 {
+		t.Fatalf("expected items")
+	}
+
+	allowed := map[string]struct{}{in1.ID: {}, in2.ID: {}}
+	for _, it := range res.Items {
+		if _, ok := allowed[it.MediaID]; !ok {
+			t.Fatalf("picked media outside source playlist: %s", it.MediaID)
+		}
+	}
+}
 
 func TestToFloat(t *testing.T) {
 	tests := []struct {
