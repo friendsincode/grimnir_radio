@@ -99,7 +99,9 @@ func (a *Analyzer) parseDiscovererOutput(output string, resp *pb.AnalyzeMediaRes
 	lines := strings.Split(output, "\n")
 
 	// Regular expressions for parsing
-	durationRegex := regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+)\.(\d+)`)
+	// gst-discoverer prints fractional seconds with variable precision (often nanoseconds, 9 digits).
+	// Example: "Duration: 0:58:12.345000000" (the .345000000 is 345ms, not 345000000ms).
+	durationRegex := regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+)(?:\.(\d+))?`)
 	bitrateRegex := regexp.MustCompile(`bitrate:\s*(\d+)`)
 	samplerateRegex := regexp.MustCompile(`sample rate:\s*(\d+)`)
 	channelsRegex := regexp.MustCompile(`channels:\s*(\d+)`)
@@ -126,9 +128,13 @@ func (a *Analyzer) parseDiscovererOutput(output string, resp *pb.AnalyzeMediaRes
 			hours, _ := strconv.Atoi(matches[1])
 			minutes, _ := strconv.Atoi(matches[2])
 			seconds, _ := strconv.Atoi(matches[3])
-			ms, _ := strconv.Atoi(matches[4])
+			frac := ""
+			if len(matches) >= 5 {
+				frac = matches[4]
+			}
+			ms := fracToMilliseconds(frac)
 
-			durationMs := int64(hours)*3600000 + int64(minutes)*60000 + int64(seconds)*1000 + int64(ms)
+			durationMs := int64(hours)*3600000 + int64(minutes)*60000 + int64(seconds)*1000 + ms
 			resp.DurationMs = durationMs
 		}
 
@@ -187,6 +193,27 @@ func (a *Analyzer) parseDiscovererOutput(output string, resp *pb.AnalyzeMediaRes
 			}
 		}
 	}
+}
+
+func fracToMilliseconds(frac string) int64 {
+	// frac is the digits after the decimal point in seconds, variable precision (e.g. "12", "004", "345000000").
+	// Convert to milliseconds via: floor(frac * 1000 / 10^len(frac)).
+	if frac == "" {
+		return 0
+	}
+	fracInt, err := strconv.ParseInt(frac, 10, 64)
+	if err != nil || fracInt < 0 {
+		return 0
+	}
+	denom := int64(1)
+	for i := 0; i < len(frac); i++ {
+		denom *= 10
+		// guard against pathological precision
+		if denom <= 0 {
+			return 0
+		}
+	}
+	return (fracInt * 1000) / denom
 }
 
 // runLoudnessAnalysis runs EBU R128 loudness measurement
