@@ -1779,7 +1779,7 @@ func (a *API) handleSystemLogs(w http.ResponseWriter, r *http.Request) {
 	// Collect unique station IDs and fetch their names
 	stationIDs := make(map[string]bool)
 	for _, entry := range entries {
-		if sid, ok := entry.Fields["station_id"].(string); ok && sid != "" {
+		if sid := logbuffer.StationIDFromFields(entry.Fields); sid != "" {
 			stationIDs[sid] = true
 		}
 	}

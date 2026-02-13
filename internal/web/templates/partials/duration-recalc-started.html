@@ -1,0 +1,13 @@
+{{define "partials/duration-recalc-started"}}
+<div class="alert alert-success mb-3">
+    Queued duration refresh for {{.Queued}} tracks. Analyzer will update durations in the background.
+</div>
+
+<div id="durationRecalcStatus"
+     hx-get="/dashboard/media/reanalyze-durations/status?since={{.BatchSince}}"
+     hx-trigger="load, every 2s"
+     hx-swap="innerHTML">
+    <div class="text-body-secondary small">Loading status...</div>
+</div>
+{{end}}
+

@@ -9,10 +9,72 @@ package logbuffer
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
 	"time"
 )
+
+// StationIDFromFields extracts a station UUID from a log entry's fields.
+// Many components historically logged this as "station" instead of "station_id".
+func StationIDFromFields(fields map[string]interface{}) string {
+	if fields == nil {
+		return ""
+	}
+
+	// Preferred key.
+	if v, ok := fields["station_id"]; ok {
+		if s := coerceString(v); looksLikeUUID(s) {
+			return s
+		}
+	}
+
+	// Common alternates.
+	for _, k := range []string{"stationID", "stationId", "station_uuid", "stationUuid"} {
+		if v, ok := fields[k]; ok {
+			if s := coerceString(v); looksLikeUUID(s) {
+				return s
+			}
+		}
+	}
+
+	// "station" is ambiguous (sometimes name). Only treat it as an ID if it looks like a UUID.
+	if v, ok := fields["station"]; ok {
+		if s := coerceString(v); looksLikeUUID(s) {
+			return s
+		}
+	}
+
+	return ""
+}
+
+func coerceString(v interface{}) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	default:
+		// Avoid printing structured objects as station IDs.
+		switch v.(type) {
+		case map[string]interface{}, []interface{}:
+			return ""
+		}
+		return fmt.Sprint(v)
+	}
+}
+
+func looksLikeUUID(s string) bool {
+	// Cheap guard to avoid depending on uuid parsing in this low-level package.
+	// Accept canonical UUID format: 8-4-4-4-12 (36 chars, 4 hyphens).
+	if len(s) != 36 {
+		return false
+	}
+	if s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
+		return false
+	}
+	return true
+}
 
 // LogEntry represents a single log entry.
 type LogEntry struct {
@@ -82,7 +144,7 @@ func (b *Buffer) Add(entry LogEntry) {
 	}
 
 	// Mirror to per-station buffer (if enabled).
-	sid, _ := entry.Fields["station_id"].(string)
+	sid := StationIDFromFields(entry.Fields)
 	if sid != "" {
 		var stationBuf *Buffer
 		b.stationMu.RLock()
@@ -178,8 +240,7 @@ func (b *Buffer) Query(params QueryParams) []LogEntry {
 
 		// Station ID filter - check in Fields
 		if params.StationID != "" {
-			stationID, ok := entry.Fields["station_id"].(string)
-			if !ok || stationID != params.StationID {
+			if StationIDFromFields(entry.Fields) != params.StationID {
 				continue
 			}
 		}
@@ -293,8 +354,7 @@ func (b *Buffer) StatsForStation(stationID string) Stats {
 
 		// Filter by station_id if specified
 		if stationID != "" {
-			entryStationID, ok := entry.Fields["station_id"].(string)
-			if !ok || entryStationID != stationID {
+			if StationIDFromFields(entry.Fields) != stationID {
 				continue
 			}
 		}
@@ -330,8 +390,7 @@ func (b *Buffer) GetComponentsForStation(stationID string) []string {
 
 		// Filter by station_id if specified
 		if stationID != "" {
-			entryStationID, ok := entry.Fields["station_id"].(string)
-			if !ok || entryStationID != stationID {
+			if StationIDFromFields(entry.Fields) != stationID {
 				continue
 			}
 		}
@@ -400,6 +459,17 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 				entry.Timestamp = t
 			}
 			delete(rawEntry, "time")
+		}
+
+		// Normalize station ID into "station_id" so the log viewers can reliably
+		// show station names and filter station logs.
+		// Note: keep original keys too, but ensure station_id exists when possible.
+		tmpFields := make(map[string]interface{}, len(rawEntry))
+		for k, v := range rawEntry {
+			tmpFields[k] = v
+		}
+		if sid := StationIDFromFields(tmpFields); sid != "" {
+			entry.Fields["station_id"] = sid
 		}
 
 		// Store remaining fields

@@ -328,8 +328,8 @@ function renderLogs(entries) {
         const levelBadge = getLevelBadge(entry.level);
         const message = escapeHtml(entry.message || '(no message)');
         const component = entry.component || '-';
-        const stationId = entry.fields?.station_id || '';
-        const stationName = stationId ? (stationNames[stationId] || '-') : '-';
+        const stationId = entry.fields?.station_id || entry.fields?.stationID || entry.fields?.stationId || '';
+        const stationName = stationId ? (stationNames[stationId] || stationId.substring(0, 8) + '...') : '-';
 
         return `
             <tr>

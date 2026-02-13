@@ -41,6 +41,9 @@ func (h *Handler) MediaReanalyzeDurations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Used by the status endpoint to scope "this batch" of jobs.
+	batchSince := time.Now().UTC().Add(-1 * time.Second)
+
 	pendingStatuses := []string{"pending", "running"}
 
 	// Queue only media that do not already have a pending/running analysis job.
@@ -99,10 +102,11 @@ func (h *Handler) MediaReanalyzeDurations(w http.ResponseWriter, r *http.Request
 		Msg("queued media duration reanalysis jobs")
 
 	if r.Header.Get("HX-Request") == "true" {
-		w.Write([]byte(fmt.Sprintf(
-			`<div class="alert alert-success">Queued duration refresh for %d tracks. Metadata analyzer will update durations in the background.</div>`,
-			len(jobs),
-		)))
+		h.RenderPartial(w, r, "partials/duration-recalc-started", map[string]any{
+			"Queued":     len(jobs),
+			"StationID":  station.ID,
+			"BatchSince": batchSince.Format(time.RFC3339),
+		})
 		return
 	}
 
@@ -110,6 +114,78 @@ func (h *Handler) MediaReanalyzeDurations(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status": "ok",
 		"queued": len(jobs),
+	})
+}
+
+// MediaReanalyzeDurationsStatus returns progress for a duration reanalysis batch (HTMX).
+func (h *Handler) MediaReanalyzeDurationsStatus(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+	if !h.HasStationPermission(r, "edit_metadata") {
+		http.Error(w, "Permission denied", http.StatusForbidden)
+		return
+	}
+
+	sinceStr := r.URL.Query().Get("since")
+	if sinceStr == "" {
+		h.RenderPartial(w, r, "partials/duration-recalc-status", map[string]any{
+			"HasBatch": false,
+		})
+		return
+	}
+	since, err := time.Parse(time.RFC3339, sinceStr)
+	if err != nil {
+		http.Error(w, "Invalid since time", http.StatusBadRequest)
+		return
+	}
+
+	base := h.db.
+		Table("analysis_jobs aj").
+		Joins("JOIN media_items m ON m.id = aj.media_id").
+		Where("m.station_id = ?", station.ID).
+		Where("aj.created_at >= ?", since)
+
+	var total, pending, running, complete, failed int64
+	_ = base.Session(&gorm.Session{}).Count(&total).Error
+	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "pending").Count(&pending).Error
+	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "running").Count(&running).Error
+	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "complete").Count(&complete).Error
+	_ = base.Session(&gorm.Session{}).Where("aj.status = ?", "failed").Count(&failed).Error
+
+	done := complete + failed
+	percent := 0
+	if total > 0 {
+		percent = int((float64(done) / float64(total)) * 100.0)
+		if percent > 100 {
+			percent = 100
+		}
+	}
+
+	// Surface a few recent failures for quick debugging.
+	var recentFailed []models.AnalysisJob
+	_ = h.db.
+		WithContext(r.Context()).
+		Joins("JOIN media_items m ON m.id = analysis_jobs.media_id").
+		Where("m.station_id = ? AND analysis_jobs.created_at >= ? AND analysis_jobs.status = ?", station.ID, since, "failed").
+		Order("analysis_jobs.updated_at DESC").
+		Limit(10).
+		Find(&recentFailed).Error
+
+	h.RenderPartial(w, r, "partials/duration-recalc-status", map[string]any{
+		"HasBatch":     true,
+		"Since":        sinceStr,
+		"Total":        total,
+		"Pending":      pending,
+		"Running":      running,
+		"Complete":     complete,
+		"Failed":       failed,
+		"Done":         done,
+		"Percent":      percent,
+		"RecentFailed": recentFailed,
+		"UpdatedAt":    time.Now().UTC(),
 	})
 }
 
