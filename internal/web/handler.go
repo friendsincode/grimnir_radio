@@ -203,6 +203,7 @@ func (h *Handler) SetLiveService(svc LiveService) {
 func (h *Handler) loadTemplates() error {
 	funcMap := template.FuncMap{
 		"formatTime":       formatTime,
+		"formatRFC3339UTC": formatRFC3339UTC,
 		"timeago":          timeago,
 		"formatDuration":   formatDuration,
 		"formatMs":         formatMs,
@@ -455,6 +456,10 @@ func (h *Handler) StaticHandler() http.Handler {
 
 func formatTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
+}
+
+func formatRFC3339UTC(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
 }
 
 func timeago(v any) string {

@@ -45,7 +45,9 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 	var data DashboardData
 
 	// Upcoming schedule (including recurring entries expanded into instances)
-	data.UpcomingEntries = h.loadDashboardUpcomingEntries(station.ID, time.Now(), 6*time.Hour, 10)
+	// Schedule times are stored/compared in UTC throughout the system; use UTC here to avoid
+	// empty dashboards when the server runs in a non-UTC timezone.
+	data.UpcomingEntries = h.loadDashboardUpcomingEntries(station.ID, time.Now().UTC(), 6*time.Hour, 10)
 	data.UpcomingEntries = h.enrichDashboardUpcomingEntries(data.UpcomingEntries)
 
 	// Recent media uploads
@@ -80,7 +82,8 @@ func (h *Handler) loadDashboardUpcomingEntries(stationID string, from time.Time,
 	if limit <= 0 {
 		limit = 10
 	}
-	to := from.Add(horizon)
+	from = from.UTC()
+	to := from.Add(horizon).UTC()
 
 	// Load non-recurring entries and already-materialized instances.
 	var entries []models.ScheduleEntry
