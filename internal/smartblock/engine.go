@@ -165,6 +165,13 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 	if year, ok := rules["yearRange"]; ok && !hasField("year") {
 		def.Include = append(def.Include, FilterRule{Field: "year", Value: year})
 	}
+	// Source playlists: legacy UI stores playlist IDs as a list. This must be enforced in SQL.
+	if v, ok := rules["sourcePlaylists"]; ok && !hasField("source_playlists") {
+		def.Include = append(def.Include, FilterRule{Field: "source_playlists", Value: v})
+	}
+	if v, ok := rules["source_playlists"]; ok && !hasField("source_playlists") {
+		def.Include = append(def.Include, FilterRule{Field: "source_playlists", Value: v})
+	}
 
 	if excludeExplicit, ok := rules["excludeExplicit"].(bool); ok && excludeExplicit && !hasField("explicit") {
 		// Legacy UI semantics: "exclude explicit" means explicit=false.
@@ -306,6 +313,18 @@ func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
 	}
 
 	switch field {
+	case "source_playlists", "sourceplaylists", "playlists":
+		// Limit candidates to media that exist in one of the selected playlists.
+		// This is intentionally SQL-only: MediaItem doesn't preload playlist membership here.
+		ids, ok := toStringSlice(value)
+		if !ok || len(ids) == 0 {
+			return query
+		}
+		clause := "EXISTS (SELECT 1 FROM playlist_items pi WHERE pi.media_id = media_items.id AND pi.playlist_id IN ?)"
+		if positive {
+			return query.Where(clause, ids)
+		}
+		return query.Where("NOT ("+clause+")", ids)
 	case "genre", "mood", "language", "album", "title", "label":
 		return cond(field+" = ?", value)
 	case "artist":
@@ -755,6 +774,13 @@ func matchesFilters(item models.MediaItem, rules []FilterRule, positive bool) bo
 }
 
 func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool {
+	// SQL-only filter (handled by applyFilterRule). Skip in-memory evaluation so it doesn't
+	// accidentally exclude everything when used as an exclude rule.
+	switch strings.ToLower(rule.Field) {
+	case "source_playlists", "sourceplaylists", "playlists":
+		return true
+	}
+
 	match := false
 	switch strings.ToLower(rule.Field) {
 	case "genre":
