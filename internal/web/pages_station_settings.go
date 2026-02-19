@@ -10,9 +10,14 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+const maxStationDescriptionChars = 5000
 
 // StationSettings renders the station settings page
 func (h *Handler) StationSettings(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +65,11 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := r.ParseForm(); err != nil {
+		if r.Header.Get("HX-Request") == "true" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`<div class="alert alert-danger">Invalid form data</div>`))
+			return
+		}
 		http.Error(w, "Invalid form", http.StatusBadRequest)
 		return
 	}
@@ -111,11 +121,29 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if err := validateStationDescription(station.Description); err != nil {
+		if r.Header.Get("HX-Request") == "true" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(fmt.Sprintf(`<div class="alert alert-danger">%s</div>`, err.Error())))
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	if err := h.db.Save(station).Error; err != nil {
 		h.logger.Error().Err(err).Msg("failed to update station settings")
+		if r.Header.Get("HX-Request") == "true" {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`<div class="alert alert-danger">Failed to save station settings. Check description length/content and try again.</div>`))
+			return
+		}
 		http.Error(w, "Failed to update settings", http.StatusInternalServerError)
 		return
 	}
+
+	// Ensure public/listen pages are refreshed with updated station metadata.
+	h.publishCacheEvent(events.EventStationUpdated, station.ID)
 
 	h.logger.Info().
 		Str("station_id", station.ID).
@@ -128,6 +156,19 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	http.Redirect(w, r, "/dashboard/station/settings", http.StatusSeeOther)
+}
+
+func validateStationDescription(desc string) error {
+	if !utf8.ValidString(desc) {
+		return fmt.Errorf("description contains invalid text encoding")
+	}
+	if strings.ContainsRune(desc, '\x00') {
+		return fmt.Errorf("description contains unsupported control characters")
+	}
+	if utf8.RuneCountInString(desc) > maxStationDescriptionChars {
+		return fmt.Errorf("description is too long (max %d characters)", maxStationDescriptionChars)
+	}
+	return nil
 }
 
 // canManageStationSettings checks if user can manage station settings
