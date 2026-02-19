@@ -1765,3 +1765,614 @@ func (a *AzuraCastImporter) importPlaylists(ctx context.Context, backup *AzuraCa
 
 	return nil
 }
+
+// AnalyzeForStaging performs deep analysis for staged review.
+// Currently supports AzuraCast API mode; backup staged analysis is planned separately.
+func (a *AzuraCastImporter) AnalyzeForStaging(ctx context.Context, jobID string, options Options) (*models.StagedImport, error) {
+	a.logger.Info().Str("job_id", jobID).Msg("analyzing AzuraCast for staged import")
+
+	if !isAPIMode(options) {
+		return nil, fmt.Errorf("staged AzuraCast import currently requires API mode")
+	}
+
+	analyzer := NewStagedAnalyzer(a.db, a.logger)
+	staged, err := analyzer.CreateStagedImport(ctx, jobID, string(SourceTypeAzuraCast))
+	if err != nil {
+		return nil, fmt.Errorf("create staged import: %w", err)
+	}
+
+	client, err := createAPIClient(options)
+	if err != nil {
+		return nil, fmt.Errorf("create API client: %w", err)
+	}
+
+	stations, err := client.GetStations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get stations: %w", err)
+	}
+
+	var azuraWarnings models.ImportWarnings
+	if len(stations) > 1 {
+		azuraWarnings = append(azuraWarnings, models.ImportWarning{
+			Code:     "multi_station_detected",
+			Severity: "info",
+			Message:  fmt.Sprintf("%d stations detected", len(stations)),
+			Details:  "Station-level selection is not yet available; review and deselect items per tab as needed.",
+		})
+	}
+
+	if !options.SkipUsers {
+		azuraWarnings = append(azuraWarnings, models.ImportWarning{
+			Code:     "streamers_not_staged",
+			Severity: "info",
+			Message:  "Streamer/DJ accounts are excluded from staged review",
+			Details:  "Use non-staged import if you need automatic DJ account migration in this run.",
+		})
+	}
+
+	for _, station := range stations {
+		playlistNames := make(map[int]string)
+
+		if !options.SkipMedia {
+			mediaList, err := client.GetMedia(ctx, station.ID)
+			if err != nil {
+				a.logger.Warn().Err(err).Int("station_id", station.ID).Msg("failed to fetch media for staged analysis")
+			} else {
+				for _, media := range mediaList {
+					title := media.Title
+					if title == "" {
+						title = filepath.Base(media.Path)
+					}
+
+					durationMs := int(media.Length * float64(time.Second/time.Millisecond))
+					scopedSourceID := makeScopedSourceID(station.ID, fmt.Sprintf("%d", media.ID))
+
+					isDuplicate := false
+					duplicateOfID := ""
+					var existing models.MediaItem
+					if err := a.db.WithContext(ctx).
+						Where("import_source = ? AND import_source_id IN ?", string(SourceTypeAzuraCast), []string{scopedSourceID, fmt.Sprintf("%d", media.ID)}).
+						First(&existing).Error; err == nil {
+						isDuplicate = true
+						duplicateOfID = existing.ID
+					}
+
+					staged.StagedMedia = append(staged.StagedMedia, models.StagedMediaItem{
+						SourceID:      scopedSourceID,
+						Title:         title,
+						Artist:        media.Artist,
+						Album:         media.Album,
+						Genre:         media.Genre,
+						DurationMs:    durationMs,
+						FilePath:      media.Path,
+						FileSize:      media.Size,
+						IsDuplicate:   isDuplicate,
+						DuplicateOfID: duplicateOfID,
+						Selected:      !isDuplicate,
+					})
+				}
+			}
+		}
+
+		playlists, err := client.GetPlaylists(ctx, station.ID)
+		if err != nil {
+			a.logger.Warn().Err(err).Int("station_id", station.ID).Msg("failed to fetch playlists for staged analysis")
+			continue
+		}
+
+		for _, playlist := range playlists {
+			playlistNames[playlist.ID] = playlist.Name
+
+			if playlist.Source == "remote_url" && playlist.RemoteURL != "" {
+				staged.StagedWebstreams = append(staged.StagedWebstreams, models.StagedWebstreamItem{
+					SourceID:    makeScopedSourceID(station.ID, fmt.Sprintf("%d", playlist.ID)),
+					Name:        playlist.Name,
+					Description: fmt.Sprintf("Station: %s", station.Name),
+					URL:         playlist.RemoteURL,
+					Selected:    true,
+				})
+				continue
+			}
+
+			order := "shuffle"
+			if playlist.Order == "sequential" {
+				order = "sequential"
+			}
+			summary := fmt.Sprintf("Type: %s, Order: %s, Weight: %d", playlist.Type, order, playlist.Weight)
+
+			staged.StagedSmartBlocks = append(staged.StagedSmartBlocks, models.StagedSmartBlockItem{
+				SourceID:        makeScopedSourceID(station.ID, fmt.Sprintf("%d", playlist.ID)),
+				Name:            playlist.Name,
+				Description:     fmt.Sprintf("Station: %s", station.Name),
+				CriteriaCount:   0,
+				CriteriaSummary: summary,
+				Selected:        true,
+			})
+		}
+
+		if options.SkipSchedules {
+			continue
+		}
+
+		schedules, err := client.GetSchedules(ctx, station.ID)
+		if err != nil {
+			a.logger.Warn().Err(err).Int("station_id", station.ID).Msg("failed to fetch schedules for staged analysis")
+			continue
+		}
+
+		for _, sched := range schedules {
+			name := "Scheduled block"
+			if plName := playlistNames[sched.PlaylistID]; plName != "" {
+				name = plName
+			}
+
+			durationMinutes := 60
+			if sched.EndTime > sched.StartTime {
+				durationMinutes = (sched.EndTime - sched.StartTime) / 60
+			}
+
+			stagedShow := models.StagedShowItem{
+				SourceID:        makeScopedSourceID(station.ID, fmt.Sprintf("%d", sched.ID)),
+				Name:            name,
+				Description:     fmt.Sprintf("Imported from station %s playlist schedule", station.Name),
+				DurationMinutes: durationMinutes,
+				Timezone:        "UTC",
+				InstanceCount:   1,
+				Selected:        true,
+			}
+
+			dtStart, rrule, pattern := buildAzuraScheduleRecurrence(sched)
+			stagedShow.DTStart = dtStart
+			stagedShow.DetectedRRule = rrule
+			stagedShow.PatternNote = pattern
+			if rrule != "" {
+				stagedShow.PatternConfidence = 1.0
+				stagedShow.CreateShow = true
+			} else {
+				stagedShow.CreateClock = true
+			}
+
+			staged.StagedShows = append(staged.StagedShows, stagedShow)
+		}
+	}
+
+	analyzer.ApplyDefaultSelections(staged)
+	analyzer.GenerateWarnings(staged)
+	staged.Warnings = append(staged.Warnings, azuraWarnings...)
+	analyzer.GenerateSuggestions(staged)
+
+	now := time.Now()
+	staged.AnalyzedAt = &now
+	staged.Status = models.StagedImportStatusReady
+	if err := analyzer.UpdateStagedImport(ctx, staged); err != nil {
+		return nil, fmt.Errorf("update staged import: %w", err)
+	}
+
+	return staged, nil
+}
+
+// CommitStagedImport imports selected items from a staged AzuraCast plan.
+func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *models.StagedImport, jobID string, options Options, cb ProgressCallback) (*Result, error) {
+	startTime := time.Now()
+	result := &Result{
+		Warnings: []string{},
+		Skipped:  make(map[string]int),
+		Mappings: make(map[string]Mapping),
+	}
+	importedItems := &ImportedItems{}
+
+	client, err := createAPIClient(options)
+	if err != nil {
+		return nil, fmt.Errorf("create API client: %w", err)
+	}
+
+	stations, err := client.GetStations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get stations: %w", err)
+	}
+
+	stationByID := make(map[int]AzuraCastAPIStation)
+	for _, s := range stations {
+		stationByID[s.ID] = s
+	}
+
+	stationMap := make(map[int]string) // source station -> grimnir station
+	for sourceStationID, sourceStation := range stationByID {
+		stationID, created, err := a.ensureTargetStation(ctx, options, sourceStation)
+		if err != nil {
+			return nil, err
+		}
+		stationMap[sourceStationID] = stationID
+		if created {
+			result.StationsCreated++
+		}
+	}
+
+	// Build selected media id map per station, then fetch media catalogs once per station.
+	selectedMedia := make(map[int]map[int]bool)
+	for _, item := range staged.StagedMedia {
+		if !item.Selected {
+			result.Skipped["media_deselected"]++
+			continue
+		}
+		sourceStationID, sourceID, err := parseScopedSourceID(item.SourceID)
+		if err != nil {
+			result.Skipped["media_invalid_id"]++
+			continue
+		}
+		mediaID := 0
+		_, _ = fmt.Sscanf(sourceID, "%d", &mediaID)
+		if mediaID == 0 {
+			result.Skipped["media_invalid_id"]++
+			continue
+		}
+		if selectedMedia[sourceStationID] == nil {
+			selectedMedia[sourceStationID] = make(map[int]bool)
+		}
+		selectedMedia[sourceStationID][mediaID] = true
+	}
+
+	mediaCatalog := make(map[int]map[int]AzuraCastAPIMediaFile)
+	for sourceStationID := range selectedMedia {
+		mediaList, err := client.GetMedia(ctx, sourceStationID)
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to fetch media list for station %d: %v", sourceStationID, err))
+			continue
+		}
+		mediaCatalog[sourceStationID] = make(map[int]AzuraCastAPIMediaFile, len(mediaList))
+		for _, m := range mediaList {
+			mediaCatalog[sourceStationID][m.ID] = m
+		}
+	}
+
+	totalMediaSelected := 0
+	for _, ids := range selectedMedia {
+		totalMediaSelected += len(ids)
+	}
+	mediaImported := 0
+
+	for sourceStationID, idSet := range selectedMedia {
+		targetStationID, ok := stationMap[sourceStationID]
+		if !ok {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("No target station mapping found for source station %d", sourceStationID))
+			continue
+		}
+
+		for mediaID := range idSet {
+			azMedia, ok := mediaCatalog[sourceStationID][mediaID]
+			if !ok {
+				result.Skipped["media_not_found"]++
+				continue
+			}
+
+			scopedSourceID := makeScopedSourceID(sourceStationID, fmt.Sprintf("%d", mediaID))
+			var existingImported models.MediaItem
+			if err := a.db.WithContext(ctx).
+				Where("station_id = ? AND import_source = ? AND import_source_id IN ?", targetStationID, string(SourceTypeAzuraCast), []string{scopedSourceID, fmt.Sprintf("%d", mediaID)}).
+				First(&existingImported).Error; err == nil {
+				result.Skipped["media_already_imported"]++
+				continue
+			}
+
+			reader, _, err := client.DownloadMedia(ctx, sourceStationID, mediaID)
+			if err != nil {
+				result.Skipped["media_download_failed"]++
+				continue
+			}
+
+			var buf bytes.Buffer
+			hasher := sha256.New()
+			if _, err := io.Copy(io.MultiWriter(&buf, hasher), reader); err != nil {
+				reader.Close()
+				result.Skipped["media_read_failed"]++
+				continue
+			}
+			reader.Close()
+
+			contentHash := hex.EncodeToString(hasher.Sum(nil))
+			artwork, artworkMime, _ := client.DownloadMediaArt(ctx, sourceStationID, mediaID)
+
+			mediaItem := a.createMediaItemFromAzMedia(azMedia, targetStationID, contentHash, artwork, artworkMime)
+			mediaItem.ImportJobID = &jobID
+			mediaItem.ImportSource = string(SourceTypeAzuraCast)
+			mediaItem.ImportSourceID = scopedSourceID
+
+			var existingHash models.MediaItem
+			if err := a.db.WithContext(ctx).Where("content_hash = ?", contentHash).First(&existingHash).Error; err == nil {
+				mediaItem.StorageKey = existingHash.StorageKey
+				mediaItem.Path = existingHash.Path
+			} else {
+				storageKey, err := a.mediaService.Store(ctx, targetStationID, mediaItem.ID, bytes.NewReader(buf.Bytes()))
+				if err != nil {
+					result.Skipped["media_storage_failed"]++
+					continue
+				}
+				mediaItem.StorageKey = storageKey
+				mediaItem.Path = a.mediaService.URL(storageKey)
+			}
+
+			if err := a.db.WithContext(ctx).Create(mediaItem).Error; err != nil {
+				result.Skipped["media_db_failed"]++
+				continue
+			}
+
+			importedItems.MediaIDs = append(importedItems.MediaIDs, mediaItem.ID)
+			result.MediaItemsImported++
+			mediaImported++
+			result.Mappings[fmt.Sprintf("media_%s", scopedSourceID)] = Mapping{
+				OldID: scopedSourceID,
+				NewID: mediaItem.ID,
+				Type:  "media",
+				Name:  mediaItem.Title,
+			}
+
+			if totalMediaSelected > 0 {
+				cb(Progress{
+					Phase:         "importing_media",
+					CurrentStep:   fmt.Sprintf("Importing media: %d/%d", mediaImported, totalMediaSelected),
+					MediaTotal:    totalMediaSelected,
+					MediaImported: mediaImported,
+					Percentage:    10 + (float64(mediaImported)/float64(totalMediaSelected))*50,
+					StartTime:     startTime,
+				})
+			}
+		}
+	}
+
+	// Import selected smart blocks
+	for _, sb := range staged.StagedSmartBlocks {
+		if !sb.Selected {
+			result.Skipped["smartblock_deselected"]++
+			continue
+		}
+		sourceStationID, sourceID, err := parseScopedSourceID(sb.SourceID)
+		if err != nil {
+			result.Skipped["smartblock_invalid_id"]++
+			continue
+		}
+		targetStationID, ok := stationMap[sourceStationID]
+		if !ok {
+			result.Skipped["smartblock_no_station"]++
+			continue
+		}
+
+		smartBlock := &models.SmartBlock{
+			ID:             uuid.New().String(),
+			StationID:      targetStationID,
+			Name:           sb.Name,
+			Description:    sb.Description,
+			Rules:          sb.RawCriteria,
+			ImportJobID:    &jobID,
+			ImportSource:   string(SourceTypeAzuraCast),
+			ImportSourceID: makeScopedSourceID(sourceStationID, sourceID),
+		}
+		if err := a.db.WithContext(ctx).Create(smartBlock).Error; err != nil {
+			result.Skipped["smartblock_db_failed"]++
+			continue
+		}
+		importedItems.SmartBlockIDs = append(importedItems.SmartBlockIDs, smartBlock.ID)
+		result.PlaylistsCreated++
+	}
+
+	// Import selected shows/schedules
+	for _, sh := range staged.StagedShows {
+		if !sh.Selected {
+			result.Skipped["show_deselected"]++
+			continue
+		}
+		sourceStationID, sourceID, err := parseScopedSourceID(sh.SourceID)
+		if err != nil {
+			result.Skipped["show_invalid_id"]++
+			continue
+		}
+		targetStationID, ok := stationMap[sourceStationID]
+		if !ok {
+			result.Skipped["show_no_station"]++
+			continue
+		}
+
+		rrule := sh.CustomRRule
+		if rrule == "" {
+			rrule = sh.DetectedRRule
+		}
+
+		if sh.CreateShow && rrule != "" {
+			show := &models.Show{
+				ID:                     uuid.New().String(),
+				StationID:              targetStationID,
+				Name:                   sh.Name,
+				Description:            sh.Description,
+				DefaultDurationMinutes: sh.DurationMinutes,
+				Color:                  sh.Color,
+				RRule:                  rrule,
+				DTStart:                sh.DTStart,
+				Timezone:               "UTC",
+				Active:                 true,
+				ImportJobID:            &jobID,
+				ImportSource:           string(SourceTypeAzuraCast),
+				ImportSourceID:         makeScopedSourceID(sourceStationID, sourceID),
+			}
+			if sh.Timezone != "" {
+				show.Timezone = sh.Timezone
+			}
+			if err := a.db.WithContext(ctx).Create(show).Error; err != nil {
+				result.Skipped["show_db_failed"]++
+				continue
+			}
+			importedItems.ShowIDs = append(importedItems.ShowIDs, show.ID)
+			result.SchedulesCreated++
+			continue
+		}
+
+		clock := &models.ClockHour{
+			ID:          uuid.New().String(),
+			StationID:   targetStationID,
+			Name:        sh.Name,
+			ImportJobID: &jobID,
+		}
+		if err := a.db.WithContext(ctx).Create(clock).Error; err != nil {
+			result.Skipped["clock_db_failed"]++
+			continue
+		}
+		importedItems.ClockIDs = append(importedItems.ClockIDs, clock.ID)
+		result.SchedulesCreated++
+	}
+
+	// Import selected webstreams
+	for _, ws := range staged.StagedWebstreams {
+		if !ws.Selected {
+			result.Skipped["webstream_deselected"]++
+			continue
+		}
+		sourceStationID, sourceID, err := parseScopedSourceID(ws.SourceID)
+		if err != nil {
+			result.Skipped["webstream_invalid_id"]++
+			continue
+		}
+		targetStationID, ok := stationMap[sourceStationID]
+		if !ok {
+			result.Skipped["webstream_no_station"]++
+			continue
+		}
+		webstream := &models.Webstream{
+			ID:             uuid.New().String(),
+			StationID:      targetStationID,
+			Name:           ws.Name,
+			Description:    ws.Description,
+			URLs:           []string{ws.URL},
+			Active:         true,
+			ImportJobID:    &jobID,
+			ImportSource:   string(SourceTypeAzuraCast),
+			ImportSourceID: makeScopedSourceID(sourceStationID, sourceID),
+		}
+		if err := a.db.WithContext(ctx).Create(webstream).Error; err != nil {
+			result.Skipped["webstream_db_failed"]++
+			continue
+		}
+		importedItems.WebstreamIDs = append(importedItems.WebstreamIDs, webstream.ID)
+		result.PlaylistsCreated++
+	}
+
+	now := time.Now()
+	staged.Status = models.StagedImportStatusCommitted
+	staged.CommittedAt = &now
+	_ = a.db.WithContext(ctx).Save(staged).Error
+
+	var job Job
+	if err := a.db.WithContext(ctx).First(&job, "id = ?", jobID).Error; err == nil {
+		job.ImportedItems = importedItems
+		_ = a.db.WithContext(ctx).Save(&job).Error
+	}
+
+	result.DurationSeconds = time.Since(startTime).Seconds()
+	return result, nil
+}
+
+func (a *AzuraCastImporter) ensureTargetStation(ctx context.Context, options Options, source AzuraCastAPIStation) (stationID string, created bool, err error) {
+	if options.TargetStationID != "" {
+		return options.TargetStationID, false, nil
+	}
+
+	var existing models.Station
+	if err := a.db.WithContext(ctx).Where("name = ?", source.Name).First(&existing).Error; err == nil {
+		return existing.ID, false, nil
+	}
+
+	station := &models.Station{
+		ID:          uuid.New().String(),
+		Name:        source.Name,
+		Description: source.Description,
+		Shortcode:   source.ShortName,
+		Timezone:    "UTC",
+		Active:      true,
+		Public:      source.IsPublic,
+		Approved:    true,
+		ListenURL:   source.ListenURL,
+		Website:     source.URL,
+	}
+	if options.ImportingUserID != "" {
+		station.OwnerID = options.ImportingUserID
+	}
+
+	if err := a.db.WithContext(ctx).Create(station).Error; err != nil {
+		return "", false, fmt.Errorf("create station %q: %w", source.Name, err)
+	}
+
+	if options.ImportingUserID != "" {
+		stationUser := &models.StationUser{
+			ID:        uuid.New().String(),
+			UserID:    options.ImportingUserID,
+			StationID: station.ID,
+			Role:      models.StationRoleOwner,
+		}
+		_ = a.db.WithContext(ctx).Create(stationUser).Error
+	}
+
+	return station.ID, true, nil
+}
+
+func makeScopedSourceID(sourceStationID int, sourceID string) string {
+	return fmt.Sprintf("%d::%s", sourceStationID, sourceID)
+}
+
+func parseScopedSourceID(scoped string) (sourceStationID int, sourceID string, err error) {
+	parts := strings.SplitN(scoped, "::", 2)
+	if len(parts) != 2 {
+		return 0, "", fmt.Errorf("invalid scoped source ID: %s", scoped)
+	}
+	if _, err := fmt.Sscanf(parts[0], "%d", &sourceStationID); err != nil {
+		return 0, "", fmt.Errorf("invalid source station ID in scoped ID: %s", scoped)
+	}
+	return sourceStationID, parts[1], nil
+}
+
+func buildAzuraScheduleRecurrence(sched AzuraCastAPISchedule) (dtStart time.Time, rrule string, pattern string) {
+	// start/end time are seconds from midnight in AzuraCast API.
+	startHour := sched.StartTime / 3600
+	startMinute := (sched.StartTime % 3600) / 60
+
+	date := time.Now().UTC()
+	if sched.StartDate != nil && *sched.StartDate != "" {
+		if parsed, err := time.Parse("2006-01-02", *sched.StartDate); err == nil {
+			date = parsed
+		}
+	}
+
+	dtStart = time.Date(date.Year(), date.Month(), date.Day(), startHour, startMinute, 0, 0, time.UTC)
+
+	if sched.LoopOnce || len(sched.Days) == 0 {
+		return dtStart, "", "One-time schedule"
+	}
+
+	byDay := azuraDaysToByDay(sched.Days)
+	if byDay == "" {
+		return dtStart, "", "Schedule with unsupported day mapping"
+	}
+
+	rrule = fmt.Sprintf("FREQ=WEEKLY;BYDAY=%s;BYHOUR=%d;BYMINUTE=%d", byDay, startHour, startMinute)
+	pattern = fmt.Sprintf("Weekly on %s", byDay)
+	return dtStart, rrule, pattern
+}
+
+func azuraDaysToByDay(days []int) string {
+	var result []string
+	for _, day := range days {
+		switch day {
+		case 1:
+			result = append(result, "MO")
+		case 2:
+			result = append(result, "TU")
+		case 3:
+			result = append(result, "WE")
+		case 4:
+			result = append(result, "TH")
+		case 5:
+			result = append(result, "FR")
+		case 6:
+			result = append(result, "SA")
+		case 7:
+			result = append(result, "SU")
+		}
+	}
+	return strings.Join(result, ",")
+}

@@ -250,33 +250,8 @@ type CommitStagedImportResponse struct {
 // handleCommitStagedImport commits a staged import.
 func (h *MigrationHandler) handleCommitStagedImport(w http.ResponseWriter, r *http.Request) {
 	stagedID := chi.URLParam(r, "stagedID")
-
-	// Get staged import
-	staged, err := h.service.GetStagedImport(r.Context(), stagedID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "staged_import_not_found")
-		return
-	}
-
-	// Get the job
-	job, err := h.service.GetJob(r.Context(), staged.JobID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "job_not_found")
-		return
-	}
-
-	// Get the importer and commit
-	// Note: This is a simplified version - in production, you'd want to
-	// run this in a background goroutine with progress tracking
-	switch job.SourceType {
-	case migration.SourceTypeLibreTime:
-		// The commit will be handled by starting the job
-		if err := h.service.StartJob(r.Context(), job.ID); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	default:
-		writeError(w, http.StatusBadRequest, "unsupported source type for staged import")
+	if err := h.service.CommitStagedImport(r.Context(), stagedID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

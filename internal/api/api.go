@@ -1288,13 +1288,15 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	displayArtist, displayTitle := splitNowPlayingArtistTitle(history.Artist, history.Title)
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":          history.ID,
 		"station_id":  history.StationID,
 		"mount_id":    history.MountID,
 		"media_id":    history.MediaID,
-		"artist":      history.Artist,
-		"title":       history.Title,
+		"artist":      displayArtist,
+		"title":       displayTitle,
 		"album":       history.Album,
 		"started_at":  history.StartedAt,
 		"ended_at":    history.EndedAt,
@@ -1303,6 +1305,30 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 		"source_type": sourceType,
 		"is_live_dj":  isLiveDJ,
 	})
+}
+
+func splitNowPlayingArtistTitle(artist, title string) (string, string) {
+	artist = strings.TrimSpace(artist)
+	title = strings.TrimSpace(title)
+	if artist != "" || title == "" {
+		return artist, title
+	}
+
+	// Some sources provide combined metadata in title: "Artist - Track".
+	separators := []string{" - ", " — ", " – "}
+	for _, sep := range separators {
+		parts := strings.SplitN(title, sep, 2)
+		if len(parts) != 2 {
+			continue
+		}
+		left := strings.TrimSpace(parts[0])
+		right := strings.TrimSpace(parts[1])
+		if left == "" || right == "" {
+			continue
+		}
+		return left, right
+	}
+	return "", title
 }
 
 func (a *API) handleAnalyticsListeners(w http.ResponseWriter, r *http.Request) {

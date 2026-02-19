@@ -140,7 +140,13 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 	}
 
 	if len(plans) == 0 {
-		s.logger.Debug().Str("station", stationID).Msg("no plans to generate")
+		reason, details, action := s.explainNoPlans(ctx, stationID)
+		s.logger.Info().
+			Str("station", stationID).
+			Str("reason", reason).
+			Str("details", details).
+			Str("action", action).
+			Msg("no plans to generate")
 		telemetry.ScheduleBuildDuration.WithLabelValues(stationID).Observe(time.Since(startTime).Seconds())
 		return nil
 	}
@@ -202,6 +208,25 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 	telemetry.ScheduleEntriesTotal.WithLabelValues(stationID).Add(float64(entriesCreated))
 
 	return nil
+}
+
+func (s *Service) explainNoPlans(ctx context.Context, stationID string) (reason, details, action string) {
+	var clockHour models.ClockHour
+	err := s.db.WithContext(ctx).
+		Where("station_id = ?", stationID).
+		Preload("Slots").
+		Order("created_at ASC").
+		First(&clockHour).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "no_clock_template", "No clock template exists for this station.", "Create a Clock Template and add at least one slot."
+	}
+	if err != nil {
+		return "clock_lookup_failed", "Scheduler could not inspect clock configuration: " + err.Error(), "Check database health and retry scheduler."
+	}
+	if len(clockHour.Slots) == 0 {
+		return "clock_has_no_slots", "Clock template \"" + clockHour.Name + "\" has zero slots.", "Edit this clock and add at least one slot (playlist, smart block, webstream, etc.)."
+	}
+	return "no_slots_generated", "Clock template exists, but no slot plans were generated for the requested window.", "Verify slot offsets/durations and scheduler lookahead settings."
 }
 
 func (s *Service) slotAlreadyScheduled(ctx context.Context, stationID string, plan clock.SlotPlan) (bool, error) {

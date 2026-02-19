@@ -418,6 +418,30 @@ func (h *Handler) AzuraCastAPIImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Staged review mode: analyze asynchronously and present a review page once ready.
+	if stagedMode {
+		job, err := h.migrationService.CreateStagedJob(ctx, migration.SourceTypeAzuraCast, options)
+		if err != nil {
+			writeHTMXError(w, fmt.Sprintf("Failed to create staged import job: %v", err))
+			return
+		}
+		if err := h.migrationService.StartStagedJob(context.Background(), job.ID); err != nil {
+			writeHTMXError(w, fmt.Sprintf("Failed to start staged analysis: %v", err))
+			return
+		}
+
+		h.logger.Info().Str("job_id", job.ID).Msg("AzuraCast staged import analysis started")
+		html := fmt.Sprintf(`<div class="alert alert-success">
+			<i class="bi bi-check-circle me-2"></i>
+			<strong>Analysis started!</strong>
+			<p class="mb-0 mt-2">We are analyzing your AzuraCast instance to prepare a reviewable import plan.</p>
+			<p class="mb-0 mt-2"><a href="/dashboard/settings/migrations/status" class="alert-link">View import status</a> (you will get a Review button when ready)</p>
+		</div>`)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html))
+		return
+	}
+
 	// Dry run - just analyze with detailed report
 	if dryRun {
 		report, err := importer.AnalyzeDetailed(ctx, options)
@@ -536,9 +560,6 @@ func (h *Handler) AzuraCastAPIImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Staged mode (review before import) is currently implemented for LibreTime.
-	// AzuraCast imports can be very large; we keep this as a tracked background job for now.
-	// If user requested staged_mode, we still run as a job and direct them to status.
 	job, err := h.migrationService.CreateJob(ctx, migration.SourceTypeAzuraCast, options)
 	if err != nil {
 		writeHTMXError(w, fmt.Sprintf("Failed to create import job: %v", err))
