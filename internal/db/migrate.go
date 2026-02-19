@@ -7,6 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package db
 
 import (
+	"fmt"
+
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"gorm.io/gorm"
@@ -14,7 +16,7 @@ import (
 
 // Migrate applies database schema migrations using GORM auto-migrate.
 func Migrate(database *gorm.DB) error {
-	return database.AutoMigrate(
+	if err := database.AutoMigrate(
 		// Platform-level models
 		&models.User{},
 		&models.SystemSettings{},
@@ -96,5 +98,59 @@ func Migrate(database *gorm.DB) error {
 		// WebDJ console
 		&models.WebDJSession{},
 		&models.WaveformCache{},
-	)
+	); err != nil {
+		return err
+	}
+
+	if err := applyPostgresScheduleOverlapGuard(database); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func applyPostgresScheduleOverlapGuard(database *gorm.DB) error {
+	if database.Dialector.Name() != "postgres" {
+		return nil
+	}
+
+	stmt := `
+CREATE OR REPLACE FUNCTION prevent_station_schedule_overlap()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.ends_at <= NEW.starts_at THEN
+    RAISE EXCEPTION 'schedule entry end must be after start'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM schedule_entries se
+    WHERE se.station_id = NEW.station_id
+      AND se.id <> NEW.id
+      AND tstzrange(se.starts_at, se.ends_at, '[)') && tstzrange(NEW.starts_at, NEW.ends_at, '[)')
+  ) THEN
+    RAISE EXCEPTION 'overlapping programming is not allowed for station %', NEW.station_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_prevent_station_schedule_overlap ON schedule_entries;
+
+CREATE TRIGGER trg_prevent_station_schedule_overlap
+BEFORE INSERT OR UPDATE OF station_id, starts_at, ends_at
+ON schedule_entries
+FOR EACH ROW
+EXECUTE FUNCTION prevent_station_schedule_overlap();
+`
+	if err := database.Exec(stmt).Error; err != nil {
+		return fmt.Errorf("apply postgres schedule overlap guard: %w", err)
+	}
+
+	return nil
 }
