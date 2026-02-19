@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -404,9 +405,13 @@ func (h *Handler) MediaGridPartial(w http.ResponseWriter, r *http.Request) {
 
 // MediaUploadPage renders the upload page
 func (h *Handler) MediaUploadPage(w http.ResponseWriter, r *http.Request) {
+	maxUploadBytes := h.multipartLimit(1 << 30)
 	h.Render(w, r, "pages/dashboard/media/upload", PageData{
 		Title:    "Upload Media",
 		Stations: h.LoadStations(r),
+		Data: map[string]any{
+			"MaxUploadBytes": maxUploadBytes,
+		},
 	})
 }
 
@@ -419,8 +424,15 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse multipart form (default 1GB, configurable via GRIMNIR_MAX_UPLOAD_SIZE_MB)
-	if err := r.ParseMultipartForm(h.multipartLimit(1 << 30)); err != nil {
-		http.Error(w, "File too large", http.StatusBadRequest)
+	maxUploadBytes := h.multipartLimit(1 << 30)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) || strings.Contains(strings.ToLower(err.Error()), "request body too large") {
+			http.Error(w, fmt.Sprintf("File too large. Maximum allowed size is %s.", humanReadableBytes(maxUploadBytes)), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "Invalid upload form data", http.StatusBadRequest)
 		return
 	}
 
@@ -542,6 +554,25 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/dashboard/media/"+mediaID, http.StatusSeeOther)
+}
+
+func humanReadableBytes(n int64) string {
+	if n <= 0 {
+		return "0 B"
+	}
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	value := float64(n) / float64(div)
+	value = math.Round(value*10) / 10
+	suffix := "KMGTPE"[exp]
+	return fmt.Sprintf("%.1f %ciB", value, suffix)
 }
 
 // MediaDetail renders media details page
