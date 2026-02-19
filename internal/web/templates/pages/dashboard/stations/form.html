@@ -22,10 +22,12 @@
 
         <div class="card">
             <div class="card-body">
+                <div id="stationFormAlert"></div>
                 <form method="POST"
                       action="{{if .Data.IsNew}}/dashboard/stations{{else}}/dashboard/stations/{{.Data.Station.ID}}{{end}}"
                       hx-post="{{if .Data.IsNew}}/dashboard/stations{{else}}/dashboard/stations/{{.Data.Station.ID}}{{end}}"
-                      hx-swap="none">
+                      hx-target="#stationFormAlert"
+                      hx-swap="innerHTML">
                     {{if not .Data.IsNew}}
                     <input type="hidden" name="_method" value="PUT">
                     {{end}}
@@ -39,7 +41,8 @@
                     <div class="mb-3">
                         <label for="description" class="form-label">Description</label>
                         <textarea class="form-control" id="description" name="description"
-                                  rows="3">{{.Data.Station.Description}}</textarea>
+                                  rows="3" maxlength="5000">{{.Data.Station.Description}}</textarea>
+                        <div class="form-text">Max 5000 characters.</div>
                     </div>
 
                     <div class="mb-3">

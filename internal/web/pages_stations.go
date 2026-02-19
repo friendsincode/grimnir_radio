@@ -76,6 +76,10 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		h.renderStationFormError(w, r, station, true, "Name is required")
 		return
 	}
+	if err := validateStationDescription(station.Description); err != nil {
+		h.renderStationFormError(w, r, station, true, err.Error())
+		return
+	}
 
 	if station.Timezone == "" {
 		station.Timezone = "UTC"
@@ -197,6 +201,10 @@ func (h *Handler) StationUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if station.Name == "" {
 		h.renderStationFormError(w, r, station, false, "Name is required")
+		return
+	}
+	if err := validateStationDescription(station.Description); err != nil {
+		h.renderStationFormError(w, r, station, false, err.Error())
 		return
 	}
 
@@ -329,7 +337,6 @@ func (h *Handler) StationDelete(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderStationFormError(w http.ResponseWriter, r *http.Request, station models.Station, isNew bool, message string) {
 	if r.Header.Get("HX-Request") == "true" {
-		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`<div class="alert alert-danger">` + message + `</div>`))
 		return
 	}

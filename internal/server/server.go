@@ -145,6 +145,11 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 				next.ServeHTTP(w, r)
 				return
 			}
+			// Skip timeout for large uploads that can legitimately exceed request middleware timeout.
+			if r.URL.Path == "/dashboard/media/upload" || r.URL.Path == "/dashboard/settings/migrations/import" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			timeout(next).ServeHTTP(w, r)
 		})
 	})
@@ -166,9 +171,12 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 
 	addr := fmt.Sprintf("%s:%d", cfg.HTTPBind, cfg.HTTPPort)
 	srv.httpServer = &http.Server{
-		Addr:        addr,
-		Handler:     srv.router,
-		ReadTimeout: 15 * time.Second,
+		Addr:    addr,
+		Handler: srv.router,
+		// Keep header deadline to protect against slowloris, but do not enforce a full-body
+		// read deadline so large uploads are not terminated mid-request.
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       0,
 		// WriteTimeout set to 0 for streaming support - handlers manage their own deadlines
 		// The middleware timeout (60s) handles non-streaming routes
 		WriteTimeout: 0,

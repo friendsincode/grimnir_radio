@@ -66,7 +66,6 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 
 	if err := r.ParseForm(); err != nil {
 		if r.Header.Get("HX-Request") == "true" {
-			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(`<div class="alert alert-danger">Invalid form data</div>`))
 			return
 		}
@@ -113,7 +112,6 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 
 	if station.Name == "" {
 		if r.Header.Get("HX-Request") == "true" {
-			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(`<div class="alert alert-danger">Name is required</div>`))
 			return
 		}
@@ -123,7 +121,6 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 
 	if err := validateStationDescription(station.Description); err != nil {
 		if r.Header.Get("HX-Request") == "true" {
-			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(fmt.Sprintf(`<div class="alert alert-danger">%s</div>`, err.Error())))
 			return
 		}
@@ -134,7 +131,6 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 	if err := h.db.Save(station).Error; err != nil {
 		h.logger.Error().Err(err).Msg("failed to update station settings")
 		if r.Header.Get("HX-Request") == "true" {
-			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`<div class="alert alert-danger">Failed to save station settings. Check description length/content and try again.</div>`))
 			return
 		}
