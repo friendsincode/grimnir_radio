@@ -426,7 +426,13 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 	// Parse multipart form (default 1GB, configurable via GRIMNIR_MAX_UPLOAD_SIZE_MB)
 	maxUploadBytes := h.multipartLimit(1 << 30)
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
-	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+	// ParseMultipartForm's argument is in-memory buffer, not total body size.
+	// Keep memory bounded and let net/http spill larger parts to temp files.
+	parseMemoryBytes := int64(32 << 20) // 32 MiB
+	if maxUploadBytes > 0 && maxUploadBytes < parseMemoryBytes {
+		parseMemoryBytes = maxUploadBytes
+	}
+	if err := r.ParseMultipartForm(parseMemoryBytes); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) || strings.Contains(strings.ToLower(err.Error()), "request body too large") {
 			http.Error(w, fmt.Sprintf("File too large. Maximum allowed size is %s.", humanReadableBytes(maxUploadBytes)), http.StatusBadRequest)
