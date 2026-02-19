@@ -799,6 +799,13 @@ func (h *Handler) PublicScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		publicStationIDs, startTime, endTime, "media").
 		Order("starts_at ASC").Find(&entries)
 
+	instanceOverrides := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsInstance && entry.RecurrenceParentID != nil {
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+		}
+	}
+
 	// Also fetch recurring entries (excluding media)
 	var recurringEntries []models.ScheduleEntry
 	h.db.Where("station_id IN ? AND source_type != ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false",
@@ -806,7 +813,7 @@ func (h *Handler) PublicScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Expand recurring entries
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, startTime, endTime)
+		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides)
 		entries = append(entries, instances...)
 	}
 

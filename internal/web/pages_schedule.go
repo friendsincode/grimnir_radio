@@ -8,6 +8,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -129,6 +130,15 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 	var entries []models.ScheduleEntry
 	query.Order("starts_at ASC").Find(&entries)
 
+	// Track concrete instance overrides so we don't also render generated
+	// virtual instances for the same parent/date.
+	instanceOverrides := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsInstance && entry.RecurrenceParentID != nil {
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+		}
+	}
+
 	// Also fetch recurring entries that could generate instances in this range
 	var recurringEntries []models.ScheduleEntry
 	recurringQuery := h.db.Where("station_id = ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false",
@@ -140,7 +150,7 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Expand recurring entries into virtual instances
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, startTime, endTime)
+		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides)
 		entries = append(entries, instances...)
 	}
 
@@ -322,7 +332,7 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 // expandRecurringEntry generates virtual instances for a recurring entry within a date range
-func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, rangeEnd time.Time) []models.ScheduleEntry {
+func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, rangeEnd time.Time, overrides map[string]struct{}) []models.ScheduleEntry {
 	var instances []models.ScheduleEntry
 	duration := entry.EndsAt.Sub(entry.StartsAt)
 
@@ -347,8 +357,16 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 
 		// Check if this day matches the recurrence pattern
 		if h.matchesRecurrence(entry, current) {
+			if _, overridden := overrides[recurrenceInstanceKey(entry.ID, current)]; overridden {
+				current = h.nextOccurrence(entry, current)
+				if current.IsZero() {
+					break
+				}
+				continue
+			}
+
 			instance := entry
-			instance.ID = entry.ID + "_" + current.Format("20060102")
+			instance.ID = recurrenceInstanceKey(entry.ID, current)
 			instance.StartsAt = current
 			instance.EndsAt = current.Add(duration)
 			instance.IsInstance = true
@@ -363,6 +381,10 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 	}
 
 	return instances
+}
+
+func recurrenceInstanceKey(parentID string, at time.Time) string {
+	return parentID + "_" + at.Format("20060102")
 }
 
 // nextOccurrence finds the next potential occurrence date
@@ -440,6 +462,16 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 
 	if !input.EndsAt.After(input.StartsAt) {
 		http.Error(w, "End time must be after start time", http.StatusBadRequest)
+		return
+	}
+
+	hasOverlap, err := h.scheduleOverlaps(station.ID, input.StartsAt, input.EndsAt, "")
+	if err != nil {
+		http.Error(w, "Failed to validate schedule", http.StatusInternalServerError)
+		return
+	}
+	if hasOverlap {
+		http.Error(w, "Overlapping programming is not allowed for this station", http.StatusConflict)
 		return
 	}
 
@@ -546,6 +578,16 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 
 	// If editing a single instance of a recurring entry, create an exception
 	if instanceDate != "" && input.EditMode == "single" {
+		hasOverlap, err := h.scheduleOverlaps(station.ID, input.StartsAt, input.EndsAt, realID)
+		if err != nil {
+			http.Error(w, "Failed to validate schedule", http.StatusInternalServerError)
+			return
+		}
+		if hasOverlap {
+			http.Error(w, "Overlapping programming is not allowed for this station", http.StatusConflict)
+			return
+		}
+
 		// Create a new one-off entry for this instance
 		parentID := entry.ID
 		newEntry := models.ScheduleEntry{
@@ -593,6 +635,16 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(newEntry)
+		return
+	}
+
+	hasOverlap, err := h.scheduleOverlaps(station.ID, input.StartsAt, input.EndsAt, entry.ID)
+	if err != nil {
+		http.Error(w, "Failed to validate schedule", http.StatusInternalServerError)
+		return
+	}
+	if hasOverlap {
+		http.Error(w, "Overlapping programming is not allowed for this station", http.StatusConflict)
 		return
 	}
 
@@ -660,12 +712,32 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var entry models.ScheduleEntry
-	if err := h.db.First(&entry, "id = ?", id).Error; err != nil {
-		http.NotFound(w, r)
-		return
+	targetID := id
+	err := h.db.First(&entry, "id = ? AND station_id = ?", targetID, station.ID).Error
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			http.Error(w, "Failed to load entry", http.StatusInternalServerError)
+			return
+		}
+		// If this is a virtual recurring instance ID, attempt to map it to a
+		// concrete overridden instance for that parent/day.
+		parentID, dayStart, ok := parseRecurringInstanceID(id)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		dayEnd := dayStart.Add(24 * time.Hour)
+		if err := h.db.Where("station_id = ? AND recurrence_parent_id = ? AND starts_at >= ? AND starts_at < ?",
+			station.ID, parentID, dayStart, dayEnd).
+			Order("starts_at ASC").
+			First(&entry).Error; err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		targetID = entry.ID
 	}
 
-	if err := h.db.Delete(&models.ScheduleEntry{}, "id = ?", id).Error; err != nil {
+	if err := h.db.Delete(&models.ScheduleEntry{}, "id = ? AND station_id = ?", targetID, station.ID).Error; err != nil {
 		http.Error(w, "Failed to delete entry", http.StatusInternalServerError)
 		return
 	}
@@ -685,6 +757,36 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func parseRecurringInstanceID(id string) (string, time.Time, bool) {
+	if len(id) < 10 {
+		return "", time.Time{}, false
+	}
+	idx := len(id) - 9
+	if idx <= 0 || id[idx] != '_' {
+		return "", time.Time{}, false
+	}
+	parentID := id[:idx]
+	day, err := time.Parse("20060102", id[idx+1:])
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	return parentID, day, true
+}
+
+func (h *Handler) scheduleOverlaps(stationID string, startsAt, endsAt time.Time, excludeID string) (bool, error) {
+	q := h.db.Model(&models.ScheduleEntry{}).
+		Where("station_id = ?", stationID).
+		Where("starts_at < ? AND ends_at > ?", endsAt, startsAt)
+	if excludeID != "" {
+		q = q.Where("id <> ?", excludeID)
+	}
+	var count int64
+	if err := q.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // ScheduleEntryDetails returns detailed info about a schedule entry including what will be played

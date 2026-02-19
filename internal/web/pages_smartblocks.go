@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -600,6 +601,13 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 	var tracks []models.MediaItem
 	query := h.db.Where("station_id = ?", stationID)
 
+	var (
+		yearMin         int
+		yearMax         int
+		eraRangeSet     bool
+		excludeExplicit bool
+	)
+
 	if rules != nil {
 		// Free text search across title/artist/album
 		if textSearch, ok := rules["text_search"].(string); ok && strings.TrimSpace(textSearch) != "" {
@@ -617,6 +625,15 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 		if mood, ok := rules["mood"].(string); ok && mood != "" {
 			query = query.Where("mood = ?", mood)
 		}
+		// Language filter
+		if language, ok := rules["language"].(string); ok && strings.TrimSpace(language) != "" {
+			query = query.Where("LOWER(language) = ?", strings.ToLower(strings.TrimSpace(language)))
+		}
+		// Exclude explicit tracks
+		if explicit, ok := rules["excludeExplicit"].(bool); ok && explicit {
+			excludeExplicit = true
+			query = query.Where("explicit = ?", false)
+		}
 		// BPM range filter
 		if bpmRange, ok := rules["bpmRange"].(map[string]any); ok {
 			if minBPM := toInt(bpmRange["min"]); minBPM > 0 {
@@ -627,21 +644,115 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 			}
 		}
 		// Source playlists filter
-		if playlists, ok := rules["sourcePlaylists"].([]any); ok && len(playlists) > 0 {
-			var playlistIDs []string
-			for _, p := range playlists {
-				if pid, ok := p.(string); ok && pid != "" {
-					playlistIDs = append(playlistIDs, pid)
-				}
-			}
+		playlistIDs := toStringSlice(rules["sourcePlaylists"])
+		if len(playlistIDs) > 0 {
 			if len(playlistIDs) > 0 {
 				query = query.Where("id IN (SELECT media_id FROM playlist_items WHERE playlist_id IN ?)", playlistIDs)
+			}
+		}
+		// Year range filter (applied post-query to avoid cross-database casting issues).
+		if yr, ok := rules["yearRange"].(map[string]any); ok {
+			yearMin = toInt(yr["min"])
+			yearMax = toInt(yr["max"])
+		}
+		// Era presets map to year ranges.
+		if era, ok := rules["era"].(string); ok && strings.TrimSpace(era) != "" {
+			if minYear, maxYear, ok := eraToYearRange(era); ok {
+				yearMin = minYear
+				yearMax = maxYear
+				eraRangeSet = true
 			}
 		}
 	}
 
 	query.Order("RANDOM()").Find(&tracks)
-	return tracks
+	if yearMin == 0 && yearMax == 0 && !eraRangeSet && !excludeExplicit {
+		return tracks
+	}
+
+	filtered := make([]models.MediaItem, 0, len(tracks))
+	for _, track := range tracks {
+		if excludeExplicit && track.Explicit {
+			continue
+		}
+		if yearMin > 0 || yearMax > 0 || eraRangeSet {
+			year := parseTrackYear(track.Year)
+			if year == 0 {
+				continue
+			}
+			if yearMin > 0 && year < yearMin {
+				continue
+			}
+			if yearMax > 0 && year > yearMax {
+				continue
+			}
+		}
+		filtered = append(filtered, track)
+	}
+	return filtered
+}
+
+func toStringSlice(v any) []string {
+	switch s := v.(type) {
+	case []string:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			if strings.TrimSpace(item) != "" {
+				out = append(out, item)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok && strings.TrimSpace(str) != "" {
+				out = append(out, str)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func parseTrackYear(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	if len(raw) >= 4 {
+		if y, err := strconv.Atoi(raw[:4]); err == nil {
+			return y
+		}
+	}
+	if y, err := strconv.Atoi(raw); err == nil {
+		return y
+	}
+	return 0
+}
+
+func eraToYearRange(era string) (int, int, bool) {
+	now := time.Now().Year()
+	switch strings.ToLower(strings.TrimSpace(era)) {
+	case "current":
+		return now - 2, now, true
+	case "2020s":
+		return 2020, 2029, true
+	case "2010s":
+		return 2010, 2019, true
+	case "2000s":
+		return 2000, 2009, true
+	case "90s":
+		return 1990, 1999, true
+	case "80s":
+		return 1980, 1989, true
+	case "70s":
+		return 1970, 1979, true
+	case "classic":
+		return 0, 1979, true
+	default:
+		return 0, 0, false
+	}
 }
 
 func (h *Handler) fetchAdTracks(stationID string, cfg previewConfig) []models.MediaItem {

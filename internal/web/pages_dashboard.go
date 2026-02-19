@@ -93,6 +93,13 @@ func (h *Handler) loadDashboardUpcomingEntries(stationID string, from time.Time,
 		Order("starts_at ASC").
 		Find(&entries)
 
+	instanceOverrides := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsInstance && entry.RecurrenceParentID != nil {
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+		}
+	}
+
 	// Load recurring parent entries and expand virtual instances in-range.
 	var recurringEntries []models.ScheduleEntry
 	h.db.Where("station_id = ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false",
@@ -100,7 +107,7 @@ func (h *Handler) loadDashboardUpcomingEntries(stationID string, from time.Time,
 		Find(&recurringEntries)
 
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, from, to)
+		instances := h.expandRecurringEntry(re, from, to, instanceOverrides)
 		entries = append(entries, instances...)
 	}
 

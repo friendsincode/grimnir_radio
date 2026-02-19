@@ -207,6 +207,14 @@
                                                 <label class="form-check-label small" for="heroEnabled">Enable Hero Section</label>
                                             </div>
                                             <div class="mb-2">
+                                                <label class="form-label small">Title</label>
+                                                <input type="text" class="form-control form-control-sm" id="heroTitle" onchange="updateConfig('hero.title', this.value)">
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small">Description</label>
+                                                <textarea class="form-control form-control-sm" id="heroDescription" rows="2" onchange="updateConfig('hero.description', this.value)"></textarea>
+                                            </div>
+                                            <div class="mb-2">
                                                 <label class="form-label small">Height</label>
                                                 <select class="form-select form-select-sm" id="heroHeight" onchange="updateConfig('hero.height', this.value)">
                                                     <option value="small">Small</option>
@@ -736,6 +744,8 @@
 
         // Hero
         document.getElementById('heroEnabled').checked = config.hero?.enabled !== false;
+        document.getElementById('heroTitle').value = config.hero?.title || '';
+        document.getElementById('heroDescription').value = config.hero?.description || '';
         document.getElementById('heroHeight').value = config.hero?.height || 'large';
         document.getElementById('heroShowPlayer').checked = config.hero?.showPlayer !== false;
 
