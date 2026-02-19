@@ -34,8 +34,8 @@
 
                     <div class="mb-3">
                         <label for="description" class="form-label">Description</label>
-                        <textarea class="form-control" id="description" name="description" rows="3">{{.Data.Station.Description}}</textarea>
-                        <div class="form-text">A brief description of your station.</div>
+                        <textarea class="form-control" id="description" name="description" rows="3" maxlength="5000">{{.Data.Station.Description}}</textarea>
+                        <div class="form-text">A brief description of your station (max 5000 characters).</div>
                     </div>
 
                     <div class="mb-3">
