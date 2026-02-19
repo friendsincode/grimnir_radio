@@ -315,6 +315,16 @@ function updateNowPlaying(data) {
     if (!container) return;
 
     if (data && data.title) {
+        let artist = data.artist || '';
+        let title = data.title || '';
+        if (!artist && title.includes(' - ')) {
+            const parts = title.split(' - ');
+            if (parts.length >= 2) {
+                artist = parts.shift().trim();
+                title = parts.join(' - ').trim();
+            }
+        }
+
         const icon = document.createElement('i');
         icon.className = 'bi bi-music-note text-success';
 
@@ -323,7 +333,7 @@ function updateNowPlaying(data) {
 
         const trackText = document.createElement('span');
         trackText.className = 'dashboard-now-playing-text';
-        const line = `${data.artist || ''}${data.artist ? ' - ' : ''}${data.title || ''}`.trim();
+        const line = `${artist || ''}${artist ? ' - ' : ''}${title || ''}`.trim();
         trackText.textContent = line || 'Now playing';
         trackText.title = line || 'Now playing';
 
