@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package scheduling
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -109,14 +110,41 @@ func (v *Validator) ValidateItem(item ScheduleItem) ([]models.ValidationViolatio
 			continue
 		}
 		if v.itemsOverlap(item, other) {
+			overlapStart := maxTime(item.StartsAt, other.StartsAt)
+			overlapEnd := minTime(item.EndsAt, other.EndsAt)
+			overlapMinutes := int(overlapEnd.Sub(overlapStart).Minutes())
+			if overlapMinutes < 0 {
+				overlapMinutes = 0
+			}
+
 			violations = append(violations, models.ValidationViolation{
 				RuleType:    models.RuleTypeOverlap,
-				RuleName:    "Overlap Detection",
+				RuleName:    "Schedule Overlap",
 				Severity:    models.RuleSeverityError,
-				Message:     "This time slot overlaps with another scheduled item",
+				Message:     fmt.Sprintf("This item overlaps with %s from %s to %s (%d minute overlap). Move either item so only one plays at a time.", itemLabel(other), overlapStart.Format(time.RFC3339), overlapEnd.Format(time.RFC3339), overlapMinutes),
 				StartsAt:    item.StartsAt,
 				EndsAt:      item.EndsAt,
 				AffectedIDs: []string{item.ID, other.ID},
+				Details: map[string]any{
+					"overlap_start":   overlapStart,
+					"overlap_end":     overlapEnd,
+					"overlap_minutes": overlapMinutes,
+					"item_a": map[string]any{
+						"id":        item.ID,
+						"type":      item.Type,
+						"label":     itemLabel(item),
+						"starts_at": item.StartsAt,
+						"ends_at":   item.EndsAt,
+					},
+					"item_b": map[string]any{
+						"id":        other.ID,
+						"type":      other.Type,
+						"label":     itemLabel(other),
+						"starts_at": other.StartsAt,
+						"ends_at":   other.EndsAt,
+					},
+					"suggestion": "Adjust one of these time windows so they no longer overlap.",
+				},
 			})
 			break
 		}
@@ -140,8 +168,8 @@ func (v *Validator) fetchScheduleItems(stationID string, start, end time.Time) (
 
 	// Fetch show instances
 	var instances []models.ShowInstance
-	v.db.Where("station_id = ? AND starts_at >= ? AND starts_at <= ? AND status != ?",
-		stationID, start, end, models.ShowInstanceCancelled).Find(&instances)
+	v.db.Where("station_id = ? AND starts_at < ? AND ends_at > ? AND status != ?",
+		stationID, end, start, models.ShowInstanceCancelled).Find(&instances)
 
 	for _, inst := range instances {
 		items = append(items, ScheduleItem{
@@ -157,8 +185,8 @@ func (v *Validator) fetchScheduleItems(stationID string, start, end time.Time) (
 
 	// Fetch schedule entries (non-instance)
 	var entries []models.ScheduleEntry
-	v.db.Where("station_id = ? AND starts_at >= ? AND starts_at <= ?",
-		stationID, start, end).Find(&entries)
+	v.db.Where("station_id = ? AND starts_at < ? AND ends_at > ?",
+		stationID, end, start).Find(&entries)
 
 	for _, entry := range entries {
 		items = append(items, ScheduleItem{
@@ -188,20 +216,71 @@ func (v *Validator) checkOverlaps(items []ScheduleItem) []models.ValidationViola
 	for i := 0; i < len(items); i++ {
 		for j := i + 1; j < len(items); j++ {
 			if v.itemsOverlap(items[i], items[j]) {
+				overlapStart := maxTime(items[i].StartsAt, items[j].StartsAt)
+				overlapEnd := minTime(items[i].EndsAt, items[j].EndsAt)
+				overlapMinutes := int(overlapEnd.Sub(overlapStart).Minutes())
+				if overlapMinutes < 0 {
+					overlapMinutes = 0
+				}
+
 				violations = append(violations, models.ValidationViolation{
 					RuleType:    models.RuleTypeOverlap,
-					RuleName:    "Overlap Detection",
+					RuleName:    "Schedule Overlap",
 					Severity:    models.RuleSeverityError,
-					Message:     "Two items are scheduled at the same time",
+					Message:     fmt.Sprintf("Overlap detected: %s and %s both run from %s to %s (%d minute overlap). Keep only one item in that window.", itemLabel(items[i]), itemLabel(items[j]), overlapStart.Format(time.RFC3339), overlapEnd.Format(time.RFC3339), overlapMinutes),
 					StartsAt:    items[i].StartsAt,
-					EndsAt:      items[j].EndsAt,
+					EndsAt:      items[i].EndsAt,
 					AffectedIDs: []string{items[i].ID, items[j].ID},
+					Details: map[string]any{
+						"overlap_start":   overlapStart,
+						"overlap_end":     overlapEnd,
+						"overlap_minutes": overlapMinutes,
+						"item_a": map[string]any{
+							"id":        items[i].ID,
+							"type":      items[i].Type,
+							"label":     itemLabel(items[i]),
+							"starts_at": items[i].StartsAt,
+							"ends_at":   items[i].EndsAt,
+						},
+						"item_b": map[string]any{
+							"id":        items[j].ID,
+							"type":      items[j].Type,
+							"label":     itemLabel(items[j]),
+							"starts_at": items[j].StartsAt,
+							"ends_at":   items[j].EndsAt,
+						},
+						"suggestion": "Move or trim one of these entries so only one program runs at a time.",
+					},
 				})
 			}
 		}
 	}
 
 	return violations
+}
+
+func itemLabel(item ScheduleItem) string {
+	if item.Type == "show_instance" {
+		return "show instance " + item.ID
+	}
+	if item.SourceType != "" {
+		return fmt.Sprintf("%s (%s)", item.SourceType, item.ID)
+	}
+	return item.Type + " " + item.ID
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }
 
 // itemsOverlap checks if two items overlap in time.

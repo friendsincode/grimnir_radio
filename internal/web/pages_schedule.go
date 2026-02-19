@@ -87,10 +87,16 @@ func (h *Handler) ScheduleValidate(w http.ResponseWriter, r *http.Request) {
 	validator := scheduling.NewValidator(h.db, zerolog.Nop())
 	result, err := validator.Validate(station.ID, start, end)
 	if err != nil {
-		h.logger.Error().Err(err).Msg("schedule validation failed")
+		h.logger.Error().
+			Err(err).
+			Str("station_id", station.ID).
+			Time("range_start", start).
+			Time("range_end", end).
+			Msg("schedule validation failed")
 		http.Error(w, "Validation failed", http.StatusInternalServerError)
 		return
 	}
+	h.logValidationSummary(station.ID, start, end, result)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
@@ -471,7 +477,7 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if hasOverlap {
-		http.Error(w, "Overlapping programming is not allowed for this station", http.StatusConflict)
+		writeScheduleJSONError(w, http.StatusConflict, "This time slot overlaps with another scheduled item. Open Validate to see the exact conflict and move one item so only one program is scheduled at a time.")
 		return
 	}
 
@@ -584,7 +590,7 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if hasOverlap {
-			http.Error(w, "Overlapping programming is not allowed for this station", http.StatusConflict)
+			writeScheduleJSONError(w, http.StatusConflict, "This time slot overlaps with another scheduled item. Open Validate to see the exact conflict and move one item so only one program is scheduled at a time.")
 			return
 		}
 
@@ -644,7 +650,7 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if hasOverlap {
-		http.Error(w, "Overlapping programming is not allowed for this station", http.StatusConflict)
+		writeScheduleJSONError(w, http.StatusConflict, "This time slot overlaps with another scheduled item. Open Validate to see the exact conflict and move one item so only one program is scheduled at a time.")
 		return
 	}
 
@@ -787,6 +793,56 @@ func (h *Handler) scheduleOverlaps(stationID string, startsAt, endsAt time.Time,
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (h *Handler) logValidationSummary(stationID string, start, end time.Time, result *models.ValidationResult) {
+	if result == nil {
+		return
+	}
+
+	overlapViolations := make([]models.ValidationViolation, 0)
+	collect := func(items []models.ValidationViolation) {
+		for _, item := range items {
+			if item.RuleType == models.RuleTypeOverlap {
+				overlapViolations = append(overlapViolations, item)
+			}
+		}
+	}
+	collect(result.Errors)
+	collect(result.Warnings)
+	collect(result.Info)
+
+	logger := h.logger.With().
+		Str("station_id", stationID).
+		Time("range_start", start).
+		Time("range_end", end).
+		Int("overlap_count", len(overlapViolations)).
+		Bool("valid", result.Valid).
+		Logger()
+
+	if len(overlapViolations) == 0 {
+		logger.Info().Msg("schedule validation completed with no overlaps")
+		return
+	}
+
+	logger.Warn().Msg("schedule validation detected overlaps")
+	for i, v := range overlapViolations {
+		entry := logger.Warn().
+			Int("overlap_index", i+1).
+			Time("starts_at", v.StartsAt).
+			Time("ends_at", v.EndsAt).
+			Strs("affected_ids", v.AffectedIDs)
+		if minutes, ok := v.Details["overlap_minutes"]; ok {
+			entry = entry.Interface("overlap_minutes", minutes)
+		}
+		entry.Msg(v.Message)
+	}
+}
+
+func writeScheduleJSONError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 // ScheduleEntryDetails returns detailed info about a schedule entry including what will be played

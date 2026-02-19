@@ -278,10 +278,60 @@ func (a *API) handleScheduleValidate(w http.ResponseWriter, r *http.Request) {
 	validator := scheduling.NewValidator(a.db, zerolog.Nop())
 	result, err := validator.Validate(stationID, start, end)
 	if err != nil {
-		a.logger.Error().Err(err).Msg("schedule validation failed")
+		a.logger.Error().
+			Err(err).
+			Str("station_id", stationID).
+			Time("range_start", start).
+			Time("range_end", end).
+			Msg("schedule validation failed")
 		writeError(w, http.StatusInternalServerError, "validation_failed")
 		return
 	}
+	a.logValidationSummary(stationID, start, end, result)
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) logValidationSummary(stationID string, start, end time.Time, result *models.ValidationResult) {
+	if result == nil {
+		return
+	}
+
+	overlapViolations := make([]models.ValidationViolation, 0)
+	collect := func(items []models.ValidationViolation) {
+		for _, item := range items {
+			if item.RuleType == models.RuleTypeOverlap {
+				overlapViolations = append(overlapViolations, item)
+			}
+		}
+	}
+	collect(result.Errors)
+	collect(result.Warnings)
+	collect(result.Info)
+
+	logger := a.logger.With().
+		Str("station_id", stationID).
+		Time("range_start", start).
+		Time("range_end", end).
+		Int("overlap_count", len(overlapViolations)).
+		Bool("valid", result.Valid).
+		Logger()
+
+	if len(overlapViolations) == 0 {
+		logger.Info().Msg("schedule validation completed with no overlaps")
+		return
+	}
+
+	logger.Warn().Msg("schedule validation detected overlaps")
+	for i, v := range overlapViolations {
+		entry := logger.Warn().
+			Int("overlap_index", i+1).
+			Time("starts_at", v.StartsAt).
+			Time("ends_at", v.EndsAt).
+			Strs("affected_ids", v.AffectedIDs)
+		if minutes, ok := v.Details["overlap_minutes"]; ok {
+			entry = entry.Interface("overlap_minutes", minutes)
+		}
+		entry.Msg(v.Message)
+	}
 }
