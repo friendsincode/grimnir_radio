@@ -106,6 +106,9 @@
     .validation-result-item.info { background-color: rgba(var(--bs-info-rgb), 0.1); border-left: 3px solid var(--bs-info); }
     .validation-badge { font-size: 0.65rem; vertical-align: middle; }
     .validation-detail-list { margin-top: 0.5rem; margin-bottom: 0; padding-left: 1rem; }
+    .irt-list .irt-item { border-bottom: 1px solid var(--bs-border-color); }
+    .irt-list .irt-item:last-child { border-bottom: 0; }
+    .irt-now-pill { font-size: 0.68rem; }
 </style>
 <script>
 // Apply calendar color theme
@@ -181,6 +184,17 @@
 <div class="card">
     <div class="card-body">
         <div id="calendar"></div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-broadcast me-2"></i>Now Playing (IRT)</h6>
+        <button class="btn btn-sm btn-outline-secondary" id="irtRefreshBtn"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+    <div class="card-body">
+        <div id="irtNowPlaying" class="mb-3 text-body-secondary small">Loading current playback...</div>
+        <div id="irtUpcomingList" class="irt-list"></div>
     </div>
 </div>
 
@@ -2918,12 +2932,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const validationModal = new bootstrap.Modal(document.getElementById('validationModal'));
     const stationID = '{{.Data.StationID}}';
+    const canManageIRT = {{if roleAtLeast .User "manager"}}true{{else}}false{{end}};
+    let irtRefreshTimer = null;
+    let pendingEditEntryId = new URLSearchParams(window.location.search).get('edit_entry');
 
     // Validate schedule button
     document.getElementById('validateScheduleBtn')?.addEventListener('click', function() {
         validationModal.show();
         runValidation();
     });
+    document.getElementById('irtRefreshBtn')?.addEventListener('click', refreshIRTPanel);
 
     // Re-validate button
     document.getElementById('revalidateBtn')?.addEventListener('click', function() {
@@ -3137,6 +3155,117 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }, 1000);
     });
+
+    async function refreshIRTPanel() {
+        const nowPlayingEl = document.getElementById('irtNowPlaying');
+        const upcomingEl = document.getElementById('irtUpcomingList');
+        if (!nowPlayingEl || !upcomingEl) return;
+
+        try {
+            const now = new Date();
+            const start = new Date(now.getTime() - 5 * 60 * 1000);
+            const end = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+
+            const [npResp, eventsResp] = await Promise.all([
+                fetch(`/api/v1/analytics/now-playing?station_id=${stationID}`),
+                fetch(`/dashboard/schedule/events?start=${start.toISOString()}&end=${end.toISOString()}`),
+            ]);
+            const np = npResp.ok ? await npResp.json() : { status: 'idle' };
+            const entries = eventsResp.ok ? await eventsResp.json() : [];
+
+            nowPlayingEl.innerHTML = renderNowPlaying(np);
+            upcomingEl.innerHTML = renderIRTEntries(entries);
+
+            if (pendingEditEntryId) {
+                openEntryForEdit(pendingEditEntryId);
+            }
+        } catch (err) {
+            nowPlayingEl.innerHTML = '<span class="text-danger">Failed to load IRT state.</span>';
+        }
+    }
+
+    function renderNowPlaying(np) {
+        if (!np || np.status !== 'playing') {
+            return '<i class="bi bi-music-note me-1"></i>No active playback right now.';
+        }
+        const source = np.is_live_dj ? 'Live DJ' : 'Automation';
+        const title = escapeHtml(np.title || 'Unknown Title');
+        const artist = escapeHtml(np.artist || 'Unknown Artist');
+        return `
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <div class="fw-semibold">${artist} - ${title}</div>
+                    <small class="text-body-secondary">${source}</small>
+                </div>
+                <span class="badge bg-success">LIVE</span>
+            </div>
+        `;
+    }
+
+    function renderIRTEntries(entries) {
+        const now = new Date();
+        const sorted = (entries || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+        if (sorted.length === 0) {
+            return '<div class="text-body-secondary small">No scheduled entries in the next 6 hours.</div>';
+        }
+
+        return sorted.map(entry => {
+            const start = new Date(entry.start);
+            const end = new Date(entry.end);
+            const isNow = start <= now && end > now;
+            const nowPill = isNow ? '<span class="badge bg-danger irt-now-pill">NOW</span>' : '';
+            const title = escapeHtml(entry.title || entry.extendedProps?.source_name || 'Untitled');
+            const source = escapeHtml(entry.extendedProps?.source_label || entry.extendedProps?.source_type || 'Scheduled');
+            const editBtn = canManageIRT
+                ? `<button class="btn btn-sm btn-outline-primary" onclick="openEntryForEdit('${entry.id}')"><i class="bi bi-pencil"></i></button>`
+                : '';
+            const removeBtn = canManageIRT
+                ? `<button class="btn btn-sm btn-outline-danger" onclick="removeIRTEntry('${entry.id}')"><i class="bi bi-trash"></i></button>`
+                : '';
+            return `
+                <div class="irt-item py-2 d-flex align-items-center justify-content-between gap-2">
+                    <div class="flex-grow-1">
+                        <div class="fw-medium">${title} ${nowPill}</div>
+                        <div class="small text-body-secondary">${source} • ${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}</div>
+                    </div>
+                    <div class="d-flex gap-1">${editBtn}${removeBtn}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    window.openEntryForEdit = function(entryID) {
+        const event = calendar.getEventById(entryID);
+        if (!event) {
+            pendingEditEntryId = entryID;
+            calendar.refetchEvents();
+            return;
+        }
+        pendingEditEntryId = null;
+        openEditModal(event);
+    };
+
+    window.removeIRTEntry = async function(entryID) {
+        if (!confirm('Remove this scheduled entry from the IRT list?')) return;
+        try {
+            const resp = await fetch(`/dashboard/schedule/entries/${entryID}`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error('delete_failed');
+            grimnirUtils.showToast('Entry removed', 'success');
+            calendar.refetchEvents();
+            refreshIRTPanel();
+        } catch (err) {
+            grimnirUtils.showToast('Failed to remove entry', 'error');
+        }
+    };
+
+    const originalRefetchEvents = calendar.refetchEvents.bind(calendar);
+    calendar.refetchEvents = function() {
+        originalRefetchEvents();
+        setTimeout(refreshIRTPanel, 300);
+    };
+
+    refreshIRTPanel();
+    irtRefreshTimer = setInterval(refreshIRTPanel, 10000);
 
     // ===== Template Management =====
 

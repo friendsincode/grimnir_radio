@@ -51,7 +51,7 @@
                     <li>Files will be automatically analyzed for loudness, BPM, and waveform data</li>
                     <li>Metadata (ID3 tags) will be extracted automatically</li>
                     <li>For best results, use high-quality source files (FLAC or WAV)</li>
-                    <li>Maximum file size: 1GB per file</li>
+                    <li>Maximum file size: {{formatBytes (index .Data "MaxUploadBytes")}} per file</li>
                     <li>You can edit metadata after upload</li>
                 </ul>
             </div>
@@ -67,6 +67,7 @@ const fileInput = document.getElementById('fileInput');
 const progress = document.getElementById('uploadProgress');
 const progressBar = progress.querySelector('.progress-bar');
 const results = document.getElementById('uploadResults');
+const maxUploadBytes = Number('{{index .Data "MaxUploadBytes"}}') || 0;
 
 let isUploading = false;
 let currentBatch = null;
@@ -105,7 +106,21 @@ function handleFiles(files) {
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
 
-    const dedupedFiles = dedupeBatchFiles(fileArray);
+    const allowedFiles = [];
+    for (const file of fileArray) {
+        if (maxUploadBytes > 0 && (file.size || 0) > maxUploadBytes) {
+            addResult(
+                file.name,
+                'danger',
+                `Skipped: file is ${formatBytes(file.size)} (limit ${formatBytes(maxUploadBytes)}).`
+            );
+            continue;
+        }
+        allowedFiles.push(file);
+    }
+    if (allowedFiles.length === 0) return;
+
+    const dedupedFiles = dedupeBatchFiles(allowedFiles);
     const totalBytes = dedupedFiles.reduce((sum, file) => sum + (file.size || 0), 0);
 
     currentBatch = {
@@ -218,7 +233,7 @@ function uploadFile(file) {
                 addResult(file.name, 'warning', 'Skipped duplicate (already in library)');
             } else {
                 currentBatch.failedCount += 1;
-                addResult(file.name, 'danger', 'Upload failed: ' + (xhr.responseText || `HTTP ${xhr.status}`));
+                addResult(file.name, 'danger', 'Upload failed: ' + readableServerError(xhr));
             }
 
             updateProgressUI();
@@ -256,6 +271,25 @@ function addResult(filename, status, message) {
         </div>
     `;
     results.prepend(div);
+}
+
+function readableServerError(xhr) {
+    const text = (xhr && xhr.responseText ? String(xhr.responseText) : '').trim();
+    if (!text) return `HTTP ${xhr ? xhr.status : 'error'}`;
+    return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function formatBytes(bytes) {
+    const n = Number(bytes) || 0;
+    if (n <= 0) return '0 B';
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let val = n;
+    let idx = 0;
+    while (val >= 1024 && idx < units.length - 1) {
+        val /= 1024;
+        idx++;
+    }
+    return `${val.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
 function escapeHtml(value) {

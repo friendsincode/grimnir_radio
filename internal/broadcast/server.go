@@ -347,7 +347,10 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeCount++
 			// Log first few writes to debug streaming issues
 			if writeCount <= 5 || writeCount%100 == 0 {
-				m.logger.Info().Int("writes", writeCount).Int("bytes", len(data)).Msg("wrote chunk to client")
+				m.logger.Debug().
+					Int("writes", writeCount).
+					Int("bytes", len(data)).
+					Msg("stream chunk delivered to client")
 			}
 			// Reset keepalive timer after successful write
 			if !keepalive.Stop() {

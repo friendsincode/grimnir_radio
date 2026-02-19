@@ -172,9 +172,12 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 
 	hc.logger.Warn().
 		Err(err).
+		Str("webstream_id", ws.ID).
+		Str("station_id", ws.StationID).
+		Str("webstream_name", ws.Name).
 		Str("url", ws.GetCurrentURL()).
 		Int("consecutive_fails", hc.consecutiveFails).
-		Msg("health check failed")
+		Msg("webstream health check failed; failover may trigger if failures continue")
 
 	// Mark as degraded after first failure
 	if hc.consecutiveFails == 1 {
@@ -204,7 +207,12 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 
 func (hc *HealthChecker) triggerFailover(ws *models.Webstream) {
 	if !ws.FailoverEnabled {
-		hc.logger.Warn().Msg("failover disabled, marking as unhealthy")
+		hc.logger.Warn().
+			Str("webstream_id", ws.ID).
+			Str("station_id", ws.StationID).
+			Str("webstream_name", ws.Name).
+			Str("url", ws.GetCurrentURL()).
+			Msg("webstream failover disabled; stream marked unhealthy until source recovers")
 		ws.MarkUnhealthy()
 		if err := hc.db.Save(ws).Error; err != nil {
 			hc.logger.Error().Err(err).Msg("failed to update health status")

@@ -331,7 +331,9 @@ function renderLogs(entries) {
         const levelBadge = getLevelBadge(entry.level);
         const message = escapeHtml(entry.message || '(no message)');
         const component = entry.component || '-';
-        const rowClass = entry.level === 'error' ? 'table-danger' : '';
+        let rowClass = '';
+        if (entry.level === 'error') rowClass = 'table-danger';
+        if (entry.level === 'warn') rowClass = 'table-warning';
 
         return `
             <tr class="log-row-clickable ${rowClass}" onclick="showLogDetailByIndex(${idx})" title="Click to view details">
@@ -369,7 +371,27 @@ function showLogDetailByIndex(index, e) {
 
 function buildLogDetailText(entry) {
     const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Unknown';
+    const insight = analyzeLogEntry(entry);
+    const causes = derivePossibleCauses(entry);
     const lines = [
+        'Plain-English Summary',
+        '---------------------',
+        insight.summary,
+        '',
+        'What This Means',
+        '---------------',
+        insight.meaning,
+        '',
+        'Possible Causes',
+        '---------------',
+        ...causes.map((cause, i) => `${i + 1}. ${cause}`),
+        '',
+        'How To Resolve',
+        '--------------',
+        ...insight.actions.map((action, i) => `${i + 1}. ${action}`),
+        '',
+        'Technical Context',
+        '-----------------',
         `Timestamp: ${timestamp}`,
         `Level: ${entry.level || '-'}`,
         `Component: ${entry.component || '-'}`,
@@ -382,9 +404,171 @@ function buildLogDetailText(entry) {
     }
 
     lines.push('');
-    lines.push('Raw entry JSON:');
+    lines.push('Nerd Details (Raw JSON):');
     lines.push(JSON.stringify(entry, null, 2));
     return lines.join('\n');
+}
+
+function analyzeLogEntry(entry) {
+    const level = (entry.level || '').toLowerCase();
+    const component = (entry.component || '').toLowerCase();
+    const message = (entry.message || '').toLowerCase();
+    const fieldsText = JSON.stringify(entry.fields || {}).toLowerCase();
+    const combined = `${component} ${message} ${fieldsText}`;
+
+    const out = {
+        summary: 'System activity log entry.',
+        meaning: 'This is a normal system event record.',
+        actions: ['No immediate action needed.'],
+    };
+
+    if (level === 'debug') {
+        out.summary = 'Debug log captured for troubleshooting.';
+        out.meaning = 'This is diagnostic detail for deeper investigation, not usually a production issue by itself.';
+        out.actions = [
+            'No action is required unless you are actively investigating a problem.',
+            'If users report an issue, review nearby warning/error logs in the same timeframe.',
+        ];
+    }
+    if (level === 'info') {
+        out.summary = 'Informational event.';
+        out.meaning = 'The system is reporting a normal operation or state change.';
+        out.actions = [
+            'No action is usually needed.',
+            'If behavior is unexpected, check related entries before and after this timestamp.',
+        ];
+    }
+    if (level === 'warn') {
+        out.summary = 'Warning: something may need attention soon.';
+        out.meaning = 'The system continued running, but this could lead to a failure if ignored.';
+        out.actions = [
+            'Review the component and message for the first failing dependency.',
+            'Fix configuration/data issues now to prevent escalation to errors.',
+        ];
+    }
+    if (level === 'error') {
+        out.summary = 'Error: operation failed.';
+        out.meaning = 'A requested action did not complete successfully.';
+        out.actions = [
+            'Identify the failing component and operation in this log entry.',
+            'Retry after fixing the root cause shown in the message/fields.',
+            'If repeated, escalate with this full log entry.',
+        ];
+    }
+
+    if (combined.includes('overlap')) {
+        out.summary = 'Schedule overlap detected.';
+        out.meaning = 'Two or more items are scheduled for the same time window.';
+        out.actions = [
+            'Open Schedule -> Validate to see conflicting item IDs and times.',
+            'Move, shorten, or remove one of the overlapping items.',
+            'Re-run validation to confirm overlap count returns to zero.',
+        ];
+    } else if (combined.includes('validation failed')) {
+        out.summary = 'Schedule validation failed to complete.';
+        out.meaning = 'The validator could not finish, likely due to a data or service issue.';
+        out.actions = [
+            'Retry validation once.',
+            'Check database and scheduler health logs around this timestamp.',
+            'If it persists, capture this entry and contact support/engineering.',
+        ];
+    } else if (combined.includes('unauthorized') || combined.includes('forbidden') || combined.includes('permission') || combined.includes('401') || combined.includes('403')) {
+        out.summary = 'Access/permission issue.';
+        out.meaning = 'The request was blocked by authentication or role permissions.';
+        out.actions = [
+            'Confirm the user has the correct station/platform role.',
+            'Verify token/session is valid and not expired.',
+            'Retry after re-authenticating.',
+        ];
+    } else if (combined.includes('not found') || combined.includes('404')) {
+        out.summary = 'Requested resource was not found.';
+        out.meaning = 'The item ID or endpoint path does not exist or was removed.';
+        out.actions = [
+            'Verify the ID/path used by the action.',
+            'Confirm the resource still exists in the UI/database.',
+            'Retry using the correct station/context.',
+        ];
+    } else if (combined.includes('timeout') || combined.includes('timed out') || combined.includes('deadline exceeded')) {
+        out.summary = 'Operation timed out.';
+        out.meaning = 'The dependency did not respond before the timeout limit.';
+        out.actions = [
+            'Check network/connectivity to the dependency.',
+            'Check dependency health (database/redis/web service).',
+            'Retry once load has stabilized.',
+        ];
+    } else if (combined.includes('database') || combined.includes(' db ') || combined.includes('sql') || combined.includes('gorm') || combined.includes('postgres') || combined.includes('sqlite')) {
+        out.summary = 'Database-related issue.';
+        out.meaning = 'A query or database connection failed or degraded.';
+        out.actions = [
+            'Check database availability and credentials.',
+            'Inspect query/data constraints indicated in the message.',
+            'Retry after database health is restored.',
+        ];
+    } else if (combined.includes('redis') || combined.includes('nats') || combined.includes('websocket') || combined.includes('dial tcp') || combined.includes('connection refused')) {
+        out.summary = 'Service connectivity issue.';
+        out.meaning = 'The app could not reach a required internal/external service.';
+        out.actions = [
+            'Confirm target service is running and reachable.',
+            'Verify host/port settings and firewall/network policies.',
+            'Retry after connectivity is restored.',
+        ];
+    }
+
+    return out;
+}
+
+function derivePossibleCauses(entry) {
+    const component = (entry.component || '').toLowerCase();
+    const message = (entry.message || '').toLowerCase();
+    const fieldsText = JSON.stringify(entry.fields || {}).toLowerCase();
+    const combined = `${component} ${message} ${fieldsText}`;
+
+    if (combined.includes('overlap')) {
+        return [
+            'Two schedule entries were set for overlapping times.',
+            'A recurring event and a one-off event collided in the same window.',
+        ];
+    }
+    if (combined.includes('unauthorized') || combined.includes('forbidden') || combined.includes('permission') || combined.includes('401') || combined.includes('403')) {
+        return [
+            'User/session token expired or invalid.',
+            'User role does not have required permissions for the action.',
+        ];
+    }
+    if (combined.includes('timeout') || combined.includes('timed out') || combined.includes('deadline exceeded')) {
+        return [
+            'Dependency service is slow or overloaded.',
+            'Temporary network instability between services.',
+        ];
+    }
+    if (combined.includes('database') || combined.includes(' db ') || combined.includes('sql') || combined.includes('gorm') || combined.includes('postgres') || combined.includes('sqlite')) {
+        return [
+            'Database connection issue or transient outage.',
+            'Constraint/query/data mismatch during write/read.',
+        ];
+    }
+    if (combined.includes('redis') || combined.includes('nats') || combined.includes('websocket') || combined.includes('dial tcp') || combined.includes('connection refused')) {
+        return [
+            'Target service is down or unreachable on configured host/port.',
+            'Network policy/firewall blocked service traffic.',
+        ];
+    }
+    if ((entry.level || '').toLowerCase() === 'warn') {
+        return [
+            'Configuration mismatch that did not yet fully fail.',
+            'Resource limits approaching threshold.',
+        ];
+    }
+    if ((entry.level || '').toLowerCase() === 'error') {
+        return [
+            'Operation dependency failed at runtime.',
+            'Invalid state or invalid input data for the requested action.',
+        ];
+    }
+    return [
+        'Normal operational event or status update.',
+        'Diagnostic output generated by component instrumentation.',
+    ];
 }
 
 function escapeHtml(text) {

@@ -462,12 +462,13 @@
                 <!-- FALLBACKS -->
                 <div class="accordion-item">
                     <h2 class="accordion-header">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#fallbackSection">
+                        <button class="accordion-button {{if not $isNew}}collapsed{{end}}" type="button" data-bs-toggle="collapse" data-bs-target="#fallbackSection">
                             <i class="bi bi-arrow-repeat me-2"></i>Fallback Blocks
-                            <span class="badge bg-success ms-auto me-2 section-badge" id="fallbackBadge" style="display:none;">ON</span>
+                            <span class="badge bg-info ms-auto me-2" id="fallbackCount" style="display:none;">0</span>
+                            <span class="badge bg-success me-2 section-badge" id="fallbackBadge" style="display:none;">ON</span>
                         </button>
                     </h2>
-                    <div id="fallbackSection" class="accordion-collapse collapse">
+                    <div id="fallbackSection" class="accordion-collapse collapse {{if $isNew}}show{{end}}">
                         <div class="accordion-body">
                             <div class="form-check form-switch mb-3">
                                 <input class="form-check-input section-toggle" type="checkbox" name="fallbacks_enabled" id="fallbacksToggle" data-section="fallbacksFields" data-badge="fallbackBadge">
@@ -475,6 +476,12 @@
                             </div>
                             <div id="fallbacksFields" style="display:none;">
                                 <p class="text-body-secondary small">If this block can't fill the duration, use these as backup.</p>
+                                {{if $isNew}}
+                                <div class="alert alert-info py-2 small">
+                                    <i class="bi bi-lightbulb me-1"></i>
+                                    New here? Add one or more fallback blocks so playback can continue when the primary block runs short.
+                                </div>
+                                {{end}}
                                 <div id="fallbackList"></div>
                                 <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addFallback" title="Add fallback smart block">
                                     <i class="bi bi-plus-lg me-1"></i>Add Fallback
@@ -843,6 +850,7 @@
     }
 
     function updateFallbackCount() {
+        if (!fallbackCount) return;
         const count = fallbackList.querySelectorAll('.fallback-row').length;
         fallbackCount.textContent = count;
         fallbackCount.style.display = count ? '' : 'none';

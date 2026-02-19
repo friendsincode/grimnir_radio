@@ -17,6 +17,17 @@
 {{define "main"}}
 <!-- Station ID for JavaScript -->
 <div id="webdj-app" x-data="webdjConsole()" x-init="init()" data-station-id="{{.Station.ID}}">
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><i class="bi bi-broadcast me-2"></i>Now Playing (IRT)</h6>
+            <button class="btn btn-sm btn-outline-secondary" id="webdjIrtRefreshBtn"><i class="bi bi-arrow-clockwise"></i></button>
+        </div>
+        <div class="card-body">
+            <div id="webdjIrtNowPlaying" class="mb-3 text-body-secondary small">Loading current playback...</div>
+            <div id="webdjIrtUpcoming" class="irt-list"></div>
+        </div>
+    </div>
+
     <!-- Session Start Screen -->
     <div x-show="!sessionId" class="row justify-content-center">
         <div class="col-lg-6">
@@ -485,6 +496,9 @@
     background-color: var(--bs-danger);
     animation: pulse 1s ease-in-out infinite;
 }
+.irt-list .irt-item { border-bottom: 1px solid var(--bs-border-color); }
+.irt-list .irt-item:last-child { border-bottom: 0; }
+.irt-now-pill { font-size: 0.68rem; }
 @keyframes pulse {
     0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
     50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(220, 53, 69, 0); }
@@ -492,4 +506,107 @@
 </style>
 
 <script src="/static/js/webdj.js"></script>
+<script>
+(function() {
+    const stationID = '{{.Station.ID}}';
+    const canManageIRT = {{if roleAtLeast .User "manager"}}true{{else}}false{{end}};
+    const nowPlayingEl = document.getElementById('webdjIrtNowPlaying');
+    const upcomingEl = document.getElementById('webdjIrtUpcoming');
+    const refreshBtn = document.getElementById('webdjIrtRefreshBtn');
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function renderNowPlaying(np) {
+        if (!np || np.status !== 'playing') {
+            return '<i class="bi bi-music-note me-1"></i>No active playback right now.';
+        }
+        const source = np.is_live_dj ? 'Live DJ' : 'Automation';
+        return `
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <div class="fw-semibold">${escapeHtml(np.artist || 'Unknown Artist')} - ${escapeHtml(np.title || 'Unknown Title')}</div>
+                    <small class="text-body-secondary">${source}</small>
+                </div>
+                <span class="badge bg-success">LIVE</span>
+            </div>
+        `;
+    }
+
+    function renderEntries(entries) {
+        const now = new Date();
+        const sorted = (entries || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+        if (sorted.length === 0) {
+            return '<div class="text-body-secondary small">No scheduled entries in the next 6 hours.</div>';
+        }
+        return sorted.map(entry => {
+            const start = new Date(entry.start);
+            const end = new Date(entry.end);
+            const isNow = start <= now && end > now;
+            const nowPill = isNow ? '<span class="badge bg-danger irt-now-pill">NOW</span>' : '';
+            const source = escapeHtml(entry.extendedProps?.source_label || entry.extendedProps?.source_type || 'Scheduled');
+            const editBtn = canManageIRT
+                ? `<a class="btn btn-sm btn-outline-primary" href="/dashboard/schedule?edit_entry=${encodeURIComponent(entry.id)}"><i class="bi bi-pencil"></i></a>`
+                : '';
+            const removeBtn = canManageIRT
+                ? `<button class="btn btn-sm btn-outline-danger" onclick="removeWebDJIRTEntry('${entry.id}')"><i class="bi bi-trash"></i></button>`
+                : '';
+            return `
+                <div class="irt-item py-2 d-flex align-items-center justify-content-between gap-2">
+                    <div class="flex-grow-1">
+                        <div class="fw-medium">${escapeHtml(entry.title || entry.extendedProps?.source_name || 'Untitled')} ${nowPill}</div>
+                        <div class="small text-body-secondary">${source} • ${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}</div>
+                    </div>
+                    <div class="d-flex gap-1">${editBtn}${removeBtn}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function refreshWebDJIRTPanel() {
+        if (!nowPlayingEl || !upcomingEl) return;
+        try {
+            const now = new Date();
+            const start = new Date(now.getTime() - 5 * 60 * 1000);
+            const end = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+            const [npResp, eventsResp] = await Promise.all([
+                fetch(`/api/v1/analytics/now-playing?station_id=${stationID}`),
+                fetch(`/dashboard/schedule/events?start=${start.toISOString()}&end=${end.toISOString()}`),
+            ]);
+            const np = npResp.ok ? await npResp.json() : { status: 'idle' };
+            const entries = eventsResp.ok ? await eventsResp.json() : [];
+            nowPlayingEl.innerHTML = renderNowPlaying(np);
+            upcomingEl.innerHTML = renderEntries(entries);
+        } catch (err) {
+            nowPlayingEl.innerHTML = '<span class="text-danger">Failed to load IRT state.</span>';
+        }
+    }
+
+    window.removeWebDJIRTEntry = async function(entryID) {
+        if (!confirm('Remove this scheduled entry from the IRT list?')) return;
+        try {
+            const resp = await fetch(`/dashboard/schedule/entries/${entryID}`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error('delete_failed');
+            if (window.grimnirUtils?.showToast) {
+                window.grimnirUtils.showToast('Entry removed', 'success');
+            }
+            refreshWebDJIRTPanel();
+        } catch (err) {
+            if (window.grimnirUtils?.showToast) {
+                window.grimnirUtils.showToast('Failed to remove entry', 'error');
+            }
+        }
+    };
+
+    refreshBtn?.addEventListener('click', refreshWebDJIRTPanel);
+    refreshWebDJIRTPanel();
+    setInterval(refreshWebDJIRTPanel, 10000);
+})();
+</script>
 {{end}}
