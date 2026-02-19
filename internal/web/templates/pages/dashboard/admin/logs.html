@@ -183,6 +183,7 @@
 .log-level-error { color: #dc3545; font-weight: bold; }
 #logTable tbody tr { font-size: 0.85em; }
 #logTable td { vertical-align: middle; }
+.log-row-clickable { cursor: pointer; }
 .log-message {
     max-width: 600px;
     overflow: hidden;
@@ -196,6 +197,7 @@ const wsToken = '{{.WSToken}}';
 let logDetailModal;
 let stationNames = {};
 let autoRefreshTimer = null;
+let currentEntries = [];
 const autoRefreshMs = 10000;
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -310,6 +312,7 @@ function refreshLogs() {
 
 function renderLogs(entries) {
     const tbody = document.getElementById('logBody');
+    currentEntries = entries || [];
 
     if (!entries || entries.length === 0) {
         tbody.innerHTML = `
@@ -324,22 +327,22 @@ function renderLogs(entries) {
 
     tbody.innerHTML = entries.map((entry, idx) => {
         const ts = new Date(entry.timestamp).toLocaleString();
-        const levelClass = `log-level-${entry.level}`;
         const levelBadge = getLevelBadge(entry.level);
         const message = escapeHtml(entry.message || '(no message)');
         const component = entry.component || '-';
         const stationId = entry.fields?.station_id || entry.fields?.stationID || entry.fields?.stationId || '';
         const stationName = stationId ? (stationNames[stationId] || stationId.substring(0, 8) + '...') : '-';
+        const rowClass = entry.level === 'error' ? 'table-danger' : '';
 
         return `
-            <tr>
+            <tr class="log-row-clickable ${rowClass}" onclick="showLogDetailByIndex(${idx})" title="Click to view details">
                 <td class="text-muted">${ts}</td>
                 <td>${levelBadge}</td>
                 <td class="small">${escapeHtml(stationName)}</td>
                 <td><code class="small">${escapeHtml(component)}</code></td>
                 <td class="log-message" title="${escapeHtml(entry.message)}">${message}</td>
                 <td>
-                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick='showLogDetail(${JSON.stringify(entry)})'>
+                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="showLogDetailByIndex(${idx}, event)">
                         <i class="bi bi-code"></i>
                     </button>
                 </td>
@@ -358,9 +361,32 @@ function getLevelBadge(level) {
     return badges[level] || `<span class="badge bg-secondary">${level}</span>`;
 }
 
-function showLogDetail(entry) {
-    document.getElementById('logDetailContent').textContent = JSON.stringify(entry, null, 2);
+function showLogDetailByIndex(index, e) {
+    if (e) e.stopPropagation();
+    const entry = currentEntries[index];
+    if (!entry) return;
+    document.getElementById('logDetailContent').textContent = buildLogDetailText(entry);
     logDetailModal.show();
+}
+
+function buildLogDetailText(entry) {
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Unknown';
+    const lines = [
+        `Timestamp: ${timestamp}`,
+        `Level: ${entry.level || '-'}`,
+        `Component: ${entry.component || '-'}`,
+        `Message: ${entry.message || '(no message)'}`,
+    ];
+
+    const errorField = entry.fields?.error || entry.fields?.err || entry.error;
+    if (errorField) {
+        lines.push(`Error: ${typeof errorField === 'string' ? errorField : JSON.stringify(errorField)}`);
+    }
+
+    lines.push('');
+    lines.push('Raw entry JSON:');
+    lines.push(JSON.stringify(entry, null, 2));
+    return lines.join('\n');
 }
 
 function clearLogs() {
