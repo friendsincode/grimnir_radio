@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 
@@ -96,7 +97,7 @@ func (s *pcmCrossfadeSession) Close() error {
 	return nil
 }
 
-func (s *pcmCrossfadeSession) Play(ctx context.Context, filePath string, fade time.Duration) error {
+func (s *pcmCrossfadeSession) Play(ctx context.Context, filePath string, fade time.Duration, startOffset time.Duration) error {
 	s.mu.Lock()
 	if s.closing {
 		s.mu.Unlock()
@@ -105,7 +106,7 @@ func (s *pcmCrossfadeSession) Play(ctx context.Context, filePath string, fade ti
 	prev := s.cur
 	s.mu.Unlock()
 
-	dec, err := s.startDecoder(ctx, filePath)
+	dec, err := s.startDecoder(ctx, filePath, startOffset)
 	if err != nil {
 		return err
 	}
@@ -130,7 +131,7 @@ func (s *pcmCrossfadeSession) Play(ctx context.Context, filePath string, fade ti
 	return nil
 }
 
-func (s *pcmCrossfadeSession) startDecoder(ctx context.Context, filePath string) (*decoderProc, error) {
+func (s *pcmCrossfadeSession) startDecoder(ctx context.Context, filePath string, startOffset time.Duration) (*decoderProc, error) {
 	rate := s.cfg.SampleRate
 	if rate <= 0 {
 		rate = 44100
@@ -140,15 +141,35 @@ func (s *pcmCrossfadeSession) startDecoder(ctx context.Context, filePath string)
 		ch = 2
 	}
 
-	// Real-time decode to S16LE PCM on stdout.
-	pipeline := fmt.Sprintf(
-		`filesrc location=%q ! decodebin ! audioconvert ! audioresample ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! identity sync=true ! fdsink fd=1`,
-		filePath, rate, ch,
-	)
-
 	cmdCtx, cancel := context.WithCancel(ctx)
-	shellCmd := fmt.Sprintf("%s -e %s", s.cfg.GStreamerBin, pipeline)
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", shellCmd)
+	var cmd *exec.Cmd
+	var pipeline string
+	if startOffset > 0 {
+		// Seek-capable decode path for restart resume: ffmpeg handles initial -ss offset.
+		cmd = exec.CommandContext(
+			cmdCtx,
+			"ffmpeg",
+			"-hide_banner",
+			"-loglevel", "error",
+			"-ss", fmt.Sprintf("%.3f", startOffset.Seconds()),
+			"-i", filePath,
+			"-f", "s16le",
+			"-acodec", "pcm_s16le",
+			"-ac", strconv.Itoa(ch),
+			"-ar", strconv.Itoa(rate),
+			"-re",
+			"pipe:1",
+		)
+		pipeline = fmt.Sprintf("ffmpeg decode with seek %.3fs", startOffset.Seconds())
+	} else {
+		// Real-time decode to S16LE PCM on stdout.
+		pipeline = fmt.Sprintf(
+			`filesrc location=%q ! decodebin ! audioconvert ! audioresample ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! identity sync=true ! fdsink fd=1`,
+			filePath, rate, ch,
+		)
+		shellCmd := fmt.Sprintf("%s -e %s", s.cfg.GStreamerBin, pipeline)
+		cmd = exec.CommandContext(cmdCtx, "sh", "-c", shellCmd)
+	}
 	cmd.Stderr = nil
 
 	stdout, err := cmd.StdoutPipe()

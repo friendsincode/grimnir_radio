@@ -44,6 +44,12 @@ type playoutState struct {
 	Items      []string // pre-loaded media IDs in order
 }
 
+type playbackResumeContext struct {
+	Offset        time.Duration
+	LogicalStart  time.Time
+	FromPersisted bool
+}
+
 type scheduleBoundaryPolicy struct {
 	Mode        string
 	SoftOverrun time.Duration
@@ -734,7 +740,8 @@ func (d *Director) resumeEntryIfPossible(ctx context.Context, entry models.Sched
 		Msg("resuming mount playout state after restart")
 
 	_ = d.playMediaWithState(ctx, entry, media, state.SourceType, state.SourceID, state.Position, state.Items, map[string]any{
-		"resumed": true,
+		"resumed":           true,
+		"resume_started_at": state.Started.UTC(),
 	})
 	return true
 }
@@ -1369,6 +1376,8 @@ func (d *Director) startWebstreamByID(ctx context.Context, entry models.Schedule
 
 // playMedia is a helper to start playing a media item
 func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, extraPayload map[string]any) error {
+	resume := d.computePlaybackResume(entry, media, extraPayload)
+
 	// Build full path using media root
 	// Use path directly if absolute, otherwise join with mediaRoot
 	fullPath := media.Path
@@ -1405,11 +1414,23 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 	}
 
 	d.mu.Lock()
-	d.active[entry.MountID] = playoutState{MediaID: media.ID, EntryID: entry.ID, StationID: entry.StationID, Started: entry.StartsAt, Ends: stopAt}
+	d.active[entry.MountID] = playoutState{
+		MediaID:    media.ID,
+		EntryID:    entry.ID,
+		StationID:  entry.StationID,
+		Started:    resume.LogicalStart,
+		Ends:       stopAt,
+		SourceType: "media",
+		SourceID:   media.ID,
+		Position:   0,
+		TotalItems: 1,
+		Items:      []string{media.ID},
+	}
 	d.mu.Unlock()
 
 	// Stop any existing pipeline if needed.
-	if xfade.Enabled && xfade.Duration > 0 {
+	usePCMPath := (xfade.Enabled && xfade.Duration > 0) || resume.Offset > 0
+	if usePCMPath {
 		// For crossfade mode we prefer to keep a persistent PCM-input encoder running.
 		// If the mount doesn't have a session yet, stop any existing file-input pipeline
 		// so we can start the PCM encoder.
@@ -1502,7 +1523,18 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
 		d.xfadeMu.Unlock()
 
-		if err := sess.Play(ctx, fullPath, xfade.Duration); err != nil {
+		if resume.Offset > 0 {
+			d.logger.Info().
+				Str("mount", entry.MountID).
+				Str("entry", entry.ID).
+				Float64("seek_seconds", resume.Offset.Seconds()).
+				Msg("resuming media from elapsed position")
+		}
+		fade := xfade.Duration
+		if !(xfade.Enabled && xfade.Duration > 0) {
+			fade = 0
+		}
+		if err := sess.Play(ctx, fullPath, fade, resume.Offset); err != nil {
 			return fmt.Errorf("crossfade play: %w", err)
 		}
 	} else {
@@ -1531,6 +1563,9 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 		"artist":   media.Artist,
 		"album":    media.Album,
 	}
+	if resume.Offset > 0 {
+		payload["resume_offset_seconds"] = int(resume.Offset / time.Second)
+	}
 	for k, v := range extraPayload {
 		payload[k] = v
 	}
@@ -1544,6 +1579,8 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 // playMediaWithState plays media with enhanced state tracking for playlists and smart blocks.
 // This enables sequential playback and position persistence.
 func (d *Director) playMediaWithState(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, sourceType, sourceID string, position int, items []string, extraPayload map[string]any) error {
+	resume := d.computePlaybackResume(entry, media, extraPayload)
+
 	// Build full path using media root
 	// Use path directly if absolute, otherwise join with mediaRoot
 	fullPath := media.Path
@@ -1584,7 +1621,7 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 		MediaID:    media.ID,
 		EntryID:    entry.ID,
 		StationID:  entry.StationID,
-		Started:    time.Now(),
+		Started:    resume.LogicalStart,
 		Ends:       stopAt,
 		SourceType: sourceType,
 		SourceID:   sourceID,
@@ -1600,7 +1637,8 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	d.persistMountState(ctx, entry.MountID, s)
 
 	// Stop any existing pipeline if needed.
-	if xfade.Enabled && xfade.Duration > 0 {
+	usePCMPath := (xfade.Enabled && xfade.Duration > 0) || resume.Offset > 0
+	if usePCMPath {
 		d.xfadeMu.Lock()
 		_, hasSess := d.xfadeSessions[entry.MountID]
 		d.xfadeMu.Unlock()
@@ -1687,7 +1725,20 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
 		d.xfadeMu.Unlock()
 
-		if err := sess.Play(ctx, fullPath, xfade.Duration); err != nil {
+		if resume.Offset > 0 {
+			d.logger.Info().
+				Str("mount", entry.MountID).
+				Str("entry", entry.ID).
+				Str("source_type", sourceType).
+				Int("position", position).
+				Float64("seek_seconds", resume.Offset.Seconds()).
+				Msg("resuming stateful playout from elapsed position")
+		}
+		fade := xfade.Duration
+		if !(xfade.Enabled && xfade.Duration > 0) {
+			fade = 0
+		}
+		if err := sess.Play(ctx, fullPath, fade, resume.Offset); err != nil {
 			return fmt.Errorf("crossfade play: %w", err)
 		}
 	} else {
@@ -1714,6 +1765,9 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 		"album":    media.Album,
 		"position": position,
 	}
+	if resume.Offset > 0 {
+		payload["resume_offset_seconds"] = int(resume.Offset / time.Second)
+	}
 	for k, v := range extraPayload {
 		payload[k] = v
 	}
@@ -1722,6 +1776,36 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	d.scheduleStop(ctx, entry.StationID, entry.MountID, entry.EndsAt)
 
 	return nil
+}
+
+func (d *Director) computePlaybackResume(entry models.ScheduleEntry, media models.MediaItem, extraPayload map[string]any) playbackResumeContext {
+	now := time.Now().UTC()
+	start := entry.StartsAt.UTC()
+	fromPersisted := false
+	if extraPayload != nil {
+		if v, ok := extraPayload["resume_started_at"].(time.Time); ok && !v.IsZero() {
+			start = v.UTC()
+			fromPersisted = true
+		}
+	}
+	if start.After(now) {
+		return playbackResumeContext{Offset: 0, LogicalStart: now, FromPersisted: fromPersisted}
+	}
+	offset := now.Sub(start)
+	// Ignore tiny offsets to avoid choppy restarts around schedule boundaries.
+	if offset < 2*time.Second {
+		return playbackResumeContext{Offset: 0, LogicalStart: start, FromPersisted: fromPersisted}
+	}
+	if media.Duration > 0 {
+		max := media.Duration - time.Second
+		if max <= 0 {
+			return playbackResumeContext{Offset: 0, LogicalStart: start, FromPersisted: fromPersisted}
+		}
+		if offset > max {
+			offset = max
+		}
+	}
+	return playbackResumeContext{Offset: offset, LogicalStart: start, FromPersisted: fromPersisted}
 }
 
 // buildBroadcastPipeline creates a GStreamer pipeline that outputs to stdout for the broadcast server
@@ -2113,7 +2197,7 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
 		d.xfadeMu.Unlock()
 
-		if err := sess.Play(ctx, fullPath, xfade.Duration); err != nil {
+		if err := sess.Play(ctx, fullPath, xfade.Duration, 0); err != nil {
 			d.logger.Warn().Err(err).Msg("crossfade play failed")
 		}
 	} else {

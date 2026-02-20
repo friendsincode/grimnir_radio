@@ -51,7 +51,11 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := parseURLFormSemicolonTolerant(r); err != nil {
-		http.Error(w, "Invalid form", http.StatusBadRequest)
+		h.renderStationFormError(w, r, models.Station{
+			Name:        r.FormValue("name"),
+			Description: r.FormValue("description"),
+			Timezone:    r.FormValue("timezone"),
+		}, true, "Invalid form data. Please remove unsupported characters and try again.")
 		return
 	}
 
@@ -189,7 +193,7 @@ func (h *Handler) StationUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := parseURLFormSemicolonTolerant(r); err != nil {
-		http.Error(w, "Invalid form", http.StatusBadRequest)
+		h.renderStationFormError(w, r, station, false, "Invalid form data. Please remove unsupported characters and try again.")
 		return
 	}
 
@@ -337,6 +341,7 @@ func (h *Handler) StationDelete(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderStationFormError(w http.ResponseWriter, r *http.Request, station models.Station, isNew bool, message string) {
 	if r.Header.Get("HX-Request") == "true" {
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`<div class="alert alert-danger">` + message + `</div>`))
 		return
 	}
