@@ -21,6 +21,7 @@ import (
 type ScheduleItem struct {
 	ID         string
 	Type       string // "show_instance", "schedule_entry"
+	Display    string // Human-friendly label for novice-facing messages
 	StationID  string
 	StartsAt   time.Time
 	EndsAt     time.Time
@@ -171,10 +172,32 @@ func (v *Validator) fetchScheduleItems(stationID string, start, end time.Time) (
 	v.db.Where("station_id = ? AND starts_at < ? AND ends_at > ? AND status != ?",
 		stationID, end, start, models.ShowInstanceCancelled).Find(&instances)
 
+	showNames := map[string]string{}
+	if len(instances) > 0 {
+		showIDs := make([]string, 0, len(instances))
+		for _, inst := range instances {
+			if inst.ShowID != "" {
+				showIDs = append(showIDs, inst.ShowID)
+			}
+		}
+		if len(showIDs) > 0 {
+			var shows []models.Show
+			v.db.Select("id, name").Where("id IN ?", showIDs).Find(&shows)
+			for _, sh := range shows {
+				showNames[sh.ID] = sh.Name
+			}
+		}
+	}
+
 	for _, inst := range instances {
+		display := "Show"
+		if name := showNames[inst.ShowID]; name != "" {
+			display = "Show: " + name
+		}
 		items = append(items, ScheduleItem{
 			ID:         inst.ID,
 			Type:       "show_instance",
+			Display:    display,
 			StationID:  inst.StationID,
 			StartsAt:   inst.StartsAt,
 			EndsAt:     inst.EndsAt,
@@ -188,10 +211,106 @@ func (v *Validator) fetchScheduleItems(stationID string, start, end time.Time) (
 	v.db.Where("station_id = ? AND starts_at < ? AND ends_at > ?",
 		stationID, end, start).Find(&entries)
 
+	var playlistIDs, smartBlockIDs, clockIDs, webstreamIDs, mediaIDs []string
 	for _, entry := range entries {
+		switch entry.SourceType {
+		case "playlist":
+			playlistIDs = append(playlistIDs, entry.SourceID)
+		case "smart_block":
+			smartBlockIDs = append(smartBlockIDs, entry.SourceID)
+		case "clock_template":
+			clockIDs = append(clockIDs, entry.SourceID)
+		case "webstream":
+			webstreamIDs = append(webstreamIDs, entry.SourceID)
+		case "media":
+			mediaIDs = append(mediaIDs, entry.SourceID)
+		}
+	}
+
+	playlistNames := map[string]string{}
+	if len(playlistIDs) > 0 {
+		var playlists []models.Playlist
+		v.db.Select("id, name").Where("id IN ?", playlistIDs).Find(&playlists)
+		for _, p := range playlists {
+			playlistNames[p.ID] = p.Name
+		}
+	}
+	smartBlockNames := map[string]string{}
+	if len(smartBlockIDs) > 0 {
+		var blocks []models.SmartBlock
+		v.db.Select("id, name").Where("id IN ?", smartBlockIDs).Find(&blocks)
+		for _, b := range blocks {
+			smartBlockNames[b.ID] = b.Name
+		}
+	}
+	clockNames := map[string]string{}
+	if len(clockIDs) > 0 {
+		var clocks []models.ClockHour
+		v.db.Select("id, name").Where("id IN ?", clockIDs).Find(&clocks)
+		for _, c := range clocks {
+			clockNames[c.ID] = c.Name
+		}
+	}
+	webstreamNames := map[string]string{}
+	if len(webstreamIDs) > 0 {
+		var streams []models.Webstream
+		v.db.Select("id, name").Where("id IN ?", webstreamIDs).Find(&streams)
+		for _, s := range streams {
+			webstreamNames[s.ID] = s.Name
+		}
+	}
+	mediaNames := map[string]string{}
+	if len(mediaIDs) > 0 {
+		var media []models.MediaItem
+		v.db.Select("id, title, artist").Where("id IN ?", mediaIDs).Find(&media)
+		for _, m := range media {
+			if m.Artist != "" {
+				mediaNames[m.ID] = m.Artist + " - " + m.Title
+			} else {
+				mediaNames[m.ID] = m.Title
+			}
+		}
+	}
+
+	for _, entry := range entries {
+		display := entry.SourceType
+		switch entry.SourceType {
+		case "playlist":
+			if n := playlistNames[entry.SourceID]; n != "" {
+				display = "Playlist: " + n
+			} else {
+				display = "Playlist"
+			}
+		case "smart_block":
+			if n := smartBlockNames[entry.SourceID]; n != "" {
+				display = "Smart Block: " + n
+			} else {
+				display = "Smart Block"
+			}
+		case "clock_template":
+			if n := clockNames[entry.SourceID]; n != "" {
+				display = "Clock: " + n
+			} else {
+				display = "Clock"
+			}
+		case "webstream":
+			if n := webstreamNames[entry.SourceID]; n != "" {
+				display = "Webstream: " + n
+			} else {
+				display = "Webstream"
+			}
+		case "media":
+			if n := mediaNames[entry.SourceID]; n != "" {
+				display = "Track: " + n
+			} else {
+				display = "Track"
+			}
+		}
+
 		items = append(items, ScheduleItem{
 			ID:         entry.ID,
 			Type:       "schedule_entry",
+			Display:    display,
 			StationID:  entry.StationID,
 			StartsAt:   entry.StartsAt,
 			EndsAt:     entry.EndsAt,
@@ -260,13 +379,13 @@ func (v *Validator) checkOverlaps(items []ScheduleItem) []models.ValidationViola
 }
 
 func itemLabel(item ScheduleItem) string {
-	if item.Type == "show_instance" {
-		return "show instance " + item.ID
+	if item.Display != "" {
+		return item.Display
 	}
 	if item.SourceType != "" {
-		return fmt.Sprintf("%s (%s)", item.SourceType, item.ID)
+		return item.SourceType
 	}
-	return item.Type + " " + item.ID
+	return item.Type
 }
 
 func maxTime(a, b time.Time) time.Time {
