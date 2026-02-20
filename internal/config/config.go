@@ -89,7 +89,7 @@ func Load() (*Config, error) {
 		MediaRoot:          getEnvAny([]string{"GRIMNIR_MEDIA_ROOT", "RLM_MEDIA_ROOT"}, "./media"),
 		ObjectStorageURL:   getEnvAny([]string{"GRIMNIR_OBJECT_STORAGE_URL", "RLM_OBJECT_STORAGE_URL"}, ""),
 		GStreamerBin:       getEnvAny([]string{"GRIMNIR_GSTREAMER_BIN", "RLM_GSTREAMER_BIN"}, "gst-launch-1.0"),
-		SchedulerLookahead: time.Duration(getEnvIntAny([]string{"GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES", "RLM_SCHEDULER_LOOKAHEAD_MINUTES"}, 48)) * time.Hour,
+		SchedulerLookahead: time.Duration(getEnvIntAny([]string{"GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES", "RLM_SCHEDULER_LOOKAHEAD_MINUTES"}, 168)) * time.Hour,
 		JWTSigningKey:      getEnvAny([]string{"GRIMNIR_JWT_SIGNING_KEY", "RLM_JWT_SIGNING_KEY"}, ""),
 		MetricsBind:        getEnvAny([]string{"GRIMNIR_METRICS_BIND", "RLM_METRICS_BIND"}, "127.0.0.1:9000"),
 		MaxUploadSizeMB:    getEnvIntAny([]string{"GRIMNIR_MAX_UPLOAD_SIZE_MB", "RLM_MAX_UPLOAD_SIZE_MB"}, 0),

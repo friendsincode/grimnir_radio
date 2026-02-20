@@ -632,6 +632,7 @@ func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station")
 	genre := r.URL.Query().Get("genre")
 	showInArchive := r.URL.Query().Get("public") // "true", "false", or "" (all)
+	includeOrphans := r.URL.Query().Get("include_orphans") == "true"
 	sortBy := r.URL.Query().Get("sort")
 	if sortBy == "" {
 		sortBy = "created_at"
@@ -725,6 +726,27 @@ func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 		totalPages++
 	}
 
+	// Optional orphan listing in the same platform media view.
+	var orphans []models.OrphanMedia
+	var orphanTotal int64
+	if h.db != nil {
+		orphanQuery := h.db.Model(&models.OrphanMedia{})
+		if query != "" {
+			searchPattern := "%" + strings.ToLower(query) + "%"
+			orphanQuery = orphanQuery.Where(
+				"LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ? OR LOWER(file_path) LIKE ?",
+				searchPattern, searchPattern, searchPattern, searchPattern,
+			)
+		}
+		orphanQuery.Session(&gorm.Session{}).Count(&orphanTotal)
+		if includeOrphans {
+			orphanQuery.Session(&gorm.Session{}).
+				Order("detected_at DESC").
+				Limit(100).
+				Find(&orphans)
+		}
+	}
+
 	h.Render(w, r, "pages/dashboard/admin/media", PageData{
 		Title:    "Platform Media Library - Admin",
 		Stations: h.LoadStations(r),
@@ -742,6 +764,9 @@ func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 			"SortOrder":     sortOrder,
 			"AllStations":   allStations,
 			"Genres":        genres,
+			"Orphans":       orphans,
+			"OrphanTotal":   orphanTotal,
+			"IncludeOrphans": includeOrphans,
 		},
 	})
 }

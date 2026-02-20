@@ -9,6 +9,7 @@ package playout
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/url"
 	"path/filepath"
@@ -1030,7 +1031,7 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 	duration := entry.EndsAt.Sub(entry.StartsAt)
 	req := smartblock.GenerateRequest{
 		SmartBlockID: block.ID,
-		Seed:         time.Now().UnixNano(),
+		Seed:         deterministicSmartBlockSeed(entry, block.ID),
 		Duration:     duration.Milliseconds(),
 		StationID:    entry.StationID,
 		MountID:      entry.MountID,
@@ -1243,7 +1244,7 @@ func (d *Director) startSmartBlockByID(ctx context.Context, entry models.Schedul
 	duration := entry.EndsAt.Sub(entry.StartsAt)
 	req := smartblock.GenerateRequest{
 		SmartBlockID: block.ID,
-		Seed:         time.Now().UnixNano(),
+		Seed:         deterministicSmartBlockSeed(entry, block.ID),
 		Duration:     duration.Milliseconds(),
 		StationID:    entry.StationID,
 		MountID:      entry.MountID,
@@ -1285,6 +1286,17 @@ func (d *Director) playMediaByID(ctx context.Context, entry models.ScheduleEntry
 		"clock_id":   clockID,
 		"clock_name": clockName,
 	})
+}
+
+func deterministicSmartBlockSeed(entry models.ScheduleEntry, blockID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(entry.ID))
+	_, _ = h.Write([]byte(blockID))
+	_, _ = h.Write([]byte(entry.StartsAt.UTC().Format(time.RFC3339Nano)))
+	_, _ = h.Write([]byte(entry.EndsAt.UTC().Format(time.RFC3339Nano)))
+	_, _ = h.Write([]byte(entry.StationID))
+	_, _ = h.Write([]byte(entry.MountID))
+	return int64(h.Sum64() & 0x7fffffffffffffff)
 }
 
 // startPlaylistByID plays a playlist by ID (used by clock playlist slots)

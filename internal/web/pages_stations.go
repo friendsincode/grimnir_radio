@@ -50,7 +50,7 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
+	if err := parseURLFormSemicolonTolerant(r); err != nil {
 		http.Error(w, "Invalid form", http.StatusBadRequest)
 		return
 	}
@@ -188,7 +188,7 @@ func (h *Handler) StationUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
+	if err := parseURLFormSemicolonTolerant(r); err != nil {
 		http.Error(w, "Invalid form", http.StatusBadRequest)
 		return
 	}

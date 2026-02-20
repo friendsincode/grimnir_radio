@@ -80,7 +80,7 @@ func (h *Handler) SettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			settings.SchedulerLookahead = schedulerLookahead
 		} else {
 			h.logger.Warn().Str("value", schedulerLookahead).Msg("invalid scheduler_lookahead value, using default")
-			settings.SchedulerLookahead = "48h"
+			settings.SchedulerLookahead = "168h"
 		}
 	}
 

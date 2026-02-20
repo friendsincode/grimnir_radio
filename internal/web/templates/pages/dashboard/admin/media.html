@@ -16,15 +16,18 @@
 {{$data := .Data}}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-collection me-2"></i>Platform Media Library</h4>
-    <span class="badge bg-secondary fs-6">{{$data.Total}} items</span>
+    <div class="d-flex gap-2">
+        <span class="badge bg-secondary fs-6">{{$data.Total}} media items</span>
+        <span class="badge {{if gt $data.OrphanTotal 0}}bg-warning text-dark{{else}}bg-secondary{{end}} fs-6">{{$data.OrphanTotal}} orphan records</span>
+    </div>
 </div>
 
 <!-- Filters -->
 <div class="card mb-4">
     <div class="card-body">
         <form method="GET" action="/dashboard/admin/media">
-            <div class="row g-3">
-                <div class="col-md-4">
+            <div class="row g-3 align-items-center">
+                <div class="col-md-3">
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input type="text" class="form-control" name="q"
@@ -56,9 +59,20 @@
                     </select>
                 </div>
                 <div class="col-md-2">
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="includeOrphans" name="include_orphans" value="true" {{if $data.IncludeOrphans}}checked{{end}}>
+                        <label class="form-check-label" for="includeOrphans">Show Orphans</label>
+                    </div>
+                </div>
+                <div class="col-md-1">
                     <button type="submit" class="btn btn-primary w-100">
                         <i class="bi bi-funnel me-1"></i>Filter
                     </button>
+                </div>
+                <div class="col-md-2 text-md-end">
+                    <a href="/dashboard/settings/orphans" class="btn btn-outline-warning w-100">
+                        <i class="bi bi-hdd-stack me-1"></i>Manage Orphans
+                    </a>
                 </div>
             </div>
         </form>
@@ -198,13 +212,67 @@
     </div>
 </div>
 
+{{if $data.IncludeOrphans}}
+<!-- Orphan Media Records -->
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-hdd-stack me-2"></i>Orphaned File Records</h6>
+        <div class="d-flex gap-2">
+            <span class="badge {{if gt $data.OrphanTotal 0}}bg-warning text-dark{{else}}bg-secondary{{end}}">
+                {{$data.OrphanTotal}} total
+            </span>
+            <a href="/dashboard/settings/orphans" class="btn btn-sm btn-outline-warning">Open Orphan Manager</a>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Title / Artist</th>
+                    <th>Size</th>
+                    <th>Detected</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range $data.Orphans}}
+                <tr>
+                    <td>
+                        <code class="small">{{.FilePath}}</code>
+                    </td>
+                    <td>
+                        <strong class="d-block">{{if .Title}}{{.Title}}{{else}}<em>Unknown</em>{{end}}</strong>
+                        <small class="text-body-secondary">{{if .Artist}}{{.Artist}}{{else}}-{{end}}</small>
+                    </td>
+                    <td><small>{{formatBytes .FileSize}}</small></td>
+                    <td><small class="text-body-secondary">{{formatTime .DetectedAt}}</small></td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-warning" href="/dashboard/settings/orphans">
+                            Review
+                        </a>
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="5" class="text-center py-4 text-body-secondary">
+                        No orphan records match this filter.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}
+
 <!-- Pagination -->
 {{if gt $data.TotalPages 1}}
 <nav class="mt-4">
     <ul class="pagination justify-content-center">
         {{if gt $data.Page 1}}
         <li class="page-item">
-            <a class="page-link" href="?page={{sub $data.Page 1}}{{if $data.Query}}&q={{$data.Query}}{{end}}{{if $data.StationID}}&station={{$data.StationID}}{{end}}{{if $data.Genre}}&genre={{$data.Genre}}{{end}}{{if $data.ShowInArchive}}&public={{$data.ShowInArchive}}{{end}}">
+            <a class="page-link" href="?page={{sub $data.Page 1}}{{if $data.Query}}&q={{$data.Query}}{{end}}{{if $data.StationID}}&station={{$data.StationID}}{{end}}{{if $data.Genre}}&genre={{$data.Genre}}{{end}}{{if $data.ShowInArchive}}&public={{$data.ShowInArchive}}{{end}}{{if $data.IncludeOrphans}}&include_orphans=true{{end}}">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
         </li>
@@ -214,7 +282,7 @@
         </li>
         {{if lt $data.Page $data.TotalPages}}
         <li class="page-item">
-            <a class="page-link" href="?page={{add $data.Page 1}}{{if $data.Query}}&q={{$data.Query}}{{end}}{{if $data.StationID}}&station={{$data.StationID}}{{end}}{{if $data.Genre}}&genre={{$data.Genre}}{{end}}{{if $data.ShowInArchive}}&public={{$data.ShowInArchive}}{{end}}">
+            <a class="page-link" href="?page={{add $data.Page 1}}{{if $data.Query}}&q={{$data.Query}}{{end}}{{if $data.StationID}}&station={{$data.StationID}}{{end}}{{if $data.Genre}}&genre={{$data.Genre}}{{end}}{{if $data.ShowInArchive}}&public={{$data.ShowInArchive}}{{end}}{{if $data.IncludeOrphans}}&include_orphans=true{{end}}">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
         </li>
