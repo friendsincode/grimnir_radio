@@ -41,4 +41,3 @@ func TestComputePlaybackResume_IgnoresTinyOffsets(t *testing.T) {
 		t.Fatalf("offset mismatch: got %v want 0", ctx.Offset)
 	}
 }
-
