@@ -9,7 +9,9 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"hash/fnv"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -863,6 +865,17 @@ func (h *Handler) schedulerLookaheadDuration() time.Duration {
 	return parsed
 }
 
+func deterministicSmartBlockSeed(entry models.ScheduleEntry, blockID string) int64 {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(entry.ID))
+	_, _ = hasher.Write([]byte(blockID))
+	_, _ = hasher.Write([]byte(entry.StartsAt.UTC().Format(time.RFC3339Nano)))
+	_, _ = hasher.Write([]byte(entry.EndsAt.UTC().Format(time.RFC3339Nano)))
+	_, _ = hasher.Write([]byte(entry.StationID))
+	_, _ = hasher.Write([]byte(entry.MountID))
+	return int64(hasher.Sum64() & 0x7fffffffffffffff)
+}
+
 // ScheduleEntryDetails returns detailed info about a schedule entry including what will be played
 func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -892,14 +905,76 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 				"name": clockHour.Name,
 			}
 
-			// Get slot details
+			slotsSorted := append([]models.ClockSlot(nil), clockHour.Slots...)
+			sort.Slice(slotsSorted, func(i, j int) bool {
+				return slotsSorted[i].Position < slotsSorted[j].Position
+			})
+
+			lookahead := h.schedulerLookaheadDuration()
+			now := time.Now().UTC()
+			clockTrace := map[string]any{
+				"entry_start":  entry.StartsAt,
+				"entry_end":    entry.EndsAt,
+				"queued_slots": []map[string]any{},
+			}
+
+			// Past playback trace for this clock entry window.
+			var historyRows []models.PlayHistory
+			h.db.
+				Where("station_id = ? AND mount_id = ? AND started_at >= ? AND started_at <= ?",
+					entry.StationID, entry.MountID, entry.StartsAt, entry.EndsAt).
+				Order("started_at ASC").
+				Find(&historyRows)
+
+			playedTracks := make([]map[string]any, 0, len(historyRows))
+			for _, ph := range historyRows {
+				if ph.MetadataString("clock_id") != clockHour.ID {
+					continue
+				}
+				playedTracks = append(playedTracks, map[string]any{
+					"started_at":     ph.StartedAt,
+					"ended_at":       ph.EndedAt,
+					"media_id":       ph.MediaID,
+					"title":          ph.Title,
+					"artist":         ph.Artist,
+					"duration":       int64(ph.EndedAt.Sub(ph.StartedAt).Seconds()),
+					"smart_block_id": ph.MetadataString("smart_block_id"),
+					"playlist_id":    ph.MetadataString("playlist_id"),
+					"clock_id":       ph.MetadataString("clock_id"),
+				})
+			}
+			clockTrace["played_tracks"] = playedTracks
+
+			// Get slot details and queued traces
 			var slots []map[string]any
-			for _, slot := range clockHour.Slots {
+			queuedSlots := make([]map[string]any, 0, len(slotsSorted))
+			for i, slot := range slotsSorted {
+				slotStart := entry.StartsAt.Add(slot.Offset)
+				slotEnd := entry.EndsAt
+				if i+1 < len(slotsSorted) {
+					nextStart := entry.StartsAt.Add(slotsSorted[i+1].Offset)
+					if nextStart.Before(slotEnd) {
+						slotEnd = nextStart
+					}
+				}
+				if slotStart.After(entry.EndsAt) || !slotStart.Before(slotEnd) {
+					continue
+				}
+
 				slotInfo := map[string]any{
 					"id":       slot.ID,
 					"position": slot.Position,
 					"offset":   slot.Offset,
 					"type":     slot.Type,
+				}
+				slotTrace := map[string]any{
+					"id":         slot.ID,
+					"position":   slot.Position,
+					"offset":     slot.Offset,
+					"type":       slot.Type,
+					"starts_at":  slotStart,
+					"ends_at":    slotEnd,
+					"source_map": "clock -> slot source -> media",
 				}
 
 				// Get content for each slot type
@@ -915,6 +990,7 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 							for _, item := range playlist.Items {
 								durSec := int64(item.Media.Duration.Seconds())
 								tracks = append(tracks, map[string]any{
+									"media_id": item.Media.ID,
 									"title":    item.Media.Title,
 									"artist":   item.Media.Artist,
 									"duration": durSec,
@@ -928,22 +1004,124 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 								"total_duration": totalDuration,
 								"tracks":         tracks,
 							}
+							slotTrace["playlist"] = slotInfo["playlist"]
 						}
 					}
 				case models.SlotTypeSmartBlock:
 					if smartBlockID, ok := slot.Payload["smart_block_id"].(string); ok {
 						var smartBlock models.SmartBlock
 						if h.db.First(&smartBlock, "id = ?", smartBlockID).Error == nil {
-							slotInfo["smart_block"] = map[string]any{
+							sbInfo := map[string]any{
 								"id":   smartBlock.ID,
 								"name": smartBlock.Name,
+							}
+							slotInfo["smart_block"] = sbInfo
+							slotTrace["smart_block"] = sbInfo
+
+							materializeAt := slotStart.Add(-lookahead)
+							if now.Before(materializeAt) {
+								slotTrace["smart_block_preview"] = map[string]any{
+									"status":      "pending_materialization",
+									"message":     "This section has not been created yet.",
+									"expected_at": materializeAt,
+									"help":        "It will be built when this slot enters the scheduler lookahead window.",
+								}
+							} else {
+								targetDuration := entry.EndsAt.Sub(entry.StartsAt)
+								if targetDuration < 0 {
+									targetDuration = 0
+								}
+								engine := smartblock.New(h.db, h.logger)
+								seed := deterministicSmartBlockSeed(entry, smartBlock.ID)
+								result, genErr := engine.Generate(r.Context(), smartblock.GenerateRequest{
+									SmartBlockID: smartBlock.ID,
+									Seed:         seed,
+									Duration:     targetDuration.Milliseconds(),
+									StationID:    entry.StationID,
+									MountID:      entry.MountID,
+								})
+
+								preview := map[string]any{
+									"status":            "ready",
+									"seed":              seed,
+									"target_duration_s": int64(targetDuration.Seconds()),
+								}
+								if genErr != nil {
+									preview["status"] = "error"
+									preview["error"] = "Unable to generate track selection for this slot yet."
+									preview["cause"] = genErr.Error()
+									slotTrace["smart_block_preview"] = preview
+								} else {
+									mediaIDs := make([]string, 0, len(result.Items))
+									for _, item := range result.Items {
+										if item.MediaID != "" {
+											mediaIDs = append(mediaIDs, item.MediaID)
+										}
+									}
+									mediaByID := make(map[string]models.MediaItem, len(mediaIDs))
+									if len(mediaIDs) > 0 {
+										var mediaItems []models.MediaItem
+										h.db.Select("id, title, artist, duration").Where("id IN ?", mediaIDs).Find(&mediaItems)
+										for _, m := range mediaItems {
+											mediaByID[m.ID] = m
+										}
+									}
+									tracks := make([]map[string]any, 0, len(result.Items))
+									for _, item := range result.Items {
+										media := mediaByID[item.MediaID]
+										tracks = append(tracks, map[string]any{
+											"media_id":    item.MediaID,
+											"title":       media.Title,
+											"artist":      media.Artist,
+											"duration":    int64(media.Duration.Seconds()),
+											"starts_at_s": item.StartsAtMS / 1000,
+											"ends_at_s":   item.EndsAtMS / 1000,
+										})
+									}
+									preview["track_count"] = len(tracks)
+									preview["total_duration_s"] = result.TotalMS / 1000
+									preview["warnings"] = result.Warnings
+									preview["tracks"] = tracks
+									slotTrace["smart_block_preview"] = preview
+								}
+							}
+						}
+					}
+				case models.SlotTypeHardItem:
+					if mediaID, ok := slot.Payload["media_id"].(string); ok {
+						var media models.MediaItem
+						if h.db.Select("id, title, artist, duration").First(&media, "id = ?", mediaID).Error == nil {
+							track := map[string]any{
+								"media_id": media.ID,
+								"title":    media.Title,
+								"artist":   media.Artist,
+								"duration": int64(media.Duration.Seconds()),
+							}
+							slotTrace["media"] = track
+						}
+					}
+				case models.SlotTypeWebstream:
+					if webstreamID, ok := slot.Payload["webstream_id"].(string); ok {
+						var ws models.Webstream
+						if h.db.First(&ws, "id = ?", webstreamID).Error == nil {
+							url := ""
+							if len(ws.URLs) > 0 {
+								url = ws.URLs[0]
+							}
+							slotTrace["webstream"] = map[string]any{
+								"id":   ws.ID,
+								"name": ws.Name,
+								"url":  url,
 							}
 						}
 					}
 				}
 				slots = append(slots, slotInfo)
+				queuedSlots = append(queuedSlots, slotTrace)
 			}
 			response["slots"] = slots
+			clockTrace["queued_slots"] = queuedSlots
+			response["clock_trace"] = clockTrace
 		}
 
 	case "playlist":
