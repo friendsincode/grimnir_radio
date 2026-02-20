@@ -1175,10 +1175,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Hide context menus on click outside
     document.addEventListener('click', hideAllContextMenus);
     document.addEventListener('contextmenu', (e) => {
-        // Only hide if clicking outside menus
-        if (!e.target.closest('.context-menu')) {
-            hideAllContextMenus();
-        }
+        // Keep custom menus open for calendar-originated right clicks.
+        if (e.target.closest('.context-menu')) return;
+        if (e.target.closest('#calendar')) return;
+        hideAllContextMenus();
     });
 
     function hideAllContextMenus() {
@@ -1291,6 +1291,7 @@ document.addEventListener('DOMContentLoaded', function() {
         eventDidMount: function(info) {
             info.el.addEventListener('contextmenu', function(e) {
                 e.preventDefault();
+                e.stopPropagation();
                 selectedEvent = info.event;
                 contextMenuTarget = 'event';
                 showContextMenu(eventContextMenu, e.pageX, e.pageY);
