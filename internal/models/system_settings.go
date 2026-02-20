@@ -16,7 +16,7 @@ import (
 // Uses singleton pattern with a fixed ID=1 row.
 type SystemSettings struct {
 	ID                 int    `gorm:"primaryKey"`
-	SchedulerLookahead string `gorm:"type:varchar(16);default:'48h'"`
+	SchedulerLookahead string `gorm:"type:varchar(16);default:'168h'"`
 	AnalysisEnabled    bool   `gorm:"default:true"`
 	WebsocketEnabled   bool   `gorm:"default:true"`
 	MetricsEnabled     bool   `gorm:"default:true"`

@@ -21,6 +21,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/scheduling"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
 )
 
 // ScheduleCalendar renders the schedule calendar page
@@ -845,6 +846,23 @@ func writeScheduleJSONError(w http.ResponseWriter, status int, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
+func (h *Handler) schedulerLookaheadDuration() time.Duration {
+	lookahead := 168 * time.Hour
+	if h.db == nil {
+		return lookahead
+	}
+
+	settings, err := models.GetSystemSettings(h.db)
+	if err != nil {
+		return lookahead
+	}
+	parsed, err := time.ParseDuration(strings.TrimSpace(settings.SchedulerLookahead))
+	if err != nil || parsed <= 0 {
+		return lookahead
+	}
+	return parsed
+}
+
 // ScheduleEntryDetails returns detailed info about a schedule entry including what will be played
 func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -961,6 +979,83 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 				"name":  smartBlock.Name,
 				"rules": smartBlock.Rules,
 			}
+
+			lookahead := h.schedulerLookaheadDuration()
+			materializeAt := entry.StartsAt.Add(-lookahead)
+			if time.Now().Before(materializeAt) {
+				response["smart_block_preview"] = map[string]any{
+					"status":      "pending_materialization",
+					"message":     "This section has not been created yet.",
+					"expected_at": materializeAt,
+					"help":        "It is scheduled to be built when it enters the scheduler lookahead window. Please check back after the expected time.",
+				}
+				break
+			}
+
+			targetDuration := entry.EndsAt.Sub(entry.StartsAt)
+			if targetDuration < 0 {
+				targetDuration = 0
+			}
+
+			engine := smartblock.New(h.db, h.logger)
+			result, genErr := engine.Generate(r.Context(), smartblock.GenerateRequest{
+				SmartBlockID: smartBlock.ID,
+				Seed:         entry.StartsAt.Unix(),
+				Duration:     targetDuration.Milliseconds(),
+				StationID:    entry.StationID,
+				MountID:      entry.MountID,
+			})
+
+			preview := map[string]any{
+				"status":            "ready",
+				"seed":              entry.StartsAt.Unix(),
+				"target_duration_s": int64(targetDuration.Seconds()),
+			}
+
+			if genErr != nil {
+				preview["status"] = "error"
+				preview["error"] = "Unable to generate track selection for this time window."
+				preview["cause"] = genErr.Error()
+				response["smart_block_preview"] = preview
+				break
+			}
+
+			mediaIDs := make([]string, 0, len(result.Items))
+			for _, item := range result.Items {
+				if item.MediaID != "" {
+					mediaIDs = append(mediaIDs, item.MediaID)
+				}
+			}
+
+			mediaByID := make(map[string]models.MediaItem, len(mediaIDs))
+			if len(mediaIDs) > 0 {
+				var mediaItems []models.MediaItem
+				h.db.Select("id, title, artist, duration").
+					Where("id IN ?", mediaIDs).
+					Find(&mediaItems)
+				for _, m := range mediaItems {
+					mediaByID[m.ID] = m
+				}
+			}
+
+			tracks := make([]map[string]any, 0, len(result.Items))
+			for _, item := range result.Items {
+				media := mediaByID[item.MediaID]
+				tracks = append(tracks, map[string]any{
+					"media_id":    item.MediaID,
+					"title":       media.Title,
+					"artist":      media.Artist,
+					"duration":    int64(media.Duration.Seconds()),
+					"starts_at_s": item.StartsAtMS / 1000,
+					"ends_at_s":   item.EndsAtMS / 1000,
+				})
+			}
+
+			preview["total_duration_s"] = result.TotalMS / 1000
+			preview["track_count"] = len(tracks)
+			preview["warnings"] = result.Warnings
+			preview["tracks"] = tracks
+			response["smart_block_preview"] = preview
 		}
 
 	case "media":

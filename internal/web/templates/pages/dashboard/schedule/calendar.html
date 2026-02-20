@@ -6,7 +6,7 @@
 <!-- FullCalendar 6.x includes CSS in JS bundle -->
 <style>
     #calendar {
-        height: calc(100vh - 200px);
+        height: calc(100vh - 280px);
         min-height: 500px;
     }
     .fc-event {
@@ -109,6 +109,10 @@
     .irt-list .irt-item { border-bottom: 1px solid var(--bs-border-color); }
     .irt-list .irt-item:last-child { border-bottom: 0; }
     .irt-now-pill { font-size: 0.68rem; }
+    .irt-upcoming-scroll {
+        max-height: 140px;
+        overflow-y: auto;
+    }
 </style>
 <script>
 // Apply calendar color theme
@@ -181,20 +185,22 @@
     </div>
 </div>
 
-<div class="card">
-    <div class="card-body">
-        <div id="calendar"></div>
-    </div>
-</div>
-
-<div class="card mt-3">
+<div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h6 class="mb-0"><i class="bi bi-broadcast me-2"></i>Now Playing (IRT)</h6>
         <button class="btn btn-sm btn-outline-secondary" id="irtRefreshBtn"><i class="bi bi-arrow-clockwise"></i></button>
     </div>
+    <div class="card-body py-2">
+        <div id="irtNowPlaying" class="mb-2 text-body-secondary small">Loading current playback...</div>
+        <div class="irt-upcoming-scroll">
+            <div id="irtUpcomingList" class="irt-list"></div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
     <div class="card-body">
-        <div id="irtNowPlaying" class="mb-3 text-body-secondary small">Loading current playback...</div>
-        <div id="irtUpcomingList" class="irt-list"></div>
+        <div id="calendar"></div>
     </div>
 </div>
 
@@ -1520,10 +1526,20 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn('Failed to fetch entry details:', e);
         }
 
+        const sourceName = getSourceDisplayName(details, props, event);
+        const sourceURL = getSourceURL(props.source_type, props.source_id);
+
         let body = `
             <dl class="row mb-3">
                 <dt class="col-4">Type</dt>
                 <dd class="col-8"><span class="badge bg-${typeColor}">${typeLabel}</span></dd>
+
+                <dt class="col-4">Source</dt>
+                <dd class="col-8">${
+                    sourceURL
+                        ? `<a href="${sourceURL}" target="_blank" rel="noopener">${escapeHtml(sourceName)}</a>`
+                        : escapeHtml(sourceName)
+                }</dd>
 
                 <dt class="col-4">Start</dt>
                 <dd class="col-8">${event.start.toLocaleString()}</dd>
@@ -1582,8 +1598,46 @@ document.addEventListener('DOMContentLoaded', function() {
                 </a>`;
             }
             break;
+        case 'webstream':
+            if (details.webstream) {
+                return `<a href="/dashboard/webstreams/${details.webstream.id}" class="btn btn-sm btn-outline-secondary" target="_blank">
+                    <i class="bi bi-broadcast me-1"></i>View Webstream
+                </a>`;
+            }
+            break;
         }
         return '';
+    }
+
+    function getSourceDisplayName(details, props, event) {
+        if (details?.playlist?.name) return details.playlist.name;
+        if (details?.smart_block?.name) return details.smart_block.name;
+        if (details?.clock?.name) return details.clock.name;
+        if (details?.webstream?.name) return details.webstream.name;
+        if (details?.media?.title) {
+            return details.media.artist
+                ? `${details.media.artist} - ${details.media.title}`
+                : details.media.title;
+        }
+        return props?.source_name || event?.title || 'Scheduled Item';
+    }
+
+    function getSourceURL(sourceType, sourceID) {
+        if (!sourceID) return null;
+        switch (sourceType) {
+        case 'clock_template':
+            return `/dashboard/clocks/${encodeURIComponent(sourceID)}`;
+        case 'playlist':
+            return `/dashboard/playlists/${encodeURIComponent(sourceID)}`;
+        case 'smart_block':
+            return `/dashboard/smart-blocks/${encodeURIComponent(sourceID)}`;
+        case 'media':
+            return `/dashboard/media/${encodeURIComponent(sourceID)}`;
+        case 'webstream':
+            return `/dashboard/webstreams/${encodeURIComponent(sourceID)}`;
+        default:
+            return null;
+        }
     }
 
     function renderDetailsContent(details, sourceType) {
@@ -1622,7 +1676,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (details.smart_block) {
                 html += `<div class="border-top pt-3">
                     <h6 class="mb-2"><i class="bi bi-lightning me-2"></i>Smart Block: ${escapeHtml(details.smart_block.name)}</h6>
-                    <div class="small text-body-secondary">Limit: ${details.smart_block.limit || 'No limit'}</div>
+                    <div class="small text-body-secondary mb-2">Rule-driven selection for this scheduled time window.</div>
+                    ${renderSmartBlockPreview(details.smart_block_preview)}
                 </div>`;
             }
             break;
@@ -1655,6 +1710,46 @@ document.addEventListener('DOMContentLoaded', function() {
         return html;
     }
 
+    function renderSmartBlockPreview(preview) {
+        if (!preview) {
+            return '<div class="text-body-secondary small">No generated selection is available for this entry yet.</div>';
+        }
+
+        if (preview.status === 'pending_materialization') {
+            const expected = preview.expected_at ? new Date(preview.expected_at).toLocaleString() : 'later';
+            return `
+                <div class="alert alert-info py-2 mb-0 small">
+                    <div><strong>This section has not been created yet.</strong></div>
+                    <div class="mt-1">Expected build time: ${escapeHtml(expected)}.</div>
+                    <div class="mt-1">${escapeHtml(preview.help || 'Please check back after that time.')}</div>
+                </div>
+            `;
+        }
+
+        if (preview.error) {
+            return `
+                <div class="alert alert-warning py-2 mb-0 small">
+                    <div><strong>Could not generate selection for this window.</strong></div>
+                    <div class="mt-1">Possible cause: rules are too strict or there is not enough matching media.</div>
+                    ${preview.cause ? `<div class="text-body-secondary mt-1">Technical: ${escapeHtml(preview.cause)}</div>` : ''}
+                </div>
+            `;
+        }
+
+        const tracks = preview.tracks || [];
+        let html = `
+            <div class="small text-body-secondary mb-2">
+                ${tracks.length} selected track(s), target ${formatDuration(preview.target_duration_s || 0)}, total ${formatDuration(preview.total_duration_s || 0)}
+            </div>
+        `;
+        html += renderTrackList(tracks, 15);
+
+        if (preview.warnings && preview.warnings.length > 0) {
+            html += `<div class="small text-warning mt-2">${escapeHtml(preview.warnings.join(' | '))}</div>`;
+        }
+        return html;
+    }
+
     function renderSlotContent(slot) {
         let html = `<div class="card card-body p-2 mb-2 bg-body-secondary">`;
 
@@ -1683,9 +1778,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const displayTracks = tracks.slice(0, limit);
 
         for (const track of displayTracks) {
+            const title = escapeHtml(track.title || 'Unknown');
+            const titleHTML = track.media_id
+                ? `<a href="/dashboard/media/${encodeURIComponent(track.media_id)}" target="_blank" rel="noopener"><strong>${title}</strong></a>`
+                : `<strong>${title}</strong>`;
             html += `<div class="list-group-item py-1 px-2 d-flex justify-content-between">
                 <span class="text-truncate" style="max-width: 70%;">
-                    <strong>${escapeHtml(track.title || 'Unknown')}</strong>
+                    ${titleHTML}
                     ${track.artist ? `<span class="text-body-secondary"> - ${escapeHtml(track.artist)}</span>` : ''}
                 </span>
                 <span class="text-body-secondary">${formatDuration(track.duration)}</span>

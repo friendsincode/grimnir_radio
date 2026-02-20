@@ -7,8 +7,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -64,9 +67,9 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
+	if err := parseURLFormSemicolonTolerant(r); err != nil {
 		if r.Header.Get("HX-Request") == "true" {
-			w.Write([]byte(`<div class="alert alert-danger">Invalid form data</div>`))
+			w.Write([]byte(`<div class="alert alert-danger">Invalid form data. If your text includes special characters, try again after saving.</div>`))
 			return
 		}
 		http.Error(w, "Invalid form", http.StatusBadRequest)
@@ -165,6 +168,54 @@ func validateStationDescription(desc string) error {
 		return fmt.Errorf("description is too long (max %d characters)", maxStationDescriptionChars)
 	}
 	return nil
+}
+
+// parseURLFormSemicolonTolerant parses URL-encoded form bodies while tolerating raw semicolons
+// in values (e.g. station descriptions). Go's standard parser treats raw ';' as invalid.
+func parseURLFormSemicolonTolerant(r *http.Request) error {
+	if r == nil {
+		return fmt.Errorf("nil request")
+	}
+
+	ctype := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if strings.HasPrefix(ctype, "application/x-www-form-urlencoded") &&
+		(r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch) {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			return err
+		}
+		_ = r.Body.Close()
+
+		// Escape raw semicolons before ParseQuery so semicolons in values are preserved.
+		fixedBody := strings.ReplaceAll(string(bodyBytes), ";", "%3B")
+		postVals, err := url.ParseQuery(fixedBody)
+		if err != nil {
+			// Restore body for any downstream consumer before returning.
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			return err
+		}
+
+		queryVals, err := url.ParseQuery(strings.ReplaceAll(r.URL.RawQuery, ";", "%3B"))
+		if err != nil {
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			return err
+		}
+
+		r.PostForm = postVals
+		r.Form = make(url.Values, len(queryVals)+len(postVals))
+		for k, v := range queryVals {
+			r.Form[k] = append([]string(nil), v...)
+		}
+		for k, v := range postVals {
+			r.Form[k] = append([]string(nil), v...)
+		}
+
+		// Keep request body readable after parsing.
+		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		return nil
+	}
+
+	return r.ParseForm()
 }
 
 // canManageStationSettings checks if user can manage station settings
