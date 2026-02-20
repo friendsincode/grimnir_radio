@@ -1647,14 +1647,14 @@ document.addEventListener('DOMContentLoaded', function() {
         case 'clock_template':
             if (details.clock) {
                 html += `<div class="border-top pt-3">
-                    <h6 class="mb-2"><i class="bi bi-clock me-2"></i>Clock: ${escapeHtml(details.clock.name)}</h6>`;
+                    <h6 class="mb-2"><i class="bi bi-clock me-2"></i>Clock: ${escapeHtml(details.clock.name)}</h6>
+                    <div class="small text-body-secondary mb-2">Clock -> Slot source -> Media trace for this scheduled window.</div>`;
 
-                if (details.slots && details.slots.length > 0) {
+                if (details.clock_trace) {
+                    html += renderClockTrace(details.clock_trace);
+                } else if (details.slots && details.slots.length > 0) {
                     html += `<div class="small text-body-secondary mb-2">${details.slots.length} slot(s) configured</div>`;
-
-                    for (const slot of details.slots) {
-                        html += renderSlotContent(slot);
-                    }
+                    for (const slot of details.slots) html += renderSlotContent(slot);
                 } else {
                     html += `<div class="text-body-secondary small">No slots configured</div>`;
                 }
@@ -1767,6 +1767,76 @@ document.addEventListener('DOMContentLoaded', function() {
 
         html += `</div>`;
         return html;
+    }
+
+    function renderClockTrace(trace) {
+        let html = '';
+        const played = trace.played_tracks || [];
+        const queued = trace.queued_slots || [];
+
+        html += `<div class="mb-3">
+            <h6 class="mb-2"><i class="bi bi-clock-history me-2"></i>Played In This Window</h6>`;
+        if (played.length === 0) {
+            html += `<div class="text-body-secondary small">No recorded playback for this clock window yet.</div>`;
+        } else {
+            html += renderTrackList(played, 20);
+        }
+        html += `</div>`;
+
+        html += `<div class="mb-1">
+            <h6 class="mb-2"><i class="bi bi-list-task me-2"></i>Queued / Planned Trace</h6>`;
+        if (queued.length === 0) {
+            html += `<div class="text-body-secondary small">No slot trace available for this window.</div>`;
+        } else {
+            for (const slot of queued) {
+                const slotStart = slot.starts_at ? new Date(slot.starts_at).toLocaleString() : '-';
+                const slotEnd = slot.ends_at ? new Date(slot.ends_at).toLocaleString() : '-';
+                html += `<div class="card card-body p-2 mb-2 bg-body-secondary">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <div>
+                            <strong>Slot #${slot.position ?? '-'}</strong>
+                            <span class="badge bg-secondary ms-2">${escapeHtml(slot.type || 'unknown')}</span>
+                        </div>
+                        <small class="text-body-secondary">${slotStart} - ${slotEnd}</small>
+                    </div>
+                    <div class="small text-body-secondary mb-2">Clock -> ${renderSlotSourceLabel(slot)}</div>
+                    ${renderSlotSourceDetails(slot)}
+                </div>`;
+            }
+        }
+        html += `</div>`;
+
+        return html;
+    }
+
+    function renderSlotSourceLabel(slot) {
+        if (slot.playlist) return `Playlist: ${escapeHtml(slot.playlist.name || 'Unknown')}`;
+        if (slot.smart_block) return `Smart Block: ${escapeHtml(slot.smart_block.name || 'Unknown')}`;
+        if (slot.media) return `Hard Item: ${escapeHtml(slot.media.title || 'Unknown')}`;
+        if (slot.webstream) return `Webstream: ${escapeHtml(slot.webstream.name || 'Unknown')}`;
+        return escapeHtml(slot.type || 'Unknown source');
+    }
+
+    function renderSlotSourceDetails(slot) {
+        if (slot.playlist) {
+            return `
+                <div class="small text-body-secondary mb-1">${slot.playlist.track_count || 0} track(s)</div>
+                ${renderTrackList(slot.playlist.tracks || [], 10)}
+            `;
+        }
+        if (slot.smart_block) {
+            return `
+                <div class="small text-body-secondary mb-1">Smart Block selection for this scheduled clock entry:</div>
+                ${renderSmartBlockPreview(slot.smart_block_preview)}
+            `;
+        }
+        if (slot.media) {
+            return renderTrackList([slot.media], 1);
+        }
+        if (slot.webstream) {
+            return `<div class="small">${escapeHtml(slot.webstream.name || 'Webstream')}<div class="text-body-secondary text-truncate">${escapeHtml(slot.webstream.url || '')}</div></div>`;
+        }
+        return `<div class="text-body-secondary small">No source details available.</div>`;
     }
 
     function renderTrackList(tracks, limit = 10) {
