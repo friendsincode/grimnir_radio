@@ -42,7 +42,10 @@
                         <label for="description" class="form-label">Description</label>
                         <textarea class="form-control" id="description" name="description"
                                   rows="3" maxlength="5000">{{.Data.Station.Description}}</textarea>
-                        <div class="form-text">Max 5000 characters.</div>
+                        <div class="d-flex justify-content-between form-text">
+                            <span>Max 5000 characters.</span>
+                            <span id="descriptionCharCount">0 / 5000</span>
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -88,4 +91,46 @@
         </div>
     </div>
 </div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+    (function () {
+        const maxChars = 5000;
+        const form = document.querySelector('form[hx-post]');
+        const desc = document.getElementById('description');
+        const count = document.getElementById('descriptionCharCount');
+        const alertBox = document.getElementById('stationFormAlert');
+
+        function escapeHtml(str) {
+            return (str || '').replace(/[&<>"']/g, function (m) {
+                return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m];
+            });
+        }
+
+        function syncCount() {
+            if (!desc || !count) return;
+            const len = Array.from(desc.value || '').length;
+            count.textContent = len + ' / ' + maxChars;
+            count.classList.toggle('text-danger', len >= maxChars);
+        }
+
+        if (desc) {
+            desc.addEventListener('input', syncCount);
+            syncCount();
+        }
+
+        if (form) {
+            form.addEventListener('htmx:responseError', function (evt) {
+                if (!alertBox) return;
+                const msg = evt.detail?.xhr?.responseText || 'Failed to save station. Please check the description and try again.';
+                if (msg.trim().startsWith('<')) {
+                    alertBox.innerHTML = msg;
+                    return;
+                }
+                alertBox.innerHTML = '<div class="alert alert-danger">' + escapeHtml(msg) + '</div>';
+            });
+        }
+    })();
+</script>
 {{end}}
