@@ -3288,8 +3288,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const overlapEnd = details.overlap_end ? new Date(details.overlap_end).toLocaleString() : null;
             return `
                 <ul class="validation-detail-list small text-body-secondary">
-                    <li><strong>Conflicting item A:</strong> ${escapeHtml(itemA.label || itemA.id || 'Unknown')}</li>
-                    <li><strong>Conflicting item B:</strong> ${escapeHtml(itemB.label || itemB.id || 'Unknown')}</li>
+                    <li><strong>Conflicting item A:</strong> ${renderConflictItemLink(itemA)}</li>
+                    <li><strong>Conflicting item B:</strong> ${renderConflictItemLink(itemB)}</li>
                     ${overlapStart && overlapEnd ? `<li><strong>Overlap window:</strong> ${overlapStart} to ${overlapEnd}</li>` : ''}
                     ${overlapMinutes != null ? `<li><strong>Overlap duration:</strong> ${overlapMinutes} minute(s)</li>` : ''}
                     <li><strong>How to fix:</strong> Move or shorten one of these items so they no longer overlap.</li>
@@ -3297,6 +3297,21 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         }
         return '';
+    }
+
+    function renderConflictItemLink(item) {
+        if (!item) return 'Unknown';
+        const label = escapeHtml(item.label || item.id || 'Unknown');
+        if (!item.id) return label;
+        const itemType = (item.type || '').replace(/'/g, '');
+        const itemID = String(item.id).replace(/'/g, '');
+        const startsAt = item.starts_at ? String(item.starts_at).replace(/'/g, '') : '';
+        return `
+            <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
+                onclick="openConflictItem('${itemID}', '${itemType}', '${startsAt}')">
+                ${label}
+            </button>
+        `;
     }
 
     // Auto-validate on calendar date change (optional, runs in background)
@@ -3333,7 +3348,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const now = new Date();
             const start = new Date(now.getTime() - 5 * 60 * 1000);
-            const end = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+            const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
             const [npResp, eventsResp] = await Promise.all([
                 fetch(`/api/v1/analytics/now-playing?station_id=${stationID}`),
@@ -3375,14 +3390,26 @@ document.addEventListener('DOMContentLoaded', function() {
         const now = new Date();
         const sorted = (entries || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
         if (sorted.length === 0) {
-            return '<div class="text-body-secondary small">No scheduled entries in the next 6 hours.</div>';
+            return '<div class="text-body-secondary small">No scheduled entries found in the near window.</div>';
         }
 
-        return sorted.map(entry => {
+        const nowEntry = sorted.find(entry => {
             const start = new Date(entry.start);
             const end = new Date(entry.end);
-            const isNow = start <= now && end > now;
-            const nowPill = isNow ? '<span class="badge bg-danger irt-now-pill">NOW</span>' : '';
+            return start <= now && end > now;
+        });
+        const nextEntry = sorted.find(entry => new Date(entry.start) > now);
+
+        const summaryEntries = [];
+        if (nowEntry) summaryEntries.push({ entry: nowEntry, tag: 'NOW', tagClass: 'bg-danger' });
+        if (nextEntry) summaryEntries.push({ entry: nextEntry, tag: 'NEXT', tagClass: 'bg-primary' });
+        if (summaryEntries.length === 0) {
+            return '<div class="text-body-secondary small">No current or upcoming scheduled entries.</div>';
+        }
+
+        return summaryEntries.map(({ entry, tag, tagClass }) => {
+            const start = new Date(entry.start);
+            const end = new Date(entry.end);
             const title = escapeHtml(entry.title || entry.extendedProps?.source_name || 'Untitled');
             const source = escapeHtml(entry.extendedProps?.source_label || entry.extendedProps?.source_type || 'Scheduled');
             const editBtn = canManageIRT
@@ -3394,7 +3421,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return `
                 <div class="irt-item py-2 d-flex align-items-center justify-content-between gap-2">
                     <div class="flex-grow-1">
-                        <div class="fw-medium">${title} ${nowPill}</div>
+                        <div class="fw-medium">${title} <span class="badge ${tagClass} irt-now-pill">${tag}</span></div>
                         <div class="small text-body-secondary">${source} • ${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}</div>
                     </div>
                     <div class="d-flex gap-1">${editBtn}${removeBtn}</div>
@@ -3403,15 +3430,49 @@ document.addEventListener('DOMContentLoaded', function() {
         }).join('');
     }
 
-    window.openEntryForEdit = function(entryID) {
+    window.openEntryForEdit = function(entryID, targetStart = null) {
         const event = calendar.getEventById(entryID);
         if (!event) {
             pendingEditEntryId = entryID;
+            if (targetStart) {
+                const date = new Date(targetStart);
+                if (!isNaN(date.getTime())) {
+                    calendar.gotoDate(date);
+                }
+            }
             calendar.refetchEvents();
             return;
         }
         pendingEditEntryId = null;
         openEditModal(event);
+    };
+
+    window.openConflictItem = function(itemID, itemType, startsAt = '') {
+        validationModal.hide();
+
+        if (itemType === 'schedule_entry') {
+            openEntryForEdit(itemID, startsAt);
+            return;
+        }
+
+        if (itemType === 'show_instance') {
+            const event = calendar.getEventById(itemID);
+            if (event) {
+                showShowInstanceDetails(event);
+                return;
+            }
+            if (startsAt) {
+                const date = new Date(startsAt);
+                if (!isNaN(date.getTime())) {
+                    calendar.gotoDate(date);
+                }
+            }
+            calendar.refetchEvents();
+            grimnirUtils.showToast('Show conflict item loaded on calendar. Click it to edit details.', 'info');
+            return;
+        }
+
+        grimnirUtils.showToast('Unable to open this conflict item directly.', 'warning');
     };
 
     window.removeIRTEntry = async function(entryID) {
