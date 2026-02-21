@@ -99,6 +99,9 @@ func (a *API) handleShowsList(w http.ResponseWriter, r *http.Request) {
 	query := a.db.WithContext(r.Context()).Preload("Host")
 
 	if stationID != "" {
+		if !a.requireStationAccess(w, r, stationID) {
+			return
+		}
 		query = query.Where("station_id = ?", stationID)
 	}
 
@@ -127,6 +130,9 @@ func (a *API) handleShowsCreate(w http.ResponseWriter, r *http.Request) {
 
 	if req.StationID == "" || req.Name == "" {
 		writeError(w, http.StatusBadRequest, "station_id_and_name_required")
+		return
+	}
+	if !a.requireStationAccess(w, r, req.StationID) {
 		return
 	}
 
@@ -215,6 +221,9 @@ func (a *API) handleShowsGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
+	if !a.requireStationAccess(w, r, show.StationID) {
+		return
+	}
 
 	writeJSON(w, http.StatusOK, show)
 }
@@ -235,6 +244,9 @@ func (a *API) handleShowsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.Error != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	if !a.requireStationAccess(w, r, show.StationID) {
 		return
 	}
 
@@ -337,6 +349,9 @@ func (a *API) handleShowsDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
+	if !a.requireStationAccess(w, r, show.StationID) {
+		return
+	}
 
 	tx := a.db.WithContext(r.Context()).Begin()
 
@@ -354,7 +369,10 @@ func (a *API) handleShowsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		writeError(w, http.StatusInternalServerError, "commit_failed")
+		return
+	}
 
 	a.logger.Info().Str("show_id", showID).Msg("show deleted")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -376,6 +394,9 @@ func (a *API) handleShowsMaterialize(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.Error != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	if !a.requireStationAccess(w, r, show.StationID) {
 		return
 	}
 
@@ -496,6 +517,9 @@ func (a *API) handleInstancesList(w http.ResponseWriter, r *http.Request) {
 	query := a.db.WithContext(r.Context()).Preload("Show").Preload("Host")
 
 	if stationID != "" {
+		if !a.requireStationAccess(w, r, stationID) {
+			return
+		}
 		query = query.Where("station_id = ?", stationID)
 	}
 	if showID != "" {
@@ -552,6 +576,9 @@ func (a *API) handleInstancesGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
+	if !a.requireStationAccess(w, r, instance.StationID) {
+		return
+	}
 
 	writeJSON(w, http.StatusOK, instance)
 }
@@ -572,6 +599,9 @@ func (a *API) handleInstancesUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.Error != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	if !a.requireStationAccess(w, r, instance.StationID) {
 		return
 	}
 
@@ -657,6 +687,9 @@ func (a *API) handleInstancesDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.Error != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	if !a.requireStationAccess(w, r, instance.StationID) {
 		return
 	}
 

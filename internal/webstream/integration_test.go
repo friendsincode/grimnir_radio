@@ -382,6 +382,56 @@ func TestWebstreamService_TriggerFailover(t *testing.T) {
 	}
 }
 
+func TestWebstreamService_TriggerFailover_WrapToPrimary(t *testing.T) {
+	db := setupTestDB(t)
+	logger := zerolog.Nop()
+	bus := events.NewBus()
+	svc := NewService(db, bus, logger)
+	defer svc.Shutdown()
+
+	urls := []string{
+		"http://primary.example.com/stream.mp3",
+		"http://backup.example.com/stream.mp3",
+	}
+
+	ws := createTestWebstreamWithHealthDisabled(t, db, urls)
+	ws.CurrentIndex = 1
+	ws.CurrentURL = urls[1]
+	if err := db.Save(ws).Error; err != nil {
+		t.Fatalf("set current url/index: %v", err)
+	}
+
+	failoverSub := bus.Subscribe(events.EventWebstreamFailover)
+
+	ctx := context.Background()
+	if err := svc.TriggerFailover(ctx, ws.ID); err != nil {
+		t.Fatalf("TriggerFailover() failed: %v", err)
+	}
+
+	updated, err := svc.GetWebstream(ctx, ws.ID)
+	if err != nil {
+		t.Fatalf("GetWebstream() failed: %v", err)
+	}
+	if updated.CurrentIndex != 0 {
+		t.Errorf("expected wrap to index=0, got %d", updated.CurrentIndex)
+	}
+	if updated.CurrentURL != urls[0] {
+		t.Errorf("expected wrap to primary=%s, got %s", urls[0], updated.CurrentURL)
+	}
+
+	select {
+	case payload := <-failoverSub:
+		if payload["from_url"] != urls[1] {
+			t.Errorf("expected from_url=%s, got %v", urls[1], payload["from_url"])
+		}
+		if payload["to_url"] != urls[0] {
+			t.Errorf("expected to_url=%s, got %v", urls[0], payload["to_url"])
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("timeout waiting for failover event")
+	}
+}
+
 func TestWebstreamService_ResetToPrimary(t *testing.T) {
 	db := setupTestDB(t)
 	logger := zerolog.Nop()
@@ -525,6 +575,32 @@ func TestWebstreamService_UpdateWebstream(t *testing.T) {
 
 	if updated.Description != "Updated description" {
 		t.Errorf("expected description='Updated description', got %s", updated.Description)
+	}
+}
+
+func TestWebstreamService_UpdateWebstream_EnableHealthCheckStartsChecker(t *testing.T) {
+	db := setupTestDB(t)
+	logger := zerolog.Nop()
+	bus := events.NewBus()
+	svc := NewService(db, bus, logger)
+	defer svc.Shutdown()
+
+	urls := []string{"http://example.com/stream.mp3"}
+	ws := createTestWebstreamWithHealthDisabled(t, db, urls)
+
+	ctx := context.Background()
+	err := svc.UpdateWebstream(ctx, ws.ID, map[string]any{
+		"health_check_enabled": true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateWebstream() failed: %v", err)
+	}
+
+	svc.mu.RLock()
+	_, exists := svc.healthCheckers[ws.ID]
+	svc.mu.RUnlock()
+	if !exists {
+		t.Fatalf("expected health checker to be started after enabling health checks")
 	}
 }
 

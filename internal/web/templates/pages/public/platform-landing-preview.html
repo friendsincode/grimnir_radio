@@ -223,7 +223,7 @@
 	                                <div class="card-body text-center">
                                     {{if $showLogo}}
                                         {{if .Station.Logo}}
-                                        <img src="/api/v1/stations/{{.Station.ID}}/logo" alt="{{.Station.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
+                                        <img src="/api/v1/public/stations/{{.Station.ID}}/logo" alt="{{.Station.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
                                         {{else}}
                                         <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
                                         {{end}}
@@ -370,7 +370,7 @@
                     <div class="card station-card h-100">
                         <div class="card-body text-center">
                             {{if .Station.Logo}}
-                            <img src="/api/v1/stations/{{.Station.ID}}/logo" alt="{{.Station.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
+                            <img src="/api/v1/public/stations/{{.Station.ID}}/logo" alt="{{.Station.Name}}" class="mb-3" style="max-height: 64px; max-width: 100%;" onerror="this.style.display='none'">
                             {{else}}
                             <i class="bi bi-broadcast fs-1 text-primary mb-3"></i>
                             {{end}}
@@ -583,7 +583,7 @@
         const artworkEl = document.getElementById('widgetPlayerArtwork');
         if (artworkEl) {
             if (hasLogo) {
-                artworkEl.innerHTML = `<img src="/api/v1/stations/${stationId}/logo" alt="${name}" class="rounded" style="max-height: 80px; max-width: 100%;" onerror="this.outerHTML='<i class=\\'bi bi-broadcast fs-1 text-primary\\'></i>'">`;
+                artworkEl.innerHTML = `<img src="/api/v1/public/stations/${stationId}/logo" alt="${name}" class="rounded" style="max-height: 80px; max-width: 100%;" onerror="this.outerHTML='<i class=\\'bi bi-broadcast fs-1 text-primary\\'></i>'">`;
             } else {
                 artworkEl.innerHTML = '<i class="bi bi-broadcast fs-1 text-primary"></i>';
             }
@@ -637,7 +637,7 @@
         const npEl = document.getElementById('widgetNowPlaying');
         if (!npEl) return;
 
-        fetch('/api/v1/stations/' + widgetPlayer.currentStation.id + '/now-playing')
+        fetch('/api/v1/public/now-playing?station_id=' + widgetPlayer.currentStation.id)
             .then(r => r.ok ? r.json() : Promise.reject())
             .then(data => {
                 if (data.title) {

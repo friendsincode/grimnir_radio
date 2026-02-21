@@ -75,6 +75,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Route("/dashboard", func(r chi.Router) {
 			r.Use(h.AuthMiddleware)
 			r.Use(h.RequireAuth)
+			r.Use(h.CSRFMiddleware)
 
 			// Dashboard home
 			r.Get("/", h.DashboardHome)
@@ -406,6 +407,9 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// Audit logs
 				r.Get("/audit", h.AdminAudit)
+
+				// Integrity findings + repair
+				r.Get("/integrity", h.AdminIntegrity)
 
 				// Platform landing page editor
 				r.Route("/landing-page", func(r chi.Router) {

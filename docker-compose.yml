@@ -54,7 +54,7 @@ services:
     volumes:
       - icecast-logs:/var/log/icecast2
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/status.xsl"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8000/status.xsl"]
       interval: 30s
       timeout: 5s
       retries: 3

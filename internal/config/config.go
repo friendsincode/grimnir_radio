@@ -75,6 +75,7 @@ type Config struct {
 
 	// Media Engine configuration
 	MediaEngineGRPCAddr string // gRPC address of the media engine (e.g., "mediaengine:9091")
+	LegacyEnvWarnings   []string
 }
 
 // Load reads environment variables, applies defaults, and validates the result.
@@ -118,16 +119,16 @@ func Load() (*Config, error) {
 		// Icecast configuration
 		IcecastURL:            getEnvAny([]string{"GRIMNIR_ICECAST_URL", "ICECAST_URL"}, "http://icecast:8000"),
 		IcecastPublicURL:      getEnvAny([]string{"GRIMNIR_ICECAST_PUBLIC_URL", "ICECAST_PUBLIC_URL"}, ""),
-		IcecastSourcePassword: getEnvAny([]string{"GRIMNIR_ICECAST_SOURCE_PASSWORD", "ICECAST_SOURCE_PASSWORD"}, "hackme"),
+		IcecastSourcePassword: getEnvAny([]string{"GRIMNIR_ICECAST_SOURCE_PASSWORD", "ICECAST_SOURCE_PASSWORD"}, ""),
 
 		// WebRTC configuration (enabled by default for low-latency streaming)
 		WebRTCEnabled: getEnvBoolAny([]string{"GRIMNIR_WEBRTC_ENABLED", "WEBRTC_ENABLED"}, true),
 		WebRTCRTPPort: getEnvIntAny([]string{"GRIMNIR_WEBRTC_RTP_PORT", "WEBRTC_RTP_PORT"}, 5004),
 		WebRTCSTUNURL: getEnvAny([]string{"GRIMNIR_WEBRTC_STUN_URL", "WEBRTC_STUN_URL"}, "stun:stun.l.google.com:19302"),
 		// TURN server for NAT traversal (coturn at radio.reallibertymedia.com)
-		WebRTCTURNURL:      getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_URL", "WEBRTC_TURN_URL"}, "turn:radio.reallibertymedia.com:3478"),
-		WebRTCTURNUsername: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_USERNAME", "WEBRTC_TURN_USERNAME"}, "grimniruser"),
-		WebRTCTURNPassword: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_PASSWORD", "WEBRTC_TURN_PASSWORD"}, "astrongpassword"),
+		WebRTCTURNURL:      getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_URL", "WEBRTC_TURN_URL"}, ""),
+		WebRTCTURNUsername: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_USERNAME", "WEBRTC_TURN_USERNAME"}, ""),
+		WebRTCTURNPassword: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_PASSWORD", "WEBRTC_TURN_PASSWORD"}, ""),
 
 		// Media Engine configuration
 		MediaEngineGRPCAddr: getEnvAny([]string{"GRIMNIR_MEDIA_ENGINE_GRPC_ADDR", "MEDIA_ENGINE_GRPC_ADDR"}, "mediaengine:9091"),
@@ -145,7 +146,37 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("GRIMNIR_JWT_SIGNING_KEY or RLM_JWT_SIGNING_KEY must be provided")
 	}
 
+	if strings.EqualFold(cfg.Environment, "production") {
+		if cfg.IcecastSourcePassword == "" || strings.EqualFold(cfg.IcecastSourcePassword, "hackme") {
+			return nil, fmt.Errorf("GRIMNIR_ICECAST_SOURCE_PASSWORD or ICECAST_SOURCE_PASSWORD must be set to a non-default value in production")
+		}
+
+		if cfg.WebRTCTURNURL != "" && (cfg.WebRTCTURNUsername == "" || cfg.WebRTCTURNPassword == "") {
+			return nil, fmt.Errorf("GRIMNIR_WEBRTC_TURN_USERNAME and GRIMNIR_WEBRTC_TURN_PASSWORD are required when TURN is enabled in production")
+		}
+	}
+	cfg.LegacyEnvWarnings = detectLegacyEnvWarnings()
+
 	return cfg, nil
+}
+
+func detectLegacyEnvWarnings() []string {
+	legacy := map[string]string{
+		"ENVIRONMENT":             "use GRIMNIR_ENV (or RLM_ENV)",
+		"LEADER_ELECTION_ENABLED": "use GRIMNIR_LEADER_ELECTION_ENABLED",
+		"JWT_SIGNING_KEY":         "use GRIMNIR_JWT_SIGNING_KEY (or RLM_JWT_SIGNING_KEY)",
+		"TRACING_ENABLED":         "use GRIMNIR_TRACING_ENABLED (or RLM_TRACING_ENABLED)",
+		"OTLP_ENDPOINT":           "use GRIMNIR_OTLP_ENDPOINT (or RLM_OTLP_ENDPOINT)",
+		"TRACING_SAMPLE_RATE":     "use GRIMNIR_TRACING_SAMPLE_RATE (or RLM_TRACING_SAMPLE_RATE)",
+	}
+
+	warnings := make([]string, 0, len(legacy))
+	for key, recommendation := range legacy {
+		if os.Getenv(key) != "" {
+			warnings = append(warnings, fmt.Sprintf("legacy env key %s is set; %s", key, recommendation))
+		}
+	}
+	return warnings
 }
 
 // MaxUploadSizeBytes returns the configured upload limit in bytes.

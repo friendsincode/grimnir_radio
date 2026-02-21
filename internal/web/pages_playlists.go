@@ -542,7 +542,11 @@ func (h *Handler) PlaylistReorderItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to reorder", http.StatusInternalServerError)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
 }

@@ -758,6 +758,12 @@ func (a *AzuraCastImporter) importAPI(ctx context.Context, options Options, prog
 	}
 
 	// Complete
+	if options.JobID != "" {
+		if err := a.verifyImportDurations(ctx, options.JobID, options.DurationVerifyStrict, result); err != nil {
+			return nil, err
+		}
+	}
+
 	progressCallback(Progress{
 		Phase:             "completed",
 		CurrentStep:       "Import completed",
@@ -1323,6 +1329,12 @@ func (a *AzuraCastImporter) importBackup(ctx context.Context, options Options, p
 	}
 
 	// Complete
+	if options.JobID != "" {
+		if err := a.verifyImportDurations(ctx, options.JobID, options.DurationVerifyStrict, result); err != nil {
+			return nil, err
+		}
+	}
+
 	progressCallback(Progress{
 		Phase:             "completed",
 		CurrentStep:       "Migration completed",
@@ -1372,14 +1384,17 @@ func (a *AzuraCastImporter) extractBackup(backupPath, destDir string) error {
 			return fmt.Errorf("read tar: %w", err)
 		}
 
-		target := filepath.Join(destDir, header.Name)
+		target, err := safeExtractPath(destDir, header.Name)
+		if err != nil {
+			return err
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0755); err != nil {
 				return fmt.Errorf("create directory: %w", err)
 			}
-		case tar.TypeReg:
+		case tar.TypeReg, tar.TypeRegA:
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return fmt.Errorf("create parent directory: %w", err)
 			}
@@ -1394,11 +1409,40 @@ func (a *AzuraCastImporter) extractBackup(backupPath, destDir string) error {
 				return fmt.Errorf("write file: %w", err)
 			}
 			outFile.Close()
+		case tar.TypeSymlink, tar.TypeLink:
+			return fmt.Errorf("unsupported archive entry type for %q", header.Name)
 		}
 	}
 
 	a.logger.Info().Str("dest", destDir).Msg("backup extracted")
 	return nil
+}
+
+func safeExtractPath(destDir, entryName string) (string, error) {
+	clean := filepath.Clean(entryName)
+	if clean == "." || clean == "" {
+		return "", fmt.Errorf("invalid archive entry path %q", entryName)
+	}
+	if filepath.IsAbs(clean) {
+		return "", fmt.Errorf("absolute archive entry path %q is not allowed", entryName)
+	}
+
+	destAbs, err := filepath.Abs(destDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve destination root: %w", err)
+	}
+	targetAbs, err := filepath.Abs(filepath.Join(destAbs, clean))
+	if err != nil {
+		return "", fmt.Errorf("resolve archive entry path: %w", err)
+	}
+	rel, err := filepath.Rel(destAbs, targetAbs)
+	if err != nil {
+		return "", fmt.Errorf("verify archive entry path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("archive entry %q escapes extraction root", entryName)
+	}
+	return targetAbs, nil
 }
 
 // AzuraCastBackup represents the parsed backup structure.
@@ -1767,12 +1811,11 @@ func (a *AzuraCastImporter) importPlaylists(ctx context.Context, backup *AzuraCa
 }
 
 // AnalyzeForStaging performs deep analysis for staged review.
-// Currently supports AzuraCast API mode; backup staged analysis is planned separately.
 func (a *AzuraCastImporter) AnalyzeForStaging(ctx context.Context, jobID string, options Options) (*models.StagedImport, error) {
 	a.logger.Info().Str("job_id", jobID).Msg("analyzing AzuraCast for staged import")
 
 	if !isAPIMode(options) {
-		return nil, fmt.Errorf("staged AzuraCast import currently requires API mode")
+		return a.analyzeForStagingBackup(ctx, jobID, options)
 	}
 
 	analyzer := NewStagedAnalyzer(a.db, a.logger)
@@ -1949,6 +1992,141 @@ func (a *AzuraCastImporter) AnalyzeForStaging(ctx context.Context, jobID string,
 	}
 
 	return staged, nil
+}
+
+func (a *AzuraCastImporter) analyzeForStagingBackup(ctx context.Context, jobID string, options Options) (*models.StagedImport, error) {
+	if options.AzuraCastBackupPath == "" {
+		return nil, fmt.Errorf("backup path required for backup staged analysis")
+	}
+
+	tempDir, err := os.MkdirTemp("", "azuracast-staged-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	if err := a.extractBackup(options.AzuraCastBackupPath, tempDir); err != nil {
+		return nil, fmt.Errorf("extract backup: %w", err)
+	}
+
+	backup, err := a.parseBackup(tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("parse backup: %w", err)
+	}
+
+	analyzer := NewStagedAnalyzer(a.db, a.logger)
+	staged, err := analyzer.CreateStagedImport(ctx, jobID, string(SourceTypeAzuraCast))
+	if err != nil {
+		return nil, fmt.Errorf("create staged import: %w", err)
+	}
+
+	if len(backup.Stations) > 1 {
+		staged.Warnings = append(staged.Warnings, models.ImportWarning{
+			Code:     "multi_station_detected",
+			Severity: "info",
+			Message:  fmt.Sprintf("%d stations detected in backup", len(backup.Stations)),
+			Details:  "Station-level selection is not yet available; review and deselect items per tab as needed.",
+		})
+	}
+
+	mediaFiles, err := scanBackupMediaFiles(filepath.Join(tempDir, "media"))
+	if err != nil {
+		return nil, fmt.Errorf("scan backup media: %w", err)
+	}
+	primaryStationID := 1
+	if len(backup.Stations) > 0 {
+		primaryStationID = backup.Stations[0].ID
+	}
+
+	for _, mf := range mediaFiles {
+		contentHash := ""
+		f, err := os.Open(mf.AbsPath)
+		if err == nil {
+			hasher := sha256.New()
+			_, _ = io.Copy(hasher, f)
+			_ = f.Close()
+			contentHash = hex.EncodeToString(hasher.Sum(nil))
+		}
+
+		staged.StagedMedia = append(staged.StagedMedia, models.StagedMediaItem{
+			SourceID:    makeScopedSourceID(primaryStationID, mf.RelPath),
+			Title:       strings.TrimSuffix(filepath.Base(mf.RelPath), filepath.Ext(mf.RelPath)),
+			FilePath:    mf.RelPath,
+			FileSize:    mf.Size,
+			ContentHash: contentHash,
+			Selected:    true,
+		})
+	}
+
+	staged.StagedMedia = analyzer.DetectDuplicates(ctx, staged.StagedMedia, options.TargetStationID)
+	analyzer.ApplyDefaultSelections(staged)
+	analyzer.GenerateWarnings(staged)
+	analyzer.GenerateSuggestions(staged)
+
+	staged.Warnings = append(staged.Warnings, models.ImportWarning{
+		Code:     "backup_staged_limited_metadata",
+		Severity: "info",
+		Message:  "Backup staged analysis includes media-first review with limited metadata",
+		Details:  "Playlist/schedule enrichment depends on backup schema availability and may be incomplete.",
+	})
+
+	now := time.Now()
+	staged.AnalyzedAt = &now
+	staged.Status = models.StagedImportStatusReady
+	if err := analyzer.UpdateStagedImport(ctx, staged); err != nil {
+		return nil, fmt.Errorf("update staged import: %w", err)
+	}
+
+	return staged, nil
+}
+
+type backupMediaFile struct {
+	AbsPath string
+	RelPath string
+	Size    int64
+}
+
+func scanBackupMediaFiles(mediaRoot string) ([]backupMediaFile, error) {
+	stat, err := os.Stat(mediaRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !stat.IsDir() {
+		return nil, nil
+	}
+
+	out := make([]backupMediaFile, 0, 256)
+	err = filepath.Walk(mediaRoot, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		switch ext {
+		case ".mp3", ".flac", ".ogg", ".m4a", ".wav", ".aac":
+		default:
+			return nil
+		}
+		relPath, err := filepath.Rel(mediaRoot, path)
+		if err != nil {
+			return err
+		}
+		out = append(out, backupMediaFile{
+			AbsPath: path,
+			RelPath: filepath.ToSlash(relPath),
+			Size:    info.Size(),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // CommitStagedImport imports selected items from a staged AzuraCast plan.
@@ -2135,6 +2313,11 @@ func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *mode
 			result.Skipped["smartblock_no_station"]++
 			continue
 		}
+		scoped := makeScopedSourceID(sourceStationID, sourceID)
+		if exists, err := sourceImportExists(ctx, a.db, &models.SmartBlock{}, targetStationID, string(SourceTypeAzuraCast), scoped, sourceID); err == nil && exists {
+			result.Skipped["smartblock_already_imported"]++
+			continue
+		}
 
 		smartBlock := &models.SmartBlock{
 			ID:             uuid.New().String(),
@@ -2144,7 +2327,7 @@ func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *mode
 			Rules:          sb.RawCriteria,
 			ImportJobID:    &jobID,
 			ImportSource:   string(SourceTypeAzuraCast),
-			ImportSourceID: makeScopedSourceID(sourceStationID, sourceID),
+			ImportSourceID: scoped,
 		}
 		if err := a.db.WithContext(ctx).Create(smartBlock).Error; err != nil {
 			result.Skipped["smartblock_db_failed"]++
@@ -2170,6 +2353,11 @@ func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *mode
 			result.Skipped["show_no_station"]++
 			continue
 		}
+		scoped := makeScopedSourceID(sourceStationID, sourceID)
+		if exists, err := sourceImportExists(ctx, a.db, &models.Show{}, targetStationID, string(SourceTypeAzuraCast), scoped, sourceID); err == nil && exists {
+			result.Skipped["show_already_imported"]++
+			continue
+		}
 
 		rrule := sh.CustomRRule
 		if rrule == "" {
@@ -2190,7 +2378,7 @@ func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *mode
 				Active:                 true,
 				ImportJobID:            &jobID,
 				ImportSource:           string(SourceTypeAzuraCast),
-				ImportSourceID:         makeScopedSourceID(sourceStationID, sourceID),
+				ImportSourceID:         scoped,
 			}
 			if sh.Timezone != "" {
 				show.Timezone = sh.Timezone
@@ -2209,6 +2397,11 @@ func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *mode
 			StationID:   targetStationID,
 			Name:        sh.Name,
 			ImportJobID: &jobID,
+		}
+		var existingClock models.ClockHour
+		if err := a.db.WithContext(ctx).Where("station_id = ? AND name = ?", targetStationID, sh.Name).First(&existingClock).Error; err == nil {
+			result.Skipped["clock_already_imported"]++
+			continue
 		}
 		if err := a.db.WithContext(ctx).Create(clock).Error; err != nil {
 			result.Skipped["clock_db_failed"]++
@@ -2234,6 +2427,11 @@ func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *mode
 			result.Skipped["webstream_no_station"]++
 			continue
 		}
+		scoped := makeScopedSourceID(sourceStationID, sourceID)
+		if exists, err := sourceImportExists(ctx, a.db, &models.Webstream{}, targetStationID, string(SourceTypeAzuraCast), scoped, sourceID); err == nil && exists {
+			result.Skipped["webstream_already_imported"]++
+			continue
+		}
 		webstream := &models.Webstream{
 			ID:             uuid.New().String(),
 			StationID:      targetStationID,
@@ -2243,7 +2441,7 @@ func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *mode
 			Active:         true,
 			ImportJobID:    &jobID,
 			ImportSource:   string(SourceTypeAzuraCast),
-			ImportSourceID: makeScopedSourceID(sourceStationID, sourceID),
+			ImportSourceID: scoped,
 		}
 		if err := a.db.WithContext(ctx).Create(webstream).Error; err != nil {
 			result.Skipped["webstream_db_failed"]++
@@ -2262,6 +2460,12 @@ func (a *AzuraCastImporter) CommitStagedImport(ctx context.Context, staged *mode
 	if err := a.db.WithContext(ctx).First(&job, "id = ?", jobID).Error; err == nil {
 		job.ImportedItems = importedItems
 		_ = a.db.WithContext(ctx).Save(&job).Error
+	}
+
+	if options.JobID != "" {
+		if err := a.verifyImportDurations(ctx, options.JobID, options.DurationVerifyStrict, result); err != nil {
+			return nil, err
+		}
 	}
 
 	result.DurationSeconds = time.Since(startTime).Seconds()
@@ -2324,6 +2528,58 @@ func parseScopedSourceID(scoped string) (sourceStationID int, sourceID string, e
 		return 0, "", fmt.Errorf("invalid source station ID in scoped ID: %s", scoped)
 	}
 	return sourceStationID, parts[1], nil
+}
+
+func sourceImportExists(ctx context.Context, db *gorm.DB, model any, stationID, source, scopedSourceID, rawSourceID string) (bool, error) {
+	var count int64
+	err := db.WithContext(ctx).
+		Model(model).
+		Where("station_id = ? AND import_source = ? AND import_source_id IN ?", stationID, source, []string{scopedSourceID, rawSourceID}).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (a *AzuraCastImporter) verifyImportDurations(ctx context.Context, jobID string, strict bool, result *Result) error {
+	if jobID == "" {
+		return nil
+	}
+
+	var total int64
+	if err := a.db.WithContext(ctx).Model(&models.MediaItem{}).Where("import_job_id = ?", jobID).Count(&total).Error; err != nil {
+		return fmt.Errorf("duration verification count failed: %w", err)
+	}
+	if total == 0 {
+		return nil
+	}
+
+	var zeroDuration int64
+	if err := a.db.WithContext(ctx).
+		Model(&models.MediaItem{}).
+		Where("import_job_id = ? AND duration <= ?", jobID, 0).
+		Count(&zeroDuration).Error; err != nil {
+		return fmt.Errorf("duration verification zero-count failed: %w", err)
+	}
+
+	if zeroDuration == 0 {
+		return nil
+	}
+
+	result.Skipped["media_duration_zero"] = int(zeroDuration)
+	result.Warnings = append(result.Warnings, fmt.Sprintf("Duration verification: %d imported media items have zero/missing duration", zeroDuration))
+	a.logger.Warn().
+		Str("job_id", jobID).
+		Int64("imported_media_total", total).
+		Int64("zero_duration", zeroDuration).
+		Bool("strict", strict).
+		Msg("import duration verification found anomalies")
+
+	if strict {
+		return fmt.Errorf("duration verification failed: %d media items with zero/missing duration", zeroDuration)
+	}
+	return nil
 }
 
 func buildAzuraScheduleRecurrence(sched AzuraCastAPISchedule) (dtStart time.Time, rrule string, pattern string) {

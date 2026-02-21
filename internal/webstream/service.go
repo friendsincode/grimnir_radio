@@ -148,10 +148,20 @@ func (s *Service) UpdateWebstream(ctx context.Context, id string, updates map[st
 		return fmt.Errorf("update webstream: %w", err)
 	}
 
-	// Restart health checker if settings changed
-	if _, ok := updates["health_check_enabled"]; ok {
+	// Restart health checker if health-check settings changed.
+	_, toggledEnabled := updates["health_check_enabled"]
+	_, intervalChanged := updates["health_check_interval"]
+	_, timeoutChanged := updates["health_check_timeout"]
+	_, methodChanged := updates["health_check_method"]
+	if toggledEnabled || intervalChanged || timeoutChanged || methodChanged {
+		enabled := ws.HealthCheckEnabled
+		if raw, ok := updates["health_check_enabled"]; ok {
+			if v, ok := raw.(bool); ok {
+				enabled = v
+			}
+		}
 		s.stopHealthChecker(id)
-		if ws.HealthCheckEnabled {
+		if enabled {
 			s.startHealthChecker(id)
 		}
 	}
@@ -223,6 +233,9 @@ func (s *Service) TriggerFailover(ctx context.Context, id string) error {
 		return fmt.Errorf("no failover URLs available")
 	}
 
+	fromURL := ws.CurrentURL
+	fromIndex := ws.CurrentIndex
+
 	// Attempt to fail over
 	if ws.FailoverToNext() {
 		if err := s.db.WithContext(ctx).Save(&ws).Error; err != nil {
@@ -231,7 +244,7 @@ func (s *Service) TriggerFailover(ctx context.Context, id string) error {
 
 		s.logger.Warn().
 			Str("webstream_id", id).
-			Str("from_url", ws.URLs[ws.CurrentIndex-1]).
+			Str("from_url", fromURL).
 			Str("to_url", ws.CurrentURL).
 			Msg("manual failover triggered")
 
@@ -239,8 +252,9 @@ func (s *Service) TriggerFailover(ctx context.Context, id string) error {
 		s.bus.Publish(events.EventWebstreamFailover, events.Payload{
 			"webstream_id":  id,
 			"station_id":    ws.StationID,
-			"from_url":      ws.URLs[ws.CurrentIndex-1],
+			"from_url":      fromURL,
 			"to_url":        ws.CurrentURL,
+			"from_index":    fromIndex,
 			"current_index": ws.CurrentIndex,
 			"manual":        true,
 		})

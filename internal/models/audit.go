@@ -35,6 +35,8 @@ const (
 	AuditActionWebstreamUpdate   AuditAction = "webstream.update"
 	AuditActionWebstreamDelete   AuditAction = "webstream.delete"
 	AuditActionWebstreamFailover AuditAction = "webstream.failover"
+	AuditActionIntegrityScan     AuditAction = "integrity.scan"
+	AuditActionIntegrityRepair   AuditAction = "integrity.repair"
 
 	// Landing page actions
 	AuditActionLandingPagePublish AuditAction = "landingpage.publish"

@@ -566,6 +566,7 @@
     const existingRules = {{jsonMarshal $rules}};
     const existingSeq = {{jsonMarshal $seq}};
     const isNew = {{index $data "IsNew"}};
+    const presetFallbacks = {{if index $data "PresetFallbacks"}}true{{else}}false{{end}};
 
     // ========== SECTION TOGGLES ==========
     document.querySelectorAll('.section-toggle').forEach(function(toggle) {
@@ -1006,6 +1007,13 @@
     // Restore sequence mode
     if (!isNew && existingSeq && existingSeq.mode) {
         document.querySelector('[name="sequence_mode"]').value = existingSeq.mode;
+    }
+
+    if (isNew && presetFallbacks) {
+        enableSectionToggle('fallbacksToggle');
+        if (fallbackList.querySelectorAll('.fallback-row').length === 0) {
+            addFallback();
+        }
     }
 
 })();

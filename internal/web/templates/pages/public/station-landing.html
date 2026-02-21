@@ -24,7 +24,7 @@
         </div>
         <div class="col-lg-6 d-none d-lg-block text-center">
             {{if .Data.Station.Logo}}
-            <img src="/api/v1/stations/{{.Data.StationID}}/logo" alt="{{.Data.StationName}}" class="img-fluid" style="max-height: 300px;">
+            <img src="/api/v1/public/stations/{{.Data.StationID}}/logo" alt="{{.Data.StationName}}" class="img-fluid" style="max-height: 300px;">
             {{else}}
             <i class="bi bi-broadcast-pin text-primary" style="font-size: 15rem; opacity: 0.1;"></i>
             {{end}}
@@ -200,7 +200,7 @@ setInterval(syncPlayerUI, 500);
 async function updateNowPlaying() {
     if (!stationId) return;
     try {
-        const response = await fetch(`/api/v1/analytics/now-playing?station_id=${stationId}`);
+        const response = await fetch(`/api/v1/public/now-playing?station_id=${stationId}`);
         if (response.ok) {
             const data = await response.json();
             if (data.title && data.status === 'playing') {

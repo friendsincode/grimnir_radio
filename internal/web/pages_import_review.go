@@ -10,6 +10,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
@@ -45,6 +48,9 @@ func (h *Handler) ImportReviewPage(w http.ResponseWriter, r *http.Request) {
 			"OrphanMatchCount": staged.OrphanMatchCount(),
 			"SelectedCount":    staged.SelectedCount(),
 			"TotalCount":       staged.TotalCount(),
+			"StationFilters":   extractStationFilters(staged),
+			"SelectedStations": selectedStationMap(staged.Selections.StationIDs),
+			"AnomalyCards":     buildStagedAnomalyCards(staged),
 		},
 	})
 }
@@ -98,6 +104,7 @@ func (h *Handler) ImportReviewUpdateSelections(w http.ResponseWriter, r *http.Re
 
 	// Build selections from form data
 	selections := models.ImportSelections{
+		StationIDs:    r.Form["station_ids"],
 		MediaIDs:      r.Form["media_ids"],
 		PlaylistIDs:   r.Form["playlist_ids"],
 		SmartBlockIDs: r.Form["smartblock_ids"],
@@ -305,4 +312,147 @@ func containsString(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+type stationFilterOption struct {
+	ID    string
+	Label string
+}
+
+func extractStationFilters(staged *models.StagedImport) []stationFilterOption {
+	if staged == nil {
+		return nil
+	}
+	unique := map[int]struct{}{}
+	addFrom := func(sourceID string) {
+		parts := strings.SplitN(sourceID, "::", 2)
+		if len(parts) != 2 {
+			return
+		}
+		id, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return
+		}
+		unique[id] = struct{}{}
+	}
+
+	for _, m := range staged.StagedMedia {
+		addFrom(m.SourceID)
+	}
+	for _, p := range staged.StagedPlaylists {
+		addFrom(p.SourceID)
+	}
+	for _, sb := range staged.StagedSmartBlocks {
+		addFrom(sb.SourceID)
+	}
+	for _, sh := range staged.StagedShows {
+		addFrom(sh.SourceID)
+	}
+	for _, ws := range staged.StagedWebstreams {
+		addFrom(ws.SourceID)
+	}
+
+	ids := make([]int, 0, len(unique))
+	for id := range unique {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	out := make([]stationFilterOption, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, stationFilterOption{
+			ID:    fmt.Sprintf("%d", id),
+			Label: fmt.Sprintf("Station %d", id),
+		})
+	}
+	return out
+}
+
+func selectedStationMap(ids []string) map[string]bool {
+	m := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		m[id] = true
+	}
+	return m
+}
+
+type stagedAnomalyCard struct {
+	Key      string
+	Label    string
+	Count    int
+	Examples []string
+}
+
+func buildStagedAnomalyCards(staged *models.StagedImport) []stagedAnomalyCard {
+	if staged == nil {
+		return nil
+	}
+
+	addExamples := func(items []string) []string {
+		if len(items) > 3 {
+			return items[:3]
+		}
+		return items
+	}
+
+	durationExamples := []string{}
+	missingExamples := []string{}
+	skippedExamples := []string{}
+	for _, w := range staged.Warnings {
+		code := strings.ToLower(w.Code)
+		msg := strings.TrimSpace(w.Message)
+		if msg == "" {
+			continue
+		}
+		switch {
+		case strings.Contains(code, "duration") || strings.Contains(strings.ToLower(msg), "duration"):
+			durationExamples = append(durationExamples, msg)
+		case strings.Contains(code, "missing") || strings.Contains(code, "orphan") || strings.Contains(code, "not_found") ||
+			strings.Contains(strings.ToLower(msg), "missing") || strings.Contains(strings.ToLower(msg), "not found"):
+			missingExamples = append(missingExamples, msg)
+		case strings.Contains(code, "skip") || strings.Contains(strings.ToLower(msg), "skip"):
+			skippedExamples = append(skippedExamples, msg)
+		}
+	}
+
+	duplicateExamples := []string{}
+	for _, m := range staged.StagedMedia {
+		if !m.IsDuplicate {
+			continue
+		}
+		duplicateExamples = append(duplicateExamples, m.Title)
+		if len(duplicateExamples) >= 3 {
+			break
+		}
+	}
+
+	return []stagedAnomalyCard{
+		{
+			Key:      "duration",
+			Label:    "Duration",
+			Count:    len(durationExamples),
+			Examples: addExamples(durationExamples),
+		},
+		{
+			Key:      "duplicate_resolution",
+			Label:    "Duplicate Resolution",
+			Count:    staged.DuplicateCount(),
+			Examples: addExamples(duplicateExamples),
+		},
+		{
+			Key:      "missing_links",
+			Label:    "Missing Links",
+			Count:    len(missingExamples),
+			Examples: addExamples(missingExamples),
+		},
+		{
+			Key:      "skipped_entities",
+			Label:    "Skipped Entities",
+			Count:    len(skippedExamples),
+			Examples: addExamples(skippedExamples),
+		},
+	}
 }

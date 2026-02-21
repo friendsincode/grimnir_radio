@@ -316,6 +316,7 @@ func (s *ImportSuggestions) Scan(value interface{}) error {
 
 // ImportSelections stores user's choices about what to import.
 type ImportSelections struct {
+	StationIDs    []string `json:"station_ids,omitempty"`     // Selected source station IDs (for scoped imports)
 	MediaIDs      []string `json:"media_ids,omitempty"`       // Selected media source IDs
 	PlaylistIDs   []string `json:"playlist_ids,omitempty"`    // Selected playlist source IDs
 	SmartBlockIDs []string `json:"smart_block_ids,omitempty"` // Selected smart block source IDs

@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package auth
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -20,7 +21,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// Issue creates JWT token string.
+// Issue creates an HS256 JWT token string.
 func Issue(secret []byte, claims Claims, ttl time.Duration) (string, error) {
 	claims.RegisteredClaims = jwt.RegisteredClaims{
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
@@ -32,9 +33,12 @@ func Issue(secret []byte, claims Claims, ttl time.Duration) (string, error) {
 	return token.SignedString(secret)
 }
 
-// Parse validates token string.
+// Parse validates token string and enforces HS256 signing method.
 func Parse(secret []byte, token string) (*Claims, error) {
 	parsed, err := jwt.ParseWithClaims(token, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+		if t.Method == nil || t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
 		return secret, nil
 	})
 	if err != nil {

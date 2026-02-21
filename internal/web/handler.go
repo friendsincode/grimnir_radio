@@ -346,6 +346,7 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 	// Get user from context if authenticated
 	if user, ok := r.Context().Value(ctxKeyUser).(*models.User); ok {
 		data.User = user
+		data.CSRFToken = ensureCSRFCookie(w, r)
 
 		// Use user's theme preference if set
 		if user.Theme != "" {

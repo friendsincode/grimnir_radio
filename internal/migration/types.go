@@ -41,14 +41,15 @@ const (
 
 // Job represents a migration job.
 type Job struct {
-	ID         string     `json:"id" gorm:"primaryKey"`
-	SourceType SourceType `json:"source_type" gorm:"type:varchar(50);not null"`
-	Status     JobStatus  `json:"status" gorm:"type:varchar(50);not null;default:'pending'"`
-	DryRun     bool       `json:"dry_run" gorm:"not null;default:false"`
-	Options    Options    `json:"options" gorm:"type:jsonb"`
-	Progress   Progress   `json:"progress" gorm:"type:jsonb"`
-	Result     *Result    `json:"result,omitempty" gorm:"type:jsonb"`
-	Error      string     `json:"error,omitempty" gorm:"type:text"`
+	ID            string         `json:"id" gorm:"primaryKey"`
+	SourceType    SourceType     `json:"source_type" gorm:"type:varchar(50);not null"`
+	Status        JobStatus      `json:"status" gorm:"type:varchar(50);not null;default:'pending'"`
+	DryRun        bool           `json:"dry_run" gorm:"not null;default:false"`
+	Options       Options        `json:"options" gorm:"type:jsonb"`
+	Progress      Progress       `json:"progress" gorm:"type:jsonb"`
+	Result        *Result        `json:"result,omitempty" gorm:"type:jsonb"`
+	AnomalyReport *AnomalyReport `json:"anomaly_report,omitempty" gorm:"type:jsonb"`
+	Error         string         `json:"error,omitempty" gorm:"type:text"`
 
 	// Staged import support
 	StagedImportID *string `json:"staged_import_id,omitempty" gorm:"type:uuid;index"` // Links to staged import
@@ -109,6 +110,11 @@ type Options struct {
 
 	// Import context
 	ImportingUserID string `json:"importing_user_id,omitempty"` // User performing the import (becomes station owner)
+
+	// Post-import duration verification policy.
+	// false: warn and continue (default)
+	// true: fail import if unresolved zero/missing durations are found
+	DurationVerifyStrict bool `json:"duration_verify_strict,omitempty"`
 }
 
 // Progress tracks migration progress.
@@ -154,6 +160,58 @@ type Result struct {
 	Skipped            map[string]int     `json:"skipped,omitempty"`
 	Mappings           map[string]Mapping `json:"mappings,omitempty"`
 	DurationSeconds    float64            `json:"duration_seconds"`
+}
+
+// AnomalyClass identifies a grouped anomaly category in import reporting.
+type AnomalyClass string
+
+const (
+	AnomalyClassDuration            AnomalyClass = "duration"
+	AnomalyClassDuplicateResolution AnomalyClass = "duplicate_resolution"
+	AnomalyClassMissingLinks        AnomalyClass = "missing_links"
+	AnomalyClassSkippedEntities     AnomalyClass = "skipped_entities"
+)
+
+// AnomalyBucket stores count + examples for a specific anomaly class.
+type AnomalyBucket struct {
+	Count    int      `json:"count"`
+	Examples []string `json:"examples,omitempty"`
+}
+
+// AnomalyReport is a per-job anomaly artifact for operator visibility.
+type AnomalyReport struct {
+	GeneratedAt time.Time                      `json:"generated_at"`
+	Total       int                            `json:"total"`
+	ByClass     map[AnomalyClass]AnomalyBucket `json:"by_class,omitempty"`
+}
+
+// Value implements driver.Valuer for database serialization.
+func (r AnomalyReport) Value() (driver.Value, error) {
+	return json.Marshal(r)
+}
+
+// Scan implements sql.Scanner for database deserialization.
+func (r *AnomalyReport) Scan(value interface{}) error {
+	if value == nil {
+		*r = AnomalyReport{}
+		return nil
+	}
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		return fmt.Errorf("failed to unmarshal AnomalyReport: expected []byte or string, got %T", value)
+	}
+	if err := json.Unmarshal(bytes, r); err != nil {
+		return fmt.Errorf("failed to unmarshal AnomalyReport: %v", value)
+	}
+	if r.ByClass == nil {
+		r.ByClass = map[AnomalyClass]AnomalyBucket{}
+	}
+	return nil
 }
 
 // Mapping tracks ID mappings from source to target system.

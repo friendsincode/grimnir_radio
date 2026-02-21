@@ -154,14 +154,17 @@ func (i *Importer) extractBackup(backupPath, destDir string) error {
 			return fmt.Errorf("read tar: %w", err)
 		}
 
-		target := filepath.Join(destDir, header.Name)
+		target, err := safeExtractPath(destDir, header.Name)
+		if err != nil {
+			return err
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0755); err != nil {
 				return fmt.Errorf("mkdir: %w", err)
 			}
-		case tar.TypeReg:
+		case tar.TypeReg, tar.TypeRegA:
 			// Create parent directory
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return fmt.Errorf("mkdir parent: %w", err)
@@ -177,10 +180,39 @@ func (i *Importer) extractBackup(backupPath, destDir string) error {
 				return fmt.Errorf("copy file: %w", err)
 			}
 			outFile.Close()
+		case tar.TypeSymlink, tar.TypeLink:
+			return fmt.Errorf("unsupported archive entry type for %q", header.Name)
 		}
 	}
 
 	return nil
+}
+
+func safeExtractPath(destDir, entryName string) (string, error) {
+	clean := filepath.Clean(entryName)
+	if clean == "." || clean == "" {
+		return "", fmt.Errorf("invalid archive entry path %q", entryName)
+	}
+	if filepath.IsAbs(clean) {
+		return "", fmt.Errorf("absolute archive entry path %q is not allowed", entryName)
+	}
+
+	destAbs, err := filepath.Abs(destDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve destination root: %w", err)
+	}
+	targetAbs, err := filepath.Abs(filepath.Join(destAbs, clean))
+	if err != nil {
+		return "", fmt.Errorf("resolve archive entry path: %w", err)
+	}
+	rel, err := filepath.Rel(destAbs, targetAbs)
+	if err != nil {
+		return "", fmt.Errorf("verify archive entry path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("archive entry %q escapes extraction root", entryName)
+	}
+	return targetAbs, nil
 }
 
 // importStations imports stations and returns a mapping of old ID to new ID

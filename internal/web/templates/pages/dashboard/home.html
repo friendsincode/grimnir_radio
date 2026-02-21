@@ -153,6 +153,44 @@
 
     <!-- Quick Actions & Live Sessions -->
     <div class="col-lg-4">
+        <!-- Now Playing / IRT -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-broadcast me-2"></i>Now Playing (IRT)</h5>
+                <a href="/dashboard/schedule" class="btn btn-sm btn-outline-primary">Open IRT</a>
+            </div>
+            <div class="card-body">
+                {{if .Data.NowPlaying}}
+                <div class="fw-semibold text-truncate" title="{{.Data.NowPlaying.Title}}">
+                    {{if .Data.NowPlaying.Title}}{{.Data.NowPlaying.Title}}{{else}}Untitled{{end}}
+                </div>
+                <div class="text-body-secondary small text-truncate" title="{{.Data.NowPlaying.Artist}}">
+                    {{if .Data.NowPlaying.Artist}}{{.Data.NowPlaying.Artist}}{{else}}Unknown Artist{{end}}
+                </div>
+                {{if .Data.NowPlaying.MountID}}
+                <div class="small mt-2">
+                    <span class="badge bg-secondary">Mount: {{.Data.NowPlaying.MountID}}</span>
+                </div>
+                {{end}}
+                <div class="d-flex gap-2 mt-3">
+                    <a href="/dashboard/webdj" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-music-note-list me-1"></i>WebDJ
+                    </a>
+                    <a href="/dashboard/schedule" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-calendar3 me-1"></i>Schedule
+                    </a>
+                </div>
+                {{else}}
+                <div class="text-body-secondary">No active IRT playback.</div>
+                <div class="d-flex gap-2 mt-3">
+                    <a href="/dashboard/schedule" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-calendar3 me-1"></i>Open Schedule
+                    </a>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
         <!-- Quick Actions -->
         <div class="card mb-4">
             <div class="card-header">

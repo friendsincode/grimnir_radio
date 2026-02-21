@@ -8,7 +8,12 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +24,8 @@ import (
 
 // Context key for JWT token string
 const ctxKeyToken ctxKey = "token"
+
+const csrfCookieName = "grimnir_csrf"
 
 // AuthMiddleware checks for valid session and injects user into context.
 // For web routes, we check cookies; for API we check Authorization header.
@@ -46,17 +53,14 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 
 		// Parse and validate token
 		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
+			if t.Method == nil || t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+				return nil, jwt.ErrTokenSignatureInvalid
+			}
 			return h.jwtSecret, nil
 		})
 		if err != nil || !token.Valid {
-			// Clear invalid cookie
-			http.SetCookie(w, &http.Cookie{
-				Name:     "grimnir_token",
-				Value:    "",
-				Path:     "/",
-				MaxAge:   -1,
-				HttpOnly: true,
-			})
+			// Clear invalid cookie with same security attributes used on issue.
+			h.ClearAuthToken(w)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -94,6 +98,112 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// CSRFMiddleware enforces same-origin checks for state-changing dashboard requests.
+// This protects cookie-authenticated endpoints without requiring per-form tokens.
+func (h *Handler) CSRFMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Only enforce for authenticated web sessions.
+		if h.GetUser(r) == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if !isSameOriginRequest(r) {
+			http.Error(w, "CSRF validation failed", http.StatusForbidden)
+			return
+		}
+		cookie, err := r.Cookie(csrfCookieName)
+		if err != nil || strings.TrimSpace(cookie.Value) == "" {
+			http.Error(w, "CSRF validation failed", http.StatusForbidden)
+			return
+		}
+		supplied := strings.TrimSpace(r.Header.Get("X-CSRF-Token"))
+		if supplied == "" {
+			_ = r.ParseForm()
+			supplied = strings.TrimSpace(r.FormValue("csrf_token"))
+			if supplied == "" {
+				supplied = strings.TrimSpace(r.FormValue("_csrf"))
+			}
+		}
+		if supplied == "" || !csrfTokensEqual(cookie.Value, supplied) {
+			http.Error(w, "CSRF validation failed", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func csrfTokensEqual(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+func isSameOriginRequest(r *http.Request) bool {
+	reqScheme := requestScheme(r)
+	reqHost := normalizeHostForCompare(r.Host, reqScheme)
+
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		return normalizeHostForCompare(u.Host, u.Scheme) == reqHost
+	}
+
+	ref := strings.TrimSpace(r.Referer())
+	if ref == "" {
+		return false
+	}
+	u, err := url.Parse(ref)
+	if err != nil {
+		return false
+	}
+	return normalizeHostForCompare(u.Host, u.Scheme) == reqHost
+}
+
+func normalizeHostForCompare(host, scheme string) string {
+	// Parse host with a dummy scheme to robustly split hostname and optional port.
+	u, err := url.Parse("http://" + host)
+	if err != nil {
+		return strings.ToLower(host)
+	}
+
+	hostname := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if port == "" {
+		port = defaultPortForScheme(scheme)
+	}
+	return hostname + ":" + port
+}
+
+func requestScheme(r *http.Request) string {
+	if xfProto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); xfProto != "" {
+		return strings.ToLower(strings.Split(xfProto, ",")[0])
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func defaultPortForScheme(scheme string) string {
+	switch strings.ToLower(strings.TrimSpace(scheme)) {
+	case "https":
+		return "443"
+	default:
+		return "80"
+	}
 }
 
 // RequireAuth redirects to login if not authenticated.
@@ -359,6 +469,7 @@ func (h *Handler) SetStation(w http.ResponseWriter, stationID string) {
 		MaxAge:   86400 * 365, // 1 year
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   isSecureCookieEnv(),
 	})
 }
 
@@ -371,7 +482,7 @@ func (h *Handler) SetAuthToken(w http.ResponseWriter, token string, maxAge int) 
 		MaxAge:   maxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   false, // Set to true in production with HTTPS
+		Secure:   isSecureCookieEnv(),
 	})
 }
 
@@ -383,7 +494,70 @@ func (h *Handler) ClearAuthToken(w http.ResponseWriter) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isSecureCookieEnv(),
 	})
+}
+
+func isSecureCookieEnv() bool {
+	if v, ok := parseOptionalBoolEnv("GRIMNIR_COOKIE_SECURE"); ok {
+		return v
+	}
+	if v, ok := parseOptionalBoolEnv("RLM_COOKIE_SECURE"); ok {
+		return v
+	}
+
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("GRIMNIR_ENV")))
+	if env == "" {
+		env = strings.ToLower(strings.TrimSpace(os.Getenv("RLM_ENV")))
+	}
+	return env == "production" || env == "prod"
+}
+
+func parseOptionalBoolEnv(key string) (bool, bool) {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) string {
+	if r != nil {
+		if c, err := r.Cookie(csrfCookieName); err == nil {
+			token := strings.TrimSpace(c.Value)
+			if token != "" {
+				return token
+			}
+		}
+	}
+
+	token := generateCSRFToken()
+	if token == "" {
+		return ""
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   86400 * 365,
+		HttpOnly: false, // JS reads token to set headers for HTMX/fetch.
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isSecureCookieEnv(),
+	})
+	return token
+}
+
+func generateCSRFToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // GetAuthToken returns the raw JWT token string from context.

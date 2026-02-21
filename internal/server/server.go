@@ -31,6 +31,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/db"
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/executor"
+	"github.com/friendsincode/grimnir_radio/internal/integrity"
 	"github.com/friendsincode/grimnir_radio/internal/landingpage"
 	"github.com/friendsincode/grimnir_radio/internal/leadership"
 	"github.com/friendsincode/grimnir_radio/internal/live"
@@ -118,12 +119,20 @@ func (a *liveServiceAdapter) CancelHandover(ctx context.Context, sessionID strin
 
 // New constructs the server and wires dependencies.
 func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*Server, error) {
+	for _, warn := range cfg.LegacyEnvWarnings {
+		logger.Warn().Msg(warn)
+	}
+	if cfg.S3Bucket != "" {
+		logger.Warn().Msg("S3/MinIO media backend is experimental: analyzer/playout/public archive stream paths may still expect local filesystem access")
+	}
+
 	router := chi.NewRouter()
 
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
+	router.Use(securityHeadersMiddleware)
 	router.Use(telemetry.TracingMiddleware("grimnir-radio-api")) // Add OpenTelemetry tracing
 	router.Use(telemetry.MetricsMiddleware)                      // Add Prometheus metrics
 	// Skip timeout for WebSocket and streaming connections
@@ -184,6 +193,22 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 	}
 
 	return srv, nil
+}
+
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:; frame-ancestors 'none'; base-uri 'self'")
+
+		// Only advertise HSTS for requests served over HTTPS.
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) initDependencies() error {
@@ -301,6 +326,7 @@ func (s *Server) initDependencies() error {
 
 	// Audit service for security logging
 	s.auditSvc = audit.NewService(database, s.bus, s.logger)
+	integritySvc := integrity.NewService(database, s.logger)
 
 	// Notification service for alerts and reminders
 	notifCfg := notifications.ConfigFromEnv()
@@ -317,7 +343,11 @@ func (s *Server) initDependencies() error {
 
 	s.DeferClose(func() error { return s.playout.Shutdown() })
 
-	s.api = api.New(s.db, []byte(s.cfg.JWTSigningKey), s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, broadcastSrv, s.bus, s.logBuffer, s.logger)
+	apiMaxUploadBytes := int64(128 << 20)
+	if s.cfg.MaxUploadSizeMB > 0 {
+		apiMaxUploadBytes = int64(s.cfg.MaxUploadSizeMB) << 20
+	}
+	s.api = api.New(s.db, []byte(s.cfg.JWTSigningKey), s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, integritySvc, broadcastSrv, s.bus, s.logBuffer, apiMaxUploadBytes, s.logger)
 
 	// Set notification API
 	notificationAPI := api.NewNotificationAPI(s.notificationSvc)

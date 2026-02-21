@@ -70,6 +70,30 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 	// Smart block count
 	h.db.Model(&models.SmartBlock{}).Where("station_id = ?", station.ID).Count(&data.SmartBlockCount)
 
+	// Current/most-recent now playing item for IRT visibility on dashboard.
+	var history models.PlayHistory
+	if err := h.db.Where("station_id = ?", station.ID).Order("started_at DESC").First(&history).Error; err == nil {
+		now := time.Now()
+		if history.EndedAt.IsZero() || history.EndedAt.After(now) {
+			elapsed := now.Sub(history.StartedAt)
+			if elapsed < 0 {
+				elapsed = 0
+			}
+			duration := time.Duration(0)
+			if !history.EndedAt.IsZero() && history.EndedAt.After(history.StartedAt) {
+				duration = history.EndedAt.Sub(history.StartedAt)
+			}
+			data.NowPlaying = &NowPlayingInfo{
+				Title:    history.Title,
+				Artist:   history.Artist,
+				Album:    history.Album,
+				Duration: duration,
+				Elapsed:  elapsed,
+				MountID:  history.MountID,
+			}
+		}
+	}
+
 	h.Render(w, r, "pages/dashboard/home", PageData{
 		Title:    "Dashboard",
 		User:     user,

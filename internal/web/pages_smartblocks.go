@@ -70,13 +70,14 @@ func (h *Handler) SmartBlockNew(w http.ResponseWriter, r *http.Request) {
 		Title:    "New Smart Block",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"Block":       models.SmartBlock{},
-			"IsNew":       true,
-			"Genres":      genres,
-			"Artists":     artists,
-			"Moods":       moods,
-			"OtherBlocks": otherBlocks,
-			"Playlists":   playlists,
+			"Block":           models.SmartBlock{},
+			"IsNew":           true,
+			"PresetFallbacks": r.URL.Query().Get("mode") == "fallback",
+			"Genres":          genres,
+			"Artists":         artists,
+			"Moods":           moods,
+			"OtherBlocks":     otherBlocks,
+			"Playlists":       playlists,
 		},
 	})
 }

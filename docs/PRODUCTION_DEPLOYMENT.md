@@ -467,10 +467,17 @@ GRIMNIR_DB_DSN="host=localhost port=5432 user=grimnir password=secure_password_h
 GRIMNIR_REDIS_ADDR=localhost:6379
 GRIMNIR_REDIS_PASSWORD=your_redis_password
 GRIMNIR_JWT_SIGNING_KEY=$(openssl rand -base64 32)
+GRIMNIR_ICECAST_SOURCE_PASSWORD=$(openssl rand -base64 24)
 GRIMNIR_MEDIA_ROOT=/var/lib/grimnir/media
 GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=localhost:9091
 GRIMNIR_LOG_LEVEL=info
 ```
+
+Production secret requirements:
+- `GRIMNIR_ICECAST_SOURCE_PASSWORD` must be set and must not be a default placeholder.
+- If TURN is enabled (`GRIMNIR_WEBRTC_TURN_URL` is set), both of the following are required:
+  - `GRIMNIR_WEBRTC_TURN_USERNAME`
+  - `GRIMNIR_WEBRTC_TURN_PASSWORD`
 
 #### Systemd Services
 

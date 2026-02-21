@@ -70,10 +70,5 @@ func extractToken(r *http.Request) string {
 			return strings.TrimSpace(parts[1])
 		}
 	}
-
-	if token := r.URL.Query().Get("token"); token != "" {
-		return token
-	}
-
 	return ""
 }
