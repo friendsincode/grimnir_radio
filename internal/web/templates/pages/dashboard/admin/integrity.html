@@ -1,0 +1,177 @@
+{{define "pages/dashboard/admin/integrity"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/admin/logs">Admin</a></li>
+        <li class="breadcrumb-item active">Integrity</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-cone-striped me-2"></i>Platform Integrity</h4>
+    <button type="button" class="btn btn-outline-secondary" onclick="refreshReport()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Run Scan
+    </button>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card bg-body-tertiary">
+            <div class="card-body text-center py-3">
+                <div class="fs-4 fw-bold text-primary" id="totalFindings">-</div>
+                <div class="small text-body-secondary">Total Findings</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-body-tertiary">
+            <div class="card-body text-center py-3">
+                <div class="fs-4 fw-bold text-danger" id="highFindings">-</div>
+                <div class="small text-body-secondary">High Severity</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-body-tertiary">
+            <div class="card-body text-center py-3">
+                <div class="fs-6 text-body-secondary" id="scanAt">Never</div>
+                <div class="small text-body-secondary">Last Scan</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Findings</span>
+        <span class="badge bg-secondary" id="findingCount">0 findings</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 130px;">Severity</th>
+                    <th style="width: 220px;">Type</th>
+                    <th>Summary</th>
+                    <th style="width: 180px;">Resource</th>
+                    <th style="width: 130px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="findingTable">
+                <tr>
+                    <td colspan="5" class="text-center text-body-secondary py-4">
+                        <i class="bi bi-hourglass-split me-2"></i>Loading...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+const wsToken = '{{.WSToken}}';
+let findings = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+    refreshReport();
+});
+
+function severityBadge(severity) {
+    switch (severity) {
+        case 'high': return 'bg-danger';
+        case 'medium': return 'bg-warning text-dark';
+        default: return 'bg-secondary';
+    }
+}
+
+function refreshReport() {
+    fetch('/api/v1/integrity/report', {
+        headers: { 'Authorization': 'Bearer ' + wsToken }
+    })
+    .then(r => r.json())
+    .then(data => {
+        findings = data.findings || [];
+        document.getElementById('findingCount').textContent = `${findings.length} findings`;
+        document.getElementById('totalFindings').textContent = findings.length;
+        document.getElementById('highFindings').textContent = findings.filter(f => f.severity === 'high').length;
+        document.getElementById('scanAt').textContent = data.generated_at ? new Date(data.generated_at).toLocaleString() : 'Never';
+        renderFindings();
+    })
+    .catch(err => {
+        console.error('Failed to load integrity report:', err);
+        document.getElementById('findingTable').innerHTML = `
+            <tr><td colspan="5" class="text-center text-danger py-4">
+                <i class="bi bi-exclamation-triangle me-2"></i>Failed to load integrity report
+            </td></tr>`;
+    });
+}
+
+function renderFindings() {
+    const tbody = document.getElementById('findingTable');
+    if (!findings.length) {
+        tbody.innerHTML = `
+            <tr><td colspan="5" class="text-center text-body-secondary py-4">
+                <i class="bi bi-check-circle me-2"></i>No integrity findings
+            </td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = findings.map((f, idx) => `
+        <tr>
+            <td><span class="badge ${severityBadge(f.severity)}">${escapeHtml(f.severity || 'unknown')}</span></td>
+            <td class="font-monospace small">${escapeHtml(f.type || '')}</td>
+            <td>${escapeHtml(f.summary || '')}</td>
+            <td class="font-monospace small">${escapeHtml((f.station_id || '') + (f.resource_id ? ' / ' + f.resource_id.substring(0, 12) + '...' : ''))}</td>
+            <td>
+                ${f.repairable ? `<button class="btn btn-sm btn-primary" onclick="repairFinding(${idx})">Repair</button>` : `<span class="text-body-secondary small">N/A</span>`}
+            </td>
+        </tr>
+    `).join('');
+}
+
+function repairFinding(idx) {
+    const finding = findings[idx];
+    if (!finding) return;
+    if (!confirm(`Run repair for ${finding.type}?`)) return;
+
+    fetch('/api/v1/integrity/repair', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + wsToken,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            type: finding.type,
+            station_id: finding.station_id || '',
+            resource_id: finding.resource_id
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (window.grimnirUtils && grimnirUtils.showToast) {
+            grimnirUtils.showToast(data.message || 'Repair finished', 'success');
+        }
+        refreshReport();
+    })
+    .catch(err => {
+        console.error('Repair failed:', err);
+        if (window.grimnirUtils && grimnirUtils.showToast) {
+            grimnirUtils.showToast('Repair failed', 'error');
+        }
+    });
+}
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{{end}}

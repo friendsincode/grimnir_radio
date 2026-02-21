@@ -275,48 +275,97 @@ func (a *StagedAnalyzer) DetectDuplicates(ctx context.Context, media []models.St
 		return media
 	}
 
-	// Collect all content hashes
+	// Collect all content hashes and metadata fallback candidates.
 	var hashes []string
 	hashToIndex := make(map[string][]int)
+	type fallbackKey struct {
+		Title  string
+		Artist string
+		Album  string
+	}
+	fallbackToIndex := make(map[fallbackKey][]int)
 	for i, m := range media {
 		if m.ContentHash != "" {
 			hashes = append(hashes, m.ContentHash)
 			hashToIndex[m.ContentHash] = append(hashToIndex[m.ContentHash], i)
+			continue
 		}
+		title := normalizeImportText(m.Title)
+		artist := normalizeImportText(m.Artist)
+		if title == "" || artist == "" {
+			continue
+		}
+		album := normalizeImportText(m.Album)
+		key := fallbackKey{Title: title, Artist: artist, Album: album}
+		fallbackToIndex[key] = append(fallbackToIndex[key], i)
 	}
 
-	if len(hashes) == 0 {
-		return media
-	}
+	hashDuplicateCount := 0
+	fallbackDuplicateCount := 0
 
-	// Query existing media by content hash
-	var existing []models.MediaItem
-	query := a.db.WithContext(ctx).Where("content_hash IN ?", hashes)
-	if stationID != "" {
-		// Only check duplicates within the same station
-		query = query.Where("station_id = ?", stationID)
-	}
-	if err := query.Find(&existing).Error; err != nil {
-		a.logger.Error().Err(err).Msg("failed to query existing media for duplicate detection")
-		return media
-	}
-
-	// Mark duplicates
-	for _, ex := range existing {
-		if indices, ok := hashToIndex[ex.ContentHash]; ok {
-			for _, i := range indices {
-				media[i].IsDuplicate = true
-				media[i].DuplicateOfID = ex.ID
+	// Query existing media by content hash.
+	if len(hashes) > 0 {
+		var existing []models.MediaItem
+		query := a.db.WithContext(ctx).Where("content_hash IN ?", hashes)
+		if stationID != "" {
+			// Only check duplicates within the same station.
+			query = query.Where("station_id = ?", stationID)
+		}
+		if err := query.Find(&existing).Error; err != nil {
+			a.logger.Error().Err(err).Msg("failed to query existing media for hash duplicate detection")
+		} else {
+			for _, ex := range existing {
+				if indices, ok := hashToIndex[ex.ContentHash]; ok {
+					for _, i := range indices {
+						if media[i].IsDuplicate {
+							continue
+						}
+						media[i].IsDuplicate = true
+						media[i].DuplicateOfID = ex.ID
+						hashDuplicateCount++
+					}
+				}
 			}
 		}
 	}
 
+	// Metadata fallback matching when hash is unavailable.
+	normalizeExpr := func(column string) string {
+		return fmt.Sprintf("LOWER(TRIM(REPLACE(REPLACE(REPLACE(%s, '  ', ' '), '  ', ' '), '  ', ' ')))", column)
+	}
+	for key, indices := range fallbackToIndex {
+		var existing models.MediaItem
+		query := a.db.WithContext(ctx).
+			Where(normalizeExpr("title")+" = ?", key.Title).
+			Where(normalizeExpr("artist")+" = ?", key.Artist).
+			Where(normalizeExpr("COALESCE(album, '')")+" = ?", key.Album)
+		if stationID != "" {
+			query = query.Where("station_id = ?", stationID)
+		}
+		if err := query.Order("created_at ASC").First(&existing).Error; err != nil {
+			continue
+		}
+		for _, i := range indices {
+			if media[i].IsDuplicate {
+				continue
+			}
+			media[i].IsDuplicate = true
+			media[i].DuplicateOfID = existing.ID
+			fallbackDuplicateCount++
+		}
+	}
+
 	a.logger.Info().
-		Int("total", len(media)).
-		Int("duplicates", len(existing)).
+		Int("total_items", len(media)).
+		Int("hash_duplicates", hashDuplicateCount).
+		Int("fallback_duplicates", fallbackDuplicateCount).
 		Msg("duplicate detection complete")
 
 	return media
+}
+
+func normalizeImportText(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
 }
 
 // CreateStagedImport creates a new staged import record with initial analysis.

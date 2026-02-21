@@ -13,8 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +30,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/broadcast"
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/executor"
+	"github.com/friendsincode/grimnir_radio/internal/integrity"
 	"github.com/friendsincode/grimnir_radio/internal/live"
 	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/media"
@@ -56,6 +57,7 @@ type API struct {
 	prioritySvc          *priority.Service
 	executorStateMgr     *executor.StateManager
 	auditSvc             *audit.Service
+	integritySvc         *integrity.Service
 	notificationAPI      *NotificationAPI
 	webhookAPI           *WebhookAPI
 	scheduleAnalyticsAPI *ScheduleAnalyticsAPI
@@ -69,11 +71,15 @@ type API struct {
 	broadcast            *broadcast.Server
 	bus                  *events.Bus
 	logBuffer            *logbuffer.Buffer
+	maxUploadBytes       int64
 	logger               zerolog.Logger
 }
 
 // New creates the API router wrapper.
-func New(db *gorm.DB, jwtSecret []byte, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, auditSvc *audit.Service, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, logger zerolog.Logger) *API {
+func New(db *gorm.DB, jwtSecret []byte, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, auditSvc *audit.Service, integritySvc *integrity.Service, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, maxUploadBytes int64, logger zerolog.Logger) *API {
+	if maxUploadBytes <= 0 {
+		maxUploadBytes = 128 << 20
+	}
 	migrationHandler := NewMigrationHandler(db, media, bus, logger)
 
 	return &API{
@@ -88,8 +94,10 @@ func New(db *gorm.DB, jwtSecret []byte, scheduler *scheduler.Service, analyzer *
 		prioritySvc:      prioritySvc,
 		executorStateMgr: executorStateMgr,
 		auditSvc:         auditSvc,
+		integritySvc:     integritySvc,
 		migrationHandler: migrationHandler,
 		logBuffer:        logBuf,
+		maxUploadBytes:   maxUploadBytes,
 		broadcast:        broadcastSrv,
 		bus:              bus,
 		logger:           logger,
@@ -219,9 +227,12 @@ func (a *API) Routes(r chi.Router) {
 		r.Get("/health", a.handleHealth)
 
 		// Public endpoints (no auth required)
+		r.Get("/public/now-playing", a.handleAnalyticsNowPlaying)
+		r.Get("/public/listeners", a.handleAnalyticsListeners)
 		r.Get("/analytics/now-playing", a.handleAnalyticsNowPlaying)
 		r.Get("/analytics/listeners", a.handleAnalyticsListeners)
 		r.Get("/public/stations", a.handlePublicStations)
+		r.Get("/public/stations/{stationID}/logo", a.handleStationLogo)
 		r.Get("/stations/{stationID}/logo", a.handleStationLogo)
 
 		// Public schedule endpoints (Phase 8G)
@@ -387,6 +398,13 @@ func (a *API) Routes(r chi.Router) {
 				r.Get("/", a.handleAuditList)
 			})
 
+			// Integrity audit routes (platform admin only)
+			pr.Route("/integrity", func(r chi.Router) {
+				r.Use(a.requirePlatformAdmin())
+				r.Get("/report", a.handleIntegrityReport)
+				r.Post("/repair", a.handleIntegrityRepair)
+			})
+
 			// Priority management routes
 			a.AddPriorityRoutes(pr)
 
@@ -535,7 +553,11 @@ func (a *API) handleStationsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		a.logger.Error().Err(err).Msg("commit station transaction failed")
+		writeError(w, http.StatusInternalServerError, "commit_failed")
+		return
+	}
 
 	a.logger.Info().
 		Str("station_id", station.ID).
@@ -557,6 +579,9 @@ func (a *API) handleStationsGet(w http.ResponseWriter, r *http.Request) {
 	stationID := chi.URLParam(r, "stationID")
 	if stationID == "" {
 		writeError(w, http.StatusBadRequest, "station_id_required")
+		return
+	}
+	if !a.requireStationAccess(w, r, stationID) {
 		return
 	}
 
@@ -584,7 +609,9 @@ func (a *API) handleStationLogo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var station models.Station
-	result := a.db.WithContext(r.Context()).Select("id", "logo", "logo_mime").First(&station, "id = ?", stationID)
+	result := a.db.WithContext(r.Context()).
+		Select("id", "logo", "logo_mime").
+		First(&station, "id = ? AND active = ? AND public = ? AND approved = ?", stationID, true, true, true)
 	if result.Error != nil || len(station.Logo) == 0 {
 		http.NotFound(w, r)
 		return
@@ -649,7 +676,21 @@ func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(128 << 20); err != nil {
+	maxUploadBytes := a.maxUploadBytes
+	if maxUploadBytes <= 0 {
+		maxUploadBytes = 128 << 20
+	}
+	if r.ContentLength > 0 && r.ContentLength > maxUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "file_too_large")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) || errors.Is(err, multipart.ErrMessageTooLarge) || strings.Contains(strings.ToLower(err.Error()), "request body too large") {
+			writeError(w, http.StatusRequestEntityTooLarge, "file_too_large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid_multipart")
 		return
 	}
@@ -667,6 +708,9 @@ func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if stationID == "" {
 		writeError(w, http.StatusBadRequest, "station_id_required")
+		return
+	}
+	if !a.requireStationAccess(w, r, stationID) {
 		return
 	}
 
@@ -697,7 +741,7 @@ func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	success := false
 	defer func() {
 		if !success && storedPath != "" {
-			_ = os.Remove(storedPath)
+			_ = a.media.Delete(context.Background(), storedPath)
 		}
 	}()
 
@@ -762,6 +806,9 @@ func (a *API) handleMountsList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "station_id_required")
 		return
 	}
+	if !a.requireStationAccess(w, r, stationID) {
+		return
+	}
 
 	var mounts []models.Mount
 	if err := a.db.WithContext(r.Context()).Where("station_id = ?", stationID).Find(&mounts).Error; err != nil {
@@ -784,6 +831,9 @@ func (a *API) handleMountsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if stationID == "" || req.Name == "" || req.URL == "" || req.Format == "" {
 		writeError(w, http.StatusBadRequest, "missing_required_fields")
+		return
+	}
+	if !a.requireStationAccess(w, r, stationID) {
 		return
 	}
 
@@ -823,12 +873,23 @@ func (a *API) handleMediaGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
+	if !a.requireStationAccess(w, r, item.StationID) {
+		return
+	}
 
 	writeJSON(w, http.StatusOK, item)
 }
 
 func (a *API) handlePlaylistsList(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")
+	if stationID == "" {
+		if claims, ok := auth.ClaimsFromContext(r.Context()); ok && claims != nil && !claimsHasPlatformAdmin(claims) {
+			stationID = claims.StationID
+		}
+	}
+	if stationID != "" && !a.requireStationAccess(w, r, stationID) {
+		return
+	}
 	query := a.db.WithContext(r.Context())
 	if stationID != "" {
 		query = query.Where("station_id = ?", stationID)
@@ -843,6 +904,14 @@ func (a *API) handlePlaylistsList(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleSmartBlocksList(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")
+	if stationID == "" {
+		if claims, ok := auth.ClaimsFromContext(r.Context()); ok && claims != nil && !claimsHasPlatformAdmin(claims) {
+			stationID = claims.StationID
+		}
+	}
+	if stationID != "" && !a.requireStationAccess(w, r, stationID) {
+		return
+	}
 	query := a.db.WithContext(r.Context())
 	if stationID != "" {
 		query = query.Where("station_id = ?", stationID)
@@ -863,6 +932,9 @@ func (a *API) handleSmartBlocksCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.StationID == "" || req.Name == "" {
 		writeError(w, http.StatusBadRequest, "missing_required_fields")
+		return
+	}
+	if !a.requireStationAccess(w, r, req.StationID) {
 		return
 	}
 
@@ -900,6 +972,9 @@ func (a *API) handleSmartBlockMaterialize(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "station_id_required")
 		return
 	}
+	if !a.requireStationAccess(w, r, req.StationID) {
+		return
+	}
 	if req.Seed == 0 {
 		req.Seed = time.Now().UnixNano()
 	}
@@ -928,6 +1003,14 @@ func (a *API) handleSmartBlockMaterialize(w http.ResponseWriter, r *http.Request
 
 func (a *API) handleClocksList(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")
+	if stationID == "" {
+		if claims, ok := auth.ClaimsFromContext(r.Context()); ok && claims != nil && !claimsHasPlatformAdmin(claims) {
+			stationID = claims.StationID
+		}
+	}
+	if stationID != "" && !a.requireStationAccess(w, r, stationID) {
+		return
+	}
 	query := a.db.WithContext(r.Context())
 	if stationID != "" {
 		query = query.Where("station_id = ?", stationID)
@@ -950,6 +1033,9 @@ func (a *API) handleClocksCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.StationID == "" || req.Name == "" {
 		writeError(w, http.StatusBadRequest, "missing_required_fields")
+		return
+	}
+	if !a.requireStationAccess(w, r, req.StationID) {
 		return
 	}
 
@@ -987,6 +1073,18 @@ func (a *API) handleClockSimulate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "clock_id_required")
 		return
 	}
+	var clock models.ClockHour
+	if err := a.db.WithContext(r.Context()).Select("id", "station_id").First(&clock, "id = ?", clockID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	if !a.requireStationAccess(w, r, clock.StationID) {
+		return
+	}
 
 	horizonMinutes := 60
 	if v := r.URL.Query().Get("minutes"); v != "" {
@@ -1008,6 +1106,9 @@ func (a *API) handleScheduleList(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")
 	if stationID == "" {
 		writeError(w, http.StatusBadRequest, "station_id_required")
+		return
+	}
+	if !a.requireStationAccess(w, r, stationID) {
 		return
 	}
 
@@ -1035,6 +1136,9 @@ func (a *API) handleScheduleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.StationID == "" {
 		writeError(w, http.StatusBadRequest, "station_id_required")
+		return
+	}
+	if !a.requireStationAccess(w, r, req.StationID) {
 		return
 	}
 
@@ -1072,6 +1176,9 @@ func (a *API) handleScheduleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.Error != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	if !a.requireStationAccess(w, r, entry.StationID) {
 		return
 	}
 
@@ -1598,6 +1705,54 @@ func (a *API) requireRolesOrPlatformAdmin(allowed ...models.RoleName) func(http.
 			writeError(w, http.StatusForbidden, "insufficient_role")
 		})
 	}
+}
+
+func claimsHasPlatformAdmin(claims *auth.Claims) bool {
+	if claims == nil {
+		return false
+	}
+	for _, role := range claims.Roles {
+		if role == string(models.PlatformRoleAdmin) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *API) requireStationAccess(w http.ResponseWriter, r *http.Request, stationID string) bool {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok || claims == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return false
+	}
+	if stationID == "" {
+		writeError(w, http.StatusBadRequest, "station_id_required")
+		return false
+	}
+	if claimsHasPlatformAdmin(claims) {
+		return true
+	}
+	if claims.StationID != "" && claims.StationID == stationID {
+		return true
+	}
+	if claims.UserID == "" {
+		writeError(w, http.StatusForbidden, "station_access_denied")
+		return false
+	}
+
+	var count int64
+	if err := a.db.WithContext(r.Context()).
+		Model(&models.StationUser{}).
+		Where("user_id = ? AND station_id = ?", claims.UserID, stationID).
+		Count(&count).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return false
+	}
+	if count == 0 {
+		writeError(w, http.StatusForbidden, "station_access_denied")
+		return false
+	}
+	return true
 }
 
 func (a *API) notImplemented(w http.ResponseWriter, r *http.Request) {

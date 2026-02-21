@@ -102,6 +102,56 @@
     </div>
     {{ end }}
 
+    <div class="card mb-4">
+        <div class="card-body py-3">
+            <h6 class="mb-3"><i class="bi bi-exclamation-diamond me-2"></i>Anomaly Snapshot</h6>
+            <div class="row g-2">
+                {{ range .Data.AnomalyCards }}
+                <div class="col-12 col-md-6">
+                    <div class="border rounded p-2 h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="small text-muted">{{ .Label }}</span>
+                            <span class="badge {{ if gt .Count 0 }}bg-warning text-dark{{ else }}bg-secondary{{ end }}">{{ .Count }}</span>
+                        </div>
+                        {{ if .Examples }}
+                        <div class="small mt-2 text-muted">{{ index .Examples 0 }}</div>
+                        {{ end }}
+                    </div>
+                </div>
+                {{ end }}
+            </div>
+        </div>
+    </div>
+
+    {{ if gt (len .Data.StationFilters) 1 }}
+    <div class="card mb-4">
+        <div class="card-body py-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0"><i class="bi bi-broadcast me-2"></i>Station Selection</h6>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-primary" onclick="selectAllStations(true)">Select All</button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="selectAllStations(false)">Deselect All</button>
+                </div>
+            </div>
+            <div class="d-flex flex-wrap gap-3">
+                {{ range .Data.StationFilters }}
+                <div class="form-check">
+                    <input class="form-check-input station-checkbox" type="checkbox"
+                           name="station_ids" value="{{ .ID }}"
+                           id="station_filter_{{ .ID }}"
+                           form="importSelectionsForm"
+                           {{ if index $.Data.SelectedStations .ID }}checked{{ end }}>
+                    <label class="form-check-label" for="station_filter_{{ .ID }}">{{ .Label }}</label>
+                </div>
+                {{ end }}
+            </div>
+            <div class="form-text mt-2">
+                Selected stations scope all item selections.
+            </div>
+        </div>
+    </div>
+    {{ end }}
+
     <!-- Tabs -->
     <ul class="nav nav-tabs" id="importTabs" role="tablist">
         <li class="nav-item" role="presentation">
@@ -402,6 +452,13 @@ function selectAllMedia(select) {
     updateMediaCount();
 }
 
+function selectAllStations(select) {
+    document.querySelectorAll('.station-checkbox').forEach(cb => {
+        cb.checked = select;
+    });
+    updateMediaCount();
+}
+
 function deselectDuplicates() {
     document.querySelectorAll('.media-checkbox[data-is-duplicate="true"]').forEach(cb => {
         cb.checked = false;
@@ -411,12 +468,15 @@ function deselectDuplicates() {
 
 function updateMediaCount() {
     // Selection badge updates server-side via HTMX; this is quick local feedback while waiting.
-    const count = document.querySelectorAll('#importSelectionsForm input[type="checkbox"]:checked').length;
+    const count = document.querySelectorAll('#importSelectionsForm input[type="checkbox"]:checked:not([name="station_ids"])').length;
     const badge = document.getElementById('selectedCountBadge');
     if (badge) badge.textContent = count + ' selected';
 }
 
 document.querySelectorAll('.media-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateMediaCount);
+});
+document.querySelectorAll('.station-checkbox').forEach(cb => {
     cb.addEventListener('change', updateMediaCount);
 });
 </script>

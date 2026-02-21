@@ -9,6 +9,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -253,6 +254,10 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 	// Run import
 	result, err := importer.Import(ctx, job.Options, progressCallback)
 	duration := time.Since(startTime)
+	if result != nil {
+		job.Result = result
+		job.AnomalyReport = BuildAnomalyReport(result)
+	}
 
 	if err != nil {
 		s.logger.Error().Err(err).Str("job_id", job.ID).Msg("migration failed")
@@ -497,13 +502,16 @@ func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string)
 		}
 
 		result, err := committer.CommitStagedImport(ctx, staged, job.ID, job.Options, progressCallback)
+		if result != nil {
+			job.Result = result
+			job.AnomalyReport = BuildAnomalyReport(result)
+		}
 		if err != nil {
 			s.logger.Error().Err(err).Str("job_id", job.ID).Msg("staged import commit failed")
 			job.Status = JobStatusFailed
 			job.Error = err.Error()
 		} else {
 			job.Status = JobStatusCompleted
-			job.Result = result
 		}
 		done := time.Now()
 		job.CompletedAt = &done
@@ -867,25 +875,38 @@ func (s *Service) UpdateSelections(ctx context.Context, stagedID string, selecti
 	}
 
 	staged.Selections = selections
+	stationFilter := make(map[int]struct{}, len(selections.StationIDs))
+	for _, raw := range selections.StationIDs {
+		id, err := strconv.Atoi(raw)
+		if err != nil {
+			continue
+		}
+		stationFilter[id] = struct{}{}
+	}
 
 	// Update individual item selections based on IDs in selections
 	for i := range staged.StagedMedia {
-		staged.StagedMedia[i].Selected = containsString(selections.MediaIDs, staged.StagedMedia[i].SourceID)
+		staged.StagedMedia[i].Selected = sourcePassesStationFilter(staged.StagedMedia[i].SourceID, stationFilter) &&
+			containsString(selections.MediaIDs, staged.StagedMedia[i].SourceID)
 	}
 	for i := range staged.StagedPlaylists {
-		staged.StagedPlaylists[i].Selected = containsString(selections.PlaylistIDs, staged.StagedPlaylists[i].SourceID)
+		staged.StagedPlaylists[i].Selected = sourcePassesStationFilter(staged.StagedPlaylists[i].SourceID, stationFilter) &&
+			containsString(selections.PlaylistIDs, staged.StagedPlaylists[i].SourceID)
 	}
 	for i := range staged.StagedSmartBlocks {
-		staged.StagedSmartBlocks[i].Selected = containsString(selections.SmartBlockIDs, staged.StagedSmartBlocks[i].SourceID)
+		staged.StagedSmartBlocks[i].Selected = sourcePassesStationFilter(staged.StagedSmartBlocks[i].SourceID, stationFilter) &&
+			containsString(selections.SmartBlockIDs, staged.StagedSmartBlocks[i].SourceID)
 	}
 	for i := range staged.StagedWebstreams {
-		staged.StagedWebstreams[i].Selected = containsString(selections.WebstreamIDs, staged.StagedWebstreams[i].SourceID)
+		staged.StagedWebstreams[i].Selected = sourcePassesStationFilter(staged.StagedWebstreams[i].SourceID, stationFilter) &&
+			containsString(selections.WebstreamIDs, staged.StagedWebstreams[i].SourceID)
 	}
 
 	// Update show selections with Show vs Clock preference
 	for i := range staged.StagedShows {
 		sourceID := staged.StagedShows[i].SourceID
-		staged.StagedShows[i].Selected = containsString(selections.ShowIDs, sourceID)
+		staged.StagedShows[i].Selected = sourcePassesStationFilter(sourceID, stationFilter) &&
+			containsString(selections.ShowIDs, sourceID)
 		staged.StagedShows[i].CreateShow = containsString(selections.ShowsAsShows, sourceID)
 		staged.StagedShows[i].CreateClock = containsString(selections.ShowsAsClocks, sourceID)
 		if customRRule, ok := selections.CustomRRules[sourceID]; ok {
@@ -1163,4 +1184,17 @@ func containsString(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func sourcePassesStationFilter(sourceID string, stationFilter map[int]struct{}) bool {
+	if len(stationFilter) == 0 {
+		return true
+	}
+	stationID, _, err := parseScopedSourceID(sourceID)
+	if err != nil {
+		// Keep unscoped IDs selectable.
+		return true
+	}
+	_, ok := stationFilter[stationID]
+	return ok
 }

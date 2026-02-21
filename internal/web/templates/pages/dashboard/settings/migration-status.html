@@ -159,8 +159,29 @@
             {{if .Result.Warnings}}{{if gt (len .Result.Warnings) 0}}
             <span class="badge bg-warning text-dark">{{len .Result.Warnings}} warnings</span>
             {{end}}{{end}}
+            {{if .AnomalyReport}}
+            <span class="badge bg-danger-subtle text-danger">{{.AnomalyReport.Total}} anomalies</span>
+            {{end}}
         </div>
         {{end}}{{end}}
+        {{$jobAnomalies := index (index $data "AnomalyViewsByJob") .ID}}
+        {{if $jobAnomalies}}
+        <details class="mt-2">
+            <summary class="small text-body-secondary">
+                <i class="bi bi-exclamation-diamond me-1"></i>Anomaly report
+            </summary>
+            <div class="mt-2">
+                {{range $jobAnomalies}}
+                <div class="small mb-1">
+                    <span class="badge bg-warning text-dark me-1">{{.Label}}: {{.Count}}</span>
+                    {{if .Examples}}
+                    <span class="text-body-secondary">{{index .Examples 0}}</span>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+        </details>
+        {{end}}
         {{if eq .Status "failed"}}
         {{/* Show progress even for failed jobs so user can see what was imported */}}
         {{if .Progress}}

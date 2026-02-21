@@ -192,7 +192,7 @@ setInterval(syncPlayerUI, 500);
 async function updateNowPlaying() {
     if (!stationId) return;
     try {
-        const response = await fetch(`/api/v1/analytics/now-playing?station_id=${stationId}`);
+        const response = await fetch(`/api/v1/public/now-playing?station_id=${stationId}`);
         if (response.ok) {
             const data = await response.json();
             if (data.title && data.status === 'playing') {

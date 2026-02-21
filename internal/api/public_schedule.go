@@ -127,9 +127,7 @@ func (a *API) handlePublicSchedule(w http.ResponseWriter, r *http.Request) {
 			pi.Show.HostName = inst.Show.Host.Email
 		}
 
-		if inst.Show.ArtworkPath != "" {
-			pi.Show.ArtworkURL = fmt.Sprintf("/api/v1/public/shows/%s/artwork", inst.Show.ID)
-		}
+		pi.Show.ArtworkURL = publicArtworkURL(inst.Show.ArtworkPath)
 
 		publicInstances = append(publicInstances, pi)
 	}
@@ -415,8 +413,8 @@ func instanceToPublic(inst *models.ShowInstance) PublicShowInstance {
 		pi.Show.HostName = inst.Show.Host.Email
 	}
 
-	if inst.Show != nil && inst.Show.ArtworkPath != "" {
-		pi.Show.ArtworkURL = fmt.Sprintf("/api/v1/public/shows/%s/artwork", inst.Show.ID)
+	if inst.Show != nil {
+		pi.Show.ArtworkURL = publicArtworkURL(inst.Show.ArtworkPath)
 	}
 
 	return pi
@@ -447,6 +445,18 @@ func slugify(s string) string {
 		}
 	}
 	return result.String()
+}
+
+func publicArtworkURL(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	// Allow absolute URLs and root-relative paths only.
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") || strings.HasPrefix(path, "/") {
+		return path
+	}
+	return ""
 }
 
 // ShowTransitionWebhook represents a webhook payload for show transitions.

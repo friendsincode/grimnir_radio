@@ -9,6 +9,8 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -606,13 +608,13 @@ func (h *Handler) ArchiveStream(w http.ResponseWriter, r *http.Request) {
 	fullPath := h.mediaRoot + "/" + media.Path
 
 	// Set content type based on file extension
-	ext := media.Path[len(media.Path)-3:]
+	ext := strings.ToLower(filepath.Ext(media.Path))
 	contentTypes := map[string]string{
-		"mp3": "audio/mpeg",
-		"lac": "audio/flac",
-		"wav": "audio/wav",
-		"ogg": "audio/ogg",
-		"m4a": "audio/mp4",
+		".mp3":  "audio/mpeg",
+		".flac": "audio/flac",
+		".wav":  "audio/wav",
+		".ogg":  "audio/ogg",
+		".m4a":  "audio/mp4",
 	}
 	if ct, ok := contentTypes[ext]; ok {
 		w.Header().Set("Content-Type", ct)
@@ -625,7 +627,10 @@ func (h *Handler) ArchiveStream(w http.ResponseWriter, r *http.Request) {
 		if media.Artist != "" {
 			filename = media.Artist + " - " + filename
 		}
-		filename = filename + "." + ext
+		if ext == "" {
+			ext = ".bin"
+		}
+		filename = filename + ext
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	}
 
@@ -1031,7 +1036,7 @@ func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	h.Render(w, r, "pages/public/login", PageData{
 		Title: "Login",
 		Data: map[string]any{
-			"Redirect": r.URL.Query().Get("redirect"),
+			"Redirect": sanitizeRedirectTarget(r.URL.Query().Get("redirect")),
 		},
 	})
 }
@@ -1045,7 +1050,7 @@ func (h *Handler) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	email := r.FormValue("email")
 	password := r.FormValue("password")
-	redirect := r.FormValue("redirect")
+	redirect := sanitizeRedirectTarget(r.FormValue("redirect"))
 
 	if email == "" || password == "" {
 		h.renderLoginError(w, r, "Email and password are required")
@@ -1086,7 +1091,7 @@ func (h *Handler) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// Handle HTMX request
 	if r.Header.Get("HX-Request") == "true" {
-		if redirect != "" && redirect != "/login" {
+		if redirect != "" {
 			w.Header().Set("HX-Redirect", redirect)
 		} else {
 			w.Header().Set("HX-Redirect", "/dashboard")
@@ -1096,7 +1101,7 @@ func (h *Handler) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Standard redirect
-	if redirect != "" && redirect != "/login" {
+	if redirect != "" {
 		http.Redirect(w, r, redirect, http.StatusSeeOther)
 	} else {
 		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
@@ -1115,9 +1120,43 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, messa
 		Flash: &FlashMessage{Type: "error", Message: message},
 		Data: map[string]any{
 			"Email":    r.FormValue("email"),
-			"Redirect": r.FormValue("redirect"),
+			"Redirect": sanitizeRedirectTarget(r.FormValue("redirect")),
 		},
 	})
+}
+
+func sanitizeRedirectTarget(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+
+	// Prevent absolute/external redirects.
+	if u.IsAbs() || u.Host != "" {
+		return ""
+	}
+
+	path := u.EscapedPath()
+	if path == "" {
+		path = u.Path
+	}
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || path == "/login" {
+		return ""
+	}
+
+	target := path
+	if u.RawQuery != "" {
+		target += "?" + u.RawQuery
+	}
+	if u.Fragment != "" {
+		target += "#" + u.Fragment
+	}
+	return target
 }
 
 // Logout clears the auth cookie and redirects to login

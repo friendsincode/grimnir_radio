@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -193,7 +194,11 @@ func (h *Handler) MigrationsImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tempFile := filepath.Join(tempDir, fmt.Sprintf("%d-%s", time.Now().UnixNano(), header.Filename))
+	safeUploadName := sanitizeUploadFilename(header.Filename)
+	if safeUploadName == "" || safeUploadName == "." {
+		safeUploadName = "import-upload.tar.gz"
+	}
+	tempFile := filepath.Join(tempDir, fmt.Sprintf("%d-%s", time.Now().UnixNano(), safeUploadName))
 	dst, err := os.Create(tempFile)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to create temp file")
@@ -352,6 +357,10 @@ func (h *Handler) AzuraCastAPITest(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
+}
+
+func sanitizeUploadFilename(name string) string {
+	return filepath.Base(strings.ReplaceAll(name, "\\", "/"))
 }
 
 // AzuraCastAPIImport starts an import from an AzuraCast instance via API
@@ -602,8 +611,10 @@ func (h *Handler) MigrationStatusPage(w http.ResponseWriter, r *http.Request) {
 	// Calculate totals across all jobs
 	var totalMedia, importedMedia, totalPlaylists, importedPlaylists int
 	var hasRunning bool
+	anomalyViewsByJob := make(map[string][]anomalyClassView, len(jobs))
 
 	for _, job := range jobs {
+		anomalyViewsByJob[job.ID] = buildAnomalyClassViews(job.AnomalyReport)
 		switch job.Status {
 		case migration.JobStatusRunning:
 			hasRunning = true
@@ -635,8 +646,82 @@ func (h *Handler) MigrationStatusPage(w http.ResponseWriter, r *http.Request) {
 			"TotalPlaylists":    totalPlaylists,
 			"ImportedPlaylists": importedPlaylists,
 			"HasRunning":        hasRunning,
+			"AnomalyViewsByJob": anomalyViewsByJob,
 		},
 	})
+}
+
+type anomalyClassView struct {
+	Key      string
+	Label    string
+	Count    int
+	Examples []string
+}
+
+func buildAnomalyClassViews(report *migration.AnomalyReport) []anomalyClassView {
+	if report == nil || len(report.ByClass) == 0 {
+		return nil
+	}
+
+	order := []struct {
+		key   migration.AnomalyClass
+		label string
+	}{
+		{migration.AnomalyClassDuration, "Duration"},
+		{migration.AnomalyClassDuplicateResolution, "Duplicate Resolution"},
+		{migration.AnomalyClassMissingLinks, "Missing Links"},
+		{migration.AnomalyClassSkippedEntities, "Skipped Entities"},
+	}
+
+	out := make([]anomalyClassView, 0, len(report.ByClass))
+	seen := make(map[migration.AnomalyClass]struct{}, len(report.ByClass))
+	for _, item := range order {
+		bucket, ok := report.ByClass[item.key]
+		if !ok || bucket.Count == 0 {
+			continue
+		}
+		seen[item.key] = struct{}{}
+		out = append(out, anomalyClassView{
+			Key:      string(item.key),
+			Label:    item.label,
+			Count:    bucket.Count,
+			Examples: bucket.Examples,
+		})
+	}
+	// Keep any unexpected classes visible too.
+	extras := make([]string, 0, len(report.ByClass))
+	for class, bucket := range report.ByClass {
+		if bucket.Count == 0 {
+			continue
+		}
+		if _, ok := seen[class]; ok {
+			continue
+		}
+		extras = append(extras, string(class))
+	}
+	sort.Strings(extras)
+	for _, key := range extras {
+		bucket := report.ByClass[migration.AnomalyClass(key)]
+		out = append(out, anomalyClassView{
+			Key:      key,
+			Label:    anomalyLabelFromKey(key),
+			Count:    bucket.Count,
+			Examples: bucket.Examples,
+		})
+	}
+	return out
+}
+
+func anomalyLabelFromKey(key string) string {
+	parts := strings.Split(strings.ReplaceAll(strings.TrimSpace(key), "_", " "), " ")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		out = append(out, strings.ToUpper(part[:1])+part[1:])
+	}
+	return strings.Join(out, " ")
 }
 
 // MigrationJobRestart restarts a failed migration job

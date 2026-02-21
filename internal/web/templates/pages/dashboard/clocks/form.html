@@ -76,6 +76,13 @@
                         </select>
                     </div>
 
+                    <div class="mb-3">
+                        <label class="form-label">Search Content</label>
+                        <input type="text" class="form-control" id="contentSearch"
+                               placeholder="Filter smart blocks, playlists, webstreams...">
+                        <div class="form-text">Search the current source list.</div>
+                    </div>
+
                     <div class="mb-3" id="smartBlockSelect">
                         <label class="form-label">Smart Block</label>
                         <select class="form-select" id="newSmartBlockId">
@@ -133,9 +140,19 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Hour Layout</h5>
-                    <span class="badge bg-secondary" id="slotCount">0 slots</span>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-secondary" id="slotCount">0 slots</span>
+                        <button type="button" class="btn btn-sm btn-outline-danger" id="clearSlotsBtn" style="display:none;">
+                            <i class="bi bi-trash me-1"></i>Clear All
+                        </button>
+                    </div>
                 </div>
                 <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <span class="badge bg-success" id="slotCoverage">Covered: 0m</span>
+                        <span class="badge bg-warning text-dark" id="slotGaps">Gaps: 60m</span>
+                        <span class="badge bg-danger" id="slotOverlap" style="display:none;">Overlaps: 0m</span>
+                    </div>
                     <!-- Visual Clock Circle -->
                     <div class="clock-visual mx-auto mb-4" style="width: 300px; height: 300px; position: relative;">
                         <svg viewBox="0 0 100 100" class="w-100 h-100" id="clockSvg">
@@ -154,6 +171,10 @@
                     </div>
 
                     <!-- Slots List -->
+                    <div class="mb-3">
+                        <input type="text" class="form-control form-control-sm" id="slotFilter"
+                               placeholder="Search slots by type/content...">
+                    </div>
                     <div class="table-responsive">
                         <table class="table table-sm align-middle mb-0">
                             <thead>
@@ -161,7 +182,7 @@
                                     <th style="width: 50px">#</th>
                                     <th>Type</th>
                                     <th>Content</th>
-                                    <th>Offset</th>
+                                    <th>Offset / Span</th>
                                     <th style="width: 80px"></th>
                                 </tr>
                             </thead>
@@ -231,10 +252,15 @@
     const newWebstreamId = document.getElementById('newWebstreamId');
     const newDuration = document.getElementById('newDuration');
     const newOffset = document.getElementById('newOffset');
+    const contentSearch = document.getElementById('contentSearch');
     const addSlotBtn = document.getElementById('addSlotBtn');
     const slotsTableBody = document.getElementById('slotsTableBody');
-    const noSlotsRow = document.getElementById('noSlotsRow');
     const slotCount = document.getElementById('slotCount');
+    const clearSlotsBtn = document.getElementById('clearSlotsBtn');
+    const slotCoverage = document.getElementById('slotCoverage');
+    const slotGaps = document.getElementById('slotGaps');
+    const slotOverlap = document.getElementById('slotOverlap');
+    const slotFilter = document.getElementById('slotFilter');
     const slotsJson = document.getElementById('slotsJson');
     const slotArcs = document.getElementById('slotArcs');
     const hourMarkers = document.getElementById('hourMarkers');
@@ -308,6 +334,28 @@
             smartBlockDuration.classList.add('d-none');
         }
     });
+
+    function filterSelectOptions(selectEl, query) {
+        const q = (query || '').toLowerCase().trim();
+        Array.from(selectEl.options).forEach((opt, idx) => {
+            if (idx === 0) {
+                opt.hidden = false;
+                return;
+            }
+            const text = (opt.textContent || '').toLowerCase();
+            opt.hidden = q !== '' && !text.includes(q);
+        });
+    }
+
+    function applyContentSearch() {
+        const query = contentSearch.value;
+        filterSelectOptions(newSmartBlockId, query);
+        filterSelectOptions(document.getElementById('newPlaylistId'), query);
+        filterSelectOptions(newWebstreamId, query);
+    }
+
+    contentSearch.addEventListener('input', applyContentSearch);
+    newSlotType.addEventListener('change', applyContentSearch);
 
     // Add slot
     addSlotBtn.addEventListener('click', function() {
@@ -416,11 +464,45 @@
         return path;
     }
 
+    function computeTimelineStats(items) {
+        if (items.length === 0) {
+            return { covered: 0, gaps: 60, overlaps: 0 };
+        }
+        let cursor = 0;
+        let gaps = 0;
+        let overlaps = 0;
+        for (let i = 0; i < items.length; i++) {
+            const current = items[i];
+            const start = Math.max(0, Math.min(60, current.offsetMinutes));
+            const next = items[i + 1];
+            const end = Math.max(start, Math.min(60, next ? next.offsetMinutes : 60));
+            if (start > cursor) {
+                gaps += start - cursor;
+            } else if (start < cursor) {
+                overlaps += cursor - start;
+            }
+            cursor = Math.max(cursor, end);
+        }
+        if (cursor < 60) {
+            gaps += 60 - cursor;
+        }
+        const covered = Math.max(0, 60 - gaps);
+        return { covered, gaps, overlaps };
+    }
+
     function renderSlots() {
         // Update count
         slotCount.textContent = slots.length + ' slot' + (slots.length !== 1 ? 's' : '');
+        clearSlotsBtn.style.display = slots.length > 0 ? '' : 'none';
+
+        const stats = computeTimelineStats(slots);
+        slotCoverage.textContent = `Covered: ${stats.covered}m`;
+        slotGaps.textContent = `Gaps: ${stats.gaps}m`;
+        slotOverlap.textContent = `Overlaps: ${stats.overlaps}m`;
+        slotOverlap.style.display = stats.overlaps > 0 ? '' : 'none';
 
         // Update table
+        const query = (slotFilter.value || '').toLowerCase().trim();
         slotsTableBody.innerHTML = '';
         if (slots.length === 0) {
             slotsTableBody.innerHTML = `
@@ -431,12 +513,19 @@
                 </tr>`;
         } else {
             slots.forEach((slot, index) => {
+                const contentName = getSlotContentName(slot);
+                const typeName = slotTypeNames[slot.type] || slot.type;
+                if (query !== '' && !(typeName.toLowerCase().includes(query) || contentName.toLowerCase().includes(query))) {
+                    return;
+                }
+                const nextSlot = slots[index + 1];
+                const span = Math.max(0, (nextSlot ? nextSlot.offsetMinutes : 60) - slot.offsetMinutes);
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${index + 1}</td>
-                    <td><span class="badge ${slotBadgeClasses[slot.type] || 'bg-secondary'}">${slotTypeNames[slot.type] || slot.type}</span></td>
-                    <td>${getSlotContentName(slot)}</td>
-                    <td>${slot.offsetMinutes} min</td>
+                    <td><span class="badge ${slotBadgeClasses[slot.type] || 'bg-secondary'}">${typeName}</span></td>
+                    <td>${contentName}</td>
+                    <td>${slot.offsetMinutes}m / ${span}m</td>
                     <td class="text-end">
                         <button type="button" class="btn btn-sm btn-outline-danger remove-slot-btn" data-index="${index}">
                             <i class="bi bi-x"></i>
@@ -444,6 +533,15 @@
                     </td>`;
                 slotsTableBody.appendChild(tr);
             });
+
+            if (!slotsTableBody.children.length) {
+                slotsTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center text-body-secondary py-4">
+                            No slots match your search.
+                        </td>
+                    </tr>`;
+            }
 
             // Add remove event listeners
             document.querySelectorAll('.remove-slot-btn').forEach(btn => {
@@ -471,6 +569,14 @@
         slotsJson.value = JSON.stringify(slotsForSubmit);
     }
 
+    slotFilter.addEventListener('input', renderSlots);
+    clearSlotsBtn.addEventListener('click', function() {
+        if (!slots.length) return;
+        if (!confirm('Remove all slots from this clock template?')) return;
+        slots = [];
+        renderSlots();
+    });
+
     // Load existing slots
     {{if $clock.Slots}}
     {{range $clock.Slots}}
@@ -484,6 +590,7 @@
     {{end}}
 
     // Initial render
+    applyContentSearch();
     renderSlots();
 })();
 </script>

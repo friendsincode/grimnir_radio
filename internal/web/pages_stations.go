@@ -137,7 +137,12 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		h.logger.Error().Err(err).Msg("failed to commit station create transaction")
+		h.renderStationFormError(w, r, station, true, "Failed to create station")
+		return
+	}
 
 	// Switch current context to the station that was just created so subsequent
 	// dashboard actions target the new station by default.

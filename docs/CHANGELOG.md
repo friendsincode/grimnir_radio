@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.17.0 — 2026-02-21
+
+### Security & Access Control
+- Enforced station-scoped authorization across API handlers while preserving global `platform_admin` access.
+- Hardened JWT validation and auth middleware coverage (including rejection of query-token auth patterns).
+- Added CSRF token validation for dashboard actions, cookie security improvements, and security header regression tests.
+- Added open-redirect and public asset access regression tests.
+
+### Import & Data Integrity
+- Completed AzuraCast staged import review flow (analyze -> select -> commit) with persisted selection state.
+- Added import anomaly reporting artifacts and surfaced anomaly summaries in status/review views.
+- Added integrity audit + repair service with admin UI for findings and idempotent remediation actions.
+- Expanded import reliability tests: idempotency, duration verification, staged backup handling, and safe extraction paths.
+
+### Uploads, Storage & Platform Hardening
+- Added hard API media upload request limits with explicit oversized payload handling (`413 file_too_large`).
+- Wired upload limits to configurable env-based size controls and added regression tests for API/web multipart limits.
+- Documented and guarded experimental S3/MinIO media backend behavior.
+- Updated deployment guidance for production secret requirements and security headers.
+
+### Scheduling, Smart Blocks & UX
+- Improved schedule overlap validation responses and scheduler conflict observability.
+- Completed IRT/Now Playing visibility updates across dashboard and schedule surfaces.
+- Improved smart block preview/search/fallback usability and related UI behavior.
+
+### Infrastructure
+- Fixed Docker Icecast healthcheck target to use loopback (`127.0.0.1`) for reliable container health reporting.
+
+---
+
 ## 1.9.5 — 2026-02-06
 
 ### New Features

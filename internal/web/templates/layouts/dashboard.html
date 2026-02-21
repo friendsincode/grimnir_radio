@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - Grimnir Radio</title>
+    {{if .CSRFToken}}<meta name="csrf-token" content="{{.CSRFToken}}">{{end}}
 
     <!-- Bootstrap CSS -->
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
@@ -238,6 +239,13 @@
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/audit"}}active bg-primary text-white{{end}}" href="/dashboard/admin/audit" data-bs-toggle="tooltip" data-bs-placement="right" title="Audit Logs">
                         <i class="bi bi-shield-check"></i>
                         <span class="sidebar-text ms-2">Audit Logs</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/admin/integrity"}}active bg-primary text-white{{end}}" href="/dashboard/admin/integrity" data-bs-toggle="tooltip" data-bs-placement="right" title="Integrity">
+                        <i class="bi bi-cone-striped"></i>
+                        <span class="sidebar-text ms-2">Integrity</span>
                     </a>
                 </li>
 
@@ -585,6 +593,63 @@ window.GRIMNIR_WEBRTC = {
     turnUsername: "{{.WebRTCTURNUsername}}",
     turnPassword: "{{.WebRTCTURNPassword}}"
 };
+</script>
+<script>
+function grimnirCSRFToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+}
+
+function grimnirCSRFSafeMethod(method) {
+    const m = (method || 'GET').toUpperCase();
+    return m === 'GET' || m === 'HEAD' || m === 'OPTIONS' || m === 'TRACE';
+}
+
+function grimnirInjectCSRFIntoForm(form) {
+    if (!form || !(form instanceof HTMLFormElement)) return;
+    if (grimnirCSRFSafeMethod(form.getAttribute('method') || 'GET')) return;
+    const token = grimnirCSRFToken();
+    if (!token) return;
+    let input = form.querySelector('input[name="csrf_token"]');
+    if (!input) {
+        input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'csrf_token';
+        form.appendChild(input);
+    }
+    input.value = token;
+}
+
+document.addEventListener('submit', function(e) {
+    grimnirInjectCSRFIntoForm(e.target);
+}, true);
+
+document.querySelectorAll('form').forEach(grimnirInjectCSRFIntoForm);
+
+document.body.addEventListener('htmx:configRequest', function(evt) {
+    const method = (evt.detail.verb || 'GET').toUpperCase();
+    if (grimnirCSRFSafeMethod(method)) return;
+    const token = grimnirCSRFToken();
+    if (token) evt.detail.headers['X-CSRF-Token'] = token;
+});
+
+(function() {
+    const originalFetch = window.fetch;
+    window.fetch = function(input, init) {
+        init = init || {};
+        const method = (init.method || 'GET').toUpperCase();
+        if (!grimnirCSRFSafeMethod(method)) {
+            const token = grimnirCSRFToken();
+            if (token) {
+                const headers = new Headers(init.headers || {});
+                if (!headers.has('X-CSRF-Token')) {
+                    headers.set('X-CSRF-Token', token);
+                }
+                init.headers = headers;
+            }
+        }
+        return originalFetch(input, init);
+    };
+})();
 </script>
 <script src="/static/js/app.js"></script>
 
