@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.1 — 2026-02-22
+
+### Import Review Reliability
+- Fixed staged import history rows that showed only delete actions by auto-resolving missing `staged_import_id` links from `staged_imports` via `job_id`.
+- Added service-level staged-reference hydration/backfill so all job list/detail consumers can render Review links consistently.
+- Updated migration status page to load jobs via migration service, inheriting staged-link auto-healing for all import sources.
+
+---
+
 ## 1.17.0 — 2026-02-21
 
 ### Security & Access Control

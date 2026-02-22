@@ -536,6 +536,7 @@ func (s *Service) GetJob(ctx context.Context, jobID string) (*Job, error) {
 	s.mu.RUnlock()
 
 	if ok {
+		s.hydrateStagedImportRef(ctx, job)
 		return job, nil
 	}
 
@@ -549,6 +550,7 @@ func (s *Service) GetJob(ctx context.Context, jobID string) (*Job, error) {
 	s.mu.Lock()
 	s.jobs[jobID] = job
 	s.mu.Unlock()
+	s.hydrateStagedImportRef(ctx, job)
 
 	return job, nil
 }
@@ -558,6 +560,9 @@ func (s *Service) ListJobs(ctx context.Context) ([]*Job, error) {
 	var jobs []*Job
 	if err := s.db.WithContext(ctx).Order("created_at DESC").Find(&jobs).Error; err != nil {
 		return nil, err
+	}
+	for _, job := range jobs {
+		s.hydrateStagedImportRef(ctx, job)
 	}
 	return jobs, nil
 }
@@ -632,6 +637,35 @@ func (s *Service) DeleteJob(ctx context.Context, jobID string) error {
 // updateJob updates a job in the database.
 func (s *Service) updateJob(ctx context.Context, job *Job) error {
 	return s.db.WithContext(ctx).Save(job).Error
+}
+
+// hydrateStagedImportRef ensures staged jobs have staged_import_id populated.
+// Older rows or partial writes may leave this denormalized field empty.
+func (s *Service) hydrateStagedImportRef(ctx context.Context, job *Job) {
+	if job == nil || job.Status != JobStatusStaged || (job.StagedImportID != nil && *job.StagedImportID != "") {
+		return
+	}
+	var staged models.StagedImport
+	if err := s.db.WithContext(ctx).
+		Where("job_id = ?", job.ID).
+		Order("created_at DESC").
+		First(&staged).Error; err != nil || staged.ID == "" {
+		return
+	}
+	stagedID := staged.ID
+	job.StagedImportID = &stagedID
+
+	// Best-effort backfill for future queries.
+	if err := s.db.WithContext(ctx).
+		Model(&Job{}).
+		Where("id = ?", job.ID).
+		Update("staged_import_id", stagedID).Error; err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("job_id", job.ID).
+			Str("staged_id", stagedID).
+			Msg("failed to backfill staged_import_id on staged job")
+	}
 }
 
 // ResetImportedData clears all imported data from the database.

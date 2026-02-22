@@ -601,11 +601,14 @@ func writeHTMXError(w http.ResponseWriter, message string) {
 // MigrationStatusPage shows the status of all migration jobs
 func (h *Handler) MigrationStatusPage(w http.ResponseWriter, r *http.Request) {
 	// Get all migration jobs
-	var jobs []migration.Job
-	if err := h.db.Order("created_at DESC").Limit(20).Find(&jobs).Error; err != nil {
+	jobs, err := h.migrationService.ListJobs(r.Context())
+	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to load migration jobs")
 		http.Error(w, "Failed to load migration jobs", http.StatusInternalServerError)
 		return
+	}
+	if len(jobs) > 20 {
+		jobs = jobs[:20]
 	}
 
 	// Calculate totals across all jobs
