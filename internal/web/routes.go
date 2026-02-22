@@ -355,6 +355,7 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// Import review (staged imports)
 				r.Get("/migrations/review/{id}", h.ImportReviewPage)
+				r.Get("/migrations/review/job/{jobID}", h.ImportReviewByJobRedirect)
 				r.Post("/migrations/review/{id}/commit", h.ImportReviewCommit)
 				r.Post("/migrations/review/{id}/reject", h.ImportReviewReject)
 				r.Post("/migrations/review/{id}/selections", h.ImportReviewUpdateSelections)

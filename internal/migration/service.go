@@ -376,12 +376,28 @@ func (s *Service) StartStagedJob(parentCtx context.Context, jobID string) error 
 			})
 			return
 		}
+		if staged == nil || staged.ID == "" {
+			errMsg := "staged analysis produced no review data"
+			s.logger.Error().Str("job_id", jobID).Msg(errMsg)
+			job.Status = JobStatusFailed
+			job.Error = errMsg
+			done := time.Now()
+			job.CompletedAt = &done
+			job.Progress.Phase = "failed"
+			job.Progress.CurrentStep = "Analysis failed"
+			_ = s.updateJob(context.Background(), job)
+			s.bus.Publish(events.EventMigration, events.Payload{
+				"job_id":      jobID,
+				"status":      string(job.Status),
+				"staged_mode": true,
+				"error":       job.Error,
+			})
+			return
+		}
 
 		job.Status = JobStatusStaged
 		job.Error = ""
-		if staged != nil && staged.ID != "" {
-			job.StagedImportID = &staged.ID
-		}
+		job.StagedImportID = &staged.ID
 		job.Progress.Phase = "staged"
 		job.Progress.Percentage = 100
 		job.Progress.CurrentStep = "Analysis complete. Ready for review."

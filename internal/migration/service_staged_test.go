@@ -18,6 +18,7 @@ type fakeStagedImporter struct {
 	db            *gorm.DB
 	commitDelay   time.Duration
 	commitStarted chan struct{}
+	returnNil     bool
 }
 
 func (f *fakeStagedImporter) Validate(context.Context, Options) error { return nil }
@@ -29,6 +30,9 @@ func (f *fakeStagedImporter) Import(context.Context, Options, ProgressCallback) 
 }
 
 func (f *fakeStagedImporter) AnalyzeForStaging(ctx context.Context, jobID string, options Options) (*models.StagedImport, error) {
+	if f.returnNil {
+		return nil, nil
+	}
 	staged := &models.StagedImport{
 		ID:         uuid.NewString(),
 		JobID:      jobID,
@@ -61,6 +65,46 @@ func (f *fakeStagedImporter) AnalyzeForStaging(ctx context.Context, jobID string
 		return nil, err
 	}
 	return staged, nil
+}
+
+func TestStartStagedJob_FailsWhenAnalyzerReturnsNoStagedData(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&Job{}, &models.StagedImport{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	bus := events.NewBus()
+	svc := NewService(db, bus, zerolog.Nop())
+	importer := &fakeStagedImporter{
+		db:        db,
+		returnNil: true,
+	}
+	svc.RegisterImporter(SourceTypeAzuraCast, importer)
+
+	ctx := context.Background()
+	job, err := svc.CreateStagedJob(ctx, SourceTypeAzuraCast, Options{
+		StagedMode:      true,
+		AzuraCastAPIURL: "https://example.invalid",
+		AzuraCastAPIKey: "token",
+	})
+	if err != nil {
+		t.Fatalf("CreateStagedJob: %v", err)
+	}
+
+	if err := svc.StartStagedJob(ctx, job.ID); err != nil {
+		t.Fatalf("StartStagedJob: %v", err)
+	}
+
+	failed := waitForJobStatus(t, svc, job.ID, JobStatusFailed, 2*time.Second)
+	if failed.Error == "" {
+		t.Fatalf("expected failure reason on job when staged analysis returns no data")
+	}
+	if failed.StagedImportID != nil {
+		t.Fatalf("expected no staged import id on failed job")
+	}
 }
 
 func (f *fakeStagedImporter) CommitStagedImport(ctx context.Context, staged *models.StagedImport, _ string, _ Options, cb ProgressCallback) (*Result, error) {
