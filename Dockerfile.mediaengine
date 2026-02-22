@@ -65,6 +65,13 @@ RUN groupadd -r mediaengine && useradd -r -g mediaengine mediaengine
 # Copy binary from builder
 COPY --from=builder /build/mediaengine /usr/local/bin/mediaengine
 
+# Copy license and notices into image for distribution compliance
+RUN mkdir -p /usr/share/licenses/grimnir-radio/third_party/licenses
+COPY LICENSE /usr/share/licenses/grimnir-radio/LICENSE
+COPY THIRD_PARTY_NOTICES.md /usr/share/licenses/grimnir-radio/THIRD_PARTY_NOTICES.md
+COPY third_party/go-licenses.csv /usr/share/licenses/grimnir-radio/third_party/go-licenses.csv
+COPY third_party/licenses/ /usr/share/licenses/grimnir-radio/third_party/licenses/
+
 # Create necessary directories
 RUN mkdir -p /var/lib/mediaengine/cache \
     && mkdir -p /etc/mediaengine \

@@ -153,10 +153,24 @@ jobs:
           echo "docker pull ghcr.io/${{ github.repository_owner }}/grimnir_mediaengine:${{ github.ref_name }}" >> notes.md
           echo "\`\`\`" >> notes.md
 
+      - name: Build compliance bundle
+        run: |
+          mkdir -p dist
+          tar -czf dist/grimnir-radio-licenses-${{ github.ref_name }}.tar.gz \
+            LICENSE \
+            THIRD_PARTY_NOTICES.md \
+            third_party/go-licenses.csv \
+            third_party/licenses
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           body_path: notes.md
+          files: |
+            LICENSE
+            THIRD_PARTY_NOTICES.md
+            third_party/go-licenses.csv
+            dist/grimnir-radio-licenses-${{ github.ref_name }}.tar.gz
           generate_release_notes: false
           make_latest: true
         env:

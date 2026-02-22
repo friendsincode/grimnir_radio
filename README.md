@@ -1,6 +1,6 @@
 # Grimnir Radio
 
-**Version:** 1.7.0
+**Version:** 1.17.2
 
 Grimnir Radio is a modern, production-ready broadcast automation system built in Go. It features a multi-process architecture with separated control plane and media engine, live DJ input, HTTP stream relay with automatic failover, horizontal scaling, and comprehensive observability.
 
@@ -66,7 +66,7 @@ See [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md) for manual 
 
 ## Production Status
 
-**All planned phases complete through 1.7.0:**
+**All planned phases complete through 1.17.2:**
 
 - ✅ **Phase 0**: Foundation Fixes
 - ✅ **Phase 4A**: Executor & Priority System (5-tier priority ladder)
@@ -130,6 +130,7 @@ curl https://your-instance.com/api/v1/analytics/now-playing
 ## Docs
 
 - **API Documentation**: `docs/api/README.md`
+- Licensing compliance (GHCR): `docs/LICENSING_COMPLIANCE.md`
 - Sales spec: `docs/specs/SALES_SPEC.md`
 - Engineering spec: `docs/specs/ENGINEERING_SPEC.md`
 - Programmer's spec: `docs/specs/PROGRAMMERS_SPEC.md`
@@ -258,3 +259,13 @@ This means:
 See the [LICENSE](LICENSE) file for the full license text.
 
 **AGPL Compliance:** If you modify Grimnir Radio and offer it as a network service (e.g., running a hosted instance), you must provide users with access to the complete corresponding source code, including all modifications.
+
+## Third-Party Licensing
+
+Third-party dependencies and bundled assets are licensed by their respective
+authors under their own licenses. The AGPL license for Grimnir Radio does not
+relicense third-party code.
+
+- Notices: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+- Frontend asset licenses: `third_party/licenses/`
+- Go dependency license report: `third_party/go-licenses.csv`

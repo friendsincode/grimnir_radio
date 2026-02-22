@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.17.2 — 2026-02-22
+
+### Licensing and Distribution Compliance
+- Added `THIRD_PARTY_NOTICES.md` to clarify license boundaries between Grimnir Radio (AGPL) and bundled third-party components.
+- Added bundled third-party license texts under `third_party/licenses/` and a generated Go dependency license report at `third_party/go-licenses.csv`.
+- Updated Docker images to include a complete license bundle under `/usr/share/licenses/grimnir-radio/`.
+- Updated release workflow to attach licensing artifacts, including a packaged license bundle tarball, to versioned GitHub releases.
+- Added `docs/LICENSING_COMPLIANCE.md` with GHCR-focused verification steps.
+
+---
+
 ## 1.17.1 — 2026-02-22
 
 ### Import Review Reliability
