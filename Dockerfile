@@ -50,6 +50,13 @@ RUN apk add --no-cache \
 # Copy binary from builder
 COPY --from=builder /build/grimnirradio /usr/local/bin/grimnirradio
 
+# Copy license and notices into image for distribution compliance
+RUN mkdir -p /usr/share/licenses/grimnir-radio/third_party/licenses
+COPY --from=builder /build/LICENSE /usr/share/licenses/grimnir-radio/LICENSE
+COPY --from=builder /build/THIRD_PARTY_NOTICES.md /usr/share/licenses/grimnir-radio/THIRD_PARTY_NOTICES.md
+COPY --from=builder /build/third_party/go-licenses.csv /usr/share/licenses/grimnir-radio/third_party/go-licenses.csv
+COPY --from=builder /build/third_party/licenses/ /usr/share/licenses/grimnir-radio/third_party/licenses/
+
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
