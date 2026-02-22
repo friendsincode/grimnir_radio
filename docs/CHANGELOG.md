@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.17.3 — 2026-02-22
+
+### Import Review Visibility (Staged/Dry-Run)
+- Fixed staged import jobs that could appear without a usable Review action by adding a job-based review resolver route.
+- Updated migration status UI to always offer a Review button for staged jobs, including fallback resolution when `staged_import_id` is missing.
+- Hardened staged analysis completion flow: if analysis returns no staged data, the job now fails explicitly instead of silently remaining in an unusable staged state.
+- Added regression coverage to prevent staged jobs from completing without staged review data.
+
+---
+
 ## 1.17.2 — 2026-02-22
 
 ### Licensing and Distribution Compliance

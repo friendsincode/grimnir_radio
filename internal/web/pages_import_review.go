@@ -55,6 +55,30 @@ func (h *Handler) ImportReviewPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ImportReviewByJobRedirect resolves staged import by job ID and redirects to review page.
+func (h *Handler) ImportReviewByJobRedirect(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobID")
+	if strings.TrimSpace(jobID) == "" {
+		writeHTMXError(w, "Missing migration job ID")
+		return
+	}
+
+	staged, err := h.migrationService.GetStagedImportByJobID(r.Context(), jobID)
+	if err != nil || staged == nil || staged.ID == "" {
+		h.logger.Error().Err(err).Str("job_id", jobID).Msg("failed to resolve staged import from job")
+		writeHTMXError(w, "No staged review data found for this job. Re-run the import analysis.")
+		return
+	}
+
+	target := "/dashboard/settings/migrations/review/" + staged.ID
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", target)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
 // ImportReviewMediaTab renders the media tab partial for HTMX.
 func (h *Handler) ImportReviewMediaTab(w http.ResponseWriter, r *http.Request) {
 	stagedID := chi.URLParam(r, "id")

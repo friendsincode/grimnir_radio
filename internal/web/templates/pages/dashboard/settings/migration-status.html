@@ -212,6 +212,12 @@
            title="Review staged import">
             <i class="bi bi-clipboard-check"></i>
         </a>
+        {{else}}
+        <a class="btn btn-sm btn-outline-primary"
+           href="/dashboard/settings/migrations/review/job/{{.ID}}"
+           title="Resolve and review staged import">
+            <i class="bi bi-clipboard-check"></i>
+        </a>
         {{end}}
         {{end}}
         {{if or (eq .Status "failed") (eq .Status "cancelled")}}
