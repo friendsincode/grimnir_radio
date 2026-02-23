@@ -144,9 +144,13 @@
                                     title="{{if .Approved}}Revoke Approval{{else}}Approve{{end}}">
                                 {{if .Approved}}<i class="bi bi-shield-x"></i>{{else}}<i class="bi bi-shield-check"></i>{{end}}
                             </button>
-                            <a href="/dashboard/stations/{{.ID}}" class="btn btn-outline-secondary" title="Edit">
-                                <i class="bi bi-pencil"></i>
-                            </a>
+                            <form method="POST" action="/dashboard/stations/select" class="d-inline m-0">
+                                <input type="hidden" name="station_id" value="{{.ID}}">
+                                <input type="hidden" name="redirect_to" value="/dashboard/station/settings">
+                                <button type="submit" class="btn btn-outline-secondary" title="Edit in Station Settings">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                            </form>
                             <button class="btn btn-outline-danger"
                                     hx-delete="/dashboard/admin/stations/{{.ID}}"
                                     hx-confirm="Are you sure you want to delete this station? This cannot be undone."
