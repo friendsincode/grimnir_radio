@@ -198,9 +198,17 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:; frame-ancestors 'none'; base-uri 'self'")
+
+		frameAncestors := "'none'"
+		xFrameOptions := "DENY"
+		if isLandingPagePreviewPath(r.URL.Path) {
+			// Landing editor preview is intentionally embedded in a same-origin iframe.
+			frameAncestors = "'self'"
+			xFrameOptions = "SAMEORIGIN"
+		}
+		w.Header().Set("X-Frame-Options", xFrameOptions)
+		w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:; frame-ancestors "+frameAncestors+"; base-uri 'self'")
 
 		// Only advertise HSTS for requests served over HTTPS.
 		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
@@ -209,6 +217,10 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isLandingPagePreviewPath(path string) bool {
+	return path == "/dashboard/station/landing-page/preview" || path == "/dashboard/admin/landing-page/preview"
 }
 
 func (s *Server) initDependencies() error {

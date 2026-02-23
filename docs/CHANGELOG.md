@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.17.12 — 2026-02-23
+
+### Landing Preview and Platform Access Fixes
+- Fixed landing page editor preview iframes (station + platform) by allowing same-origin framing only on preview endpoints while keeping strict frame-deny defaults elsewhere.
+- Fixed platform role compatibility for legacy role values (`admin`/`manager`) so platform admin/mod checks, station selection, and dashboard role rendering work consistently.
+- Added runtime role normalization hooks and migration-time role backfill to canonical values (`platform_admin`/`platform_mod`).
+- Added a second CTA on platform station cards (`Station Page`) beside `Listen`, routing to station landing (`/s/{shortcode}` with `/station/{id}` fallback).
+
+---
+
 ## 1.17.11 — 2026-02-22
 
 ### Platform Role Rendering Reliability

@@ -105,6 +105,9 @@ func Migrate(database *gorm.DB) error {
 	if err := applyPostgresScheduleOverlapGuard(database); err != nil {
 		return err
 	}
+	if err := normalizeLegacyPlatformRoles(database); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -152,5 +155,15 @@ EXECUTE FUNCTION prevent_station_schedule_overlap();
 		return fmt.Errorf("apply postgres schedule overlap guard: %w", err)
 	}
 
+	return nil
+}
+
+func normalizeLegacyPlatformRoles(database *gorm.DB) error {
+	if err := database.Exec("UPDATE users SET platform_role = ? WHERE LOWER(TRIM(platform_role)) = ?", models.PlatformRoleAdmin, "admin").Error; err != nil {
+		return fmt.Errorf("normalize legacy admin platform role: %w", err)
+	}
+	if err := database.Exec("UPDATE users SET platform_role = ? WHERE LOWER(TRIM(platform_role)) IN ?", models.PlatformRoleMod, []string{"manager", "mod", "moderator"}).Error; err != nil {
+		return fmt.Errorf("normalize legacy moderator platform role: %w", err)
+	}
 	return nil
 }

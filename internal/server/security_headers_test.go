@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -44,5 +45,29 @@ func TestSecurityHeadersMiddleware_SetsHSTSOnHTTPS(t *testing.T) {
 
 	if got := rr.Header().Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
 		t.Fatalf("Strict-Transport-Security=%q, want max-age=31536000; includeSubDomains", got)
+	}
+}
+
+func TestSecurityHeadersMiddleware_AllowsLandingPagePreviewIframe(t *testing.T) {
+	h := securityHeadersMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tests := []string{
+		"/dashboard/station/landing-page/preview",
+		"/dashboard/admin/landing-page/preview",
+	}
+
+	for _, path := range tests {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+
+		if got := rr.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
+			t.Fatalf("%s X-Frame-Options=%q, want SAMEORIGIN", path, got)
+		}
+		if got := rr.Header().Get("Content-Security-Policy"); got == "" || !strings.Contains(got, "frame-ancestors 'self'") {
+			t.Fatalf("%s Content-Security-Policy=%q, want frame-ancestors 'self'", path, got)
+		}
 	}
 }

@@ -232,11 +232,16 @@
                                     {{if and $showDesc .Station.Description}}
                                     <p class="card-text small">{{.Station.Description}}</p>
                                     {{end}}
-                                    {{if .StreamURL}}
-                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="playStation('{{.Station.ID}}', '{{.StreamURL}}', '{{.Station.Name}}')">
-                                        <i class="bi bi-play-circle me-1"></i>Listen
-                                    </button>
-                                    {{end}}
+                                    <div class="d-flex justify-content-center gap-2 flex-wrap">
+                                        {{if .StreamURL}}
+                                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="playStation('{{.Station.ID}}', '{{.StreamURL}}', '{{.Station.Name}}')">
+                                            <i class="bi bi-play-circle me-1"></i>Listen
+                                        </button>
+                                        {{end}}
+                                        <a class="btn btn-outline-secondary btn-sm" href="{{if .Station.Shortcode}}/s/{{.Station.Shortcode}}{{else}}/station/{{.Station.ID}}{{end}}">
+                                            <i class="bi bi-box-arrow-up-right me-1"></i>Station Page
+                                        </a>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -378,11 +383,16 @@
                             {{if .Station.Description}}
                             <p class="card-text small">{{.Station.Description}}</p>
                             {{end}}
-                            {{if .StreamURL}}
-                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="playStation('{{.Station.ID}}', '{{.StreamURL}}', '{{.Station.Name}}')">
-                                <i class="bi bi-play-circle me-1"></i>Listen
-                            </button>
-                            {{end}}
+                            <div class="d-flex justify-content-center gap-2 flex-wrap">
+                                {{if .StreamURL}}
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="playStation('{{.Station.ID}}', '{{.StreamURL}}', '{{.Station.Name}}')">
+                                    <i class="bi bi-play-circle me-1"></i>Listen
+                                </button>
+                                {{end}}
+                                <a class="btn btn-outline-secondary btn-sm" href="{{if .Station.Shortcode}}/s/{{.Station.Shortcode}}{{else}}/station/{{.Station.ID}}{{end}}">
+                                    <i class="bi bi-box-arrow-up-right me-1"></i>Station Page
+                                </a>
+                            </div>
                         </div>
                     </div>
                 </div>
