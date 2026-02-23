@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.15 — 2026-02-23
+
+### Dashboard WebSocket Auth Hotfix
+- Fixed dashboard realtime WebSocket (`/api/v1/events`) reconnect loops and `1006` closes by allowing query-token auth only for WebSocket upgrade requests on the events endpoint.
+- Kept query-token auth blocked for normal HTTP API routes to preserve tightened security posture.
+- Added middleware regression coverage for websocket query-token acceptance and non-websocket query-token rejection.
+
+---
+
 ## 1.17.14 — 2026-02-23
 
 ### Station Select CSRF Hotfix
