@@ -246,6 +246,7 @@ func (h *Handler) loadTemplates() error {
 		"stationColor":     stationColor,
 		"sourceTypeName":   sourceTypeName,
 		"formatDurationMs": formatDurationMs,
+		"sourceStationID":  sourceStationID,
 	}
 
 	h.templates = make(map[string]*template.Template)
@@ -628,6 +629,14 @@ func formatDurationMs(ms int) string {
 		return fmt.Sprintf("%d:%02d:%02d", hours, mins, secs)
 	}
 	return fmt.Sprintf("%d:%02d", mins, secs)
+}
+
+func sourceStationID(sourceID string) string {
+	parts := strings.SplitN(strings.TrimSpace(sourceID), "::", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
 }
 
 func truncate(s string, n int) string {

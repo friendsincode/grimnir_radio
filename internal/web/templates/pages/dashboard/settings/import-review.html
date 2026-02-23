@@ -228,6 +228,7 @@
                             <th>Title</th>
                             <th>Artist</th>
                             <th>Album</th>
+                            <th>Station</th>
                             <th>Duration</th>
                             <th>Status</th>
                         </tr>
@@ -244,6 +245,19 @@
                             <td>{{ .Title }}</td>
                             <td>{{ .Artist }}</td>
                             <td>{{ .Album }}</td>
+                            <td>
+                                {{ $stationID := sourceStationID .SourceID }}
+                                {{ if $stationID }}
+                                    {{ $label := index $.Data.StationLabelByID $stationID }}
+                                    {{ if $label }}
+                                    <span class="badge bg-secondary">{{ $label }}</span>
+                                    {{ else }}
+                                    <span class="text-muted">Station {{ $stationID }}</span>
+                                    {{ end }}
+                                {{ else }}
+                                <span class="text-muted">-</span>
+                                {{ end }}
+                            </td>
                             <td>{{ formatDurationMs .DurationMs }}</td>
                             <td>
                                 {{ if .OrphanMatch }}

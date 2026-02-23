@@ -32,6 +32,7 @@ func (h *Handler) ImportReviewPage(w http.ResponseWriter, r *http.Request) {
 
 	// Get the associated job for source type info
 	job, _ := h.migrationService.GetJob(r.Context(), staged.JobID)
+	stationFilters := extractStationFilters(staged)
 
 	h.Render(w, r, "pages/dashboard/settings/import-review", PageData{
 		Title:    "Import Review",
@@ -48,7 +49,8 @@ func (h *Handler) ImportReviewPage(w http.ResponseWriter, r *http.Request) {
 			"OrphanMatchCount": staged.OrphanMatchCount(),
 			"SelectedCount":    staged.SelectedCount(),
 			"TotalCount":       staged.TotalCount(),
-			"StationFilters":   extractStationFilters(staged),
+			"StationFilters":   stationFilters,
+			"StationLabelByID": stationLabelByID(stationFilters),
 			"SelectedStations": selectedStationMap(staged.Selections.StationIDs),
 			"AnomalyCards":     buildStagedAnomalyCards(staged),
 		},
@@ -464,6 +466,18 @@ func selectedStationMap(ids []string) map[string]bool {
 		m[id] = true
 	}
 	return m
+}
+
+func stationLabelByID(filters []stationFilterOption) map[string]string {
+	out := make(map[string]string, len(filters))
+	for _, f := range filters {
+		id := strings.TrimSpace(f.ID)
+		if id == "" {
+			continue
+		}
+		out[id] = strings.TrimSpace(f.Label)
+	}
+	return out
 }
 
 type stagedAnomalyCard struct {
