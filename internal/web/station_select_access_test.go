@@ -90,4 +90,3 @@ func TestStationSelect_AutoSelectsSingleStation(t *testing.T) {
 		t.Fatalf("expected station cookie, got %q", setCookie)
 	}
 }
-
