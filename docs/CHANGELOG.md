@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.14 — 2026-02-23
+
+### Station Select CSRF Hotfix
+- Fixed `/dashboard/stations/select` POST submissions being blocked with `403` by adding explicit `csrf_token` submission in the station selection form (HTMX + normal form submit).
+- Resolved false "Access denied" toast on station selection caused by CSRF middleware rejection before handler execution.
+
+---
+
 ## 1.17.13 — 2026-02-23
 
 ### Access Control Stability
