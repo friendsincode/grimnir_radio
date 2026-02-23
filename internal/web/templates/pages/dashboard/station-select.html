@@ -14,6 +14,7 @@
             <form method="POST" action="/dashboard/stations/select"
                   hx-post="/dashboard/stations/select"
                   hx-swap="none">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <div class="list-group mb-4">
                     {{range .Stations}}
                     <label class="list-group-item list-group-item-action d-flex align-items-center gap-3">
