@@ -269,18 +269,68 @@ func (h *Handler) StationUserUpdate(w http.ResponseWriter, r *http.Request) {
 	// Only owner or platform admin can assign owner role
 	if newRole == models.StationRoleOwner {
 		currentRole := h.GetStationRole(user, station.ID)
-		if currentRole == nil || (currentRole.Role != models.StationRoleOwner && !user.IsPlatformAdmin()) {
+		if !user.IsPlatformAdmin() && (currentRole == nil || currentRole.Role != models.StationRoleOwner) {
 			http.Error(w, "Only station owner or platform admin can transfer ownership", http.StatusForbidden)
 			return
 		}
 	}
 
-	stationUser.Role = newRole
-
-	if err := h.db.Save(&stationUser).Error; err != nil {
-		h.logger.Error().Err(err).Msg("failed to update station user role")
-		http.Error(w, "Failed to update role", http.StatusInternalServerError)
+	// Do not allow leaving a station without an owner.
+	if stationUser.Role == models.StationRoleOwner && newRole != models.StationRoleOwner {
+		http.Error(w, "Cannot demote the current owner directly. Transfer ownership to another user first.", http.StatusBadRequest)
 		return
+	}
+
+	if newRole == models.StationRoleOwner {
+		tx := h.db.Begin()
+		if tx.Error != nil {
+			http.Error(w, "Failed to transfer ownership", http.StatusInternalServerError)
+			return
+		}
+
+		// Demote any existing owner(s) in this station, except the selected target.
+		if err := tx.Model(&models.StationUser{}).
+			Where("station_id = ? AND role = ? AND id <> ?", station.ID, models.StationRoleOwner, stationUser.ID).
+			Update("role", models.StationRoleAdmin).Error; err != nil {
+			tx.Rollback()
+			h.logger.Error().Err(err).Msg("failed to demote previous station owner")
+			http.Error(w, "Failed to transfer ownership", http.StatusInternalServerError)
+			return
+		}
+
+		// Set selected user as owner.
+		if err := tx.Model(&models.StationUser{}).
+			Where("id = ?", stationUser.ID).
+			Update("role", models.StationRoleOwner).Error; err != nil {
+			tx.Rollback()
+			h.logger.Error().Err(err).Msg("failed to promote new station owner")
+			http.Error(w, "Failed to transfer ownership", http.StatusInternalServerError)
+			return
+		}
+
+		// Keep station owner_id in sync.
+		if err := tx.Model(&models.Station{}).
+			Where("id = ?", station.ID).
+			Update("owner_id", stationUser.UserID).Error; err != nil {
+			tx.Rollback()
+			h.logger.Error().Err(err).Msg("failed to update station owner_id")
+			http.Error(w, "Failed to transfer ownership", http.StatusInternalServerError)
+			return
+		}
+
+		if err := tx.Commit().Error; err != nil {
+			tx.Rollback()
+			h.logger.Error().Err(err).Msg("failed to commit station ownership transfer")
+			http.Error(w, "Failed to transfer ownership", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		stationUser.Role = newRole
+		if err := h.db.Save(&stationUser).Error; err != nil {
+			h.logger.Error().Err(err).Msg("failed to update station user role")
+			http.Error(w, "Failed to update role", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	h.logger.Info().

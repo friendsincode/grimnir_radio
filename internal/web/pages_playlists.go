@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -435,33 +436,79 @@ func (h *Handler) PlaylistAddItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mediaID := r.FormValue("media_id")
-	if mediaID == "" {
+	var mediaIDs []string
+	for _, raw := range r.Form["media_ids"] {
+		for _, id := range strings.Split(raw, ",") {
+			trimmed := strings.TrimSpace(id)
+			if trimmed != "" {
+				mediaIDs = append(mediaIDs, trimmed)
+			}
+		}
+	}
+	if len(mediaIDs) == 0 {
+		singleMediaID := strings.TrimSpace(r.FormValue("media_id"))
+		if singleMediaID != "" {
+			mediaIDs = append(mediaIDs, singleMediaID)
+		}
+	}
+	if len(mediaIDs) == 0 {
 		http.Error(w, "Media ID required", http.StatusBadRequest)
 		return
 	}
 
-	// Verify media belongs to station
-	var media models.MediaItem
-	if err := h.db.First(&media, "id = ? AND station_id = ?", mediaID, station.ID).Error; err != nil {
-		http.Error(w, "Media not found", http.StatusNotFound)
+	// De-duplicate while preserving request order.
+	seen := make(map[string]struct{}, len(mediaIDs))
+	deduped := make([]string, 0, len(mediaIDs))
+	for _, mediaID := range mediaIDs {
+		if _, ok := seen[mediaID]; ok {
+			continue
+		}
+		seen[mediaID] = struct{}{}
+		deduped = append(deduped, mediaID)
+	}
+	mediaIDs = deduped
+
+	// Verify all media IDs belong to the station.
+	var mediaCount int64
+	h.db.Model(&models.MediaItem{}).Where("id IN ? AND station_id = ?", mediaIDs, station.ID).Count(&mediaCount)
+	if mediaCount != int64(len(mediaIDs)) {
+		http.Error(w, "One or more media items not found", http.StatusNotFound)
 		return
 	}
 
-	// Get current max position
-	var maxPos int
-	h.db.Model(&models.PlaylistItem{}).Where("playlist_id = ?", id).
-		Select("COALESCE(MAX(position), 0)").Scan(&maxPos)
-
-	item := models.PlaylistItem{
-		ID:         uuid.New().String(),
-		PlaylistID: id,
-		MediaID:    mediaID,
-		Position:   maxPos + 1,
+	// Insert all items in one transaction so positions are contiguous.
+	tx := h.db.Begin()
+	if tx.Error != nil {
+		http.Error(w, "Failed to add items", http.StatusInternalServerError)
+		return
 	}
 
-	if err := h.db.Create(&item).Error; err != nil {
-		http.Error(w, "Failed to add item", http.StatusInternalServerError)
+	var maxPos int
+	if err := tx.Model(&models.PlaylistItem{}).Where("playlist_id = ?", id).
+		Select("COALESCE(MAX(position), 0)").Scan(&maxPos).Error; err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to add items", http.StatusInternalServerError)
+		return
+	}
+
+	items := make([]models.PlaylistItem, 0, len(mediaIDs))
+	for idx, mediaID := range mediaIDs {
+		items = append(items, models.PlaylistItem{
+			ID:         uuid.New().String(),
+			PlaylistID: id,
+			MediaID:    mediaID,
+			Position:   maxPos + idx + 1,
+		})
+	}
+
+	if err := tx.Create(&items).Error; err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to add items", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to add items", http.StatusInternalServerError)
 		return
 	}
 

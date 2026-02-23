@@ -602,6 +602,19 @@ tr:has(.preview-playing) {
     white-space: nowrap;
 }
 
+#playerTitle .title-primary {
+    font-weight: 600;
+}
+
+#playerTitle .title-separator {
+    opacity: 0.55;
+}
+
+#playerTitle .title-secondary {
+    opacity: 0.8;
+    font-weight: 500;
+}
+
 /* On-air / live DJ indicator */
 .global-player.is-on-air #playerPlayIcon {
     color: var(--bs-danger);

@@ -286,9 +286,15 @@
             </div>
             <div class="card-footer d-flex justify-content-between align-items-center">
                 <span class="small text-body-secondary" id="mediaCount">{{len $availableMedia}} items</span>
-                <a href="/dashboard/media/upload" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-upload me-1"></i>Upload
-                </a>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="small text-body-secondary" id="selectedMediaCount">0 selected</span>
+                    <button type="button" class="btn btn-sm btn-primary" id="addSelectedBtn" disabled>
+                        <i class="bi bi-plus-circle me-1"></i>Add Selected
+                    </button>
+                    <a href="/dashboard/media/upload" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-upload me-1"></i>Upload
+                    </a>
+                </div>
             </div>
         </div>
     </div>
@@ -310,8 +316,11 @@ const playlistId = '{{.Data.Playlist.ID}}';
 // ==================== DRAG AND DROP ====================
 const list = document.getElementById('playlistItems');
 const dropZone = document.getElementById('playlistDropZone');
+const addSelectedBtn = document.getElementById('addSelectedBtn');
+const selectedMediaCountEl = document.getElementById('selectedMediaCount');
 let draggedItem = null;
 let draggedMediaId = null;
+const selectedMediaIds = new Set();
 
 // Get list of media IDs already in playlist for duplicate detection
 function getExistingMediaIds() {
@@ -379,6 +388,43 @@ function addMediaToPlaylist(mediaId, title) {
             window.location.reload();
         } else {
             alert('Failed to add track to playlist');
+        }
+    });
+}
+
+function updateSelectedMediaUI() {
+    if (selectedMediaCountEl) {
+        selectedMediaCountEl.textContent = `${selectedMediaIds.size} selected`;
+    }
+    if (addSelectedBtn) {
+        addSelectedBtn.disabled = selectedMediaIds.size === 0;
+    }
+}
+
+function clearSelectedMedia() {
+    selectedMediaIds.clear();
+    updateSelectedMediaUI();
+}
+
+function addSelectedMediaToPlaylist() {
+    const mediaIDs = Array.from(selectedMediaIds);
+    if (mediaIDs.length === 0) {
+        return;
+    }
+
+    const formData = new URLSearchParams();
+    for (const mediaID of mediaIDs) {
+        formData.append('media_ids', mediaID);
+    }
+
+    fetch(`/dashboard/playlists/${playlistId}/items`, {
+        method: 'POST',
+        body: formData
+    }).then(res => {
+        if (res.ok) {
+            window.location.reload();
+        } else {
+            alert('Failed to add selected tracks to playlist');
         }
     });
 }
@@ -667,12 +713,28 @@ smartBlockFilter?.addEventListener('change', () => {
 
 // ==================== ADD MEDIA ====================
 function initMediaButtons(container) {
+    clearSelectedMedia();
+
     container.querySelectorAll('.add-media-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const mediaId = btn.dataset.mediaId;
             const mediaItem = btn.closest('.media-item');
             const title = mediaItem?.dataset.title || 'this track';
             addMediaToPlaylist(mediaId, title);
+        });
+    });
+
+    container.querySelectorAll('.media-select-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('mousedown', (e) => e.stopPropagation());
+        checkbox.addEventListener('click', (e) => e.stopPropagation());
+        checkbox.addEventListener('change', () => {
+            const mediaID = checkbox.value;
+            if (checkbox.checked) {
+                selectedMediaIds.add(mediaID);
+            } else {
+                selectedMediaIds.delete(mediaID);
+            }
+            updateSelectedMediaUI();
         });
     });
 
@@ -703,6 +765,7 @@ function initMediaButtons(container) {
     });
 
     updateMediaCount();
+    updateSelectedMediaUI();
 }
 
 // Initialize buttons for initial content
@@ -714,6 +777,8 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
         initMediaButtons(e.detail.target);
     }
 });
+
+addSelectedBtn?.addEventListener('click', addSelectedMediaToPlaylist);
 
 // ==================== COVER UPLOAD ====================
 const coverUpload = document.getElementById('coverUpload');
