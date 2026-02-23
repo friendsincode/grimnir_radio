@@ -37,7 +37,7 @@
                     <td>
                         <i class="bi bi-person-circle me-2"></i>
                         <strong>{{.User.Email}}</strong>
-                        {{if eq .User.PlatformRole "platform_admin"}}
+                        {{if eq (string .User.PlatformRole) "platform_admin"}}
                         <span class="badge bg-danger ms-1" title="Platform Admin"><i class="bi bi-shield-fill"></i></span>
                         {{end}}
                     </td>

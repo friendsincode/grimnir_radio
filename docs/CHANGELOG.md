@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.11 — 2026-02-22
+
+### Platform Role Rendering Reliability
+- Fixed platform role badges in admin/user pages by normalizing role comparisons in templates.
+- Hardened template equality helpers (`eq`/`ne`) to handle typed string enums and numeric values safely, preventing silent UI branch fall-through.
+- Updated platform/station user templates to render correct admin/mod/user indicators and selected role states.
+
+---
+
 ## 1.17.10 — 2026-02-22
 
 ### Staged Media Attribution

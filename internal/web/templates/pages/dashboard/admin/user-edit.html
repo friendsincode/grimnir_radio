@@ -30,13 +30,13 @@
                     <div class="mb-3">
                         <label for="platform_role" class="form-label">Platform Role</label>
                         <select class="form-select" id="platform_role" name="platform_role" required>
-                            <option value="user" {{if eq .Data.TargetUser.PlatformRole "user"}}selected{{end}}>
+                            <option value="user" {{if eq (string .Data.TargetUser.PlatformRole) "user"}}selected{{end}}>
                                 User - Regular user
                             </option>
-                            <option value="platform_mod" {{if eq .Data.TargetUser.PlatformRole "platform_mod"}}selected{{end}}>
+                            <option value="platform_mod" {{if eq (string .Data.TargetUser.PlatformRole) "platform_mod"}}selected{{end}}>
                                 Platform Moderator - Can moderate content
                             </option>
-                            <option value="platform_admin" {{if eq .Data.TargetUser.PlatformRole "platform_admin"}}selected{{end}}>
+                            <option value="platform_admin" {{if eq (string .Data.TargetUser.PlatformRole) "platform_admin"}}selected{{end}}>
                                 Platform Admin - Full platform access
                             </option>
                         </select>
