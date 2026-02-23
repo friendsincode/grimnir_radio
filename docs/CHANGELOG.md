@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.10 — 2026-02-22
+
+### Staged Media Attribution
+- Added explicit source-station attribution in staged review media table so each song shows which station it belongs to.
+- Added station label map propagation to import review page data and template helpers for scoped source ID parsing.
+- Preserved robust station label resolution from staged metadata + description fallback paths.
+
+---
+
 ## 1.17.9 — 2026-02-22
 
 ### Staged Review Station Labels
