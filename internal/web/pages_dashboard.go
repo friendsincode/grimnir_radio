@@ -311,6 +311,16 @@ type NowPlayingInfo struct {
 func (h *Handler) StationSelect(w http.ResponseWriter, r *http.Request) {
 	// Use LoadStations which filters by user access
 	stations := h.LoadStations(r)
+	if len(stations) == 1 {
+		h.SetStation(w, stations[0].ID)
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("HX-Redirect", "/dashboard")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+		return
+	}
 
 	h.Render(w, r, "pages/dashboard/station-select", PageData{
 		Title:    "Select Station",
@@ -345,7 +355,16 @@ func (h *Handler) StationSelectSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.HasStationAccess(user, stationID) {
+	// Validate against the same station list rendered on the selection page.
+	// This keeps submit behavior aligned with what the user can actually pick.
+	allowed := false
+	for _, s := range h.LoadStations(r) {
+		if s.ID == stationID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
 		http.Error(w, "You don't have access to this station", http.StatusForbidden)
 		return
 	}

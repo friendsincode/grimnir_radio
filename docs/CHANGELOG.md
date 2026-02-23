@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.17.13 — 2026-02-23
+
+### Access Control Stability
+- Fixed station selection flow to validate against the rendered station list, preventing false `Access denied` responses after selecting a visible station.
+- Added auto-select redirect when a user has exactly one accessible station, sending them directly to `/dashboard` with station context set.
+- Added JWT role-claim normalization for legacy platform claims (`admin`, `manager`) to prevent access regressions with older tokens under stricter auth checks.
+- Added regression tests for station-select submit/auto-select behavior and JWT legacy-claim normalization.
+
+---
+
 ## 1.17.12 — 2026-02-23
 
 ### Landing Preview and Platform Access Fixes
