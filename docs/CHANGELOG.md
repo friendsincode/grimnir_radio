@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.7 — 2026-02-22
+
+### Import Review Discoverability
+- Added a prominent in-row `Review Import` button inside each staged history item, so review is visible even if right-side action controls are missed or clipped.
+- Kept right-side staged review action and job-based fallback route support in place.
+
+---
+
 ## 1.17.6 — 2026-02-22
 
 ### Import Review Page Rendering
