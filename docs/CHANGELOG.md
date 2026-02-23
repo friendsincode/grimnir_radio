@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.6 — 2026-02-22
+
+### Import Review Page Rendering
+- Fixed blank import review page by wiring `import-review` template to the dashboard layout entrypoint (`pages/dashboard/settings/import-review`) and `main` content block.
+- Added breadcrumb metadata to the import review page for consistent dashboard rendering.
+
+---
+
 ## 1.17.5 — 2026-02-22
 
 ### Import Status UX
