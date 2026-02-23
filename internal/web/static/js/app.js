@@ -781,6 +781,16 @@ class GlobalPlayer {
 
         // Recalculate marquee when viewport changes
         window.addEventListener('resize', () => this.updateTitleMarquee());
+        window.addEventListener('load', () => {
+            this.scheduleTitleMarqueeUpdate();
+            this.scheduleArtistMarqueeUpdate();
+        });
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(() => {
+                this.scheduleTitleMarqueeUpdate();
+                this.scheduleArtistMarqueeUpdate();
+            }).catch(() => {});
+        }
         this.initTitleScrollControls();
 
         // Save state when navigating away
