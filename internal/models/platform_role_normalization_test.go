@@ -28,4 +28,3 @@ func TestUserIsPlatformAdminLegacyRole(t *testing.T) {
 		t.Fatalf("expected legacy admin role to be treated as platform admin")
 	}
 }
-
