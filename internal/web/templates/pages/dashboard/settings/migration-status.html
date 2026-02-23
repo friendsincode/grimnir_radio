@@ -70,11 +70,11 @@
 <!-- Active Jobs -->
 <div id="active-jobs">
 {{range $jobs}}
-{{if or (eq .Status "running") (eq .Status "analyzing")}}
+{{if or (eq (string .Status) "running") (eq (string .Status) "analyzing")}}
 <div class="card mb-3 border-primary" data-job-id="{{.ID}}">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
         <span><i class="bi bi-arrow-repeat me-2 spin"></i><strong>{{.SourceType.String | title}} Import</strong></span>
-        {{if eq .Status "analyzing"}}
+        {{if eq (string .Status) "analyzing"}}
         <span class="badge bg-light text-primary">Analyzing</span>
         {{else}}
         <span class="badge bg-light text-primary">Running</span>
@@ -129,7 +129,7 @@
 {{/* Check if there are no active jobs */}}
 {{$hasActiveJobs := false}}
 {{range $jobs}}
-{{if or (eq .Status "running") (eq .Status "analyzing")}}{{$hasActiveJobs = true}}{{end}}
+{{if or (eq (string .Status) "running") (eq (string .Status) "analyzing")}}{{$hasActiveJobs = true}}{{end}}
 {{end}}
 {{if not $hasActiveJobs}}
 <div class="alert alert-info">
@@ -143,7 +143,7 @@
 <h5 class="mt-4 mb-3"><i class="bi bi-clock-history me-2"></i>History</h5>
 <div class="list-group">
 {{range $jobs}}
-{{if and (ne .Status "running") (ne .Status "analyzing")}}
+{{if and (ne (string .Status) "running") (ne (string .Status) "analyzing")}}
 <div class="list-group-item d-flex justify-content-between align-items-start">
     <div class="ms-2 me-auto">
         <div class="fw-bold">{{.SourceType.String | title}} Import</div>
@@ -151,7 +151,7 @@
             {{if .StartedAt}}Started {{.StartedAt | timeago}}{{else}}Created {{.CreatedAt | timeago}}{{end}}
             {{if .CompletedAt}} &middot; Completed {{.CompletedAt | timeago}}{{end}}
         </small>
-        {{if eq .Status "completed"}}{{if .Result}}
+        {{if eq (string .Status) "completed"}}{{if .Result}}
         <div class="mt-1">
             <span class="badge bg-secondary me-1">{{.Result.MediaItemsImported}} media</span>
             <span class="badge bg-secondary me-1">{{.Result.PlaylistsCreated}} playlists</span>
@@ -182,7 +182,7 @@
             </div>
         </details>
         {{end}}
-        {{if eq .Status "failed"}}
+        {{if eq (string .Status) "failed"}}
         {{/* Show progress even for failed jobs so user can see what was imported */}}
         {{if .Progress}}
         <div class="mt-1">
@@ -203,7 +203,7 @@
         </div>
         {{end}}
         {{end}}
-        {{if eq .Status "staged"}}
+        {{if eq (string .Status) "staged"}}
         <div class="mt-2">
             {{if .StagedImportID}}
             <a class="btn btn-sm btn-primary"
@@ -220,7 +220,7 @@
         {{end}}
     </div>
     <div class="d-flex align-items-center gap-2">
-        {{if eq .Status "staged"}}
+        {{if eq (string .Status) "staged"}}
         {{if .StagedImportID}}
         <a class="btn btn-sm btn-outline-primary"
            href="/dashboard/settings/migrations/review/{{.StagedImportID}}"
@@ -235,7 +235,7 @@
         </a>
         {{end}}
         {{end}}
-        {{if or (eq .Status "failed") (eq .Status "cancelled")}}
+        {{if or (eq (string .Status) "failed") (eq (string .Status) "cancelled")}}
         <button class="btn btn-sm btn-outline-primary"
                 hx-post="/dashboard/settings/migrations/jobs/{{.ID}}/restart"
                 hx-confirm="Restart this import job?"
@@ -243,7 +243,7 @@
             <i class="bi bi-arrow-clockwise"></i>
         </button>
         {{end}}
-        {{if ne .Status "running"}}
+        {{if ne (string .Status) "running"}}
         <button class="btn btn-sm btn-outline-danger"
                 hx-delete="/dashboard/settings/migrations/jobs/{{.ID}}"
                 hx-confirm="Delete this import job?"
@@ -251,15 +251,15 @@
             <i class="bi bi-trash"></i>
         </button>
         {{end}}
-        {{if eq .Status "completed"}}
+        {{if eq (string .Status) "completed"}}
         <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completed</span>
-        {{else if eq .Status "staged"}}
+        {{else if eq (string .Status) "staged"}}
         <span class="badge bg-primary"><i class="bi bi-clipboard-check me-1"></i>Ready for Review</span>
-        {{else if eq .Status "failed"}}
+        {{else if eq (string .Status) "failed"}}
         <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>
-        {{else if eq .Status "cancelled"}}
+        {{else if eq (string .Status) "cancelled"}}
         <span class="badge bg-secondary"><i class="bi bi-slash-circle me-1"></i>Cancelled</span>
-        {{else if eq .Status "pending"}}
+        {{else if eq (string .Status) "pending"}}
         <span class="badge bg-info"><i class="bi bi-hourglass me-1"></i>Pending</span>
         {{else}}
         <span class="badge bg-secondary">{{.Status}}</span>
@@ -272,7 +272,7 @@
 {{/* Check if there are no completed jobs */}}
 {{$hasCompletedJobs := false}}
 {{range $jobs}}
-{{if and (ne .Status "running") (ne .Status "analyzing")}}{{$hasCompletedJobs = true}}{{end}}
+{{if and (ne (string .Status) "running") (ne (string .Status) "analyzing")}}{{$hasCompletedJobs = true}}{{end}}
 {{end}}
 {{if not $hasCompletedJobs}}
 <div class="list-group-item text-center text-body-secondary py-4">
