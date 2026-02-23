@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.5 — 2026-02-22
+
+### Import Status UX
+- Updated staged import action in migration status history from icon-only to explicit `Review` button text for clear operator visibility.
+- Preserved staged review fallback behavior (`/migrations/review/job/{jobID}`) when direct staged link data is incomplete.
+
+---
+
 ## 1.17.4 — 2026-02-22
 
 ### Docker Publish Reliability
