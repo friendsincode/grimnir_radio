@@ -348,6 +348,7 @@ func extractStationFilters(staged *models.StagedImport) []stationFilterOption {
 		return nil
 	}
 	unique := map[int]struct{}{}
+	labels := map[int]string{}
 	addFrom := func(sourceID string) {
 		parts := strings.SplitN(sourceID, "::", 2)
 		if len(parts) != 2 {
@@ -359,6 +360,52 @@ func extractStationFilters(staged *models.StagedImport) []stationFilterOption {
 		}
 		unique[id] = struct{}{}
 	}
+	setLabel := func(sourceID, label string) {
+		parts := strings.SplitN(sourceID, "::", 2)
+		if len(parts) != 2 {
+			return
+		}
+		id, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return
+		}
+		label = strings.TrimSpace(label)
+		if label == "" {
+			return
+		}
+		if _, ok := labels[id]; !ok {
+			labels[id] = label
+		}
+	}
+	setLabelByID := func(id, label string) {
+		parsed, err := strconv.Atoi(strings.TrimSpace(id))
+		if err != nil {
+			return
+		}
+		label = strings.TrimSpace(label)
+		if label == "" {
+			return
+		}
+		labels[parsed] = label
+	}
+	labelFromDescription := func(desc string) string {
+		desc = strings.TrimSpace(desc)
+		if desc == "" {
+			return ""
+		}
+		if strings.HasPrefix(desc, "Station: ") {
+			return strings.TrimSpace(strings.TrimPrefix(desc, "Station: "))
+		}
+		const prefix = "Imported from station "
+		if strings.HasPrefix(desc, prefix) {
+			rest := strings.TrimPrefix(desc, prefix)
+			if i := strings.Index(rest, " playlist schedule"); i > 0 {
+				return strings.TrimSpace(rest[:i])
+			}
+			return strings.TrimSpace(rest)
+		}
+		return ""
+	}
 
 	for _, m := range staged.StagedMedia {
 		addFrom(m.SourceID)
@@ -368,12 +415,24 @@ func extractStationFilters(staged *models.StagedImport) []stationFilterOption {
 	}
 	for _, sb := range staged.StagedSmartBlocks {
 		addFrom(sb.SourceID)
+		setLabel(sb.SourceID, labelFromDescription(sb.Description))
 	}
 	for _, sh := range staged.StagedShows {
 		addFrom(sh.SourceID)
+		setLabel(sh.SourceID, labelFromDescription(sh.Description))
 	}
 	for _, ws := range staged.StagedWebstreams {
 		addFrom(ws.SourceID)
+		setLabel(ws.SourceID, labelFromDescription(ws.Description))
+	}
+	for _, w := range staged.Warnings {
+		if w.Code != "source_station_label" {
+			continue
+		}
+		if w.ItemType != "station" {
+			continue
+		}
+		setLabelByID(w.ItemID, w.Message)
 	}
 
 	ids := make([]int, 0, len(unique))
@@ -384,9 +443,13 @@ func extractStationFilters(staged *models.StagedImport) []stationFilterOption {
 
 	out := make([]stationFilterOption, 0, len(ids))
 	for _, id := range ids {
+		label := labels[id]
+		if strings.TrimSpace(label) == "" {
+			label = fmt.Sprintf("Station %d", id)
+		}
 		out = append(out, stationFilterOption{
 			ID:    fmt.Sprintf("%d", id),
-			Label: fmt.Sprintf("Station %d", id),
+			Label: label,
 		})
 	}
 	return out

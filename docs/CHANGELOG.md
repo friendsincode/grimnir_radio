@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.17.9 — 2026-02-22
+
+### Staged Review Station Labels
+- Fixed staged review station filters to display real source station names instead of generic `Station <id>` placeholders.
+- Added AzuraCast staged-analysis metadata warnings that persist source station ID-to-name labels for UI rendering.
+- Added fallback label extraction from staged item descriptions when explicit station-label metadata is unavailable.
+- Added regression tests for station filter label resolution and fallback behavior.
+
+---
+
 ## 1.17.8 — 2026-02-22
 
 ### Import Status Rendering Fix

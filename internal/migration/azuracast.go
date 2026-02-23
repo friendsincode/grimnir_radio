@@ -1854,6 +1854,14 @@ func (a *AzuraCastImporter) AnalyzeForStaging(ctx context.Context, jobID string,
 	}
 
 	for _, station := range stations {
+		azuraWarnings = append(azuraWarnings, models.ImportWarning{
+			Code:     "source_station_label",
+			Severity: "info",
+			Message:  strings.TrimSpace(station.Name),
+			ItemType: "station",
+			ItemID:   fmt.Sprintf("%d", station.ID),
+		})
+
 		playlistNames := make(map[int]string)
 
 		if !options.SkipMedia {
@@ -2026,6 +2034,15 @@ func (a *AzuraCastImporter) analyzeForStagingBackup(ctx context.Context, jobID s
 			Severity: "info",
 			Message:  fmt.Sprintf("%d stations detected in backup", len(backup.Stations)),
 			Details:  "Station-level selection is not yet available; review and deselect items per tab as needed.",
+		})
+	}
+	for _, station := range backup.Stations {
+		staged.Warnings = append(staged.Warnings, models.ImportWarning{
+			Code:     "source_station_label",
+			Severity: "info",
+			Message:  strings.TrimSpace(station.Name),
+			ItemType: "station",
+			ItemID:   fmt.Sprintf("%d", station.ID),
 		})
 	}
 
