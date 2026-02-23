@@ -619,6 +619,14 @@ function grimnirInjectCSRFIntoForm(form) {
     input.value = token;
 }
 
+function grimnirAttachCSRF(xhr, method) {
+    if (!xhr) return;
+    const m = (method || 'GET').toUpperCase();
+    if (grimnirCSRFSafeMethod(m)) return;
+    const token = grimnirCSRFToken();
+    if (token) xhr.setRequestHeader('X-CSRF-Token', token);
+}
+
 document.addEventListener('submit', function(e) {
     grimnirInjectCSRFIntoForm(e.target);
 }, true);
@@ -650,6 +658,8 @@ document.body.addEventListener('htmx:configRequest', function(evt) {
         return originalFetch(input, init);
     };
 })();
+
+window.grimnirAttachCSRF = grimnirAttachCSRF;
 </script>
 <script src="/static/js/app.js"></script>
 
