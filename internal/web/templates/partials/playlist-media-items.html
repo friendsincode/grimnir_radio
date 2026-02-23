@@ -6,9 +6,9 @@
      draggable="true"
      data-media-id="{{.ID}}" data-title="{{.Title}}" data-artist="{{.Artist}}" data-genre="{{.Genre}}"
      data-mood="{{.Mood}}" data-year="{{.Year}}" data-bpm="{{.BPM}}" data-explicit="{{.Explicit}}">
-    <div class="form-check m-0">
-        <input class="form-check-input media-select-checkbox" type="checkbox" value="{{.ID}}" title="Select track">
-    </div>
+    <label class="media-select-hitarea form-check m-0" for="media-select-{{.ID}}" title="Select track">
+        <input class="form-check-input media-select-checkbox" id="media-select-{{.ID}}" type="checkbox" value="{{.ID}}">
+    </label>
     <div class="flex-grow-1 min-width-0">
         <div class="text-truncate fw-medium">
             {{.Title}}

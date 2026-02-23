@@ -738,6 +738,13 @@ function initMediaButtons(container) {
         });
     });
 
+    container.querySelectorAll('.media-select-hitarea').forEach(hitArea => {
+        hitArea.addEventListener('mousedown', (e) => e.stopPropagation());
+        hitArea.addEventListener('click', (e) => e.stopPropagation());
+        hitArea.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+        hitArea.addEventListener('dragstart', (e) => e.preventDefault());
+    });
+
     // Also setup draggable for new items
     container.querySelectorAll('.draggable-media').forEach(item => {
         item.addEventListener('dragstart', (e) => {
@@ -864,6 +871,25 @@ previewAudio.addEventListener('ended', () => {
 .editable-text:hover {
     text-decoration: underline;
     text-decoration-style: dashed;
+}
+.media-select-hitarea {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    margin: -7px -6px;
+    border-radius: 0.4rem;
+    cursor: pointer;
+}
+.media-select-hitarea:hover {
+    background: var(--bs-tertiary-bg);
+}
+.media-select-checkbox {
+    width: 1.05rem;
+    height: 1.05rem;
+    margin: 0;
+    pointer-events: none;
 }
 </style>
 {{end}}
