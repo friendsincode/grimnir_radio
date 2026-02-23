@@ -615,6 +615,18 @@ tr:has(.preview-playing) {
     font-weight: 500;
 }
 
+#playerArtist {
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+#playerArtist::-webkit-scrollbar {
+    display: none;
+}
+
 /* On-air / live DJ indicator */
 .global-player.is-on-air #playerPlayIcon {
     color: var(--bs-danger);

@@ -722,6 +722,7 @@ class GlobalPlayer {
         this.titleDragActive = false;
         this.titlePointerStartX = 0;
         this.titleScrollStart = 0;
+        this.artistAutoScrollRaf = null;
 
         // Cached stations for quick switching
         this.publicStations = [];
@@ -1371,7 +1372,7 @@ class GlobalPlayer {
                     this.audio.play().then(() => {
                         console.log('WebRTC audio playing');
                         if (this.artistEl) {
-                            this.artistEl.textContent = this.getLiveSecondaryText();
+                            this.setSecondaryText(this.getLiveSecondaryText());
                         }
                     }).catch(e => console.error('WebRTC play error:', e));
                 }
@@ -1395,7 +1396,7 @@ class GlobalPlayer {
                 if (state === 'connected') {
                     this._webrtcReconnectAttempts = 0;
                     if (this.artistEl && this.currentTrack) {
-                        this.artistEl.textContent = this.getLiveSecondaryText();
+                        this.setSecondaryText(this.getLiveSecondaryText());
                     }
                 } else if (state === 'failed' || state === 'disconnected') {
                     // WebRTC failed - fall back to HTTP immediately (no retries)
@@ -1510,7 +1511,7 @@ class GlobalPlayer {
                 // Second line in global player is station name.
                 const stationName = this.resolveCurrentStationName();
                 const artistText = this.getLiveSecondaryText();
-                if (this.artistEl) this.artistEl.textContent = artistText;
+                this.setSecondaryText(artistText);
 
                 this.isLiveDJ = data.is_live_dj === true || data.source_type === 'live' || data.type === 'live';
                 if (this.container) {
@@ -1576,6 +1577,81 @@ class GlobalPlayer {
 
     getLiveSecondaryText() {
         return this.resolveCurrentStationName() || 'On-Air';
+    }
+
+    setSecondaryText(text) {
+        if (!this.artistEl) return;
+        this.artistEl.textContent = (text || '').toString();
+        this.scheduleArtistMarqueeUpdate();
+    }
+
+    stopArtistAutoScroll() {
+        if (this.artistAutoScrollRaf) {
+            cancelAnimationFrame(this.artistAutoScrollRaf);
+            this.artistAutoScrollRaf = null;
+        }
+    }
+
+    scheduleArtistMarqueeUpdate() {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                this.updateArtistMarquee();
+            });
+        });
+        setTimeout(() => this.updateArtistMarquee(), 60);
+    }
+
+    updateArtistMarquee() {
+        if (!this.artistEl) return;
+
+        this.stopArtistAutoScroll();
+        this.artistEl.scrollLeft = 0;
+
+        const initialMax = this.artistEl.scrollWidth - this.artistEl.clientWidth;
+        if (initialMax <= 4) return;
+
+        let lastTs = 0;
+        let holdUntil = Date.now() + 900;
+        let resetPending = false;
+
+        const tick = (ts) => {
+            this.artistAutoScrollRaf = requestAnimationFrame(tick);
+            const max = this.artistEl.scrollWidth - this.artistEl.clientWidth;
+            if (max <= 4) return;
+            if (!lastTs) {
+                lastTs = ts;
+                return;
+            }
+
+            const now = Date.now();
+            if (now < holdUntil) {
+                lastTs = ts;
+                return;
+            }
+
+            if (resetPending) {
+                this.artistEl.scrollLeft = 0;
+                resetPending = false;
+                holdUntil = now + 800;
+                lastTs = ts;
+                return;
+            }
+
+            const dt = (ts - lastTs) / 1000;
+            lastTs = ts;
+            const next = this.artistEl.scrollLeft + (dt * 10);
+
+            if (next >= max) {
+                this.artistEl.scrollLeft = max;
+                holdUntil = now + 1700;
+                resetPending = true;
+                return;
+            }
+
+            this.artistEl.scrollLeft = next;
+        };
+
+        this.artistAutoScrollRaf = requestAnimationFrame(tick);
     }
 
     startLiveTimeTicker() {
@@ -1658,6 +1734,8 @@ class GlobalPlayer {
         this.audio.pause();
         this.audio.src = '';
         this.closeWebRTC();  // Clean up WebRTC connection
+        this.stopTitleAutoScroll();
+        this.stopArtistAutoScroll();
         this.currentTrack = null;
         this.isLive = false;
         this.isLiveDJ = false;
@@ -1680,6 +1758,8 @@ class GlobalPlayer {
         if (this.container) {
             this.container.style.display = 'none';
             document.body.classList.remove('player-active');
+            this.stopTitleAutoScroll();
+            this.stopArtistAutoScroll();
         }
     }
 
@@ -1690,9 +1770,9 @@ class GlobalPlayer {
         this.setTitle(this.currentTrack.title);
         if (this.artistEl) {
             if (this.isLive) {
-                this.artistEl.textContent = this.getLiveSecondaryText();
+                this.setSecondaryText(this.getLiveSecondaryText());
             } else {
-                this.artistEl.textContent = this.currentTrack.artist;
+                this.setSecondaryText(this.currentTrack.artist);
             }
         }
 
@@ -1788,7 +1868,7 @@ class GlobalPlayer {
             if (!this.artistEl.textContent.includes('Buffering')) {
                 this._savedArtist = this.artistEl.textContent;
             }
-            this.artistEl.textContent = 'Buffering...';
+            this.setSecondaryText('Buffering...');
         }
     }
 
@@ -1799,7 +1879,7 @@ class GlobalPlayer {
             if (!this.artistEl.textContent.includes('Buffering')) {
                 this._savedArtist = this.artistEl.textContent;
             }
-            this.artistEl.textContent = 'Buffering...';
+            this.setSecondaryText('Buffering...');
         }
     }
 
@@ -1819,7 +1899,7 @@ class GlobalPlayer {
 
         // Restore second line after buffering/reconnect
         if (this.isLive && this.artistEl) {
-            this.artistEl.textContent = this.getLiveSecondaryText();
+            this.setSecondaryText(this.getLiveSecondaryText());
             this._savedArtist = null;
         }
     }
@@ -1853,7 +1933,7 @@ class GlobalPlayer {
 
         // Update UI to show reconnecting state (no toast)
         if (this.artistEl && this.reconnectAttempts > 1) {
-            this.artistEl.textContent = 'Reconnecting...';
+            this.setSecondaryText('Reconnecting...');
         }
 
         this.reconnectTimer = setTimeout(() => {
@@ -1890,7 +1970,7 @@ class GlobalPlayer {
                 } else {
                     // Only notify after many failed attempts
                     console.error('Stream connection lost after multiple attempts');
-                    if (this.artistEl) this.artistEl.textContent = 'Connection lost - click play to retry';
+                    this.setSecondaryText('Connection lost - click play to retry');
                     this.reconnectAttempts = 0;
                 }
             });
