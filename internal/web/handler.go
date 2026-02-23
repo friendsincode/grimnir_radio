@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -716,8 +717,21 @@ func mod(a, b any) int {
 	}
 	return ai % bi
 }
-func eq(a, b any) bool { return a == b }
-func ne(a, b any) bool { return a != b }
+func eq(a, b any) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if isStringLike(a) && isStringLike(b) {
+		return stringify(a) == stringify(b)
+	}
+	if af, ok := toFloat(a); ok {
+		if bf, ok := toFloat(b); ok {
+			return af == bf
+		}
+	}
+	return reflect.DeepEqual(a, b)
+}
+func ne(a, b any) bool { return !eq(a, b) }
 func lt(a, b any) bool { return toInt(a) < toInt(b) }
 func le(a, b any) bool { return toInt(a) <= toInt(b) }
 func gt(a, b any) bool { return toInt(a) > toInt(b) }
@@ -737,6 +751,44 @@ func toInt(v any) int {
 	default:
 		return 0
 	}
+}
+
+func toFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case int8:
+		return float64(n), true
+	case int16:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case uint8:
+		return float64(n), true
+	case uint16:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	case float32:
+		return float64(n), true
+	case float64:
+		return n, true
+	default:
+		return 0, false
+	}
+}
+
+func isStringLike(v any) bool {
+	if v == nil {
+		return false
+	}
+	return reflect.TypeOf(v).Kind() == reflect.String
 }
 func defaultVal(def, val any) any {
 	if val == nil || val == "" || val == 0 || val == false {
