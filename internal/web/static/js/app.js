@@ -634,6 +634,9 @@ function initUploadZone(element) {
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/dashboard/media/upload');
+        if (typeof window.grimnirAttachCSRF === 'function') {
+            window.grimnirAttachCSRF(xhr, 'POST');
+        }
 
         xhr.upload.addEventListener('progress', (e) => {
             if (e.lengthComputable && progressBar) {
