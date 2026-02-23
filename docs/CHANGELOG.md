@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.8 — 2026-02-22
+
+### Import Status Rendering Fix
+- Fixed migration status template comparisons to normalize job status values before equality checks.
+- Restored staged/completed/failed conditional rendering paths, including staged `Review Import` actions and correct status badges.
+
+---
+
 ## 1.17.7 — 2026-02-22
 
 ### Import Review Discoverability
