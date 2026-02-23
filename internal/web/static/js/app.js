@@ -314,17 +314,8 @@ function updateNowPlaying(data) {
     const container = document.getElementById('nowPlaying');
     if (!container) return;
 
-    if (data && data.title) {
-        let artist = data.artist || '';
-        let title = data.title || '';
-        if (!artist && title.includes(' - ')) {
-            const parts = title.split(' - ');
-            if (parts.length >= 2) {
-                artist = parts.shift().trim();
-                title = parts.join(' - ').trim();
-            }
-        }
-
+    const line = buildNowPlayingLine(data);
+    if (line) {
         const icon = document.createElement('i');
         icon.className = 'bi bi-music-note text-success';
 
@@ -333,13 +324,12 @@ function updateNowPlaying(data) {
 
         const trackText = document.createElement('span');
         trackText.className = 'dashboard-now-playing-text';
-        const line = `${artist || ''}${artist ? ' - ' : ''}${title || ''}`.trim();
-        trackText.textContent = line || 'Now playing';
-        trackText.title = line || 'Now playing';
+        trackText.textContent = line;
+        trackText.title = line;
 
         trackWrap.appendChild(trackText);
         container.replaceChildren(icon, trackWrap);
-        updateDashboardNowPlayingMarquee();
+        scheduleNowPlayingMarqueeUpdate();
     } else {
         container.innerHTML = '<i class="bi bi-music-note"></i><span class="text-body-secondary">Nothing playing</span>';
     }
@@ -355,6 +345,40 @@ function updateNowPlaying(data) {
             statusBadge.innerHTML = '<i class="bi bi-record-circle me-1"></i>OFF AIR';
         }
     }
+}
+
+function buildNowPlayingLine(data) {
+    if (!data || typeof data !== 'object') return '';
+
+    let artist = String(data.artist || '').trim();
+    let title = String(data.title || '').trim();
+
+    if (!artist && title.includes(' - ')) {
+        const parts = title.split(' - ');
+        if (parts.length >= 2) {
+            artist = parts.shift().trim();
+            title = parts.join(' - ').trim();
+        }
+    }
+
+    if (data.is_live_dj === true) return 'Live DJ';
+    if (title && artist) return `${artist} - ${title}`;
+    if (title) return title;
+    if (artist) return artist;
+
+    const mountID = String(data.mount_id || '').trim();
+    if (mountID) return `Mount: ${mountID}`;
+
+    return '';
+}
+
+function scheduleNowPlayingMarqueeUpdate() {
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            updateDashboardNowPlayingMarquee();
+        });
+    });
+    setTimeout(updateDashboardNowPlayingMarquee, 60);
 }
 
 function updateDashboardNowPlayingMarquee() {
@@ -375,6 +399,10 @@ function updateDashboardNowPlayingMarquee() {
     wrap.style.setProperty('--np-scroll-duration', `${duration}s`);
     wrap.classList.add('is-scrolling');
 }
+
+document.body.addEventListener('htmx:afterSwap', () => {
+    scheduleNowPlayingMarqueeUpdate();
+});
 
 // Update health status indicators
 function updateHealthStatus(data) {
@@ -1149,7 +1177,8 @@ class GlobalPlayer {
             artwork: null,
             id: null,
             type: 'live',
-            stationId: stationId
+            stationId: stationId,
+            stationName: stationName || ''
         };
         this.isLive = true;
         this.isLiveDJ = false;
@@ -1469,9 +1498,12 @@ class GlobalPlayer {
 
             const data = await response.json();
 
-            if (data && data.title) {
+            if (data && typeof data === 'object') {
+                const displayTitle = this.buildLiveNowPlayingTitle(data);
+                if (!displayTitle) return;
+
                 // Update player UI with the track info
-                this.setTitle(data.title);
+                this.setTitle(displayTitle, { stationName: this.resolveCurrentStationName() });
 
                 // Show artist and album if available
                 let artistText = data.artist || '';
@@ -1504,7 +1536,7 @@ class GlobalPlayer {
                 }
 
                 // Also update the current track object
-                this.currentTrack.title = data.title;
+                this.currentTrack.title = displayTitle;
                 this.currentTrack.artist = data.artist || 'On-Air';
                 this.currentTrack.mediaId = data.media_id;
 
@@ -1514,6 +1546,34 @@ class GlobalPlayer {
         } catch (e) {
             console.debug('Failed to fetch now-playing metadata:', e);
         }
+    }
+
+    buildLiveNowPlayingTitle(data) {
+        const artist = (data.artist || '').toString().trim();
+        const title = (data.title || '').toString().trim();
+
+        if (data.is_live_dj === true || data.source_type === 'live' || data.type === 'live') {
+            return title || 'Live DJ';
+        }
+        if (artist && title) return `${artist} - ${title}`;
+        if (title) return title;
+        if (artist) return artist;
+        return '';
+    }
+
+    resolveCurrentStationName() {
+        if (this.currentTrack?.stationName) return this.currentTrack.stationName;
+
+        const selected = getSelectedStationInfo();
+        if (selected?.stationName) return selected.stationName;
+
+        const stationId = this.currentTrack?.stationId;
+        if (stationId && Array.isArray(this.publicStations)) {
+            const station = this.publicStations.find((s) => s.id === stationId);
+            if (station?.name) return station.name;
+        }
+
+        return '';
     }
 
     startLiveTimeTicker() {
@@ -1625,7 +1685,7 @@ class GlobalPlayer {
         if (!this.currentTrack) return;
 
         // Update track info
-        this.setTitle(this.currentTrack.title);
+        this.setTitle(this.currentTrack.title, { stationName: this.resolveCurrentStationName() });
         if (this.artistEl) this.artistEl.textContent = this.currentTrack.artist;
 
         // Update artwork
@@ -1837,17 +1897,36 @@ class GlobalPlayer {
         }, delay);
     }
 
-    setTitle(title) {
+    setTitle(title, options = {}) {
         if (!this.titleEl) return;
 
-        const text = (title || '-').toString();
+        const primary = (title || '-').toString();
+        const secondary = (options.stationName || '').toString().trim();
+
         let titleSpan = this.titleEl.querySelector('.title-scroll');
         if (!titleSpan) {
             titleSpan = document.createElement('span');
             titleSpan.className = 'title-scroll';
             this.titleEl.replaceChildren(titleSpan);
         }
-        titleSpan.textContent = text;
+        titleSpan.replaceChildren();
+
+        const primaryEl = document.createElement('span');
+        primaryEl.className = 'title-primary';
+        primaryEl.textContent = primary;
+        titleSpan.appendChild(primaryEl);
+
+        if (secondary) {
+            const sepEl = document.createElement('span');
+            sepEl.className = 'title-separator';
+            sepEl.textContent = ' • ';
+            titleSpan.appendChild(sepEl);
+
+            const secondaryEl = document.createElement('span');
+            secondaryEl.className = 'title-secondary';
+            secondaryEl.textContent = secondary;
+            titleSpan.appendChild(secondaryEl);
+        }
 
         requestAnimationFrame(() => this.updateTitleMarquee());
     }
