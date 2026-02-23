@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // GenerateMountName creates a URL-safe mount name from a station name.
@@ -142,7 +144,7 @@ const (
 
 // Role returns the legacy RoleName for backward compatibility.
 func (u *User) Role() RoleName {
-	switch u.PlatformRole {
+	switch normalizePlatformRole(u.PlatformRole) {
 	case PlatformRoleAdmin:
 		return RoleAdmin
 	case PlatformRoleMod:
@@ -154,12 +156,38 @@ func (u *User) Role() RoleName {
 
 // IsPlatformAdmin checks if user has platform admin privileges.
 func (u *User) IsPlatformAdmin() bool {
-	return u.PlatformRole == PlatformRoleAdmin
+	return normalizePlatformRole(u.PlatformRole) == PlatformRoleAdmin
 }
 
 // IsPlatformMod checks if user has platform moderator privileges.
 func (u *User) IsPlatformMod() bool {
-	return u.PlatformRole == PlatformRoleAdmin || u.PlatformRole == PlatformRoleMod
+	role := normalizePlatformRole(u.PlatformRole)
+	return role == PlatformRoleAdmin || role == PlatformRoleMod
+}
+
+// BeforeSave normalizes legacy platform role values before persisting.
+func (u *User) BeforeSave(_ *gorm.DB) error {
+	u.PlatformRole = normalizePlatformRole(u.PlatformRole)
+	return nil
+}
+
+// AfterFind normalizes legacy platform role values loaded from storage.
+func (u *User) AfterFind(_ *gorm.DB) error {
+	u.PlatformRole = normalizePlatformRole(u.PlatformRole)
+	return nil
+}
+
+func normalizePlatformRole(role PlatformRole) PlatformRole {
+	switch strings.ToLower(strings.TrimSpace(string(role))) {
+	case "platform_admin", "admin":
+		return PlatformRoleAdmin
+	case "platform_mod", "mod", "moderator", "manager":
+		return PlatformRoleMod
+	case "user", "":
+		return PlatformRoleUser
+	default:
+		return role
+	}
 }
 
 // =============================================================================
