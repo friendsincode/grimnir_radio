@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.4 — 2026-02-22
+
+### Docker Publish Reliability
+- Fixed Docker build context exclusions that broke release image builds by explicitly allowing `LICENSE` and `THIRD_PARTY_NOTICES.md` through `.dockerignore`.
+- Restored compatibility with Dockerfiles that copy licensing artifacts into runtime images.
+
+---
+
 ## 1.17.3 — 2026-02-22
 
 ### Import Review Visibility (Staged/Dry-Run)
