@@ -8,6 +8,7 @@ package auth
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -49,6 +50,38 @@ func Parse(secret []byte, token string) (*Claims, error) {
 	if !ok || !parsed.Valid {
 		return nil, jwt.ErrTokenInvalidClaims
 	}
+	claims.Roles = normalizeClaimRoles(claims.Roles, claims.StationID)
 
 	return claims, nil
+}
+
+func normalizeClaimRoles(roles []string, stationID string) []string {
+	if len(roles) == 0 {
+		return roles
+	}
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		r := strings.ToLower(strings.TrimSpace(role))
+		switch r {
+		case "admin":
+			// Legacy compatibility: unscoped admin claim means platform admin.
+			if stationID == "" {
+				out = append(out, "platform_admin")
+			} else {
+				out = append(out, "admin")
+			}
+		case "manager":
+			// Legacy compatibility: unscoped manager claim means platform moderator.
+			if stationID == "" {
+				out = append(out, "platform_mod")
+			} else {
+				out = append(out, "manager")
+			}
+		case "mod", "moderator":
+			out = append(out, "platform_mod")
+		default:
+			out = append(out, r)
+		}
+	}
+	return out
 }

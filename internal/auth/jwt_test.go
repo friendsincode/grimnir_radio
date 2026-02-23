@@ -51,3 +51,42 @@ func TestParse_RejectsUnexpectedAlgorithm(t *testing.T) {
 		t.Fatalf("expected parse to reject non-HS256 token")
 	}
 }
+
+func TestParse_NormalizesLegacyPlatformClaims(t *testing.T) {
+	secret := []byte("test-secret")
+	token, err := Issue(secret, Claims{
+		UserID: "u1",
+		Roles:  []string{"admin"},
+	}, time.Hour)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+
+	claims, err := Parse(secret, token)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(claims.Roles) != 1 || claims.Roles[0] != "platform_admin" {
+		t.Fatalf("expected normalized platform role, got %#v", claims.Roles)
+	}
+}
+
+func TestParse_KeepsStationScopedLegacyRole(t *testing.T) {
+	secret := []byte("test-secret")
+	token, err := Issue(secret, Claims{
+		UserID:    "u1",
+		StationID: "s1",
+		Roles:     []string{"admin"},
+	}, time.Hour)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+
+	claims, err := Parse(secret, token)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(claims.Roles) != 1 || claims.Roles[0] != "admin" {
+		t.Fatalf("expected station-scoped role unchanged, got %#v", claims.Roles)
+	}
+}
