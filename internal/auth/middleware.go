@@ -8,6 +8,7 @@ package auth
 
 import (
 	"net/http"
+	"path"
 	"strings"
 
 	"gorm.io/gorm"
@@ -70,5 +71,20 @@ func extractToken(r *http.Request) string {
 			return strings.TrimSpace(parts[1])
 		}
 	}
+
+	// Browser WebSocket clients cannot set arbitrary Authorization headers.
+	// Allow query-token auth only for the events WebSocket upgrade endpoint.
+	if isWebSocketUpgrade(r) && path.Clean(r.URL.Path) == "/api/v1/events" {
+		if token := strings.TrimSpace(r.URL.Query().Get("token")); token != "" {
+			return token
+		}
+	}
 	return ""
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket")
 }
