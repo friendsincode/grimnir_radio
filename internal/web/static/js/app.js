@@ -1124,6 +1124,9 @@ class GlobalPlayer {
                 icon.classList.toggle('bi-plus-lg', this.isMinimized);
             }
         }
+        if (!this.isMinimized) {
+            this.scheduleTitleMarqueeUpdate();
+        }
     }
 
     play(track) {
@@ -1173,7 +1176,7 @@ class GlobalPlayer {
             url: url,        // HQ URL (for reference)
             lqUrl: lqUrl,    // LQ URL (for HTTP streaming)
             title: stationName || 'Live Stream',
-            artist: 'Connecting...',
+            artist: stationName || 'Connecting...',
             artwork: null,
             id: null,
             type: 'live',
@@ -1368,7 +1371,7 @@ class GlobalPlayer {
                     this.audio.play().then(() => {
                         console.log('WebRTC audio playing');
                         if (this.artistEl) {
-                            this.artistEl.textContent = 'On-Air (WebRTC)';
+                            this.artistEl.textContent = this.getLiveSecondaryText();
                         }
                     }).catch(e => console.error('WebRTC play error:', e));
                 }
@@ -1392,8 +1395,7 @@ class GlobalPlayer {
                 if (state === 'connected') {
                     this._webrtcReconnectAttempts = 0;
                     if (this.artistEl && this.currentTrack) {
-                        const artistText = this.currentTrack.artist || 'On-Air';
-                        this.artistEl.textContent = artistText + ' (WebRTC)';
+                        this.artistEl.textContent = this.getLiveSecondaryText();
                     }
                 } else if (state === 'failed' || state === 'disconnected') {
                     // WebRTC failed - fall back to HTTP immediately (no retries)
@@ -1503,17 +1505,12 @@ class GlobalPlayer {
                 if (!displayTitle) return;
 
                 // Update player UI with the track info
-                this.setTitle(displayTitle, { stationName: this.resolveCurrentStationName() });
+                this.setTitle(displayTitle);
 
-                // Show artist and album if available
-                let artistText = data.artist || '';
-                if (data.album) {
-                    artistText += artistText ? ` • ${data.album}` : data.album;
-                }
-                if (!artistText) artistText = 'On-Air';
-                // Add connection type indicator
-                const connectionType = this.useWebRTC ? ' (WebRTC)' : '';
-                if (this.artistEl) this.artistEl.textContent = artistText + connectionType;
+                // Second line in global player is station name.
+                const stationName = this.resolveCurrentStationName();
+                const artistText = this.getLiveSecondaryText();
+                if (this.artistEl) this.artistEl.textContent = artistText;
 
                 this.isLiveDJ = data.is_live_dj === true || data.source_type === 'live' || data.type === 'live';
                 if (this.container) {
@@ -1537,7 +1534,8 @@ class GlobalPlayer {
 
                 // Also update the current track object
                 this.currentTrack.title = displayTitle;
-                this.currentTrack.artist = data.artist || 'On-Air';
+                this.currentTrack.artist = artistText;
+                if (stationName) this.currentTrack.stationName = stationName;
                 this.currentTrack.mediaId = data.media_id;
 
                 // Start local time ticker if not already running
@@ -1574,6 +1572,10 @@ class GlobalPlayer {
         }
 
         return '';
+    }
+
+    getLiveSecondaryText() {
+        return this.resolveCurrentStationName() || 'On-Air';
     }
 
     startLiveTimeTicker() {
@@ -1670,7 +1672,7 @@ class GlobalPlayer {
             this.container.style.display = 'block';
             document.body.classList.add('player-active');
             // Recalculate after becoming visible; hidden elements report 0 widths.
-            requestAnimationFrame(() => this.updateTitleMarquee());
+            this.scheduleTitleMarqueeUpdate();
         }
     }
 
@@ -1685,8 +1687,14 @@ class GlobalPlayer {
         if (!this.currentTrack) return;
 
         // Update track info
-        this.setTitle(this.currentTrack.title, { stationName: this.resolveCurrentStationName() });
-        if (this.artistEl) this.artistEl.textContent = this.currentTrack.artist;
+        this.setTitle(this.currentTrack.title);
+        if (this.artistEl) {
+            if (this.isLive) {
+                this.artistEl.textContent = this.getLiveSecondaryText();
+            } else {
+                this.artistEl.textContent = this.currentTrack.artist;
+            }
+        }
 
         // Update artwork
         if (this.artworkEl) {
@@ -1809,18 +1817,10 @@ class GlobalPlayer {
         this.isReconnecting = false;
         this.reconnectAttempts = 0;
 
-        // Restore artist text if we were showing buffering
+        // Restore second line after buffering/reconnect
         if (this.isLive && this.artistEl) {
-            if (this._savedArtist) {
-                // Append connection type indicator
-                const connectionType = this.useWebRTC ? ' (WebRTC)' : '';
-                this.artistEl.textContent = this._savedArtist + connectionType;
-                this._savedArtist = null;
-            } else if (this.artistEl.textContent === 'Connecting...') {
-                // Initial connection complete
-                const connectionType = this.useWebRTC ? 'On-Air (WebRTC)' : 'On-Air';
-                this.artistEl.textContent = connectionType;
-            }
+            this.artistEl.textContent = this.getLiveSecondaryText();
+            this._savedArtist = null;
         }
     }
 
@@ -1897,11 +1897,10 @@ class GlobalPlayer {
         }, delay);
     }
 
-    setTitle(title, options = {}) {
+    setTitle(title) {
         if (!this.titleEl) return;
 
-        const primary = (title || '-').toString();
-        const secondary = (options.stationName || '').toString().trim();
+        const text = (title || '-').toString();
 
         let titleSpan = this.titleEl.querySelector('.title-scroll');
         if (!titleSpan) {
@@ -1909,26 +1908,18 @@ class GlobalPlayer {
             titleSpan.className = 'title-scroll';
             this.titleEl.replaceChildren(titleSpan);
         }
-        titleSpan.replaceChildren();
+        titleSpan.textContent = text;
 
-        const primaryEl = document.createElement('span');
-        primaryEl.className = 'title-primary';
-        primaryEl.textContent = primary;
-        titleSpan.appendChild(primaryEl);
+        this.scheduleTitleMarqueeUpdate();
+    }
 
-        if (secondary) {
-            const sepEl = document.createElement('span');
-            sepEl.className = 'title-separator';
-            sepEl.textContent = ' • ';
-            titleSpan.appendChild(sepEl);
-
-            const secondaryEl = document.createElement('span');
-            secondaryEl.className = 'title-secondary';
-            secondaryEl.textContent = secondary;
-            titleSpan.appendChild(secondaryEl);
-        }
-
-        requestAnimationFrame(() => this.updateTitleMarquee());
+    scheduleTitleMarqueeUpdate() {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                this.updateTitleMarquee();
+            });
+        });
+        setTimeout(() => this.updateTitleMarquee(), 60);
     }
 
     updateTitleMarquee() {
