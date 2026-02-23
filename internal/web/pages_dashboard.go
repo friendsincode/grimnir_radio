@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -371,14 +372,23 @@ func (h *Handler) StationSelectSubmit(w http.ResponseWriter, r *http.Request) {
 
 	h.SetStation(w, stationID)
 
+	redirectTo := strings.TrimSpace(r.FormValue("redirect_to"))
+	if redirectTo == "" {
+		redirectTo = "/dashboard"
+	}
+	// Prevent open redirects by allowing only dashboard-relative paths.
+	if !strings.HasPrefix(redirectTo, "/dashboard") {
+		redirectTo = "/dashboard"
+	}
+
 	// Handle HTMX
 	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Redirect", "/dashboard")
+		w.Header().Set("HX-Redirect", redirectTo)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+	http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 }
 
 // ProfilePage renders the user's profile page
