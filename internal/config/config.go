@@ -74,10 +74,13 @@ type Config struct {
 	WebRTCTURNPassword string // TURN password
 
 	// Harbor (built-in Icecast source receiver)
-	HarborEnabled    bool   // GRIMNIR_HARBOR_ENABLED (default: false)
-	HarborBind       string // GRIMNIR_HARBOR_BIND (default: "0.0.0.0")
-	HarborPort       int    // GRIMNIR_HARBOR_PORT (default: 8088)
-	HarborMaxSources int    // GRIMNIR_HARBOR_MAX_SOURCES (default: 10)
+	HarborEnabled     bool   // GRIMNIR_HARBOR_ENABLED (default: false)
+	HarborBind        string // GRIMNIR_HARBOR_BIND (default: "0.0.0.0")
+	HarborPort        int    // GRIMNIR_HARBOR_PORT (default: 8088)
+	HarborHost        string // GRIMNIR_HARBOR_HOST — public hostname DJs connect to (shown in UI)
+	HarborPublicPort  int    // GRIMNIR_HARBOR_PUBLIC_PORT — public port shown to DJs (default: same as HarborPort)
+	HarborMountPrefix string // GRIMNIR_HARBOR_MOUNT_PREFIX — path prefix when behind reverse proxy (e.g. "/harbor")
+	HarborMaxSources  int    // GRIMNIR_HARBOR_MAX_SOURCES (default: 10)
 
 	// Media Engine configuration
 	MediaEngineGRPCAddr string // gRPC address of the media engine (e.g., "mediaengine:9091")
@@ -137,10 +140,13 @@ func Load() (*Config, error) {
 		WebRTCTURNPassword: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_PASSWORD", "WEBRTC_TURN_PASSWORD"}, ""),
 
 		// Harbor (built-in Icecast source receiver)
-		HarborEnabled:    getEnvBoolAny([]string{"GRIMNIR_HARBOR_ENABLED", "HARBOR_ENABLED"}, false),
-		HarborBind:       getEnvAny([]string{"GRIMNIR_HARBOR_BIND", "HARBOR_BIND"}, "0.0.0.0"),
-		HarborPort:       getEnvIntAny([]string{"GRIMNIR_HARBOR_PORT", "HARBOR_PORT"}, 8088),
-		HarborMaxSources: getEnvIntAny([]string{"GRIMNIR_HARBOR_MAX_SOURCES", "HARBOR_MAX_SOURCES"}, 10),
+		HarborEnabled:     getEnvBoolAny([]string{"GRIMNIR_HARBOR_ENABLED", "HARBOR_ENABLED"}, false),
+		HarborBind:        getEnvAny([]string{"GRIMNIR_HARBOR_BIND", "HARBOR_BIND"}, "0.0.0.0"),
+		HarborPort:        getEnvIntAny([]string{"GRIMNIR_HARBOR_PORT", "HARBOR_PORT"}, 8088),
+		HarborHost:        getEnvAny([]string{"GRIMNIR_HARBOR_HOST", "HARBOR_HOST"}, ""),
+		HarborPublicPort:  getEnvIntAny([]string{"GRIMNIR_HARBOR_PUBLIC_PORT", "HARBOR_PUBLIC_PORT"}, 0),
+		HarborMountPrefix: getEnvAny([]string{"GRIMNIR_HARBOR_MOUNT_PREFIX", "HARBOR_MOUNT_PREFIX"}, ""),
+		HarborMaxSources:  getEnvIntAny([]string{"GRIMNIR_HARBOR_MAX_SOURCES", "HARBOR_MAX_SOURCES"}, 10),
 
 		// Media Engine configuration
 		MediaEngineGRPCAddr: getEnvAny([]string{"GRIMNIR_MEDIA_ENGINE_GRPC_ADDR", "MEDIA_ENGINE_GRPC_ADDR"}, "mediaengine:9091"),

@@ -220,7 +220,7 @@
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Mount</td>
-                            <td><span class="text-body-secondary">(shown after generating token)</span></td>
+                            <td><code>{{.Data.HarborMountPrefix}}/</code><span class="text-body-secondary">&lt;mount name&gt;</span> <small class="text-body-secondary">(shown after generating token)</small></td>
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Username</td>
@@ -247,8 +247,9 @@
                                     <li>Address: <strong>{{.Data.HarborHost}}</strong></li>
                                     <li>Port: <strong>{{.Data.HarborPort}}</strong></li>
                                     <li>Password: <strong>paste your generated token</strong></li>
-                                    <li>Icecast mountpoint: <strong>your mount name</strong> (e.g. <code>/live</code>)</li>
+                                    <li>Icecast mountpoint: <strong>{{.Data.HarborMountPrefix}}/&lt;mount name&gt;</strong> (e.g. <code>{{.Data.HarborMountPrefix}}/live</code>)</li>
                                     <li>Icecast user: <strong>source</strong></li>
+                                    {{if eq .Data.HarborPort 443}}<li>Check <strong>Use SSL/TLS</strong></li>{{end}}
                                     <li>Click Save, then click the Play button to connect</li>
                                 </ol>
                             </div>
@@ -269,7 +270,8 @@
                                     <li>Port: <strong>{{.Data.HarborPort}}</strong></li>
                                     <li>Login: <strong>source</strong></li>
                                     <li>Password: <strong>paste your generated token</strong></li>
-                                    <li>Mount: <strong>your mount name</strong></li>
+                                    <li>Mount: <strong>{{.Data.HarborMountPrefix}}/&lt;mount name&gt;</strong></li>
+                                    {{if eq .Data.HarborPort 443}}<li>Check <strong>Enable SSL</strong></li>{{end}}
                                     <li>Click OK, then enable broadcasting</li>
                                 </ol>
                             </div>

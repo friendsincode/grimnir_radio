@@ -10,7 +10,7 @@
     {{if .MountName}}
     <div class="mb-2">
         <small class="text-body-secondary">Mount:</small>
-        <code>/{{.MountName}}</code>
+        {{if .HarborEnabled}}<code>{{.HarborMountPrefix}}/{{.MountName}}</code>{{else}}<code>/{{.MountName}}</code>{{end}}
     </div>
     {{end}}
     {{if .HarborEnabled}}

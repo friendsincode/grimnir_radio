@@ -75,14 +75,15 @@ func (h *Handler) LiveDashboard(w http.ResponseWriter, r *http.Request) {
 		Title:    "Live DJ",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"Mounts":        mounts,
-			"Sessions":      sessions,
-			"UserSession":   userSession,
-			"IcecastHost":   icecastHost,
-			"IcecastPort":   icecastPort,
-			"HarborEnabled": h.harborEnabled,
-			"HarborHost":    h.harborHost,
-			"HarborPort":    h.harborPort,
+			"Mounts":            mounts,
+			"Sessions":          sessions,
+			"UserSession":       userSession,
+			"IcecastHost":       icecastHost,
+			"IcecastPort":       icecastPort,
+			"HarborEnabled":     h.harborEnabled,
+			"HarborHost":        h.harborHost,
+			"HarborPort":        h.harborPort,
+			"HarborMountPrefix": h.harborMountPrefix,
 		},
 	})
 }
@@ -158,16 +159,18 @@ func (h *Handler) LiveGenerateToken(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") == "true" {
 		icecastHost, icecastPort := h.parseIcecastHostPort()
 		h.RenderPartial(w, r, "partials/live-token", map[string]any{
-			"Token":         token,
-			"MountID":       mountID,
-			"MountName":     mount.Name,
-			"IcecastHost":   icecastHost,
-			"IcecastPort":   icecastPort,
-			"HarborEnabled": h.harborEnabled,
-			"HarborHost":    h.harborHost,
-			"HarborPort":    h.harborPort,
+			"Token":             token,
+			"MountID":           mountID,
+			"MountName":         mount.Name,
+			"IcecastHost":       icecastHost,
+			"IcecastPort":       icecastPort,
+			"HarborEnabled":     h.harborEnabled,
+			"HarborHost":        h.harborHost,
+			"HarborPort":        h.harborPort,
+			"HarborMountPrefix": h.harborMountPrefix,
 		})
 		return
+
 	}
 
 	w.Header().Set("Content-Type", "application/json")
