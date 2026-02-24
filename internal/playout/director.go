@@ -1978,8 +1978,11 @@ func (d *Director) buildPCMEncoderPipeline(mount models.Mount, hqBitrate, lqBitr
 	}
 
 	// Read raw PCM from stdin, encode to HQ/LQ and optionally RTP/Opus.
+	// Resample to 44100 after the caps filter because some encoders (lamemp3enc)
+	// only accept standard sample rates. The input caps must match what the
+	// harbor decoder or crossfade session actually produces.
 	pipeline := fmt.Sprintf(
-		`fdsrc fd=0 ! queue ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! audioconvert ! audioresample ! tee name=t `+
+		`fdsrc fd=0 ! queue ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! audioconvert ! audioresample ! audio/x-raw,rate=44100 ! tee name=t `+
 			`t. ! queue ! %s ! fdsink fd=3 `+
 			`t. ! queue ! %s ! fdsink fd=4%s`,
 		sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
