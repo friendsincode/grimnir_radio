@@ -127,22 +127,6 @@ func (s *Service) AuthorizeSource(ctx context.Context, stationID, mountID, token
 		return false, fmt.Errorf("query session: %w", err)
 	}
 
-	// Check if token already used
-	if session.TokenUsed {
-		s.logger.Warn().
-			Str("session_id", session.ID).
-			Str("station_id", stationID).
-			Msg("authorization failed: token already used")
-		return false, ErrTokenAlreadyUsed
-	}
-
-	// Mark token as used
-	if err := s.db.WithContext(ctx).
-		Model(&session).
-		Update("token_used", true).Error; err != nil {
-		return false, fmt.Errorf("mark token used: %w", err)
-	}
-
 	s.logger.Info().
 		Str("session_id", session.ID).
 		Str("station_id", stationID).
