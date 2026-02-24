@@ -411,6 +411,7 @@ func (s *Server) initDependencies() error {
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
+		Enabled:      s.cfg.WebRTCEnabled,
 		STUNURL:      s.cfg.WebRTCSTUNURL,
 		TURNURL:      s.cfg.WebRTCTURNURL,
 		TURNUsername: s.cfg.WebRTCTURNUsername,

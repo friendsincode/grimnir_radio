@@ -670,6 +670,39 @@ func (h *Handler) ArchiveArtwork(w http.ResponseWriter, r *http.Request) {
 	w.Write(media.Artwork)
 }
 
+// PublicMediaArtwork serves artwork for currently playing tracks on public stations.
+func (h *Handler) PublicMediaArtwork(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var media models.MediaItem
+	if err := h.db.Select("id", "artwork", "artwork_mime", "station_id").First(&media, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Only expose artwork for tracks that belong to public stations.
+	var station models.Station
+	if err := h.db.First(&station, "id = ? AND active = ? AND public = ? AND approved = ?",
+		media.StationID, true, true, true).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if len(media.Artwork) == 0 {
+		http.Error(w, "No artwork available", http.StatusNotFound)
+		return
+	}
+
+	contentType := media.ArtworkMime
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(media.Artwork)
+}
+
 // PublicSchedule renders the public schedule view
 func (h *Handler) PublicSchedule(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")

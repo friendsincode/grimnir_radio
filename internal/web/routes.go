@@ -48,6 +48,7 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/archive/{id}", h.ArchiveDetail)
 			r.Get("/archive/{id}/stream", h.ArchiveStream)
 			r.Get("/archive/{id}/artwork", h.ArchiveArtwork)
+			r.Get("/media/{id}/artwork", h.PublicMediaArtwork)
 			r.Get("/schedule", h.PublicSchedule)
 			r.Get("/schedule/events", h.PublicScheduleEvents)
 			r.Get("/station/{id}", h.StationInfo)

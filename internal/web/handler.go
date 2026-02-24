@@ -82,6 +82,7 @@ type Handler struct {
 	maxUploadBytes   int64                         // Optional global upload limit override (bytes)
 
 	// WebRTC ICE server config (passed to client)
+	webrtcEnabled      bool
 	webrtcSTUNURL      string
 	webrtcTURNURL      string
 	webrtcTURNUsername string
@@ -104,6 +105,7 @@ type PageData struct {
 	UpdateInfo  *version.UpdateInfo // Available update info (nil if no update)
 
 	// WebRTC ICE server config for client
+	WebRTCEnabled      bool
 	WebRTCSTUNURL      string
 	WebRTCTURNURL      string
 	WebRTCTURNUsername string
@@ -118,6 +120,7 @@ type FlashMessage struct {
 
 // WebRTCConfig holds WebRTC ICE server configuration for client-side.
 type WebRTCConfig struct {
+	Enabled      bool
 	STUNURL      string
 	TURNURL      string
 	TURNUsername string
@@ -150,6 +153,7 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 		migrationService:   migrationService,
 		eventBus:           eventBus,
 		director:           director,
+		webrtcEnabled:      webrtcCfg.Enabled,
 		webrtcSTUNURL:      webrtcCfg.STUNURL,
 		webrtcTURNURL:      webrtcCfg.TURNURL,
 		webrtcTURNUsername: webrtcCfg.TURNUsername,
@@ -340,6 +344,7 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 	data.Version = version.Version
 
 	// WebRTC ICE server config for client
+	data.WebRTCEnabled = h.webrtcEnabled
 	data.WebRTCSTUNURL = h.webrtcSTUNURL
 	data.WebRTCTURNURL = h.webrtcTURNURL
 	data.WebRTCTURNUsername = h.webrtcTURNUsername

@@ -688,8 +688,15 @@ class GlobalPlayer {
         this.isLiveDJ = false;
         this.isMinimized = false;
 
-        this.webrtcEnabled = true;
+        this.webrtcCfg = window.GRIMNIR_WEBRTC || {};
+        this.webrtcEnabled = this.webrtcCfg.enabled === true;
+        this.webrtcFailureCooldownMs = 5 * 60 * 1000;
+        this.webrtcFailureUntil = Number(localStorage.getItem('grimnir-webrtc-disabled-until') || '0') || 0;
         this.liveTransport = localStorage.getItem('grimnir-live-transport') || 'http';
+        if (!this.webrtcEnabled || Date.now() < this.webrtcFailureUntil) {
+            this.liveTransport = 'http';
+            localStorage.setItem('grimnir-live-transport', 'http');
+        }
         this.peerConnection = null;
         this.signalingWs = null;
         this.useWebRTC = false;  // Currently using WebRTC vs HTTP
@@ -726,6 +733,7 @@ class GlobalPlayer {
         this.titlePointerStartX = 0;
         this.titleScrollStart = 0;
         this.artistAutoScrollRaf = null;
+        this.failedArtworkIds = new Set();
 
         // Cached stations for quick switching
         this.publicStations = [];
@@ -963,6 +971,10 @@ class GlobalPlayer {
         if (!this.transportMenu) return;
 
         const transport = this.getLiveTransport();
+        const lowLatencyDisabled = !this.canUseWebRTC();
+        const lowLatencyHint = this.webrtcEnabled
+            ? 'Low Latency (WebRTC)'
+            : 'Low Latency (Unavailable)';
         this.transportMenu.innerHTML = `
             <li>
                 <a class="dropdown-item small ${transport === 'http' ? 'active' : ''}" href="#"
@@ -971,9 +983,9 @@ class GlobalPlayer {
                 </a>
             </li>
             <li>
-                <a class="dropdown-item small ${transport === 'webrtc' ? 'active' : ''}" href="#"
+                <a class="dropdown-item small ${transport === 'webrtc' ? 'active' : ''} ${lowLatencyDisabled ? 'disabled' : ''}" href="#"
                    onclick="globalPlayer.setLiveTransport('webrtc'); return false;">
-                    <i class="bi bi-check2 ${transport === 'webrtc' ? '' : 'invisible'} me-1"></i>Low Latency (WebRTC)
+                    <i class="bi bi-check2 ${transport === 'webrtc' ? '' : 'invisible'} me-1"></i>${lowLatencyHint}
                 </a>
             </li>
         `;
@@ -1028,14 +1040,30 @@ class GlobalPlayer {
     }
 
     setLiveTransport(mode) {
-        const next = mode === 'webrtc' ? 'webrtc' : 'http';
+        const next = mode === 'webrtc' && this.canUseWebRTC() ? 'webrtc' : 'http';
         this.liveTransport = next;
         localStorage.setItem('grimnir-live-transport', next);
         this.updateTransportMenu();
     }
 
     getLiveTransport() {
-        return this.liveTransport === 'webrtc' ? 'webrtc' : 'http';
+        if (this.liveTransport === 'webrtc' && this.canUseWebRTC()) return 'webrtc';
+        return 'http';
+    }
+
+    canUseWebRTC() {
+        return this.webrtcEnabled && Date.now() >= this.webrtcFailureUntil;
+    }
+
+    markWebRTCUnavailable(reason) {
+        this.webrtcFailureUntil = Date.now() + this.webrtcFailureCooldownMs;
+        localStorage.setItem('grimnir-webrtc-disabled-until', String(this.webrtcFailureUntil));
+        if (this.liveTransport === 'webrtc') {
+            this.liveTransport = 'http';
+            localStorage.setItem('grimnir-live-transport', 'http');
+        }
+        this.updateTransportMenu();
+        if (reason) console.log('WebRTC temporarily disabled:', reason);
     }
 
     initDrag() {
@@ -1214,15 +1242,17 @@ class GlobalPlayer {
         const useWebRTCTransport = transport === 'webrtc';
 
         // Try WebRTC only when explicitly selected.
-        if (useWebRTCTransport && this.webrtcEnabled && 'RTCPeerConnection' in window) {
+        if (useWebRTCTransport && this.canUseWebRTC() && 'RTCPeerConnection' in window) {
             this.connectWebRTC(stationId).then(connected => {
                 if (!connected) {
                     // Fall back to HTTP LQ streaming immediately
                     console.log('WebRTC failed, falling back to HTTP LQ streaming');
+                    this.markWebRTCUnavailable('signaling failed');
                     this.fallbackToHTTP(lqUrl);
                 }
             }).catch(err => {
                 console.log('WebRTC error, falling back to HTTP LQ:', err);
+                this.markWebRTCUnavailable('connect error');
                 this.fallbackToHTTP(lqUrl);
             });
         } else {
@@ -1278,6 +1308,7 @@ class GlobalPlayer {
                 if (!connected) {
                     console.log('WebRTC connection timeout');
                     this.closeWebRTC();
+                    this.markWebRTCUnavailable('timeout');
                     resolve(false);
                 }
             }, 10000);
@@ -1318,6 +1349,7 @@ class GlobalPlayer {
                         case 'error':
                             console.error('WebRTC signaling error:', msg.error);
                             clearTimeout(timeoutId);
+                            this.markWebRTCUnavailable(msg.error || 'signaling rejected');
                             resolve(false);
                             break;
                     }
@@ -1329,6 +1361,7 @@ class GlobalPlayer {
             this.signalingWs.onerror = (error) => {
                 console.log('WebRTC signaling error:', error);
                 clearTimeout(timeoutId);
+                this.markWebRTCUnavailable('socket error');
                 resolve(false);
             };
 
@@ -1336,6 +1369,7 @@ class GlobalPlayer {
                 console.log('WebRTC signaling closed');
                 if (!connected) {
                     clearTimeout(timeoutId);
+                    this.markWebRTCUnavailable('socket closed');
                     resolve(false);
                 }
             };
@@ -1348,7 +1382,7 @@ class GlobalPlayer {
             const iceServers = [];
 
             // Use server-provided STUN/TURN config if available
-            const webrtcCfg = window.GRIMNIR_WEBRTC || {};
+            const webrtcCfg = this.webrtcCfg || {};
 
             // Add STUN server
             if (webrtcCfg.stunUrl) {
@@ -1415,6 +1449,7 @@ class GlobalPlayer {
                     // WebRTC failed - fall back to HTTP immediately (no retries)
                     if (this.currentTrack && this.isLive) {
                         console.log('WebRTC connection failed, falling back to HTTP LQ immediately');
+                        this.markWebRTCUnavailable(`peer ${state}`);
                         this.fallbackToHTTP(this.currentTrack.lqUrl || this.currentTrack.url);
                     }
                 }
@@ -1535,8 +1570,7 @@ class GlobalPlayer {
 
                 // Update artwork if media_id is available
                 if (this.artworkEl && data.media_id) {
-                    const artworkUrl = `/dashboard/media/${data.media_id}/artwork`;
-                    this.artworkEl.innerHTML = `<img src="${artworkUrl}" alt="" onerror="this.parentElement.innerHTML='<i class=\\'bi bi-broadcast\\'></i>'">`;
+                    this.updateNowPlayingArtwork(data.media_id);
                 }
 
                 // Store track timing info for local time updates
@@ -1592,10 +1626,44 @@ class GlobalPlayer {
         return this.resolveCurrentStationName() || 'On-Air';
     }
 
+    resolveArtworkURL(mediaId) {
+        const id = (mediaId || '').toString().trim();
+        if (!id) return '';
+        const path = window.location.pathname || '';
+        if (path.startsWith('/dashboard')) {
+            return `/dashboard/media/${id}/artwork`;
+        }
+        return `/media/${id}/artwork`;
+    }
+
+    updateNowPlayingArtwork(mediaId) {
+        if (!this.artworkEl || !mediaId) return;
+        const id = mediaId.toString();
+        if (this.failedArtworkIds.has(id)) return;
+
+        const artworkUrl = this.resolveArtworkURL(id);
+        if (!artworkUrl) return;
+
+        this.artworkEl.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = artworkUrl;
+        img.alt = '';
+        img.addEventListener('error', () => {
+            this.failedArtworkIds.add(id);
+            this.artworkEl.innerHTML = '<i class="bi bi-broadcast"></i>';
+        }, { once: true });
+        this.artworkEl.appendChild(img);
+    }
+
     setSecondaryText(text) {
         if (!this.artistEl) return;
         const next = (text || '').toString();
-        if (this.artistEl.textContent === next) return;
+        if (this.artistEl.textContent === next) {
+            if (this.container && this.container.style.display !== 'none') {
+                this.scheduleArtistMarqueeUpdate();
+            }
+            return;
+        }
         this.artistEl.textContent = next;
         this.scheduleArtistMarqueeUpdate();
     }
@@ -1766,6 +1834,7 @@ class GlobalPlayer {
             document.body.classList.add('player-active');
             // Recalculate after becoming visible; hidden elements report 0 widths.
             this.scheduleTitleMarqueeUpdate();
+            this.scheduleArtistMarqueeUpdate();
         }
     }
 
@@ -2003,7 +2072,12 @@ class GlobalPlayer {
             titleSpan.className = 'title-scroll';
             this.titleEl.replaceChildren(titleSpan);
         }
-        if (titleSpan.textContent === text) return;
+        if (titleSpan.textContent === text) {
+            if (this.container && this.container.style.display !== 'none') {
+                this.scheduleTitleMarqueeUpdate();
+            }
+            return;
+        }
         titleSpan.textContent = text;
 
         this.scheduleTitleMarqueeUpdate();
@@ -2181,7 +2255,7 @@ function playArchiveTrack(id, title, artist) {
             url: `/archive/${id}/stream`,
             title: title || 'Unknown Track',
             artist: artist || '',
-            artwork: `/archive/${id}/artwork`,
+            artwork: `/media/${id}/artwork`,
             id: id,
             type: 'media'
         });
