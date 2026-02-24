@@ -9,9 +9,11 @@ package web
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +22,8 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+const listenerRangeInputLayout = "2006-01-02T15:04"
 
 type listenerSeriesPoint struct {
 	Timestamp string `json:"timestamp"`
@@ -283,17 +287,7 @@ func (h *Handler) AnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
-	windowStart := now.Add(-24 * time.Hour)
-
-	loc := time.UTC
-	if station.Timezone != "" {
-		if loaded, err := time.LoadLocation(station.Timezone); err == nil {
-			loc = loaded
-		}
-	}
-	todayStartLocal := time.Date(now.In(loc).Year(), now.In(loc).Month(), now.In(loc).Day(), 0, 0, 0, 0, loc)
-	todayStartUTC := todayStartLocal.UTC()
+	from, to, fromValue, toValue := parseListenerRange(r, station)
 
 	currentListeners := 0
 	if h.director != nil {
@@ -308,7 +302,7 @@ func (h *Handler) AnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 	var peakTodayDB sql.NullInt64
 	if err := h.db.Model(&models.ListenerSample{}).
 		Select("MAX(listeners)").
-		Where("station_id = ? AND captured_at >= ?", station.ID, todayStartUTC).
+		Where("station_id = ? AND captured_at >= ? AND captured_at <= ?", station.ID, from.UTC(), to.UTC()).
 		Scan(&peakTodayDB).Error; err == nil && peakTodayDB.Valid && int(peakTodayDB.Int64) > peakToday {
 		peakToday = int(peakTodayDB.Int64)
 	}
@@ -317,12 +311,12 @@ func (h *Handler) AnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 	var avg24hDB sql.NullFloat64
 	if err := h.db.Model(&models.ListenerSample{}).
 		Select("AVG(listeners)").
-		Where("station_id = ? AND captured_at >= ?", station.ID, windowStart.UTC()).
+		Where("station_id = ? AND captured_at >= ? AND captured_at <= ?", station.ID, from.UTC(), to.UTC()).
 		Scan(&avg24hDB).Error; err == nil && avg24hDB.Valid {
 		avg24h = avg24hDB.Float64
 	}
 
-	series, err := h.buildListenerSeries(r.Context(), station.ID, windowStart, now, 5*time.Minute)
+	series, err := h.buildListenerSeries(r.Context(), station.ID, from, to, 5*time.Minute)
 	if err != nil {
 		h.logger.Warn().Err(err).Str("station_id", station.ID).Msg("failed to build listener time series")
 		series = []listenerSeriesPoint{}
@@ -336,6 +330,8 @@ func (h *Handler) AnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 			"PeakToday":        peakToday,
 			"Avg24h":           avg24h,
 			"SeriesPoints":     series,
+			"FromValue":        fromValue,
+			"ToValue":          toValue,
 		},
 	})
 }
@@ -348,9 +344,8 @@ func (h *Handler) AnalyticsListenersTimeSeries(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	now := time.Now()
-	windowStart := now.Add(-24 * time.Hour)
-	series, err := h.buildListenerSeries(r.Context(), station.ID, windowStart, now, 5*time.Minute)
+	from, to, _, _ := parseListenerRange(r, station)
+	series, err := h.buildListenerSeries(r.Context(), station.ID, from, to, 5*time.Minute)
 	if err != nil {
 		http.Error(w, "Failed to load listener time series", http.StatusInternalServerError)
 		return
@@ -365,11 +360,128 @@ func (h *Handler) AnalyticsListenersTimeSeries(w http.ResponseWriter, r *http.Re
 
 	json.NewEncoder(w).Encode(map[string]any{
 		"station_id": station.ID,
-		"from":       windowStart.UTC(),
-		"to":         now.UTC(),
+		"from":       from.UTC(),
+		"to":         to.UTC(),
 		"current":    currentListeners,
 		"points":     series,
 	})
+}
+
+// AnalyticsListenersExportCSV exports hourly listener stats for the selected range.
+func (h *Handler) AnalyticsListenersExportCSV(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	from, to, _, _ := parseListenerRange(r, station)
+	loc := stationLocation(station)
+
+	var samples []models.ListenerSample
+	if err := h.db.WithContext(r.Context()).
+		Where("station_id = ? AND captured_at >= ? AND captured_at <= ?", station.ID, from.UTC(), to.UTC()).
+		Order("captured_at ASC").
+		Find(&samples).Error; err != nil {
+		http.Error(w, "Failed to load listener samples", http.StatusInternalServerError)
+		return
+	}
+
+	type hourlyBucket struct {
+		sum   int
+		count int
+		peak  int
+	}
+	buckets := make(map[int64]*hourlyBucket)
+	for _, sample := range samples {
+		hourStart := sample.CapturedAt.In(loc).Truncate(time.Hour)
+		key := hourStart.Unix()
+		b := buckets[key]
+		if b == nil {
+			b = &hourlyBucket{}
+			buckets[key] = b
+		}
+		b.sum += sample.Listeners
+		b.count++
+		if sample.Listeners > b.peak {
+			b.peak = sample.Listeners
+		}
+	}
+
+	keys := make([]int64, 0, len(buckets))
+	for key := range buckets {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+
+	filename := fmt.Sprintf("listener-hourly-%s-to-%s.csv", from.Format("20060102-1504"), to.Format("20060102-1504"))
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"hour_start_local", "hour_start_utc", "avg_listeners", "peak_listeners", "sample_count"})
+	for _, key := range keys {
+		b := buckets[key]
+		if b == nil || b.count == 0 {
+			continue
+		}
+		localHour := time.Unix(key, 0).In(loc)
+		utcHour := localHour.UTC()
+		avg := float64(b.sum) / float64(b.count)
+		_ = cw.Write([]string{
+			localHour.Format("2006-01-02 15:04"),
+			utcHour.Format(time.RFC3339),
+			fmt.Sprintf("%.2f", avg),
+			strconv.Itoa(b.peak),
+			strconv.Itoa(b.count),
+		})
+	}
+	cw.Flush()
+}
+
+func parseListenerRange(r *http.Request, station *models.Station) (time.Time, time.Time, string, string) {
+	loc := stationLocation(station)
+
+	now := time.Now().In(loc).Truncate(time.Minute)
+	from := now.Add(-24 * time.Hour)
+	to := now
+
+	rawFrom := strings.TrimSpace(r.URL.Query().Get("from"))
+	rawTo := strings.TrimSpace(r.URL.Query().Get("to"))
+	if rawFrom != "" {
+		if parsedFrom, err := time.ParseInLocation(listenerRangeInputLayout, rawFrom, loc); err == nil {
+			from = parsedFrom
+		} else if parsedFromRFC, err := time.Parse(time.RFC3339, rawFrom); err == nil {
+			from = parsedFromRFC.In(loc)
+		}
+	}
+	if rawTo != "" {
+		if parsedTo, err := time.ParseInLocation(listenerRangeInputLayout, rawTo, loc); err == nil {
+			to = parsedTo
+		} else if parsedToRFC, err := time.Parse(time.RFC3339, rawTo); err == nil {
+			to = parsedToRFC.In(loc)
+		}
+	}
+
+	if !to.After(from) {
+		to = from.Add(24 * time.Hour)
+	}
+
+	// Cap large ranges to keep charts responsive.
+	if to.Sub(from) > 31*24*time.Hour {
+		from = to.Add(-31 * 24 * time.Hour)
+	}
+
+	return from.UTC(), to.UTC(), from.Format(listenerRangeInputLayout), to.Format(listenerRangeInputLayout)
+}
+
+func stationLocation(station *models.Station) *time.Location {
+	if station != nil && station.Timezone != "" {
+		if loaded, err := time.LoadLocation(station.Timezone); err == nil {
+			return loaded
+		}
+	}
+	return time.UTC
 }
 
 func (h *Handler) buildListenerSeries(ctx context.Context, stationID string, from, to time.Time, bucketSize time.Duration) ([]listenerSeriesPoint, error) {

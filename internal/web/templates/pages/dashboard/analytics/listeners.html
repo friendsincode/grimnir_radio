@@ -17,11 +17,38 @@
 {{$currentListeners := index $data "CurrentListeners"}}
 {{$peakToday := index $data "PeakToday"}}
 {{$avg24h := index $data "Avg24h"}}
+{{$fromValue := index $data "FromValue"}}
+{{$toValue := index $data "ToValue"}}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-headphones me-2"></i>Listener Stats</h4>
     <a href="/dashboard/analytics" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i>Back to Analytics
     </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" action="/dashboard/analytics/listeners" class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label mb-1">Start</label>
+                <input type="datetime-local" class="form-control" name="from" value="{{$fromValue}}" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label mb-1">End</label>
+                <input type="datetime-local" class="form-control" name="to" value="{{$toValue}}" required>
+            </div>
+            <div class="col-md-2 d-grid">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-funnel me-1"></i>Apply
+                </button>
+            </div>
+            <div class="col-md-2 d-grid">
+                <button type="submit" formaction="/dashboard/analytics/listeners/export.csv" class="btn btn-outline-secondary">
+                    <i class="bi bi-download me-1"></i>Export CSV
+                </button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <!-- Current Listeners -->
@@ -40,7 +67,7 @@
             <div class="card-body py-4">
                 <i class="bi bi-graph-up fs-1 text-success mb-3 d-block"></i>
                 <h2 class="display-4 fw-bold mb-0">{{$peakToday}}</h2>
-                <p class="text-body-secondary mb-0">Peak Today</p>
+                <p class="text-body-secondary mb-0">Peak (Range)</p>
             </div>
         </div>
     </div>
@@ -49,7 +76,7 @@
             <div class="card-body py-4">
                 <i class="bi bi-clock fs-1 text-info mb-3 d-block"></i>
                 <h2 class="display-4 fw-bold mb-0">{{printf "%.1f" $avg24h}}</h2>
-                <p class="text-body-secondary mb-0">Avg Listeners (24h)</p>
+                <p class="text-body-secondary mb-0">Avg Listeners (Range)</p>
             </div>
         </div>
     </div>
@@ -57,7 +84,7 @@
 
 <div class="card mt-4">
     <div class="card-header">
-        <h5 class="mb-0">Listeners Over Time (24h)</h5>
+        <h5 class="mb-0">Listeners Over Time</h5>
     </div>
     <div class="card-body">
         <div id="listenersChart" class="bg-body-tertiary rounded p-3" style="height: 260px;">
