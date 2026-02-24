@@ -7,10 +7,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package harbor
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 
 	"github.com/rs/zerolog"
 )
@@ -18,10 +20,11 @@ import (
 // decoderProc wraps a GStreamer subprocess that decodes compressed audio
 // (MP3, Ogg, AAC, etc.) from stdin into raw S16LE PCM on stdout.
 type decoderProc struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	cancel context.CancelFunc
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    io.ReadCloser
+	cancel    context.CancelFunc
+	stderrBuf *bytes.Buffer
 }
 
 // startDecoder launches a GStreamer pipeline that reads compressed audio from stdin
@@ -46,7 +49,10 @@ func startDecoder(ctx context.Context, gstreamerBin string, contentType string, 
 	cmdCtx, cancel := context.WithCancel(ctx)
 	shellCmd := fmt.Sprintf("%s -e %s", gstreamerBin, pipeline)
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", shellCmd)
-	cmd.Stderr = nil
+
+	// Capture stderr for diagnostic output from GStreamer.
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -73,11 +79,20 @@ func startDecoder(ctx context.Context, gstreamerBin string, contentType string, 
 		Msg("harbor decoder started")
 
 	return &decoderProc{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: stdout,
-		cancel: cancel,
+		cmd:       cmd,
+		stdin:     stdin,
+		stdout:    stdout,
+		cancel:    cancel,
+		stderrBuf: &stderrBuf,
 	}, nil
+}
+
+// Stderr returns any accumulated stderr output from the decoder process.
+func (d *decoderProc) Stderr() string {
+	if d == nil || d.stderrBuf == nil {
+		return ""
+	}
+	return strings.TrimSpace(d.stderrBuf.String())
 }
 
 // Close terminates the decoder process.

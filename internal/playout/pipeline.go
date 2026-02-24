@@ -12,12 +12,32 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/rs/zerolog"
 )
+
+// limitedBuffer captures up to 4KB of GStreamer stderr for diagnostics.
+type limitedBuffer struct {
+	buf [4096]byte
+	n   int
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	space := len(b.buf) - b.n
+	if space > 0 {
+		n := copy(b.buf[b.n:], p)
+		b.n += n
+	}
+	return len(p), nil // never error, just drop excess
+}
+
+func (b *limitedBuffer) String() string {
+	return strings.TrimSpace(string(b.buf[:b.n]))
+}
 
 // Pipeline manages a GStreamer-based playout process for a mount.
 type Pipeline struct {
@@ -60,7 +80,8 @@ func (p *Pipeline) StartWithOutput(ctx context.Context, launch string, outputHan
 	// Use shell to properly parse the GStreamer pipeline string
 	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
-	cmd.Stderr = nil
+	var stderrBuf limitedBuffer
+	cmd.Stderr = &stderrBuf
 
 	if outputHandler != nil {
 		stdout, err := cmd.StdoutPipe()
@@ -86,15 +107,15 @@ func (p *Pipeline) StartWithOutput(ctx context.Context, launch string, outputHan
 	}
 
 	// Single goroutine to wait for process completion
-	go func(done chan struct{}, c *exec.Cmd) {
+	go func(done chan struct{}, c *exec.Cmd, stderr *limitedBuffer) {
 		err := c.Wait()
 		close(done)
 		if err != nil {
-			p.logger.Debug().Err(err).Str("mount", p.mountID).Msg("gstreamer pipeline exited")
+			p.logger.Warn().Err(err).Str("mount", p.mountID).Str("stderr", stderr.String()).Msg("gstreamer pipeline exited with error")
 		} else {
 			p.logger.Info().Str("mount", p.mountID).Msg("gstreamer pipeline stopped")
 		}
-	}(p.done, cmd)
+	}(p.done, cmd, &stderrBuf)
 
 	return nil
 }
@@ -134,7 +155,8 @@ func (p *Pipeline) StartWithDualOutputAndInput(ctx context.Context, launch strin
 	// Use shell to properly parse the GStreamer pipeline string
 	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
-	cmd.Stderr = nil
+	var stderrBuf limitedBuffer
+	cmd.Stderr = &stderrBuf
 	cmd.Stdout = nil
 
 	stdin, err := cmd.StdinPipe()
@@ -187,18 +209,18 @@ func (p *Pipeline) StartWithDualOutputAndInput(ctx context.Context, launch strin
 	}
 
 	// Single goroutine to wait for process completion
-	go func(done chan struct{}, c *exec.Cmd, in io.WriteCloser) {
+	go func(done chan struct{}, c *exec.Cmd, in io.WriteCloser, stderr *limitedBuffer) {
 		err := c.Wait()
 		close(done)
 		if in != nil {
 			_ = in.Close()
 		}
 		if err != nil {
-			p.logger.Debug().Err(err).Str("mount", p.mountID).Msg("gstreamer pipeline exited")
+			p.logger.Warn().Err(err).Str("mount", p.mountID).Str("stderr", stderr.String()).Msg("gstreamer pipeline exited with error")
 		} else {
 			p.logger.Info().Str("mount", p.mountID).Msg("gstreamer pipeline stopped")
 		}
-	}(p.done, cmd, stdin)
+	}(p.done, cmd, stdin, &stderrBuf)
 
 	return stdin, nil
 }
@@ -234,7 +256,8 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, hqHan
 	// Use shell to properly parse the GStreamer pipeline string
 	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
-	cmd.Stderr = nil
+	var stderrBuf limitedBuffer
+	cmd.Stderr = &stderrBuf
 	cmd.Stdout = nil
 
 	// Pass extra file descriptors: fd=3 for HQ, fd=4 for LQ
@@ -277,15 +300,15 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, hqHan
 	}
 
 	// Single goroutine to wait for process completion
-	go func(done chan struct{}, c *exec.Cmd) {
+	go func(done chan struct{}, c *exec.Cmd, stderr *limitedBuffer) {
 		err := c.Wait()
 		close(done)
 		if err != nil {
-			p.logger.Debug().Err(err).Str("mount", p.mountID).Msg("gstreamer pipeline exited")
+			p.logger.Warn().Err(err).Str("mount", p.mountID).Str("stderr", stderr.String()).Msg("gstreamer pipeline exited with error")
 		} else {
 			p.logger.Info().Str("mount", p.mountID).Msg("gstreamer pipeline stopped")
 		}
-	}(p.done, cmd)
+	}(p.done, cmd, &stderrBuf)
 
 	return nil
 }
