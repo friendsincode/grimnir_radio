@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.34 — 2026-02-24
+
+### Schedule Entry Mount Auto-Recovery
+- Fixed `/dashboard/schedule/entries` returning `400` for stations that had no mount configured.
+- Added automatic default mount creation during schedule-entry creation when no station mount exists.
+- Added regression test coverage for schedule creation on mount-less stations.
+
+---
+
 ## 1.17.15 — 2026-02-23
 
 ### Dashboard WebSocket Auth Hotfix
