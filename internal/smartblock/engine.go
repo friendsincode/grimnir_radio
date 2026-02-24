@@ -172,6 +172,12 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 	if v, ok := rules["source_playlists"]; ok && !hasField("source_playlists") {
 		def.Include = append(def.Include, FilterRule{Field: "source_playlists", Value: v})
 	}
+	if includeArchive, ok := rules["includePublicArchive"].(bool); ok && includeArchive && !hasField("include_public_archive") {
+		def.Include = append(def.Include, FilterRule{Field: "include_public_archive", Value: true})
+	}
+	if includeArchive, ok := rules["include_archive"].(bool); ok && includeArchive && !hasField("include_public_archive") {
+		def.Include = append(def.Include, FilterRule{Field: "include_public_archive", Value: true})
+	}
 
 	if excludeExplicit, ok := rules["excludeExplicit"].(bool); ok && excludeExplicit && !hasField("explicit") {
 		// Legacy UI semantics: "exclude explicit" means explicit=false.
@@ -242,6 +248,12 @@ type candidate struct {
 
 func (e *Engine) fetchCandidates(ctx context.Context, def Definition, stationID string, recent []models.PlayHistory) ([]candidate, error) {
 	query := e.db.WithContext(ctx).Where("station_id = ?", stationID).Where("analysis_state = ?", models.AnalysisComplete)
+	if definitionIncludesPublicArchive(def) {
+		query = e.db.WithContext(ctx).
+			Where("(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
+				stationID, true, true, true, true).
+			Where("analysis_state = ?", models.AnalysisComplete)
+	}
 
 	// Apply include filters via SQL when possible
 	for _, rule := range def.Include {
@@ -313,6 +325,9 @@ func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
 	}
 
 	switch field {
+	case "include_public_archive", "includearchive", "source_include_archive":
+		// Scope handled before filter loop in fetchCandidates.
+		return query
 	case "source_playlists", "sourceplaylists", "playlists":
 		// Limit candidates to media that exist in one of the selected playlists.
 		// This is intentionally SQL-only: MediaItem doesn't preload playlist membership here.
@@ -777,7 +792,7 @@ func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool 
 	// SQL-only filter (handled by applyFilterRule). Skip in-memory evaluation so it doesn't
 	// accidentally exclude everything when used as an exclude rule.
 	switch strings.ToLower(rule.Field) {
-	case "source_playlists", "sourceplaylists", "playlists":
+	case "source_playlists", "sourceplaylists", "playlists", "include_public_archive", "includearchive", "source_include_archive":
 		return true
 	}
 
@@ -847,6 +862,18 @@ func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool 
 		return match
 	}
 	return !match
+}
+
+func definitionIncludesPublicArchive(def Definition) bool {
+	for _, rule := range def.Include {
+		switch strings.ToLower(strings.TrimSpace(rule.Field)) {
+		case "include_public_archive", "includearchive", "source_include_archive":
+			if toBool(rule.Value) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func toStringSlice(value interface{}) ([]string, bool) {

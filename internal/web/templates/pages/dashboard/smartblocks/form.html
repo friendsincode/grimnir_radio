@@ -138,6 +138,12 @@
                     <div id="sourceSection" class="accordion-collapse collapse">
                         <div class="accordion-body">
                             <p class="text-body-secondary small">Limit to tracks from specific playlists, or leave empty for all media.</p>
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" name="source_include_archive" id="sourceIncludeArchive" {{if index $rules "includePublicArchive"}}checked{{end}}>
+                                <label class="form-check-label" for="sourceIncludeArchive">
+                                    <i class="bi bi-globe me-1"></i>Include entire public archive (all public stations)
+                                </label>
+                            </div>
                             <div class="row g-2">
                                 {{range $playlists}}
                                 <div class="col-6 col-md-4">
@@ -390,6 +396,9 @@
                                         <select class="form-select" name="ads_source_type" id="adsSourceType">
                                             <option value="playlist">From Playlist</option>
                                             <option value="genre">By Genre</option>
+                                            <option value="title">Title Contains</option>
+                                            <option value="artist">Artist Contains</option>
+                                            <option value="label">Label Contains</option>
                                         </select>
                                     </div>
                                     <div class="col-md-6" id="adsPlaylistSelect">
@@ -408,6 +417,10 @@
                                             <option value="Promo">Promo</option>
                                             <option value="Station ID">Station ID</option>
                                         </select>
+                                    </div>
+                                    <div class="col-md-6" id="adsQuerySelect" style="display:none;">
+                                        <label class="form-label small" id="adsQueryLabel">Search</label>
+                                        <input type="text" class="form-control" name="ads_query" id="adsQueryInput" placeholder="Enter text">
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label small">Insert every</label>
@@ -514,18 +527,28 @@
                         hx-include="#smartBlockForm"
                         hx-target="#previewResults"
                         hx-indicator="#previewSpinner"
-                        hx-vals="js:{loop: document.getElementById('loopTracks').checked}">
+                        hx-vals="js:{loop: document.getElementById('loopTracks').checked, variants: document.getElementById('previewVariants')?.value || '1'}">
                     <i class="bi bi-play-fill"></i> Generate
                 </button>
                 {{end}}
             </div>
             {{if not $isNew}}
             <div class="card-body py-2 border-bottom bg-body-tertiary">
-                <div class="form-check form-switch mb-0">
-                    <input class="form-check-input" type="checkbox" id="loopTracks">
-                    <label class="form-check-label small" for="loopTracks">
-                        <i class="bi bi-repeat me-1"></i>Loop tracks to fill duration
-                    </label>
+                <div class="d-flex justify-content-between align-items-center gap-3">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="loopTracks">
+                        <label class="form-check-label small" for="loopTracks">
+                            <i class="bi bi-repeat me-1"></i>Loop tracks to fill duration
+                        </label>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="small text-body-secondary mb-0" for="previewVariants">Variants</label>
+                        <select class="form-select form-select-sm" id="previewVariants" style="width: 88px;">
+                            <option value="1">1</option>
+                            <option value="3" selected>3</option>
+                            <option value="5">5</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             {{end}}
@@ -630,13 +653,21 @@
     // ========== SOURCE PLAYLIST COUNTER ==========
     function updateSourceCount() {
         const checked = document.querySelectorAll('.source-playlist:checked').length;
+        const includeArchive = document.getElementById('sourceIncludeArchive')?.checked;
         const badge = document.getElementById('sourceCount');
-        badge.textContent = checked ? checked + ' selected' : 'All Media';
-        badge.className = 'badge ms-auto me-2 ' + (checked ? 'bg-primary' : 'bg-secondary');
+        if (checked > 0) {
+            badge.textContent = includeArchive ? `${checked} + archive` : `${checked} selected`;
+            badge.className = 'badge ms-auto me-2 bg-primary';
+            return;
+        }
+        badge.textContent = includeArchive ? 'All Media + Archive' : 'All Media';
+        badge.className = 'badge ms-auto me-2 ' + (includeArchive ? 'bg-info text-dark' : 'bg-secondary');
     }
     document.querySelectorAll('.source-playlist').forEach(cb => {
         cb.addEventListener('change', updateSourceCount);
     });
+    document.getElementById('sourceIncludeArchive')?.addEventListener('change', updateSourceCount);
+    updateSourceCount();
 
     // ========== FILTER COUNTER ==========
     function updateFilterCount() {
@@ -656,6 +687,7 @@
         f.addEventListener('change', updateFilterCount);
         f.addEventListener('input', updateFilterCount);
     });
+    updateFilterCount();
 
     // ========== BOOSTERS ==========
     let boosterIndex = 0;
@@ -760,16 +792,36 @@
     const adsConfig = document.getElementById('adsConfig');
     const adsEnabled = document.getElementById('adsEnabled');
     const adsSourceType = document.getElementById('adsSourceType');
+    const adsPlaylistSelect = document.getElementById('adsPlaylistSelect');
+    const adsGenreSelect = document.getElementById('adsGenreSelect');
+    const adsQuerySelect = document.getElementById('adsQuerySelect');
+    const adsQueryLabel = document.getElementById('adsQueryLabel');
+    const adsQueryInput = document.getElementById('adsQueryInput');
 
     adsToggle.addEventListener('change', () => {
         adsConfig.style.display = adsToggle.checked ? '' : 'none';
         adsEnabled.style.display = adsToggle.checked ? '' : 'none';
     });
 
-    adsSourceType.addEventListener('change', () => {
-        document.getElementById('adsPlaylistSelect').style.display = adsSourceType.value === 'playlist' ? '' : 'none';
-        document.getElementById('adsGenreSelect').style.display = adsSourceType.value === 'genre' ? '' : 'none';
-    });
+    function updateAdsSourceUI() {
+        const source = adsSourceType.value;
+        adsPlaylistSelect.style.display = source === 'playlist' ? '' : 'none';
+        adsGenreSelect.style.display = source === 'genre' ? '' : 'none';
+        adsQuerySelect.style.display = (source === 'title' || source === 'artist' || source === 'label') ? '' : 'none';
+        if (source === 'title') {
+            adsQueryLabel.textContent = 'Title Contains';
+            adsQueryInput.placeholder = 'e.g. Station ID';
+        } else if (source === 'artist') {
+            adsQueryLabel.textContent = 'Artist Contains';
+            adsQueryInput.placeholder = 'e.g. Grimnir';
+        } else if (source === 'label') {
+            adsQueryLabel.textContent = 'Label Contains';
+            adsQueryInput.placeholder = 'e.g. PSA';
+        }
+    }
+
+    adsSourceType.addEventListener('change', updateAdsSourceUI);
+    updateAdsSourceUI();
 
     // ========== ENERGY CURVE ==========
     const energySliders = document.getElementById('energySliders');
@@ -920,8 +972,12 @@
                 const cb = document.getElementById('src-' + id);
                 if (cb) cb.checked = true;
             });
-            updateSourceCount();
         }
+        if (existingRules.includePublicArchive || existingRules.include_archive) {
+            const includeArchive = document.getElementById('sourceIncludeArchive');
+            if (includeArchive) includeArchive.checked = true;
+        }
+        updateSourceCount();
 
         // Restore filters
         if (existingRules.genre) document.querySelector('[name="filter_genre"]').value = existingRules.genre;
@@ -969,15 +1025,13 @@
             adsEnabled.style.display = '';
             if (existingRules.interstitials.sourceType) {
                 adsSourceType.value = existingRules.interstitials.sourceType;
-                if (existingRules.interstitials.sourceType === 'genre') {
-                    document.getElementById('adsPlaylistSelect').style.display = 'none';
-                    document.getElementById('adsGenreSelect').style.display = '';
-                }
             }
             if (existingRules.interstitials.playlistID) document.querySelector('[name="ads_playlist"]').value = existingRules.interstitials.playlistID;
             if (existingRules.interstitials.genre) document.querySelector('[name="ads_genre"]').value = existingRules.interstitials.genre;
+            if (existingRules.interstitials.query) document.querySelector('[name="ads_query"]').value = existingRules.interstitials.query;
             if (existingRules.interstitials.every) document.querySelector('[name="ads_every_n"]').value = existingRules.interstitials.every;
             if (existingRules.interstitials.perBreak) document.querySelector('[name="ads_per_break"]').value = existingRules.interstitials.perBreak;
+            updateAdsSourceUI();
         }
 
         // Restore fallbacks

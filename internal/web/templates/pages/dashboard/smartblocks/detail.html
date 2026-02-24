@@ -249,7 +249,7 @@
                     <div class="col-md-4">
                         <label class="form-label small text-body-secondary mb-1">Source</label>
                         <p class="mb-0 fw-medium">
-                            {{if eq (index . "sourceType") "playlist"}}Playlist{{else}}Genre{{end}}
+                            {{if eq (index . "sourceType") "playlist"}}Playlist{{else if eq (index . "sourceType") "genre"}}Genre{{else if eq (index . "sourceType") "title"}}Title Contains{{else if eq (index . "sourceType") "artist"}}Artist Contains{{else if eq (index . "sourceType") "label"}}Label Contains{{else}}{{index . "sourceType"}}{{end}}
                         </p>
                     </div>
                     {{with index . "playlistID"}}
@@ -261,6 +261,12 @@
                     {{with index . "genre"}}
                     <div class="col-md-4">
                         <label class="form-label small text-body-secondary mb-1">Genre</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index . "query"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Query</label>
                         <p class="mb-0 fw-medium">{{.}}</p>
                     </div>
                     {{end}}
