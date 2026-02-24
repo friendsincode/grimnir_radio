@@ -323,6 +323,7 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/spins", h.AnalyticsSpins)
 					r.Get("/listeners", h.AnalyticsListeners)
 					r.Get("/listeners/timeseries", h.AnalyticsListenersTimeSeries)
+					r.Get("/listeners/export.csv", h.AnalyticsListenersExportCSV)
 				})
 			})
 
