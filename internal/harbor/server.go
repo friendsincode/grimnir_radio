@@ -8,7 +8,6 @@ package harbor
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -258,29 +257,37 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 			Msg("harbor source disconnected")
 	}()
 
-	// Send 200 and stream from the request body. Legacy SOURCE method is
-	// already rewritten to PUT at the connection level, so r.Body works
-	// for both modern and legacy clients.
-	w.WriteHeader(http.StatusOK)
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
-
-	// Verify the body is actually readable before starting the pipeline.
-	probe := make([]byte, 1)
-	n, probeErr := r.Body.Read(probe)
-	s.logger.Info().
-		Int("probe_bytes", n).
-		Err(probeErr).
-		Msg("harbor body probe read")
-
-	if probeErr != nil {
-		s.logger.Error().Err(probeErr).Msg("harbor body is not readable, aborting")
+	// Hijack the connection to read raw audio bytes directly from the socket.
+	// Nginx proxies streaming PUT requests with Content-Length: 0 (no chunked
+	// Transfer-Encoding), which causes Go's http.Request.Body to return EOF
+	// immediately. Hijacking bypasses Go's HTTP body handling entirely.
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		s.logger.Error().Msg("harbor: ResponseWriter does not support hijacking")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// Wrap body with the probed byte prepended.
-	audioSource := io.MultiReader(bytes.NewReader(probe[:n]), r.Body)
+	hjConn, buf, err := hj.Hijack()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("harbor: hijack failed")
+		return
+	}
+	defer hjConn.Close()
+
+	// Send HTTP/1.0 200 OK response directly on the hijacked connection.
+	_, _ = hjConn.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
+
+	// The buffered reader may contain data that was read-ahead by the HTTP
+	// server. Use it as the audio source so we don't lose any bytes.
+	var audioSource io.Reader = buf.Reader
+	if buf.Reader.Buffered() == 0 {
+		audioSource = hjConn
+	}
+
+	s.logger.Debug().
+		Int("buffered_bytes", buf.Reader.Buffered()).
+		Msg("harbor connection hijacked, reading audio from socket")
 
 	// Inject live audio into the playout pipeline.
 	s.streamAudio(connCtx, conn, mount, contentType, audioSource)
