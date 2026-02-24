@@ -8,8 +8,10 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -390,24 +392,6 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		baseQuery = baseQuery.Where("1=0")
 	}
 
-	// Fetch distinct values for filter dropdowns (only if there are public stations)
-	var genres []string
-	var years []string
-	var artists []string
-	if len(publicStationIDs) > 0 {
-		h.db.Model(&models.MediaItem{}).
-			Where("show_in_archive = ? AND station_id IN ? AND genre != '' AND genre IS NOT NULL", true, publicStationIDs).
-			Distinct().Pluck("genre", &genres)
-
-		h.db.Model(&models.MediaItem{}).
-			Where("show_in_archive = ? AND station_id IN ? AND year != '' AND year IS NOT NULL", true, publicStationIDs).
-			Distinct().Order("year DESC").Pluck("year", &years)
-
-		h.db.Model(&models.MediaItem{}).
-			Where("show_in_archive = ? AND station_id IN ? AND artist != '' AND artist IS NOT NULL", true, publicStationIDs).
-			Distinct().Order("artist ASC").Pluck("artist", &artists)
-	}
-
 	var media []models.MediaItem
 	var total int64
 
@@ -416,9 +400,6 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 
 	// Get filter parameters
 	stationID := r.URL.Query().Get("station")
-	genre := r.URL.Query().Get("genre")
-	year := r.URL.Query().Get("year")
-	artist := r.URL.Query().Get("artist")
 	sortBy := r.URL.Query().Get("sort")
 	duration := r.URL.Query().Get("duration")
 	searchQuery := r.URL.Query().Get("q")
@@ -435,21 +416,6 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		if isPublic {
 			query = query.Where("station_id = ?", stationID)
 		}
-	}
-
-	// Genre filter
-	if genre != "" {
-		query = query.Where("genre = ?", genre)
-	}
-
-	// Year filter
-	if year != "" {
-		query = query.Where("year = ?", year)
-	}
-
-	// Artist filter
-	if artist != "" {
-		query = query.Where("artist = ?", artist)
 	}
 
 	// Duration filter (Duration is time.Duration stored as nanoseconds)
@@ -505,15 +471,6 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	if stationID != "" {
 		paginationParams = append(paginationParams, "station="+stationID)
 	}
-	if genre != "" {
-		paginationParams = append(paginationParams, "genre="+genre)
-	}
-	if year != "" {
-		paginationParams = append(paginationParams, "year="+year)
-	}
-	if artist != "" {
-		paginationParams = append(paginationParams, "artist="+artist)
-	}
 	if duration != "" {
 		paginationParams = append(paginationParams, "duration="+duration)
 	}
@@ -535,12 +492,6 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 			"Query":        searchQuery,
 			"Stations":     publicStations,
 			"StationID":    stationID,
-			"Genres":       genres,
-			"Genre":        genre,
-			"Years":        years,
-			"Year":         year,
-			"Artists":      artists,
-			"Artist":       artist,
 			"Sort":         sortBy,
 			"Duration":     duration,
 			"FilterParams": filterParams,
@@ -609,6 +560,7 @@ func (h *Handler) ArchiveStream(w http.ResponseWriter, r *http.Request) {
 
 	// Set content type based on file extension
 	ext := strings.ToLower(filepath.Ext(media.Path))
+	requestedFormat := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
 	contentTypes := map[string]string{
 		".mp3":  "audio/mpeg",
 		".flac": "audio/flac",
@@ -627,11 +579,44 @@ func (h *Handler) ArchiveStream(w http.ResponseWriter, r *http.Request) {
 		if media.Artist != "" {
 			filename = media.Artist + " - " + filename
 		}
-		if ext == "" {
-			ext = ".bin"
+		downloadExt := ext
+		if requestedFormat == "mp3" {
+			downloadExt = ".mp3"
 		}
-		filename = filename + ext
+		if downloadExt == "" {
+			downloadExt = ".bin"
+		}
+		filename = filename + downloadExt
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	}
+
+	// Optional MP3 download transcode.
+	if isDownload && requestedFormat == "mp3" && ext != ".mp3" {
+		cmd := exec.CommandContext(r.Context(),
+			"ffmpeg",
+			"-v", "error",
+			"-i", fullPath,
+			"-vn",
+			"-acodec", "libmp3lame",
+			"-q:a", "2",
+			"-f", "mp3",
+			"pipe:1",
+		)
+		w.Header().Set("Content-Type", "audio/mpeg")
+		cmd.Stdout = w
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			h.logger.Error().
+				Err(err).
+				Str("media_id", media.ID).
+				Str("path", media.Path).
+				Str("stderr", stderr.String()).
+				Msg("archive mp3 transcode failed")
+			http.Error(w, fmt.Sprintf("MP3 conversion failed: %s", strings.TrimSpace(stderr.String())), http.StatusInternalServerError)
+			return
+		}
+		return
 	}
 
 	http.ServeFile(w, r, fullPath)
