@@ -137,27 +137,14 @@ func (h *Handler) StreamInfo(w http.ResponseWriter, r *http.Request) {
 		Channels   int    `json:"channels,omitempty"`
 	}
 
-	stationPath := strings.ToLower(strings.ReplaceAll(station.Name, " ", "-"))
 	streams := make([]streamInfo, 0, len(mounts))
 
 	for _, m := range mounts {
-		ext := ".mp3"
-		switch strings.ToLower(m.Format) {
-		case "opus":
-			ext = ".opus"
-		case "ogg", "vorbis":
-			ext = ".ogg"
-		case "aac":
-			ext = ".aac"
-		case "flac":
-			ext = ".flac"
-		}
-
 		streams = append(streams, streamInfo{
 			Name:       m.Name,
 			Format:     m.Format,
 			Bitrate:    m.Bitrate,
-			URL:        "/stream/" + stationPath + "/" + m.Name + ext,
+			URL:        "/live/" + m.Name,
 			SampleRate: m.SampleRate,
 			Channels:   m.Channels,
 		})
