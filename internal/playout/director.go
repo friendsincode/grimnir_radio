@@ -1986,10 +1986,10 @@ func (d *Director) buildPCMEncoderPipeline(mount models.Mount, hqBitrate, lqBitr
 	// harbor decoder or crossfade session actually produces; audioresample
 	// normalizes to the encoding rate so lamemp3enc/faac/vorbisenc are happy.
 	pipeline := fmt.Sprintf(
-		`fdsrc fd=0 ! queue ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! audioconvert ! audioresample ! audio/x-raw,rate=%d ! tee name=t `+
+		`fdsrc fd=0 ! queue ! audio/x-raw,format=S16LE,rate=%d,channels=%d,layout=interleaved ! audioconvert ! audioresample ! audio/x-raw,format=S16LE,rate=%d,channels=%d,layout=interleaved ! tee name=t `+
 			`t. ! queue ! %s ! fdsink fd=3 `+
 			`t. ! queue ! %s ! fdsink fd=4%s`,
-		sampleRate, channels, encodeRate, hqEncoder, lqEncoder, webrtcBranch,
+		sampleRate, channels, encodeRate, channels, hqEncoder, lqEncoder, webrtcBranch,
 	)
 
 	return pipeline, nil
