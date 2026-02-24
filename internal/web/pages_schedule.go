@@ -484,16 +484,10 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If no mount specified, use the first mount for this station
-	mountID := input.MountID
-	if mountID == "" {
-		var mount models.Mount
-		if err := h.db.Where("station_id = ?", station.ID).First(&mount).Error; err == nil {
-			mountID = mount.ID
-		} else {
-			http.Error(w, "No mount available for this station", http.StatusBadRequest)
-			return
-		}
+	mountID, err := h.resolveScheduleMountID(station, input.MountID)
+	if err != nil {
+		http.Error(w, "Failed to resolve schedule mount", http.StatusInternalServerError)
+		return
 	}
 
 	entry := models.ScheduleEntry{
@@ -796,6 +790,43 @@ func (h *Handler) scheduleOverlaps(stationID string, startsAt, endsAt time.Time,
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (h *Handler) resolveScheduleMountID(station *models.Station, requestedMountID string) (string, error) {
+	if requestedMountID != "" {
+		return requestedMountID, nil
+	}
+
+	var mount models.Mount
+	err := h.db.Where("station_id = ?", station.ID).Order("created_at ASC").First(&mount).Error
+	if err == nil {
+		return mount.ID, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+
+	mountName := models.GenerateMountName(station.Name)
+	defaultMount := models.Mount{
+		ID:         uuid.New().String(),
+		StationID:  station.ID,
+		Name:       mountName,
+		URL:        "/" + mountName,
+		Format:     "mp3",
+		Bitrate:    128,
+		Channels:   2,
+		SampleRate: 44100,
+	}
+	if err := h.db.Create(&defaultMount).Error; err != nil {
+		return "", err
+	}
+
+	h.logger.Warn().
+		Str("station_id", station.ID).
+		Str("mount_id", defaultMount.ID).
+		Msg("auto-created missing station mount for schedule entry")
+
+	return defaultMount.ID, nil
 }
 
 func (h *Handler) logValidationSummary(stationID string, start, end time.Time, result *models.ValidationResult) {

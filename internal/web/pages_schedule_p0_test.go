@@ -172,3 +172,44 @@ func TestScheduleDeleteEntryVirtualInstanceDeletesOverride(t *testing.T) {
 		t.Fatalf("expected override to be deleted, count=%d", count)
 	}
 }
+
+func TestScheduleCreateEntryAutoCreatesMountWhenMissing(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.ScheduleEntry{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	station := models.Station{ID: "s1", Name: "S1"}
+	if err := db.Create(&station).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+
+	h := &Handler{db: db, logger: zerolog.Nop()}
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"starts_at":   time.Date(2026, 2, 23, 6, 0, 0, 0, time.UTC),
+		"ends_at":     time.Date(2026, 2, 24, 6, 35, 0, 0, time.UTC),
+		"source_type": "smart_block",
+		"source_id":   "11111111-1111-1111-1111-111111111111",
+		"metadata":    map[string]any{},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", bytes.NewReader(reqBody))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+	rr := httptest.NewRecorder()
+
+	h.ScheduleCreateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var mountCount int64
+	if err := db.Model(&models.Mount{}).Where("station_id = ?", station.ID).Count(&mountCount).Error; err != nil {
+		t.Fatalf("count mounts: %v", err)
+	}
+	if mountCount != 1 {
+		t.Fatalf("expected 1 auto-created mount, got %d", mountCount)
+	}
+}
