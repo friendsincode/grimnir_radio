@@ -2671,21 +2671,26 @@ func (d *Director) ReloadStation(ctx context.Context, stationID string) (int, er
 // encoder pipeline, and returns the encoder's stdin for writing raw PCM. The returned
 // release function must be called when the live source disconnects; it resumes automation.
 func (d *Director) InjectLiveSource(ctx context.Context, stationID, mountID string) (io.WriteCloser, func(), error) {
+	d.logger.Info().Str("station_id", stationID).Str("mount_id", mountID).Msg("InjectLiveSource: loading mount")
 	var mount models.Mount
 	if err := d.db.WithContext(ctx).First(&mount, "id = ?", mountID).Error; err != nil {
 		return nil, nil, fmt.Errorf("load mount: %w", err)
 	}
+	d.logger.Info().Str("mount_name", mount.Name).Msg("InjectLiveSource: mount loaded, acquiring xfade lock")
 
 	// Stop existing crossfade session for this mount so we can take over the encoder stdin.
 	d.xfadeMu.Lock()
+	d.logger.Info().Msg("InjectLiveSource: xfade lock acquired")
 	if sess := d.xfadeSessions[mount.ID]; sess != nil {
 		_ = sess.Close()
 		delete(d.xfadeSessions, mount.ID)
 	}
 	d.xfadeMu.Unlock()
 
+	d.logger.Info().Msg("InjectLiveSource: stopping existing pipeline")
 	// Stop any existing pipeline to start fresh.
 	_ = d.manager.StopPipeline(mount.ID)
+	d.logger.Info().Msg("InjectLiveSource: pipeline stopped, building PCM encoder")
 
 	mountBitrate := mount.Bitrate
 	if mountBitrate == 0 {
@@ -2733,11 +2738,13 @@ func (d *Director) InjectLiveSource(ctx context.Context, stationID, mountID stri
 	if err != nil {
 		return nil, nil, fmt.Errorf("build pcm encoder pipeline: %w", err)
 	}
+	d.logger.Info().Str("launch", launch).Msg("InjectLiveSource: starting encoder pipeline")
 
 	stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, mount.ID, launch, hqHandler, lqHandler)
 	if err != nil {
 		return nil, nil, fmt.Errorf("start pcm encoder pipeline: %w", err)
 	}
+	d.logger.Info().Msg("InjectLiveSource: encoder pipeline started")
 
 	// Mark mount as actively playing a live source so the director tick won't
 	// try to schedule automation on it. Use a far-future Ends time so the soft
