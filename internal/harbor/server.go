@@ -223,8 +223,9 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		Str("proto", r.Proto).
 		Msg("harbor source connected")
 
-	// Create connection context.
-	connCtx, connCancel := context.WithCancel(r.Context())
+	// Create connection context. Use Background instead of r.Context() because
+	// we will hijack the connection below, which causes r.Context() to cancel.
+	connCtx, connCancel := context.WithCancel(context.Background())
 
 	conn := &SourceConnection{
 		SessionID:   session.ID,
