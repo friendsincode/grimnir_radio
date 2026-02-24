@@ -76,6 +76,7 @@ func TestStationLandingOrdersStations_CurrentThenPlatformFirstThenRest(t *testin
 		"",
 		"",
 		WebRTCConfig{},
+		HarborConfig{},
 		0,
 		events.NewBus(),
 		nil,

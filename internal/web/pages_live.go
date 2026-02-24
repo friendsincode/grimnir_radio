@@ -9,11 +9,38 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+// parseIcecastHostPort extracts host and port from the configured Icecast URL.
+// Prefers the public URL if set, falls back to internal URL.
+func (h *Handler) parseIcecastHostPort() (string, string) {
+	raw := h.icecastPublicURL
+	if raw == "" {
+		raw = h.icecastURL
+	}
+	if raw == "" {
+		return "", ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw, ""
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "8000"
+		}
+	}
+	return host, port
+}
 
 // LiveDashboard renders the live DJ control panel
 func (h *Handler) LiveDashboard(w http.ResponseWriter, r *http.Request) {
@@ -41,13 +68,21 @@ func (h *Handler) LiveDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse Icecast URL for connection info display
+	icecastHost, icecastPort := h.parseIcecastHostPort()
+
 	h.Render(w, r, "pages/dashboard/live/dashboard", PageData{
 		Title:    "Live DJ",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"Mounts":      mounts,
-			"Sessions":    sessions,
-			"UserSession": userSession,
+			"Mounts":        mounts,
+			"Sessions":      sessions,
+			"UserSession":   userSession,
+			"IcecastHost":   icecastHost,
+			"IcecastPort":   icecastPort,
+			"HarborEnabled": h.harborEnabled,
+			"HarborHost":    h.harborHost,
+			"HarborPort":    h.harborPort,
 		},
 	})
 }
@@ -121,9 +156,16 @@ func (h *Handler) LiveGenerateToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		h.RenderPartial(w, r, "partials/live-token", map[string]string{
-			"Token":   token,
-			"MountID": mountID,
+		icecastHost, icecastPort := h.parseIcecastHostPort()
+		h.RenderPartial(w, r, "partials/live-token", map[string]any{
+			"Token":         token,
+			"MountID":       mountID,
+			"MountName":     mount.Name,
+			"IcecastHost":   icecastHost,
+			"IcecastPort":   icecastPort,
+			"HarborEnabled": h.harborEnabled,
+			"HarborHost":    h.harborHost,
+			"HarborPort":    h.harborPort,
 		})
 		return
 	}
@@ -212,7 +254,7 @@ func (h *Handler) LiveHandover(w http.ResponseWriter, r *http.Request) {
 
 	// Use live service if available
 	if h.liveSvc != nil {
-		if err := h.liveSvc.InitiateHandover(r.Context(), session.ID, station.ID, user.ID); err != nil {
+		if err := h.liveSvc.InitiateHandover(r.Context(), session.ID, station.ID, session.MountID, user.ID); err != nil {
 			h.logger.Error().Err(err).Str("session_id", session.ID).Msg("failed to initiate handover")
 			if r.Header.Get("HX-Request") == "true" {
 				w.Write([]byte(`<div class="alert alert-danger">Failed to initiate handover</div>`))

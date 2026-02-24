@@ -73,6 +73,12 @@ type Config struct {
 	WebRTCTURNUsername string // TURN username
 	WebRTCTURNPassword string // TURN password
 
+	// Harbor (built-in Icecast source receiver)
+	HarborEnabled    bool   // GRIMNIR_HARBOR_ENABLED (default: false)
+	HarborBind       string // GRIMNIR_HARBOR_BIND (default: "0.0.0.0")
+	HarborPort       int    // GRIMNIR_HARBOR_PORT (default: 8088)
+	HarborMaxSources int    // GRIMNIR_HARBOR_MAX_SOURCES (default: 10)
+
 	// Media Engine configuration
 	MediaEngineGRPCAddr string // gRPC address of the media engine (e.g., "mediaengine:9091")
 	LegacyEnvWarnings   []string
@@ -129,6 +135,12 @@ func Load() (*Config, error) {
 		WebRTCTURNURL:      getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_URL", "WEBRTC_TURN_URL"}, ""),
 		WebRTCTURNUsername: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_USERNAME", "WEBRTC_TURN_USERNAME"}, ""),
 		WebRTCTURNPassword: getEnvAny([]string{"GRIMNIR_WEBRTC_TURN_PASSWORD", "WEBRTC_TURN_PASSWORD"}, ""),
+
+		// Harbor (built-in Icecast source receiver)
+		HarborEnabled:    getEnvBoolAny([]string{"GRIMNIR_HARBOR_ENABLED", "HARBOR_ENABLED"}, false),
+		HarborBind:       getEnvAny([]string{"GRIMNIR_HARBOR_BIND", "HARBOR_BIND"}, "0.0.0.0"),
+		HarborPort:       getEnvIntAny([]string{"GRIMNIR_HARBOR_PORT", "HARBOR_PORT"}, 8088),
+		HarborMaxSources: getEnvIntAny([]string{"GRIMNIR_HARBOR_MAX_SOURCES", "HARBOR_MAX_SOURCES"}, 10),
 
 		// Media Engine configuration
 		MediaEngineGRPCAddr: getEnvAny([]string{"GRIMNIR_MEDIA_ENGINE_GRPC_ADDR", "MEDIA_ENGINE_GRPC_ADDR"}, "mediaengine:9091"),

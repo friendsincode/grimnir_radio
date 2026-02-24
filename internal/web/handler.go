@@ -48,6 +48,7 @@ type SchedulerService interface {
 
 // WebstreamService defines the interface for webstream operations.
 type WebstreamService interface {
+	CreateWebstream(ctx context.Context, ws *models.Webstream) error
 	TriggerFailover(ctx context.Context, id string) error
 	ResetToPrimary(ctx context.Context, id string) error
 }
@@ -56,7 +57,7 @@ type WebstreamService interface {
 type LiveService interface {
 	GenerateToken(ctx context.Context, stationID, mountID, userID, username string) (string, error)
 	DisconnectSession(ctx context.Context, sessionID string) error
-	InitiateHandover(ctx context.Context, sessionID, stationID, userID string) error
+	InitiateHandover(ctx context.Context, sessionID, stationID, mountID, userID string) error
 	CancelHandover(ctx context.Context, sessionID string) error
 }
 
@@ -87,6 +88,11 @@ type Handler struct {
 	webrtcTURNURL      string
 	webrtcTURNUsername string
 	webrtcTURNPassword string
+
+	// Harbor (built-in Icecast source receiver)
+	harborEnabled bool
+	harborHost    string
+	harborPort    int
 }
 
 // PageData holds common data passed to all templates.
@@ -127,8 +133,15 @@ type WebRTCConfig struct {
 	TURNPassword string
 }
 
+// HarborConfig holds harbor-related display configuration.
+type HarborConfig struct {
+	Enabled bool
+	Host    string
+	Port    int
+}
+
 // NewHandler creates a new web handler.
-func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, maxUploadBytes int64, eventBus *events.Bus, director *playout.Director, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, harborCfg HarborConfig, maxUploadBytes int64, eventBus *events.Bus, director *playout.Director, logger zerolog.Logger) (*Handler, error) {
 	// Create migration service
 	migrationService := migration.NewService(db, eventBus, logger)
 
@@ -158,6 +171,9 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 		webrtcTURNURL:      webrtcCfg.TURNURL,
 		webrtcTURNUsername: webrtcCfg.TURNUsername,
 		webrtcTURNPassword: webrtcCfg.TURNPassword,
+		harborEnabled:      harborCfg.Enabled,
+		harborHost:         harborCfg.Host,
+		harborPort:         harborCfg.Port,
 		maxUploadBytes:     maxUploadBytes,
 	}
 
@@ -250,8 +266,9 @@ func (h *Handler) loadTemplates() error {
 		"string":           stringify,
 		"stationColor":     stationColor,
 		"sourceTypeName":   sourceTypeName,
-		"formatDurationMs": formatDurationMs,
-		"sourceStationID":  sourceStationID,
+		"formatDurationMs":  formatDurationMs,
+		"formatDurationSec": formatDurationSec,
+		"sourceStationID":   sourceStationID,
 	}
 
 	h.templates = make(map[string]*template.Template)
@@ -635,6 +652,10 @@ func formatDurationMs(ms int) string {
 		return fmt.Sprintf("%d:%02d:%02d", hours, mins, secs)
 	}
 	return fmt.Sprintf("%d:%02d", mins, secs)
+}
+
+func formatDurationSec(d time.Duration) int {
+	return int(d.Seconds())
 }
 
 func sourceStationID(sourceID string) string {
