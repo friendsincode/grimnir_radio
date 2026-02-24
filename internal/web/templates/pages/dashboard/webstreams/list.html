@@ -55,7 +55,15 @@
                     </td>
                     <td>
                         {{if .HealthCheckEnabled}}
-                        <span class="badge bg-success" data-health-mount="{{.ID}}">Checking...</span>
+                            {{if eq .HealthStatus "healthy"}}
+                            <span class="badge bg-success" data-health-webstream="{{.ID}}">Healthy</span>
+                            {{else if eq .HealthStatus "degraded"}}
+                            <span class="badge bg-warning" data-health-webstream="{{.ID}}">Degraded</span>
+                            {{else if eq .HealthStatus "unhealthy"}}
+                            <span class="badge bg-danger" data-health-webstream="{{.ID}}">Unhealthy</span>
+                            {{else}}
+                            <span class="badge bg-info" data-health-webstream="{{.ID}}">Checking...</span>
+                            {{end}}
                         {{else}}
                         <span class="badge bg-secondary">Disabled</span>
                         {{end}}

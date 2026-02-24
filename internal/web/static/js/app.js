@@ -218,6 +218,10 @@ document.addEventListener('DOMContentLoaded', () => {
             updateHealthStatus(data);
         });
 
+        window.grimnirWS.on('webstream.health', (data) => {
+            updateWebstreamHealthStatus(data);
+        });
+
         const nowPlaying = document.getElementById('nowPlaying');
         if (nowPlaying) {
             nowPlaying.style.cursor = 'pointer';
@@ -413,6 +417,31 @@ function updateHealthStatus(data) {
         if (data.mount_id === mountId) {
             el.className = data.healthy ? 'badge bg-success' : 'badge bg-danger';
             el.textContent = data.healthy ? 'Healthy' : 'Error';
+        }
+    });
+}
+
+// Update webstream health status indicators
+function updateWebstreamHealthStatus(data) {
+    const indicators = document.querySelectorAll('[data-health-webstream]');
+    indicators.forEach(el => {
+        if (el.dataset.healthWebstream !== data.webstream_id) return;
+        switch (data.status) {
+            case 'healthy':
+                el.className = el.classList.contains('fs-6') ? 'badge bg-success fs-6' : 'badge bg-success';
+                el.textContent = 'Healthy';
+                break;
+            case 'degraded':
+                el.className = el.classList.contains('fs-6') ? 'badge bg-warning fs-6' : 'badge bg-warning';
+                el.textContent = 'Degraded';
+                break;
+            case 'unhealthy':
+                el.className = el.classList.contains('fs-6') ? 'badge bg-danger fs-6' : 'badge bg-danger';
+                el.textContent = 'Unhealthy';
+                break;
+            default:
+                el.className = el.classList.contains('fs-6') ? 'badge bg-info fs-6' : 'badge bg-info';
+                el.textContent = 'Checking...';
         }
     });
 }

@@ -134,6 +134,14 @@ func (hc *HealthChecker) handleSuccessfulCheck(ws *models.Webstream) {
 	// Update health status metric (2=healthy)
 	telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(2)
 
+	// Publish health status event for live UI updates
+	hc.bus.Publish(events.EventWebstreamHealth, events.Payload{
+		"webstream_id": ws.ID,
+		"station_id":   ws.StationID,
+		"status":       ws.HealthStatus,
+		"url":          ws.GetCurrentURL(),
+	})
+
 	hc.logger.Debug().Str("url", ws.GetCurrentURL()).Msg("health check passed")
 
 	// If we recovered from unhealthy state and auto-recover is enabled
@@ -187,6 +195,12 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 		}
 		// Update health status metric (1=degraded)
 		telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(1)
+		hc.bus.Publish(events.EventWebstreamHealth, events.Payload{
+			"webstream_id": ws.ID,
+			"station_id":   ws.StationID,
+			"status":       ws.HealthStatus,
+			"url":          ws.GetCurrentURL(),
+		})
 		return
 	}
 
@@ -202,6 +216,12 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 		}
 		// Update health status metric (0=unhealthy)
 		telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(0)
+		hc.bus.Publish(events.EventWebstreamHealth, events.Payload{
+			"webstream_id": ws.ID,
+			"station_id":   ws.StationID,
+			"status":       ws.HealthStatus,
+			"url":          ws.GetCurrentURL(),
+		})
 	}
 }
 
