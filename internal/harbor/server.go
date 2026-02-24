@@ -284,7 +284,16 @@ func (s *Server) streamAudio(ctx context.Context, conn *SourceConnection, mount 
 	}
 
 	// Acquire the encoder's stdin from the playout director.
+	s.logger.Info().
+		Str("session_id", conn.SessionID).
+		Str("station_id", conn.StationID).
+		Str("mount_id", conn.MountID).
+		Msg("calling InjectLiveSource")
 	encoderIn, release, err := s.director.InjectLiveSource(ctx, conn.StationID, mount.ID)
+	s.logger.Info().
+		Str("session_id", conn.SessionID).
+		Err(err).
+		Msg("InjectLiveSource returned")
 	if err != nil {
 		s.logger.Error().Err(err).
 			Str("session_id", conn.SessionID).
