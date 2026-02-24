@@ -1956,6 +1956,10 @@ func (d *Director) buildPCMEncoderPipeline(mount models.Mount, hqBitrate, lqBitr
 		lqBitrate = 64
 	}
 
+	// Normalize to a standard encoder sample rate. MP3 encoders only accept
+	// specific rates (32000, 44100, 48000). Pick the closest standard rate.
+	encodeRate := normalizeEncoderRate(sampleRate)
+
 	var hqEncoder, lqEncoder string
 	switch format {
 	case "aac":
@@ -1977,18 +1981,43 @@ func (d *Director) buildPCMEncoderPipeline(mount models.Mount, hqBitrate, lqBitr
 		)
 	}
 
-	// Read raw PCM from stdin, encode to HQ/LQ and optionally RTP/Opus.
-	// Resample to 44100 after the caps filter because some encoders (lamemp3enc)
-	// only accept standard sample rates. The input caps must match what the
-	// harbor decoder or crossfade session actually produces.
+	// Read raw PCM from stdin, resample to a standard encoder rate, then
+	// encode to HQ/LQ and optionally RTP/Opus. The input caps match what the
+	// harbor decoder or crossfade session actually produces; audioresample
+	// normalizes to the encoding rate so lamemp3enc/faac/vorbisenc are happy.
 	pipeline := fmt.Sprintf(
-		`fdsrc fd=0 ! queue ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! audioconvert ! audioresample ! audio/x-raw,rate=44100 ! tee name=t `+
+		`fdsrc fd=0 ! queue ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! audioconvert ! audioresample ! audio/x-raw,rate=%d ! tee name=t `+
 			`t. ! queue ! %s ! fdsink fd=3 `+
 			`t. ! queue ! %s ! fdsink fd=4%s`,
-		sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
+		sampleRate, channels, encodeRate, hqEncoder, lqEncoder, webrtcBranch,
 	)
 
 	return pipeline, nil
+}
+
+// normalizeEncoderRate returns the closest standard sample rate that MP3/AAC
+// encoders accept. Supports both 44.1kHz and 48kHz families.
+func normalizeEncoderRate(rate int) int {
+	// Standard rates accepted by lamemp3enc and most encoders.
+	standard := []int{8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000}
+
+	best := 44100
+	bestDist := abs(rate - best)
+	for _, s := range standard {
+		d := abs(rate - s)
+		if d < bestDist {
+			best = s
+			bestDist = d
+		}
+	}
+	return best
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // handleTrackEnded picks and plays the next track when the current one finishes
