@@ -300,12 +300,16 @@ func (s *Server) streamAudio(ctx context.Context, conn *SourceConnection, mount 
 	defer dec.Close()
 
 	// Pipe decoded PCM from decoder stdout to encoder stdin.
-	done := make(chan error, 2)
+	type copyResult struct {
+		label string
+		err   error
+	}
+	done := make(chan copyResult, 2)
 
 	// Goroutine 1: decoder stdout → encoder stdin.
 	go func() {
 		_, err := io.Copy(encoderIn, dec.stdout)
-		done <- err
+		done <- copyResult{"decoder→encoder", err}
 	}()
 
 	// Goroutine 2: audio source (HTTP body) → decoder stdin.
@@ -313,17 +317,33 @@ func (s *Server) streamAudio(ctx context.Context, conn *SourceConnection, mount 
 		_, err := io.Copy(dec.stdin, audioSource)
 		// Close decoder stdin to signal EOF to GStreamer.
 		_ = dec.stdin.Close()
-		done <- err
+		done <- copyResult{"source→decoder", err}
 	}()
 
 	// Wait for either goroutine to finish (source disconnect or error).
 	select {
 	case <-ctx.Done():
-		s.logger.Debug().Str("session_id", conn.SessionID).Msg("harbor connection cancelled")
-	case err := <-done:
-		if err != nil {
-			s.logger.Debug().Err(err).Str("session_id", conn.SessionID).Msg("harbor stream ended")
+		s.logger.Warn().Str("session_id", conn.SessionID).Msg("harbor connection context cancelled")
+	case r := <-done:
+		if r.err != nil {
+			s.logger.Warn().Err(r.err).
+				Str("session_id", conn.SessionID).
+				Str("pipe", r.label).
+				Msg("harbor stream pipe error")
+		} else {
+			s.logger.Info().
+				Str("session_id", conn.SessionID).
+				Str("pipe", r.label).
+				Msg("harbor stream pipe closed (EOF)")
 		}
+	}
+
+	// Log decoder stderr if it captured any errors.
+	if stderrOutput := dec.Stderr(); stderrOutput != "" {
+		s.logger.Warn().
+			Str("session_id", conn.SessionID).
+			Str("stderr", stderrOutput).
+			Msg("harbor decoder stderr output")
 	}
 }
 
