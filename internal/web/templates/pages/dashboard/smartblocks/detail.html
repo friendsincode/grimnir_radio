@@ -299,6 +299,57 @@
         {{end}}
         {{end}}
 
+        <!-- Bumpers -->
+        {{with index $rules "bumpers"}}
+        {{if index . "enabled"}}
+        <div class="card mb-3 border-info">
+            <div class="card-header bg-info text-dark">
+                <i class="bi bi-signpost-split me-2"></i>Bumpers (Tail Fill)
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Source</label>
+                        <p class="mb-0 fw-medium">
+                            {{if eq (index . "sourceType") "playlist"}}Playlist{{else if eq (index . "sourceType") "genre"}}Genre{{else if eq (index . "sourceType") "title"}}Title Contains{{else if eq (index . "sourceType") "artist"}}Artist Contains{{else if eq (index . "sourceType") "label"}}Label Contains{{else}}{{index . "sourceType"}}{{end}}
+                        </p>
+                    </div>
+                    {{with index . "query"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Query</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index . "playlistID"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Playlist ID</label>
+                        <p class="mb-0 fw-medium text-truncate">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index . "genre"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Genre</label>
+                        <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{with index . "maxPerGap"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Max at End</label>
+                        <p class="mb-0 fw-medium">{{.}} bumpers</p>
+                    </div>
+                    {{end}}
+                    {{if index . "includePublicArchive"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Archive Scope</label>
+                        <p class="mb-0 fw-medium"><span class="badge bg-info text-dark"><i class="bi bi-globe me-1"></i>Public Archive (Bumpers only)</span></p>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+        {{end}}
+
         <!-- Fallbacks -->
         {{with index $rules "fallbacks"}}
         <div class="card mb-3">

@@ -404,8 +404,14 @@ func (h *Handler) materializeSmartBlock(stationID string, block models.SmartBloc
 		fallbackTracks = h.fetchFallbackTracks(stationID, cfg.fallbacks)
 	}
 
+	// Fetch bumpers if enabled
+	var bumperTracks []models.MediaItem
+	if cfg.bumpersEnabled {
+		bumperTracks = h.fetchBumperTracks(stationID, cfg)
+	}
+
 	// Build the sequence (with looping enabled by default for clock simulation)
-	preview := h.buildPreviewSequence(musicTracks, adTracks, fallbackTracks, cfg, true)
+	preview := h.buildPreviewSequence(musicTracks, adTracks, fallbackTracks, bumperTracks, cfg, true)
 
 	// Convert to media items and calculate duration
 	var tracks []models.MediaItem

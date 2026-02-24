@@ -453,6 +453,73 @@
                     </div>
                 </div>
 
+                <!-- BUMPERS (TAIL FILL) -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bumpersSection">
+                            <i class="bi bi-signpost-split me-2"></i>Bumpers (Tail Fill)
+                            <span class="badge bg-success ms-auto me-2" id="bumpersEnabled" style="display:none;">ON</span>
+                        </button>
+                    </h2>
+                    <div id="bumpersSection" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" name="bumpers_enabled" id="bumpersToggle">
+                                <label class="form-check-label fw-bold" for="bumpersToggle">Enable End-of-Block Bumpers</label>
+                            </div>
+                            <div id="bumpersConfig" style="display:none;">
+                                <div class="alert alert-secondary py-2 small mb-3">
+                                    Bumpers are appended at the end only to fill remaining time. They do not interleave with the main selection.
+                                </div>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small">Source</label>
+                                        <select class="form-select" name="bumpers_source_type" id="bumpersSourceType">
+                                            <option value="title">Title Contains</option>
+                                            <option value="playlist">From Playlist</option>
+                                            <option value="genre">By Genre</option>
+                                            <option value="artist">Artist Contains</option>
+                                            <option value="label">Label Contains</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6" id="bumpersPlaylistSelect" style="display:none;">
+                                        <label class="form-label small">Playlist</label>
+                                        <select class="form-select" name="bumpers_playlist">
+                                            <option value="">Select...</option>
+                                            {{range $playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6" id="bumpersGenreSelect" style="display:none;">
+                                        <label class="form-label small">Genre</label>
+                                        <select class="form-select" name="bumpers_genre">
+                                            <option value="">Select...</option>
+                                            <option value="Bumper">Bumper</option>
+                                            <option value="Jingle">Jingle</option>
+                                            <option value="Station ID">Station ID</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6" id="bumpersQuerySelect">
+                                        <label class="form-label small" id="bumpersQueryLabel">Title Contains</label>
+                                        <input type="text" class="form-control" name="bumpers_query" id="bumpersQueryInput" placeholder="e.g. bumper">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small">Max bumpers at end</label>
+                                        <input type="number" class="form-control" name="bumpers_max_per_gap" value="8" min="1" max="30">
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" name="bumpers_include_archive" id="bumpersIncludeArchive">
+                                            <label class="form-check-label" for="bumpersIncludeArchive">
+                                                <i class="bi bi-globe me-1"></i>Include public archive for bumpers only
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ENERGY CURVE -->
                 <div class="accordion-item">
                     <h2 class="accordion-header">
@@ -837,6 +904,42 @@
     adsSourceType.addEventListener('change', updateAdsSourceUI);
     updateAdsSourceUI();
 
+    // ========== BUMPERS TOGGLE ==========
+    const bumpersToggle = document.getElementById('bumpersToggle');
+    const bumpersConfig = document.getElementById('bumpersConfig');
+    const bumpersEnabled = document.getElementById('bumpersEnabled');
+    const bumpersSourceType = document.getElementById('bumpersSourceType');
+    const bumpersPlaylistSelect = document.getElementById('bumpersPlaylistSelect');
+    const bumpersGenreSelect = document.getElementById('bumpersGenreSelect');
+    const bumpersQuerySelect = document.getElementById('bumpersQuerySelect');
+    const bumpersQueryLabel = document.getElementById('bumpersQueryLabel');
+    const bumpersQueryInput = document.getElementById('bumpersQueryInput');
+
+    bumpersToggle.addEventListener('change', () => {
+        bumpersConfig.style.display = bumpersToggle.checked ? '' : 'none';
+        bumpersEnabled.style.display = bumpersToggle.checked ? '' : 'none';
+    });
+
+    function updateBumpersSourceUI() {
+        const source = bumpersSourceType.value;
+        bumpersPlaylistSelect.style.display = source === 'playlist' ? '' : 'none';
+        bumpersGenreSelect.style.display = source === 'genre' ? '' : 'none';
+        bumpersQuerySelect.style.display = (source === 'title' || source === 'artist' || source === 'label') ? '' : 'none';
+
+        if (source === 'title') {
+            bumpersQueryLabel.textContent = 'Title Contains';
+            bumpersQueryInput.placeholder = 'e.g. bumper';
+        } else if (source === 'artist') {
+            bumpersQueryLabel.textContent = 'Artist Contains';
+            bumpersQueryInput.placeholder = 'e.g. station';
+        } else if (source === 'label') {
+            bumpersQueryLabel.textContent = 'Label Contains';
+            bumpersQueryInput.placeholder = 'e.g. id';
+        }
+    }
+    bumpersSourceType.addEventListener('change', updateBumpersSourceUI);
+    updateBumpersSourceUI();
+
     // ========== ENERGY CURVE ==========
     const energySliders = document.getElementById('energySliders');
     const energyCurveInput = document.getElementById('energyCurveInput');
@@ -1047,6 +1150,22 @@
             if (existingRules.interstitials.every) document.querySelector('[name="ads_every_n"]').value = existingRules.interstitials.every;
             if (existingRules.interstitials.perBreak) document.querySelector('[name="ads_per_break"]').value = existingRules.interstitials.perBreak;
             updateAdsSourceUI();
+        }
+
+        // Restore bumpers
+        if (existingRules.bumpers && existingRules.bumpers.enabled) {
+            bumpersToggle.checked = true;
+            bumpersConfig.style.display = '';
+            bumpersEnabled.style.display = '';
+            if (existingRules.bumpers.sourceType) {
+                bumpersSourceType.value = existingRules.bumpers.sourceType;
+            }
+            if (existingRules.bumpers.playlistID) document.querySelector('[name="bumpers_playlist"]').value = existingRules.bumpers.playlistID;
+            if (existingRules.bumpers.genre) document.querySelector('[name="bumpers_genre"]').value = existingRules.bumpers.genre;
+            if (existingRules.bumpers.query) document.querySelector('[name="bumpers_query"]').value = existingRules.bumpers.query;
+            if (existingRules.bumpers.maxPerGap) document.querySelector('[name="bumpers_max_per_gap"]').value = existingRules.bumpers.maxPerGap;
+            if (existingRules.bumpers.includePublicArchive) document.querySelector('[name="bumpers_include_archive"]').checked = true;
+            updateBumpersSourceUI();
         }
 
         // Restore fallbacks
