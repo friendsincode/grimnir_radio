@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -43,6 +44,9 @@ func (h *Handler) WebstreamNew(w http.ResponseWriter, r *http.Request) {
 		Data: map[string]any{
 			"Webstream": models.Webstream{
 				HealthCheckEnabled:   true,
+				HealthCheckMethod:    "GET",
+				HealthCheckInterval:  30 * time.Second,
+				HealthCheckTimeout:   5 * time.Second,
 				FailoverEnabled:      true,
 				AutoRecoverEnabled:   true,
 				BufferSizeMS:         5000,
@@ -81,6 +85,9 @@ func (h *Handler) WebstreamCreate(w http.ResponseWriter, r *http.Request) {
 	bufferSize, _ := strconv.Atoi(r.FormValue("buffer_size_ms"))
 	reconnectDelay, _ := strconv.Atoi(r.FormValue("reconnect_delay_ms"))
 	maxReconnect, _ := strconv.Atoi(r.FormValue("max_reconnect_attempts"))
+	healthInterval, _ := strconv.Atoi(r.FormValue("health_check_interval_sec"))
+	healthTimeout, _ := strconv.Atoi(r.FormValue("health_check_timeout_sec"))
+	healthMethod := r.FormValue("health_check_method")
 
 	webstream := models.Webstream{
 		ID:                   uuid.New().String(),
@@ -89,6 +96,9 @@ func (h *Handler) WebstreamCreate(w http.ResponseWriter, r *http.Request) {
 		Description:          r.FormValue("description"),
 		URLs:                 cleanURLs,
 		HealthCheckEnabled:   r.FormValue("health_check_enabled") == "on",
+		HealthCheckMethod:    healthMethod,
+		HealthCheckInterval:  time.Duration(healthInterval) * time.Second,
+		HealthCheckTimeout:   time.Duration(healthTimeout) * time.Second,
 		FailoverEnabled:      r.FormValue("failover_enabled") == "on",
 		AutoRecoverEnabled:   r.FormValue("auto_recover_enabled") == "on",
 		BufferSizeMS:         bufferSize,
@@ -102,12 +112,18 @@ func (h *Handler) WebstreamCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webstream.CurrentURL = cleanURLs[0]
-	webstream.CurrentIndex = 0
-
-	if err := h.db.Create(&webstream).Error; err != nil {
-		http.Error(w, "Failed to create webstream", http.StatusInternalServerError)
-		return
+	if h.webstreamSvc != nil {
+		if err := h.webstreamSvc.CreateWebstream(r.Context(), &webstream); err != nil {
+			http.Error(w, "Failed to create webstream", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		webstream.CurrentURL = cleanURLs[0]
+		webstream.CurrentIndex = 0
+		if err := h.db.Create(&webstream).Error; err != nil {
+			http.Error(w, "Failed to create webstream", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -202,11 +218,17 @@ func (h *Handler) WebstreamUpdate(w http.ResponseWriter, r *http.Request) {
 	bufferSize, _ := strconv.Atoi(r.FormValue("buffer_size_ms"))
 	reconnectDelay, _ := strconv.Atoi(r.FormValue("reconnect_delay_ms"))
 	maxReconnect, _ := strconv.Atoi(r.FormValue("max_reconnect_attempts"))
+	healthInterval, _ := strconv.Atoi(r.FormValue("health_check_interval_sec"))
+	healthTimeout, _ := strconv.Atoi(r.FormValue("health_check_timeout_sec"))
+	healthMethod := r.FormValue("health_check_method")
 
 	webstream.Name = r.FormValue("name")
 	webstream.Description = r.FormValue("description")
 	webstream.URLs = cleanURLs
 	webstream.HealthCheckEnabled = r.FormValue("health_check_enabled") == "on"
+	webstream.HealthCheckMethod = healthMethod
+	webstream.HealthCheckInterval = time.Duration(healthInterval) * time.Second
+	webstream.HealthCheckTimeout = time.Duration(healthTimeout) * time.Second
 	webstream.FailoverEnabled = r.FormValue("failover_enabled") == "on"
 	webstream.AutoRecoverEnabled = r.FormValue("auto_recover_enabled") == "on"
 	webstream.BufferSizeMS = bufferSize

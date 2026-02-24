@@ -30,7 +30,7 @@ type Webstream struct {
 	HealthCheckEnabled  bool          `gorm:""`
 	HealthCheckInterval time.Duration `gorm:"type:bigint"` // Stored as nanoseconds
 	HealthCheckTimeout  time.Duration `gorm:"type:bigint"`
-	HealthCheckMethod   string        `gorm:"type:varchar(10);default:'HEAD'"` // HEAD or GET
+	HealthCheckMethod   string        `gorm:"type:varchar(10);default:'GET'"` // GET or HEAD
 
 	// Failover settings
 	FailoverEnabled    bool `gorm:""`

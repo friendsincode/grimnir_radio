@@ -108,8 +108,19 @@ func Migrate(database *gorm.DB) error {
 	if err := normalizeLegacyPlatformRoles(database); err != nil {
 		return err
 	}
+	if err := migrateWebstreamHealthMethod(database); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+// migrateWebstreamHealthMethod updates existing webstreams from HEAD to GET.
+// Most Icecast/Shoutcast servers do not support HEAD requests properly.
+func migrateWebstreamHealthMethod(database *gorm.DB) error {
+	return database.Exec(
+		"UPDATE webstreams SET health_check_method = 'GET' WHERE health_check_method = 'HEAD'",
+	).Error
 }
 
 func applyPostgresScheduleOverlapGuard(database *gorm.DB) error {

@@ -99,6 +99,29 @@
                         <label class="form-check-label" for="healthCheckEnabled">Enable health checks</label>
                         <div class="form-text">Periodically check if the stream is available.</div>
                     </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Method</label>
+                            <select class="form-select" name="health_check_method">
+                                <option value="GET" {{if or (eq $ws.HealthCheckMethod "GET") (eq $ws.HealthCheckMethod "")}}selected{{end}}>GET (Recommended)</option>
+                                <option value="HEAD" {{if eq $ws.HealthCheckMethod "HEAD"}}selected{{end}}>HEAD</option>
+                            </select>
+                            <div class="form-text">GET works with most stream servers. HEAD may not be supported.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Interval (seconds)</label>
+                            <input type="number" class="form-control" name="health_check_interval_sec"
+                                   value="{{if $ws.HealthCheckInterval}}{{formatDurationSec $ws.HealthCheckInterval}}{{else}}30{{end}}"
+                                   min="5" max="300">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Timeout (seconds)</label>
+                            <input type="number" class="form-control" name="health_check_timeout_sec"
+                                   value="{{if $ws.HealthCheckTimeout}}{{formatDurationSec $ws.HealthCheckTimeout}}{{else}}5{{end}}"
+                                   min="1" max="30">
+                        </div>
+                    </div>
                 </div>
             </div>
 

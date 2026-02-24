@@ -84,7 +84,7 @@ func (s *Service) CreateWebstream(ctx context.Context, ws *models.Webstream) err
 		ws.HealthCheckTimeout = 5 * time.Second
 	}
 	if ws.HealthCheckMethod == "" {
-		ws.HealthCheckMethod = "HEAD"
+		ws.HealthCheckMethod = "GET"
 	}
 	if ws.FailoverGraceMs == 0 {
 		ws.FailoverGraceMs = 5000

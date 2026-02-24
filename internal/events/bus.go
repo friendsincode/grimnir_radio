@@ -26,6 +26,7 @@ const (
 	EventLiveReleased       EventType = "live.released"
 	EventWebstreamFailover  EventType = "webstream.failover"
 	EventWebstreamRecovered EventType = "webstream.recovered"
+	EventWebstreamHealth    EventType = "webstream.health"
 	EventMigration          EventType = "migration"
 
 	// Cache invalidation events

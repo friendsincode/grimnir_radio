@@ -1573,7 +1573,7 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	eventTypes := parseEventTypes(r.URL.Query().Get("types"))
 	if len(eventTypes) == 0 {
-		eventTypes = []events.EventType{events.EventNowPlaying, events.EventHealth}
+		eventTypes = []events.EventType{events.EventNowPlaying, events.EventHealth, events.EventWebstreamHealth}
 	}
 
 	subscribers := make([]events.Subscriber, 0, len(eventTypes))
