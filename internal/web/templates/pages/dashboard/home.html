@@ -72,6 +72,22 @@
         </a>
     </div>
     <div class="col-sm-6 col-xl-3">
+        <a href="/dashboard/analytics/listeners" class="card bg-body-tertiary text-decoration-none text-body" style="cursor: pointer;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <p class="text-body-secondary mb-1">Listeners Now</p>
+                        <h3 class="mb-0">{{.Data.CurrentListeners}}</h3>
+                        <small class="text-body-secondary">Peak: {{.Data.PeakToday}} • Avg24h: {{printf "%.1f" .Data.Avg24h}}</small>
+                    </div>
+                    <div class="bg-info bg-opacity-10 rounded-3 p-3">
+                        <i class="bi bi-headphones text-info fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-sm-6 col-xl-3">
         <a href="/dashboard/media" class="card bg-body-tertiary text-decoration-none text-body" style="cursor: pointer;">
             <div class="card-body">
                 <div id="analyzerQueueCompact"
