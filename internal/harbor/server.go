@@ -258,11 +258,13 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 			Msg("harbor source disconnected")
 	}()
 
+	s.logger.Info().Str("session_id", session.ID).Msg("sending 200 OK to source client")
 	// Send 200 OK and flush so the client knows we accepted the stream.
 	w.WriteHeader(http.StatusOK)
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+	s.logger.Info().Str("session_id", session.ID).Msg("200 OK sent, entering streamAudio")
 
 	// Read audio directly from the request body. Requires nginx to forward
 	// the body with Transfer-Encoding: chunked (proxy_set_header Transfer-Encoding chunked).
@@ -270,6 +272,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 
 	// Inject live audio into the playout pipeline.
 	s.streamAudio(connCtx, conn, mount, contentType, audioSource)
+	s.logger.Info().Str("session_id", session.ID).Msg("streamAudio returned")
 }
 
 // streamAudio decodes compressed audio and injects raw PCM into the encoder pipeline.
