@@ -45,17 +45,20 @@ func (h *Handler) SmartBlockNew(w http.ResponseWriter, r *http.Request) {
 
 	var genres []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND genre != ''", station.ID).
+		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND genre != ''",
+			station.ID, true, true, true, true).
 		Distinct().Pluck("genre", &genres)
 
 	var artists []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND artist != ''", station.ID).
+		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND artist != ''",
+			station.ID, true, true, true, true).
 		Distinct().Pluck("artist", &artists)
 
 	var moods []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND mood != ''", station.ID).
+		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND mood != ''",
+			station.ID, true, true, true, true).
 		Distinct().Pluck("mood", &moods)
 
 	// Get other smart blocks for fallback selection
@@ -166,17 +169,20 @@ func (h *Handler) SmartBlockEdit(w http.ResponseWriter, r *http.Request) {
 
 	var genres []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND genre != ''", station.ID).
+		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND genre != ''",
+			station.ID, true, true, true, true).
 		Distinct().Pluck("genre", &genres)
 
 	var artists []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND artist != ''", station.ID).
+		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND artist != ''",
+			station.ID, true, true, true, true).
 		Distinct().Pluck("artist", &artists)
 
 	var moods []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND mood != ''", station.ID).
+		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND mood != ''",
+			station.ID, true, true, true, true).
 		Distinct().Pluck("mood", &moods)
 
 	// Get other smart blocks for fallback selection (excluding current)
@@ -332,6 +338,12 @@ type previewItem struct {
 	Energy float64
 }
 
+type previewRun struct {
+	Name            string
+	Tracks          []models.MediaItem
+	TotalDurationMs int64
+}
+
 // SmartBlockPreview generates a preview of the smart block with all rules applied
 func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
@@ -349,16 +361,25 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	loopEnabled := r.FormValue("loop") == "true"
+	previewVariants := 1
 
 	// Prefer in-form values when present so preview reflects unsaved edits.
 	rules := block.Rules
 	sequence := block.Sequence
 	if err := r.ParseForm(); err == nil {
+		if raw := strings.TrimSpace(r.FormValue("variants")); raw != "" {
+			if parsed := parseInt(raw, 1); parsed > 0 {
+				previewVariants = parsed
+			}
+		}
 		if r.FormValue("name") != "" || r.FormValue("filter_text_search") != "" ||
 			r.FormValue("filter_genre") != "" || r.FormValue("filter_artist") != "" ||
 			r.FormValue("filter_mood") != "" || r.FormValue("duration_value") != "" {
 			rules, sequence = h.parseSmartBlockForm(r)
 		}
+	}
+	if previewVariants > 5 {
+		previewVariants = 5
 	}
 
 	// Extract all settings from rules
@@ -389,27 +410,32 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 		h.logger.Debug().Int("fallbackTracksCount", len(fallbackTracks)).Msg("fetched fallback tracks")
 	}
 
-	// Build the preview sequence
-	preview := h.buildPreviewSequence(musicTracks, adTracks, fallbackTracks, cfg, loopEnabled)
+	runs := make([]previewRun, 0, previewVariants)
+	for i := 0; i < previewVariants; i++ {
+		preview := h.buildPreviewSequence(musicTracks, adTracks, fallbackTracks, cfg, loopEnabled)
 
-	// Convert to media items for template
-	var media []models.MediaItem
-	var totalDurationMs int64
-	for _, item := range preview {
-		media = append(media, item.Media)
-		totalDurationMs += item.Media.Duration.Milliseconds()
+		var media []models.MediaItem
+		var totalDurationMs int64
+		for _, item := range preview {
+			media = append(media, item.Media)
+			totalDurationMs += item.Media.Duration.Milliseconds()
+		}
+
+		runs = append(runs, previewRun{
+			Name:            fmt.Sprintf("Variant %d", i+1),
+			Tracks:          media,
+			TotalDurationMs: totalDurationMs,
+		})
 	}
 
 	h.logger.Debug().
-		Int("totalTracks", len(media)).
-		Int64("totalDurationMs", totalDurationMs).
+		Int("variants", len(runs)).
 		Msg("preview complete")
 
 	h.RenderPartial(w, r, "partials/smartblock-preview", map[string]any{
-		"Tracks":          media,
-		"TotalDurationMs": totalDurationMs,
-		"TargetMinutes":   cfg.targetMinutes,
-		"LoopEnabled":     loopEnabled,
+		"Runs":          runs,
+		"TargetMinutes": cfg.targetMinutes,
+		"LoopEnabled":   loopEnabled,
 	})
 }
 
@@ -424,6 +450,7 @@ type previewConfig struct {
 	adsSourceType string
 	adsPlaylistID string
 	adsGenre      string
+	adsQuery      string
 	adsEveryN     int
 	adsPerBreak   int
 
@@ -497,6 +524,9 @@ func (h *Handler) extractPreviewConfig(rules, sequence map[string]any) previewCo
 		}
 		if genre, ok := interstitials["genre"].(string); ok {
 			cfg.adsGenre = genre
+		}
+		if query, ok := interstitials["query"].(string); ok {
+			cfg.adsQuery = strings.TrimSpace(query)
 		}
 		if every, ok := interstitials["every"]; ok {
 			cfg.adsEveryN = toInt(every)
@@ -607,9 +637,23 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 		yearMax         int
 		eraRangeSet     bool
 		excludeExplicit bool
+		includeArchive  bool
 	)
 
 	if rules != nil {
+		if include, ok := rules["includePublicArchive"].(bool); ok && include {
+			includeArchive = true
+		}
+		if include, ok := rules["include_archive"].(bool); ok && include {
+			includeArchive = true
+		}
+		if includeArchive {
+			query = h.db.Where(
+				"(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
+				stationID, true, true, true, true,
+			)
+		}
+
 		// Free text search across title/artist/album
 		if textSearch, ok := rules["text_search"].(string); ok && strings.TrimSpace(textSearch) != "" {
 			query = applyLooseMediaSearch(query, textSearch)
@@ -766,6 +810,19 @@ func (h *Handler) fetchAdTracks(stationID string, cfg previewConfig) []models.Me
 			Find(&tracks)
 	} else if cfg.adsSourceType == "genre" && cfg.adsGenre != "" {
 		h.db.Where("station_id = ? AND genre = ?", stationID, cfg.adsGenre).
+			Order("RANDOM()").
+			Find(&tracks)
+	} else if cfg.adsSourceType == "title" && cfg.adsQuery != "" {
+		h.db.Where("station_id = ? AND LOWER(title) LIKE ?", stationID, "%"+strings.ToLower(cfg.adsQuery)+"%").
+			Order("RANDOM()").
+			Find(&tracks)
+	} else if cfg.adsSourceType == "artist" && cfg.adsQuery != "" {
+		h.db.Where(normalizedSQLExpr("artist")+" LIKE ?", "%"+normalizeSearchText(cfg.adsQuery)+"%").
+			Where("station_id = ?", stationID).
+			Order("RANDOM()").
+			Find(&tracks)
+	} else if cfg.adsSourceType == "label" && cfg.adsQuery != "" {
+		h.db.Where("station_id = ? AND LOWER(label) LIKE ?", stationID, "%"+strings.ToLower(cfg.adsQuery)+"%").
 			Order("RANDOM()").
 			Find(&tracks)
 	}
@@ -1279,6 +1336,9 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 	if len(sourcePlaylists) > 0 {
 		rules["sourcePlaylists"] = sourcePlaylists
 	}
+	if r.FormValue("source_include_archive") == "on" {
+		rules["includePublicArchive"] = true
+	}
 
 	// Selection filters
 	if textSearch := r.FormValue("filter_text_search"); textSearch != "" {
@@ -1386,6 +1446,9 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 		}
 		if genre := r.FormValue("ads_genre"); genre != "" {
 			interstitials["genre"] = genre
+		}
+		if query := strings.TrimSpace(r.FormValue("ads_query")); query != "" {
+			interstitials["query"] = query
 		}
 		rules["interstitials"] = interstitials
 	}

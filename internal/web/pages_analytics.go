@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -22,6 +24,14 @@ import (
 type listenerSeriesPoint struct {
 	Timestamp string `json:"timestamp"`
 	Listeners int    `json:"listeners"`
+}
+
+type analyticsHistoryRow struct {
+	StartedAt time.Time
+	Title     string
+	Artist    string
+	Duration  time.Duration
+	Source    string
 }
 
 // AnalyticsDashboard renders the main analytics page
@@ -110,40 +120,93 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 
 	// Pagination
 	page := 1
-	perPage := 50
+	if raw := strings.TrimSpace(r.URL.Query().Get("page")); raw != "" {
+		if p, err := strconv.Atoi(raw); err == nil && p > 0 {
+			page = p
+		}
+	}
+	perPage := 100
 
-	var history []models.PlayHistory
+	var historyEntries []models.PlayHistory
 	var total int64
+	fromValue := strings.TrimSpace(r.URL.Query().Get("from"))
+	toValue := strings.TrimSpace(r.URL.Query().Get("to"))
 
 	query := h.db.Model(&models.PlayHistory{}).Where("station_id = ?", station.ID)
 
 	// Date filter
-	if from := r.URL.Query().Get("from"); from != "" {
+	if from := fromValue; from != "" {
 		if t, err := time.Parse("2006-01-02", from); err == nil {
 			query = query.Where("started_at >= ?", t)
 		}
 	}
-	if to := r.URL.Query().Get("to"); to != "" {
+	if to := toValue; to != "" {
 		if t, err := time.Parse("2006-01-02", to); err == nil {
 			query = query.Where("started_at <= ?", t.Add(24*time.Hour))
 		}
 	}
 
 	// Use Session clones to avoid Count mutating query state
-	query.Session(&gorm.Session{}).Count(&total)
-	query.Session(&gorm.Session{}).Order("started_at DESC").
+	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		h.logger.Error().Err(err).Str("station_id", station.ID).Msg("failed to count play history")
+		http.Error(w, "Failed to load play history", http.StatusInternalServerError)
+		return
+	}
+	if err := query.Session(&gorm.Session{}).Order("started_at DESC").
 		Offset((page - 1) * perPage).
 		Limit(perPage).
-		Find(&history)
+		Find(&historyEntries).Error; err != nil {
+		h.logger.Error().Err(err).Str("station_id", station.ID).Msg("failed to fetch play history")
+		http.Error(w, "Failed to load play history", http.StatusInternalServerError)
+		return
+	}
+
+	history := make([]analyticsHistoryRow, 0, len(historyEntries))
+	for _, entry := range historyEntries {
+		duration := time.Duration(0)
+		if !entry.EndedAt.IsZero() && entry.EndedAt.After(entry.StartedAt) {
+			duration = entry.EndedAt.Sub(entry.StartedAt)
+		}
+
+		source := "automation"
+		if entry.Metadata != nil {
+			if st, ok := entry.Metadata["source_type"].(string); ok && strings.TrimSpace(st) != "" {
+				source = strings.ToLower(strings.TrimSpace(st))
+			} else if typ, ok := entry.Metadata["type"].(string); ok && strings.TrimSpace(typ) != "" {
+				source = strings.ToLower(strings.TrimSpace(typ))
+			}
+		}
+		if source == "" {
+			source = "automation"
+		}
+		switch source {
+		case "live", "live_dj":
+			source = "live"
+		case "playlist", "media", "smart_block", "clock_template", "webstream":
+			// keep known source tags
+		default:
+			source = "automation"
+		}
+
+		history = append(history, analyticsHistoryRow{
+			StartedAt: entry.StartedAt,
+			Title:     entry.Title,
+			Artist:    entry.Artist,
+			Duration:  duration,
+			Source:    source,
+		})
+	}
 
 	h.Render(w, r, "pages/dashboard/analytics/history", PageData{
 		Title:    "Play History",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"History": history,
-			"Total":   total,
-			"Page":    page,
-			"PerPage": perPage,
+			"History":   history,
+			"Total":     total,
+			"Page":      page,
+			"PerPage":   perPage,
+			"FromValue": fromValue,
+			"ToValue":   toValue,
 		},
 	})
 }

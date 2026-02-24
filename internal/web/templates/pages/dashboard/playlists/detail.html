@@ -287,6 +287,10 @@
             <div class="card-footer d-flex justify-content-between align-items-center">
                 <span class="small text-body-secondary" id="mediaCount">{{len $availableMedia}} items</span>
                 <div class="d-flex align-items-center gap-2">
+                    <label class="form-check d-flex align-items-center gap-1 mb-0 small text-body-secondary" for="selectAllMedia" title="Select all loaded search results">
+                        <input type="checkbox" class="form-check-input" id="selectAllMedia">
+                        <span>Select all results</span>
+                    </label>
                     <span class="small text-body-secondary" id="selectedMediaCount">0 selected</span>
                     <button type="button" class="btn btn-sm btn-primary" id="addSelectedBtn" disabled>
                         <i class="bi bi-plus-circle me-1"></i>Add Selected
@@ -318,6 +322,7 @@ const list = document.getElementById('playlistItems');
 const dropZone = document.getElementById('playlistDropZone');
 const addSelectedBtn = document.getElementById('addSelectedBtn');
 const selectedMediaCountEl = document.getElementById('selectedMediaCount');
+const selectAllMediaEl = document.getElementById('selectAllMedia');
 let draggedItem = null;
 let draggedMediaId = null;
 const selectedMediaIds = new Set();
@@ -399,6 +404,30 @@ function updateSelectedMediaUI() {
     if (addSelectedBtn) {
         addSelectedBtn.disabled = selectedMediaIds.size === 0;
     }
+    syncSelectAllMediaControl();
+}
+
+function getVisibleSelectableCheckboxes() {
+    return Array.from(document.querySelectorAll('#availableMedia .media-item:not(.d-none) .media-select-checkbox'));
+}
+
+function syncSelectAllMediaControl() {
+    if (!selectAllMediaEl) {
+        return;
+    }
+
+    const visibleCheckboxes = getVisibleSelectableCheckboxes();
+    if (visibleCheckboxes.length === 0) {
+        selectAllMediaEl.checked = false;
+        selectAllMediaEl.indeterminate = false;
+        selectAllMediaEl.disabled = true;
+        return;
+    }
+
+    selectAllMediaEl.disabled = false;
+    const checkedCount = visibleCheckboxes.filter((checkbox) => checkbox.checked).length;
+    selectAllMediaEl.checked = checkedCount > 0 && checkedCount === visibleCheckboxes.length;
+    selectAllMediaEl.indeterminate = checkedCount > 0 && checkedCount < visibleCheckboxes.length;
 }
 
 function clearSelectedMedia() {
@@ -786,6 +815,19 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
 });
 
 addSelectedBtn?.addEventListener('click', addSelectedMediaToPlaylist);
+selectAllMediaEl?.addEventListener('change', () => {
+    const shouldSelect = selectAllMediaEl.checked;
+    getVisibleSelectableCheckboxes().forEach((checkbox) => {
+        checkbox.checked = shouldSelect;
+        const mediaID = checkbox.value;
+        if (shouldSelect) {
+            selectedMediaIds.add(mediaID);
+        } else {
+            selectedMediaIds.delete(mediaID);
+        }
+    });
+    updateSelectedMediaUI();
+});
 
 // ==================== COVER UPLOAD ====================
 const coverUpload = document.getElementById('coverUpload');
