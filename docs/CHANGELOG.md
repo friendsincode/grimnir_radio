@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.35 — 2026-02-24
+
+### Live Scheduling UUID Normalization
+- Fixed schedule creation failure for `live` source entries where `source_id` was an empty string.
+- Added server-side normalization to assign a valid UUID fallback for `live` entries with blank `source_id`.
+- Added regression coverage for creating live schedule entries with empty `source_id`.
+
+---
+
 ## 1.17.34 — 2026-02-24
 
 ### Schedule Entry Mount Auto-Recovery

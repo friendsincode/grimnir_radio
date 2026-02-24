@@ -213,3 +213,54 @@ func TestScheduleCreateEntryAutoCreatesMountWhenMissing(t *testing.T) {
 		t.Fatalf("expected 1 auto-created mount, got %d", mountCount)
 	}
 }
+
+func TestScheduleCreateEntryLiveNormalizesEmptySourceID(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.ScheduleEntry{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	station := models.Station{ID: "s1", Name: "S1"}
+	if err := db.Create(&station).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "main", Format: "mp3", Bitrate: 128}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	h := &Handler{db: db, logger: zerolog.Nop()}
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"mount_id":    "m1",
+		"starts_at":   time.Date(2026, 2, 24, 6, 0, 0, 0, time.UTC),
+		"ends_at":     time.Date(2026, 2, 24, 9, 35, 0, 0, time.UTC),
+		"source_type": "live",
+		"source_id":   "",
+		"metadata": map[string]any{
+			"priority":     1,
+			"session_name": "codesession",
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", bytes.NewReader(reqBody))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+	rr := httptest.NewRecorder()
+
+	h.ScheduleCreateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var entry models.ScheduleEntry
+	if err := db.Last(&entry).Error; err != nil {
+		t.Fatalf("load entry: %v", err)
+	}
+	if entry.SourceType != "live" {
+		t.Fatalf("expected source type live, got %q", entry.SourceType)
+	}
+	if entry.SourceID == "" {
+		t.Fatalf("expected normalized source_id for live entry, got empty string")
+	}
+}
