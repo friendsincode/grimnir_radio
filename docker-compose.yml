@@ -130,6 +130,11 @@ services:
       GRIMNIR_ICECAST_PUBLIC_URL: ${GRIMNIR_ICECAST_PUBLIC_URL:-}
       GRIMNIR_ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
 
+      # Harbor (built-in Icecast source receiver — eliminates need for external Icecast)
+      GRIMNIR_HARBOR_ENABLED: ${HARBOR_ENABLED:-false}
+      GRIMNIR_HARBOR_PORT: ${HARBOR_PORT:-8088}
+      GRIMNIR_HARBOR_MAX_SOURCES: ${HARBOR_MAX_SOURCES:-10}
+
       # JWT Authentication
       GRIMNIR_JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-change-this-in-production}
       GRIMNIR_JWT_TTL_MINUTES: 15

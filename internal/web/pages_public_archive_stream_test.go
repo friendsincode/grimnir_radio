@@ -35,7 +35,7 @@ func TestArchiveStreamContentTypeByExtension(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	h, err := NewHandler(db, []byte("test"), tempDir, nil, "", "", WebRTCConfig{}, 0, events.NewBus(), nil, zerolog.Nop())
+	h, err := NewHandler(db, []byte("test"), tempDir, nil, "", "", WebRTCConfig{}, HarborConfig{}, 0, events.NewBus(), nil, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("new handler: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestArchiveStreamDownloadWithShortPathAddsFallbackExtension(t *testing.T) {
 		t.Fatalf("create media: %v", err)
 	}
 
-	h, err := NewHandler(db, []byte("test"), tempDir, nil, "", "", WebRTCConfig{}, 0, events.NewBus(), nil, zerolog.Nop())
+	h, err := NewHandler(db, []byte("test"), tempDir, nil, "", "", WebRTCConfig{}, HarborConfig{}, 0, events.NewBus(), nil, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("new handler: %v", err)
 	}

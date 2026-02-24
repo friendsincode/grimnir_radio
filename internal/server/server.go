@@ -31,6 +31,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/db"
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/executor"
+	"github.com/friendsincode/grimnir_radio/internal/harbor"
 	"github.com/friendsincode/grimnir_radio/internal/integrity"
 	"github.com/friendsincode/grimnir_radio/internal/landingpage"
 	"github.com/friendsincode/grimnir_radio/internal/leadership"
@@ -79,6 +80,7 @@ type Server struct {
 	webhookSvc           *webhooks.Service
 	webrtcMgr            *webrtcStationManager
 	listenerAnalyticsSvc *analytics.ListenerAnalyticsService
+	harbor               *harbor.Server
 
 	bgCancel context.CancelFunc
 	bgWG     sync.WaitGroup
@@ -103,10 +105,11 @@ func (a *liveServiceAdapter) DisconnectSession(ctx context.Context, sessionID st
 	return a.svc.HandleDisconnect(ctx, sessionID)
 }
 
-func (a *liveServiceAdapter) InitiateHandover(ctx context.Context, sessionID, stationID, userID string) error {
+func (a *liveServiceAdapter) InitiateHandover(ctx context.Context, sessionID, stationID, mountID, userID string) error {
 	_, err := a.svc.StartHandover(ctx, live.HandoverRequest{
 		SessionID: sessionID,
 		StationID: stationID,
+		MountID:   mountID,
 		UserID:    userID,
 		Priority:  2, // Default to scheduled live priority
 	})
@@ -336,6 +339,22 @@ func (s *Server) initDependencies() error {
 	// Live service depends on priority service
 	liveService := live.NewService(database, priorityService, s.bus, s.logger)
 
+	// Harbor (built-in Icecast source receiver)
+	if s.cfg.HarborEnabled {
+		harborCfg := harbor.Config{
+			Bind:         s.cfg.HarborBind,
+			Port:         s.cfg.HarborPort,
+			MaxSources:   s.cfg.HarborMaxSources,
+			GStreamerBin: s.cfg.GStreamerBin,
+		}
+		s.harbor = harbor.NewServer(harborCfg, database, liveService, s.director, s.bus, s.logger)
+		s.logger.Info().
+			Str("bind", s.cfg.HarborBind).
+			Int("port", s.cfg.HarborPort).
+			Int("max_sources", s.cfg.HarborMaxSources).
+			Msg("harbor (Icecast source receiver) enabled")
+	}
+
 	// Audit service for security logging
 	s.auditSvc = audit.NewService(database, s.bus, s.logger)
 	integritySvc := integrity.NewService(database, s.logger)
@@ -417,6 +436,11 @@ func (s *Server) initDependencies() error {
 		TURNUsername: s.cfg.WebRTCTURNUsername,
 		TURNPassword: s.cfg.WebRTCTURNPassword,
 	}
+	harborCfg := web.HarborConfig{
+		Enabled: s.cfg.HarborEnabled,
+		Host:    s.cfg.HarborBind,
+		Port:    s.cfg.HarborPort,
+	}
 	webHandler, err := web.NewHandler(
 		database,
 		[]byte(s.cfg.JWTSigningKey),
@@ -425,6 +449,7 @@ func (s *Server) initDependencies() error {
 		s.cfg.IcecastURL,
 		s.cfg.IcecastPublicURL,
 		webrtcCfg,
+		harborCfg,
 		s.cfg.MaxUploadSizeBytes(),
 		s.bus,
 		s.director,
@@ -462,6 +487,14 @@ func (s *Server) LogBuffer() *logbuffer.Buffer {
 
 // Close releases owned resources in reverse order.
 func (s *Server) Close() error {
+	// Shutdown harbor before stopping background workers.
+	if s.harbor != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := s.harbor.Shutdown(ctx); err != nil {
+			s.logger.Error().Err(err).Msg("harbor shutdown error")
+		}
+		cancel()
+	}
 	s.stopBackgroundWorkers()
 	var firstErr error
 	for i := len(s.closers) - 1; i >= 0; i-- {
@@ -588,6 +621,17 @@ func (s *Server) startBackgroundWorkers() {
 		go func() {
 			defer s.bgWG.Done()
 			s.listenerAnalyticsSvc.Start(ctx)
+		}()
+	}
+
+	// Start harbor (Icecast source receiver)
+	if s.harbor != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			if err := s.harbor.ListenAndServeWithSOURCE(); err != nil {
+				s.logger.Error().Err(err).Msg("harbor server exited")
+			}
 		}()
 	}
 

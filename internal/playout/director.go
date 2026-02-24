@@ -2635,6 +2635,118 @@ func (d *Director) ReloadStation(ctx context.Context, stationID string) (int, er
 	return reloaded, nil
 }
 
+// InjectLiveSource pauses the crossfade session for a mount, starts (or reuses) a PCM
+// encoder pipeline, and returns the encoder's stdin for writing raw PCM. The returned
+// release function must be called when the live source disconnects; it resumes automation.
+func (d *Director) InjectLiveSource(ctx context.Context, stationID, mountID string) (io.WriteCloser, func(), error) {
+	var mount models.Mount
+	if err := d.db.WithContext(ctx).First(&mount, "id = ?", mountID).Error; err != nil {
+		return nil, nil, fmt.Errorf("load mount: %w", err)
+	}
+
+	// Stop existing crossfade session for this mount so we can take over the encoder stdin.
+	d.xfadeMu.Lock()
+	if sess := d.xfadeSessions[mount.ID]; sess != nil {
+		_ = sess.Close()
+		delete(d.xfadeSessions, mount.ID)
+	}
+	d.xfadeMu.Unlock()
+
+	// Stop any existing pipeline to start fresh.
+	_ = d.manager.StopPipeline(mount.ID)
+
+	mountBitrate := mount.Bitrate
+	if mountBitrate == 0 {
+		mountBitrate = 128
+	}
+	lqBitrate := mountBitrate / 2
+	if lqBitrate < 32 {
+		lqBitrate = 32
+	}
+
+	// Determine content type and create broadcast mounts.
+	contentType := "audio/mpeg"
+	if mount.Format == "aac" {
+		contentType = "audio/aac"
+	} else if mount.Format == "ogg" || mount.Format == "vorbis" {
+		contentType = "audio/ogg"
+	}
+
+	broadcastMount := d.broadcast.GetMount(mount.Name)
+	if broadcastMount == nil {
+		broadcastMount = d.broadcast.CreateMount(mount.Name, contentType, mountBitrate)
+	}
+	lqMountName := mount.Name + "-lq"
+	lqMount := d.broadcast.GetMount(lqMountName)
+	if lqMount == nil {
+		lqMount = d.broadcast.CreateMount(lqMountName, contentType, lqBitrate)
+	}
+
+	broadcastMount.ClearBuffer()
+	lqMount.ClearBuffer()
+
+	hqHandler := func(r io.Reader) {
+		if err := broadcastMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("live HQ broadcast feed ended")
+		}
+	}
+	lqHandler := func(r io.Reader) {
+		if err := lqMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("live LQ broadcast feed ended")
+		}
+	}
+
+	webrtcPort := d.getWebRTCRTPPortForStation(ctx, stationID)
+	launch, err := d.buildPCMEncoderPipeline(mount, mountBitrate, lqBitrate, webrtcPort)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build pcm encoder pipeline: %w", err)
+	}
+
+	stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, mount.ID, launch, hqHandler, lqHandler)
+	if err != nil {
+		return nil, nil, fmt.Errorf("start pcm encoder pipeline: %w", err)
+	}
+
+	// Mark mount as actively playing a live source so the director tick won't
+	// try to schedule automation on it. Use a far-future Ends time so the soft
+	// boundary policy always defers.
+	d.mu.Lock()
+	d.active[mount.ID] = playoutState{
+		StationID:  stationID,
+		EntryID:    "live:" + mountID,
+		SourceType: "live",
+		Started:    time.Now(),
+		Ends:       time.Now().Add(24 * time.Hour),
+	}
+	d.mu.Unlock()
+
+	d.logger.Info().
+		Str("station_id", stationID).
+		Str("mount_id", mount.ID).
+		Str("mount_name", mount.Name).
+		Msg("live source injected into encoder pipeline")
+
+	// The release function stops the live encoder and clears active state so
+	// the director tick can resume automation.
+	release := func() {
+		d.logger.Info().
+			Str("station_id", stationID).
+			Str("mount_id", mount.ID).
+			Msg("live source released, resuming automation")
+
+		_ = d.manager.StopPipeline(mount.ID)
+
+		// Clear active state so the director tick picks up the schedule again.
+		d.mu.Lock()
+		delete(d.active, mount.ID)
+		d.mu.Unlock()
+
+		d.clearPersistedMountState(ctx, mount.ID)
+	}
+
+	return stdin, release, nil
+}
+
 // ListenerCount returns current connected listeners across the station's HQ/LQ mounts.
 func (d *Director) ListenerCount(ctx context.Context, stationID string) (int, error) {
 	if d.broadcast == nil {
