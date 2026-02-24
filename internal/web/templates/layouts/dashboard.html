@@ -588,6 +588,7 @@ document.addEventListener('htmx:afterSwap', function(e) {
 <!-- WebRTC ICE Server Config -->
 <script>
 window.GRIMNIR_WEBRTC = {
+    enabled: {{if .WebRTCEnabled}}true{{else}}false{{end}},
     stunUrl: "{{.WebRTCSTUNURL}}",
     turnUrl: "{{.WebRTCTURNURL}}",
     turnUsername: "{{.WebRTCTURNUsername}}",

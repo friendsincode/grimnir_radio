@@ -425,6 +425,7 @@
     <!-- WebRTC ICE Server Config (must be before app.js) -->
     <script>
     window.GRIMNIR_WEBRTC = {
+        enabled: {{if .WebRTCEnabled}}true{{else}}false{{end}},
         stunUrl: "{{.WebRTCSTUNURL}}",
         turnUrl: "{{.WebRTCTURNURL}}",
         turnUsername: "{{.WebRTCTURNUsername}}",
