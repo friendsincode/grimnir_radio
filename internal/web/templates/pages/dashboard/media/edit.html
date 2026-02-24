@@ -26,6 +26,7 @@
 
         <form method="POST" action="/dashboard/media/{{$media.ID}}"
               hx-put="/dashboard/media/{{$media.ID}}"
+              enctype="multipart/form-data"
               hx-swap="none">
 
             <div class="card mb-4">
@@ -48,6 +49,11 @@
                             <label class="form-label">Album</label>
                             <input type="text" class="form-control" name="album"
                                    value="{{$media.Album}}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Album Artist</label>
+                            <input type="text" class="form-control" name="album_artist"
+                                   value="{{$media.AlbumArtist}}">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Genre</label>
@@ -94,16 +100,51 @@
                             <input type="text" class="form-control" name="label"
                                    value="{{$media.Label}}">
                         </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Track Number</label>
+                            <input type="number" class="form-control" name="track_number"
+                                   value="{{$media.TrackNumber}}" min="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Disc Number</label>
+                            <input type="number" class="form-control" name="disc_number"
+                                   value="{{$media.DiscNumber}}" min="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">ISRC</label>
+                            <input type="text" class="form-control" name="isrc"
+                                   value="{{$media.ISRC}}" maxlength="20">
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div class="card mb-4">
                 <div class="card-header">
-                    <h5 class="mb-0">Additional Metadata</h5>
+                    <h5 class="mb-0">Tag Metadata (MP3/General)</h5>
                 </div>
                 <div class="card-body">
                     <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Composer</label>
+                            <input type="text" class="form-control" name="composer" value="{{$media.Composer}}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Conductor</label>
+                            <input type="text" class="form-control" name="conductor" value="{{$media.Conductor}}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Publisher</label>
+                            <input type="text" class="form-control" name="publisher" value="{{$media.Publisher}}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Original Artist</label>
+                            <input type="text" class="form-control" name="original_artist" value="{{$media.OriginalArtist}}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Copyright</label>
+                            <input type="text" class="form-control" name="copyright" value="{{$media.Copyright}}">
+                        </div>
                         <div class="col-md-6">
                             <label class="form-label">Language</label>
                             <select class="form-select" name="language">
@@ -141,12 +182,50 @@
                             </select>
                         </div>
                         <div class="col-12">
+                            <label class="form-label">Comment</label>
+                            <textarea class="form-control" name="comment" rows="2">{{$media.Comment}}</textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Lyrics</label>
+                            <textarea class="form-control" name="lyrics" rows="4">{{$media.Lyrics}}</textarea>
+                        </div>
+                        <div class="col-12">
                             <div class="form-check">
                                 <input type="checkbox" class="form-check-input" name="explicit" id="explicit"
                                        {{if $media.Explicit}}checked{{end}}>
                                 <label class="form-check-label" for="explicit">
                                     Contains explicit content
                                 </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Album Art</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 align-items-start">
+                        <div class="col-md-3">
+                            {{if len $media.Artwork}}
+                            <img src="/dashboard/media/{{$media.ID}}/artwork" alt="Album art"
+                                 class="img-fluid rounded border">
+                            {{else}}
+                            <div class="border rounded d-flex align-items-center justify-content-center text-body-secondary"
+                                 style="height: 140px;">
+                                <span>No artwork</span>
+                            </div>
+                            {{end}}
+                        </div>
+                        <div class="col-md-9">
+                            <label class="form-label">Replace Artwork</label>
+                            <input type="file" class="form-control" name="artwork_file" accept="image/jpeg,image/png,image/webp,image/gif">
+                            <div class="form-text">Supported: JPEG, PNG, WEBP, GIF (max 8 MiB).</div>
+                            <div class="form-check mt-3">
+                                <input type="checkbox" class="form-check-input" name="remove_artwork" id="removeArtwork">
+                                <label class="form-check-label" for="removeArtwork">Remove current artwork</label>
                             </div>
                         </div>
                     </div>
@@ -218,7 +297,7 @@
                         <div class="col-md-4">
                             <label class="form-label text-body-secondary">Sample Rate</label>
                             <p class="form-control-plaintext">
-                                {{if gt $media.SampleRate 0}}{{$media.SampleRate}} Hz{{else}}-{{end}}
+                                {{if gt $media.Samplerate 0}}{{$media.Samplerate}} Hz{{else}}-{{end}}
                             </p>
                         </div>
                     </div>
