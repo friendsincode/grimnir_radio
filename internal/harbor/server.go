@@ -8,7 +8,6 @@ package harbor
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -259,49 +258,15 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 			Msg("harbor source disconnected")
 	}()
 
-	// Hijack the connection to read raw audio bytes directly from the socket.
-	// Nginx proxies streaming PUT requests with Content-Length: 0 (no chunked
-	// Transfer-Encoding), which causes Go's http.Request.Body to return EOF
-	// immediately. Hijacking bypasses Go's HTTP body handling entirely.
-	hj, ok := w.(http.Hijacker)
-	if !ok {
-		s.logger.Error().Msg("harbor: ResponseWriter does not support hijacking")
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
+	// Send 200 OK and flush so the client knows we accepted the stream.
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 
-	hjConn, buf, err := hj.Hijack()
-	if err != nil {
-		s.logger.Error().Err(err).Msg("harbor: hijack failed")
-		return
-	}
-	defer hjConn.Close()
-
-	// Send a minimal HTTP response so nginx knows we accepted the stream.
-	_, _ = hjConn.Write([]byte("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"))
-
-	// Always use the buffered reader — it wraps the raw connection and
-	// ensures we don't lose any bytes that were read-ahead by the HTTP server.
-	audioSource := io.Reader(buf.Reader)
-
-	// Do a blocking test read to verify data is actually flowing.
-	testBuf := make([]byte, 4096)
-	hjConn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	n, readErr := audioSource.Read(testBuf)
-	hjConn.SetReadDeadline(time.Time{}) // clear deadline
-
-	s.logger.Info().
-		Int("first_read_bytes", n).
-		Err(readErr).
-		Msg("harbor first read from hijacked connection")
-
-	if n == 0 || readErr != nil {
-		s.logger.Error().Err(readErr).Msg("harbor: no data from hijacked connection")
-		return
-	}
-
-	// Prepend the test bytes we already read.
-	audioSource = io.MultiReader(bytes.NewReader(testBuf[:n]), buf.Reader)
+	// Read audio directly from the request body. Requires nginx to forward
+	// the body with Transfer-Encoding: chunked (proxy_set_header Transfer-Encoding chunked).
+	audioSource := r.Body
 
 	// Inject live audio into the playout pipeline.
 	s.streamAudio(connCtx, conn, mount, contentType, audioSource)
