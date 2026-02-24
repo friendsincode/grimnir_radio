@@ -490,14 +490,16 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	entryID := uuid.New().String()
+	sourceID := normalizeScheduleSourceID(input.SourceType, input.SourceID, entryID)
 	entry := models.ScheduleEntry{
-		ID:             uuid.New().String(),
+		ID:             entryID,
 		StationID:      station.ID,
 		MountID:        mountID,
 		StartsAt:       input.StartsAt,
 		EndsAt:         input.EndsAt,
 		SourceType:     input.SourceType,
-		SourceID:       input.SourceID,
+		SourceID:       sourceID,
 		Metadata:       input.Metadata,
 		RecurrenceType: models.RecurrenceType(input.RecurrenceType),
 		RecurrenceDays: input.RecurrenceDays,
@@ -662,6 +664,7 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 	if input.SourceID != nil {
 		entry.SourceID = *input.SourceID
 	}
+	entry.SourceID = normalizeScheduleSourceID(entry.SourceType, entry.SourceID, entry.ID)
 	if input.Metadata != nil {
 		entry.Metadata = input.Metadata
 	}
@@ -790,6 +793,16 @@ func (h *Handler) scheduleOverlaps(stationID string, startsAt, endsAt time.Time,
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func normalizeScheduleSourceID(sourceType, sourceID, fallbackUUID string) string {
+	if strings.TrimSpace(sourceID) != "" {
+		return sourceID
+	}
+	if sourceType == "live" {
+		return fallbackUUID
+	}
+	return sourceID
 }
 
 func (h *Handler) resolveScheduleMountID(station *models.Station, requestedMountID string) (string, error) {
