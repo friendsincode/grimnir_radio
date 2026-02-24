@@ -397,35 +397,12 @@
                             <div id="adsConfig" style="display:none;">
                                 <div class="row g-3">
                                     <div class="col-md-6">
-                                        <label class="form-label small">Source</label>
-                                        <select class="form-select" name="ads_source_type" id="adsSourceType">
-                                            <option value="playlist">From Playlist</option>
-                                            <option value="genre">By Genre</option>
-                                            <option value="title">Title Contains</option>
-                                            <option value="artist">Artist Contains</option>
-                                            <option value="label">Label Contains</option>
+                                        <label class="form-label small">Source Logic</label>
+                                        <select class="form-select" name="ads_logic" id="adsLogic">
+                                            <option value="any">ANY (OR)</option>
+                                            <option value="all">ALL (AND)</option>
                                         </select>
-                                    </div>
-                                    <div class="col-md-6" id="adsPlaylistSelect">
-                                        <label class="form-label small">Playlist</label>
-                                        <select class="form-select" name="ads_playlist">
-                                            <option value="">Select...</option>
-                                            {{range $playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-                                        </select>
-                                    </div>
-                                    <div class="col-md-6" id="adsGenreSelect" style="display:none;">
-                                        <label class="form-label small">Genre</label>
-                                        <select class="form-select" name="ads_genre">
-                                            <option value="">Select...</option>
-                                            <option value="Advertisement">Advertisement</option>
-                                            <option value="Jingle">Jingle</option>
-                                            <option value="Promo">Promo</option>
-                                            <option value="Station ID">Station ID</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-6" id="adsQuerySelect" style="display:none;">
-                                        <label class="form-label small" id="adsQueryLabel">Search</label>
-                                        <input type="text" class="form-control" name="ads_query" id="adsQueryInput" placeholder="Enter text">
+                                        <div class="form-text">Use up to 6 source rules for ad variety.</div>
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label small">Insert every</label>
@@ -446,6 +423,13 @@
                                                 <i class="bi bi-globe me-1"></i>Include public archive for ads only
                                             </label>
                                         </div>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small mb-2">Ad Sources</label>
+                                        <div id="adsSourceList"></div>
+                                        <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addAdSource">
+                                            <i class="bi bi-plus-lg me-1"></i>Add Source (max 6)
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -872,37 +856,114 @@
     const adsToggle = document.getElementById('adsToggle');
     const adsConfig = document.getElementById('adsConfig');
     const adsEnabled = document.getElementById('adsEnabled');
-    const adsSourceType = document.getElementById('adsSourceType');
-    const adsPlaylistSelect = document.getElementById('adsPlaylistSelect');
-    const adsGenreSelect = document.getElementById('adsGenreSelect');
-    const adsQuerySelect = document.getElementById('adsQuerySelect');
-    const adsQueryLabel = document.getElementById('adsQueryLabel');
-    const adsQueryInput = document.getElementById('adsQueryInput');
+    const adsSourceList = document.getElementById('adsSourceList');
+    const addAdSourceBtn = document.getElementById('addAdSource');
+    const adsLogic = document.getElementById('adsLogic');
+    const adPlaylistOptions = `<option value="">Select...</option>{{range $playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}`;
+    const adGenreOptions = `
+        <option value="">Select...</option>
+        <option value="Advertisement">Advertisement</option>
+        <option value="Jingle">Jingle</option>
+        <option value="Promo">Promo</option>
+        <option value="Station ID">Station ID</option>
+    `;
 
     adsToggle.addEventListener('change', () => {
         adsConfig.style.display = adsToggle.checked ? '' : 'none';
         adsEnabled.style.display = adsToggle.checked ? '' : 'none';
     });
 
-    function updateAdsSourceUI() {
-        const source = adsSourceType.value;
-        adsPlaylistSelect.style.display = source === 'playlist' ? '' : 'none';
-        adsGenreSelect.style.display = source === 'genre' ? '' : 'none';
-        adsQuerySelect.style.display = (source === 'title' || source === 'artist' || source === 'label') ? '' : 'none';
+    function adSourceCount() {
+        return adsSourceList.querySelectorAll('.ad-source-row').length;
+    }
+
+    function updateAddAdSourceButton() {
+        addAdSourceBtn.disabled = adSourceCount() >= 6;
+    }
+
+    function updateSingleAdSourceUI(row) {
+        if (!row) return;
+        const sourceType = row.querySelector('[name="ads_source_type_multi"]');
+        const playlistWrap = row.querySelector('.ad-playlist-wrap');
+        const genreWrap = row.querySelector('.ad-genre-wrap');
+        const queryWrap = row.querySelector('.ad-query-wrap');
+        const queryLabel = row.querySelector('.ad-query-label');
+        const queryInput = row.querySelector('[name="ads_query_multi"]');
+        const source = sourceType.value;
+
+        playlistWrap.style.display = source === 'playlist' ? '' : 'none';
+        genreWrap.style.display = source === 'genre' ? '' : 'none';
+        queryWrap.style.display = (source === 'title' || source === 'artist' || source === 'label') ? '' : 'none';
+
         if (source === 'title') {
-            adsQueryLabel.textContent = 'Title Contains';
-            adsQueryInput.placeholder = 'e.g. Station ID';
+            queryLabel.textContent = 'Title Contains';
+            queryInput.placeholder = 'e.g. Station ID';
         } else if (source === 'artist') {
-            adsQueryLabel.textContent = 'Artist Contains';
-            adsQueryInput.placeholder = 'e.g. Grimnir';
+            queryLabel.textContent = 'Artist Contains';
+            queryInput.placeholder = 'e.g. Grimnir';
         } else if (source === 'label') {
-            adsQueryLabel.textContent = 'Label Contains';
-            adsQueryInput.placeholder = 'e.g. PSA';
+            queryLabel.textContent = 'Label Contains';
+            queryInput.placeholder = 'e.g. PSA';
         }
     }
 
-    adsSourceType.addEventListener('change', updateAdsSourceUI);
-    updateAdsSourceUI();
+    function addAdSourceRow(source = { sourceType: 'playlist', playlistID: '', genre: '', query: '' }) {
+        if (adSourceCount() >= 6) return;
+        const row = document.createElement('div');
+        row.className = 'row g-2 align-items-end mb-2 ad-source-row';
+        row.innerHTML = `
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Source</label>
+                <select class="form-select form-select-sm" name="ads_source_type_multi">
+                    <option value="playlist">From Playlist</option>
+                    <option value="genre">By Genre</option>
+                    <option value="title">Title Contains</option>
+                    <option value="artist">Artist Contains</option>
+                    <option value="label">Label Contains</option>
+                </select>
+            </div>
+            <div class="col-md-4 ad-playlist-wrap">
+                <label class="form-label small mb-1">Playlist</label>
+                <select class="form-select form-select-sm" name="ads_playlist_multi">${adPlaylistOptions}</select>
+            </div>
+            <div class="col-md-4 ad-genre-wrap" style="display:none;">
+                <label class="form-label small mb-1">Genre</label>
+                <select class="form-select form-select-sm" name="ads_genre_multi">${adGenreOptions}</select>
+            </div>
+            <div class="col-md-4 ad-query-wrap" style="display:none;">
+                <label class="form-label small mb-1 ad-query-label">Search</label>
+                <input type="text" class="form-control form-control-sm" name="ads_query_multi" placeholder="Enter text">
+            </div>
+            <div class="col-md-1 d-grid">
+                <button type="button" class="btn btn-sm btn-outline-danger remove-ad-source"><i class="bi bi-x-lg"></i></button>
+            </div>
+        `;
+        adsSourceList.appendChild(row);
+
+        const sourceType = row.querySelector('[name="ads_source_type_multi"]');
+        sourceType.value = source.sourceType || 'playlist';
+        const playlist = row.querySelector('[name="ads_playlist_multi"]');
+        const genre = row.querySelector('[name="ads_genre_multi"]');
+        const query = row.querySelector('[name="ads_query_multi"]');
+        if (source.playlistID) playlist.value = source.playlistID;
+        if (source.genre) genre.value = source.genre;
+        if (source.query) query.value = source.query;
+
+        sourceType.addEventListener('change', () => updateSingleAdSourceUI(row));
+        row.querySelector('.remove-ad-source').addEventListener('click', () => {
+            row.remove();
+            updateAddAdSourceButton();
+            if (adSourceCount() === 0) {
+                addAdSourceRow();
+            }
+        });
+
+        updateSingleAdSourceUI(row);
+        updateAddAdSourceButton();
+    }
+
+    addAdSourceBtn.addEventListener('click', () => addAdSourceRow());
+    addAdSourceRow();
 
     // ========== BUMPERS TOGGLE ==========
     const bumpersToggle = document.getElementById('bumpersToggle');
@@ -1140,16 +1201,26 @@
             adsToggle.checked = true;
             adsConfig.style.display = '';
             adsEnabled.style.display = '';
-            if (existingRules.interstitials.sourceType) {
-                adsSourceType.value = existingRules.interstitials.sourceType;
-            }
-            if (existingRules.interstitials.playlistID) document.querySelector('[name="ads_playlist"]').value = existingRules.interstitials.playlistID;
-            if (existingRules.interstitials.genre) document.querySelector('[name="ads_genre"]').value = existingRules.interstitials.genre;
-            if (existingRules.interstitials.query) document.querySelector('[name="ads_query"]').value = existingRules.interstitials.query;
+            if (existingRules.interstitials.logic) adsLogic.value = existingRules.interstitials.logic === 'all' ? 'all' : 'any';
             if (existingRules.interstitials.includePublicArchive) document.querySelector('[name="ads_include_archive"]').checked = true;
             if (existingRules.interstitials.every) document.querySelector('[name="ads_every_n"]').value = existingRules.interstitials.every;
             if (existingRules.interstitials.perBreak) document.querySelector('[name="ads_per_break"]').value = existingRules.interstitials.perBreak;
-            updateAdsSourceUI();
+            adsSourceList.innerHTML = '';
+            if (Array.isArray(existingRules.interstitials.sources) && existingRules.interstitials.sources.length > 0) {
+                existingRules.interstitials.sources.slice(0, 6).forEach((src) => addAdSourceRow({
+                    sourceType: src.sourceType || 'playlist',
+                    playlistID: src.playlistID || '',
+                    genre: src.genre || '',
+                    query: src.query || '',
+                }));
+            } else {
+                addAdSourceRow({
+                    sourceType: existingRules.interstitials.sourceType || 'playlist',
+                    playlistID: existingRules.interstitials.playlistID || '',
+                    genre: existingRules.interstitials.genre || '',
+                    query: existingRules.interstitials.query || '',
+                });
+            }
         }
 
         // Restore bumpers

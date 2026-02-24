@@ -252,7 +252,32 @@
                 <i class="bi bi-megaphone me-2"></i>Ads / Interstitials
             </div>
             <div class="card-body">
+                {{$ads := .}}
                 <div class="row g-3">
+                    {{with index $ads "sources"}}
+                    <div class="col-12">
+                        <label class="form-label small text-body-secondary mb-1">Source Logic</label>
+                        <p class="mb-2 fw-medium">{{if eq (index $ads "logic") "all"}}ALL (AND){{else}}ANY (OR){{end}}</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead><tr><th>#</th><th>Type</th><th>Value</th></tr></thead>
+                                <tbody>
+                                    {{range $i, $src := .}}
+                                    <tr>
+                                        <td>{{add $i 1}}</td>
+                                        <td>
+                                            {{if eq (index $src "sourceType") "playlist"}}Playlist{{else if eq (index $src "sourceType") "genre"}}Genre{{else if eq (index $src "sourceType") "title"}}Title Contains{{else if eq (index $src "sourceType") "artist"}}Artist Contains{{else if eq (index $src "sourceType") "label"}}Label Contains{{else}}{{index $src "sourceType"}}{{end}}
+                                        </td>
+                                        <td>
+                                            {{if index $src "playlistID"}}{{index $src "playlistID"}}{{else if index $src "genre"}}{{index $src "genre"}}{{else}}{{index $src "query"}}{{end}}
+                                        </td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {{else}}
                     <div class="col-md-4">
                         <label class="form-label small text-body-secondary mb-1">Source</label>
                         <p class="mb-0 fw-medium">
@@ -276,6 +301,7 @@
                         <label class="form-label small text-body-secondary mb-1">Query</label>
                         <p class="mb-0 fw-medium">{{.}}</p>
                     </div>
+                    {{end}}
                     {{end}}
                     {{if index . "includePublicArchive"}}
                     <div class="col-md-4">

@@ -455,6 +455,8 @@ type previewConfig struct {
 
 	// Ads/Interstitials
 	adsEnabled        bool
+	adsLogic          string
+	adsSources        []adSourceConfig
 	adsSourceType     string
 	adsPlaylistID     string
 	adsGenre          string
@@ -504,12 +506,20 @@ type fallbackConfig struct {
 	limit   int
 }
 
+type adSourceConfig struct {
+	SourceType string
+	PlaylistID string
+	Genre      string
+	Query      string
+}
+
 func (h *Handler) extractPreviewConfig(rules, sequence map[string]any) previewConfig {
 	cfg := previewConfig{
 		targetMinutes:    60,
 		accuracyMs:       2000,
 		adsEveryN:        4,
 		adsPerBreak:      1,
+		adsLogic:         "any",
 		bumpersMaxPerGap: 8,
 		separation:       make(map[string]int),
 	}
@@ -563,6 +573,35 @@ func (h *Handler) extractPreviewConfig(rules, sequence map[string]any) previewCo
 		if enabled, ok := interstitials["enabled"].(bool); ok && enabled {
 			cfg.adsEnabled = true
 		}
+		if logic, ok := interstitials["logic"].(string); ok {
+			logic = strings.ToLower(strings.TrimSpace(logic))
+			if logic == "all" {
+				cfg.adsLogic = "all"
+			} else {
+				cfg.adsLogic = "any"
+			}
+		}
+		if sources, ok := interstitials["sources"].([]any); ok {
+			for _, source := range sources {
+				sm, ok := source.(map[string]any)
+				if !ok {
+					continue
+				}
+				sc := adSourceConfig{
+					SourceType: strings.ToLower(strings.TrimSpace(toString(sm["sourceType"]))),
+					PlaylistID: strings.TrimSpace(toString(sm["playlistID"])),
+					Genre:      strings.TrimSpace(toString(sm["genre"])),
+					Query:      strings.TrimSpace(toString(sm["query"])),
+				}
+				if sc.SourceType == "" {
+					continue
+				}
+				cfg.adsSources = append(cfg.adsSources, sc)
+				if len(cfg.adsSources) >= 6 {
+					break
+				}
+			}
+		}
 		if st, ok := interstitials["sourceType"].(string); ok {
 			cfg.adsSourceType = st
 		}
@@ -589,6 +628,14 @@ func (h *Handler) extractPreviewConfig(rules, sequence map[string]any) previewCo
 			if cfg.adsPerBreak < 1 {
 				cfg.adsPerBreak = 1
 			}
+		}
+		if len(cfg.adsSources) == 0 && strings.TrimSpace(cfg.adsSourceType) != "" {
+			cfg.adsSources = append(cfg.adsSources, adSourceConfig{
+				SourceType: strings.ToLower(strings.TrimSpace(cfg.adsSourceType)),
+				PlaylistID: strings.TrimSpace(cfg.adsPlaylistID),
+				Genre:      strings.TrimSpace(cfg.adsGenre),
+				Query:      strings.TrimSpace(cfg.adsQuery),
+			})
 		}
 	}
 
@@ -860,18 +907,87 @@ func (h *Handler) fetchAdTracks(stationID string, cfg previewConfig) []models.Me
 		)
 	}
 
-	if cfg.adsSourceType == "playlist" && cfg.adsPlaylistID != "" {
-		query.Where("id IN (SELECT media_id FROM playlist_items WHERE playlist_id = ?)", cfg.adsPlaylistID).
-			Order("RANDOM()").Find(&tracks)
-	} else if cfg.adsSourceType == "genre" && cfg.adsGenre != "" {
-		query.Where("genre = ?", cfg.adsGenre).Order("RANDOM()").Find(&tracks)
-	} else if cfg.adsSourceType == "title" && cfg.adsQuery != "" {
-		query.Where("LOWER(title) LIKE ?", "%"+strings.ToLower(cfg.adsQuery)+"%").Order("RANDOM()").Find(&tracks)
-	} else if cfg.adsSourceType == "artist" && cfg.adsQuery != "" {
-		query.Where(normalizedSQLExpr("artist")+" LIKE ?", "%"+normalizeSearchText(cfg.adsQuery)+"%").Order("RANDOM()").Find(&tracks)
-	} else if cfg.adsSourceType == "label" && cfg.adsQuery != "" {
-		query.Where("LOWER(label) LIKE ?", "%"+strings.ToLower(cfg.adsQuery)+"%").Order("RANDOM()").Find(&tracks)
+	sources := make([]adSourceConfig, 0, len(cfg.adsSources))
+	for _, source := range cfg.adsSources {
+		st := strings.ToLower(strings.TrimSpace(source.SourceType))
+		switch st {
+		case "playlist":
+			if strings.TrimSpace(source.PlaylistID) == "" {
+				continue
+			}
+		case "genre":
+			if strings.TrimSpace(source.Genre) == "" {
+				continue
+			}
+		case "title", "artist", "label":
+			if strings.TrimSpace(source.Query) == "" {
+				continue
+			}
+		default:
+			continue
+		}
+		source.SourceType = st
+		sources = append(sources, source)
+		if len(sources) >= 6 {
+			break
+		}
 	}
+
+	if len(sources) == 0 {
+		// Legacy single-source fallback
+		st := strings.ToLower(strings.TrimSpace(cfg.adsSourceType))
+		switch st {
+		case "playlist":
+			if cfg.adsPlaylistID != "" {
+				sources = append(sources, adSourceConfig{SourceType: "playlist", PlaylistID: cfg.adsPlaylistID})
+			}
+		case "genre":
+			if cfg.adsGenre != "" {
+				sources = append(sources, adSourceConfig{SourceType: "genre", Genre: cfg.adsGenre})
+			}
+		case "title", "artist", "label":
+			if strings.TrimSpace(cfg.adsQuery) != "" {
+				sources = append(sources, adSourceConfig{SourceType: st, Query: cfg.adsQuery})
+			}
+		}
+	}
+
+	if len(sources) == 0 {
+		return tracks
+	}
+
+	clauses := make([]string, 0, len(sources))
+	args := make([]any, 0, len(sources)*2)
+	for _, source := range sources {
+		switch source.SourceType {
+		case "playlist":
+			clauses = append(clauses, "id IN (SELECT media_id FROM playlist_items WHERE playlist_id = ?)")
+			args = append(args, source.PlaylistID)
+		case "genre":
+			clauses = append(clauses, "genre = ?")
+			args = append(args, source.Genre)
+		case "title":
+			clauses = append(clauses, "LOWER(title) LIKE ?")
+			args = append(args, "%"+strings.ToLower(source.Query)+"%")
+		case "artist":
+			clauses = append(clauses, normalizedSQLExpr("artist")+" LIKE ?")
+			args = append(args, "%"+normalizeSearchText(source.Query)+"%")
+		case "label":
+			clauses = append(clauses, "LOWER(label) LIKE ?")
+			args = append(args, "%"+strings.ToLower(source.Query)+"%")
+		}
+	}
+
+	if len(clauses) == 0 {
+		return tracks
+	}
+
+	joiner := " OR "
+	if cfg.adsLogic == "all" {
+		joiner = " AND "
+	}
+	query.Where("("+strings.Join(clauses, joiner)+")", args...).
+		Order("RANDOM()").Find(&tracks)
 
 	return tracks
 }
@@ -1580,19 +1696,79 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 	// Interstitials/Ads
 	if r.FormValue("ads_enabled") == "on" || r.FormValue("ads_enabled") == "true" {
 		interstitials := map[string]any{
-			"enabled":    true,
-			"sourceType": r.FormValue("ads_source_type"),
-			"every":      parseInt(r.FormValue("ads_every_n"), 4),
-			"perBreak":   parseInt(r.FormValue("ads_per_break"), 1),
+			"enabled":  true,
+			"every":    parseInt(r.FormValue("ads_every_n"), 4),
+			"perBreak": parseInt(r.FormValue("ads_per_break"), 1),
 		}
-		if playlistID := r.FormValue("ads_playlist"); playlistID != "" {
-			interstitials["playlistID"] = playlistID
+		logic := strings.ToLower(strings.TrimSpace(r.FormValue("ads_logic")))
+		if logic == "all" {
+			interstitials["logic"] = "all"
+		} else {
+			interstitials["logic"] = "any"
 		}
-		if genre := r.FormValue("ads_genre"); genre != "" {
-			interstitials["genre"] = genre
+
+		sourceTypes := r.Form["ads_source_type_multi"]
+		playlists := r.Form["ads_playlist_multi"]
+		genres := r.Form["ads_genre_multi"]
+		queries := r.Form["ads_query_multi"]
+		maxSources := len(sourceTypes)
+		if maxSources > 6 {
+			maxSources = 6
 		}
-		if query := strings.TrimSpace(r.FormValue("ads_query")); query != "" {
-			interstitials["query"] = query
+		sources := make([]map[string]any, 0, maxSources)
+		for i := 0; i < maxSources; i++ {
+			st := strings.ToLower(strings.TrimSpace(sourceTypes[i]))
+			if st == "" {
+				continue
+			}
+			source := map[string]any{"sourceType": st}
+			switch st {
+			case "playlist":
+				if i >= len(playlists) || strings.TrimSpace(playlists[i]) == "" {
+					continue
+				}
+				source["playlistID"] = strings.TrimSpace(playlists[i])
+			case "genre":
+				if i >= len(genres) || strings.TrimSpace(genres[i]) == "" {
+					continue
+				}
+				source["genre"] = strings.TrimSpace(genres[i])
+			case "title", "artist", "label":
+				if i >= len(queries) || strings.TrimSpace(queries[i]) == "" {
+					continue
+				}
+				source["query"] = strings.TrimSpace(queries[i])
+			default:
+				continue
+			}
+			sources = append(sources, source)
+		}
+		if len(sources) > 0 {
+			interstitials["sources"] = sources
+			// Backwards-compatible keys for older readers.
+			first := sources[0]
+			interstitials["sourceType"] = first["sourceType"]
+			if v, ok := first["playlistID"]; ok {
+				interstitials["playlistID"] = v
+			}
+			if v, ok := first["genre"]; ok {
+				interstitials["genre"] = v
+			}
+			if v, ok := first["query"]; ok {
+				interstitials["query"] = v
+			}
+		} else {
+			// Legacy single-source fallback
+			interstitials["sourceType"] = r.FormValue("ads_source_type")
+			if playlistID := r.FormValue("ads_playlist"); playlistID != "" {
+				interstitials["playlistID"] = playlistID
+			}
+			if genre := r.FormValue("ads_genre"); genre != "" {
+				interstitials["genre"] = genre
+			}
+			if query := strings.TrimSpace(r.FormValue("ads_query")); query != "" {
+				interstitials["query"] = query
+			}
 		}
 		if r.FormValue("ads_include_archive") == "on" {
 			interstitials["includePublicArchive"] = true
