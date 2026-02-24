@@ -436,10 +436,19 @@ func (s *Server) initDependencies() error {
 		TURNUsername: s.cfg.WebRTCTURNUsername,
 		TURNPassword: s.cfg.WebRTCTURNPassword,
 	}
+	harborHost := s.cfg.HarborHost
+	if harborHost == "" {
+		harborHost = s.cfg.HarborBind
+	}
+	harborPublicPort := s.cfg.HarborPublicPort
+	if harborPublicPort == 0 {
+		harborPublicPort = s.cfg.HarborPort
+	}
 	harborCfg := web.HarborConfig{
-		Enabled: s.cfg.HarborEnabled,
-		Host:    s.cfg.HarborBind,
-		Port:    s.cfg.HarborPort,
+		Enabled:     s.cfg.HarborEnabled,
+		Host:        harborHost,
+		Port:        harborPublicPort,
+		MountPrefix: s.cfg.HarborMountPrefix,
 	}
 	webHandler, err := web.NewHandler(
 		database,

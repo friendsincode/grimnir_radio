@@ -90,9 +90,10 @@ type Handler struct {
 	webrtcTURNPassword string
 
 	// Harbor (built-in Icecast source receiver)
-	harborEnabled bool
-	harborHost    string
-	harborPort    int
+	harborEnabled     bool
+	harborHost        string
+	harborPort        int
+	harborMountPrefix string
 }
 
 // PageData holds common data passed to all templates.
@@ -135,9 +136,10 @@ type WebRTCConfig struct {
 
 // HarborConfig holds harbor-related display configuration.
 type HarborConfig struct {
-	Enabled bool
-	Host    string
-	Port    int
+	Enabled     bool
+	Host        string
+	Port        int
+	MountPrefix string // e.g. "/harbor" when behind nginx proxy
 }
 
 // NewHandler creates a new web handler.
@@ -174,6 +176,7 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 		harborEnabled:      harborCfg.Enabled,
 		harborHost:         harborCfg.Host,
 		harborPort:         harborCfg.Port,
+		harborMountPrefix:  harborCfg.MountPrefix,
 		maxUploadBytes:     maxUploadBytes,
 	}
 

@@ -133,6 +133,9 @@ services:
       # Harbor (built-in Icecast source receiver — eliminates need for external Icecast)
       GRIMNIR_HARBOR_ENABLED: ${HARBOR_ENABLED:-false}
       GRIMNIR_HARBOR_PORT: ${HARBOR_PORT:-8088}
+      GRIMNIR_HARBOR_HOST: ${HARBOR_HOST:-}
+      GRIMNIR_HARBOR_PUBLIC_PORT: ${HARBOR_PUBLIC_PORT:-0}
+      GRIMNIR_HARBOR_MOUNT_PREFIX: ${HARBOR_MOUNT_PREFIX:-}
       GRIMNIR_HARBOR_MAX_SOURCES: ${HARBOR_MAX_SOURCES:-10}
 
       # JWT Authentication
