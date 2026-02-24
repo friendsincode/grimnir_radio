@@ -632,10 +632,34 @@ func (h *Handler) MediaEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fileFormat := "-"
+	fileSize := int64(0)
+	if strings.TrimSpace(media.Path) != "" {
+		ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(media.Path)), ".")
+		if ext != "" {
+			fileFormat = strings.ToUpper(ext)
+		}
+		fullPath := filepath.Join(h.mediaRoot, media.Path)
+		if stat, err := os.Stat(fullPath); err == nil {
+			fileSize = stat.Size()
+		}
+	}
+
+	type mediaEditView struct {
+		models.MediaItem
+		Format string
+		Size   int64
+	}
+	view := mediaEditView{
+		MediaItem: media,
+		Format:    fileFormat,
+		Size:      fileSize,
+	}
+
 	h.Render(w, r, "pages/dashboard/media/edit", PageData{
 		Title:    "Edit: " + media.Title,
 		Stations: h.LoadStations(r),
-		Data:     media,
+		Data:     view,
 	})
 }
 
@@ -655,9 +679,14 @@ func (h *Handler) MediaUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form", http.StatusBadRequest)
-		return
+	// Support multipart submissions for artwork updates while still handling standard form posts.
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
+		if !errors.Is(err, http.ErrNotMultipart) {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "Invalid form", http.StatusBadRequest)
+				return
+			}
+		}
 	}
 
 	media.Title = r.FormValue("title")
@@ -666,11 +695,56 @@ func (h *Handler) MediaUpdate(w http.ResponseWriter, r *http.Request) {
 	media.Genre = r.FormValue("genre")
 	media.Year = r.FormValue("year")
 	media.Label = r.FormValue("label")
+	media.ISRC = r.FormValue("isrc")
+	media.Composer = r.FormValue("composer")
+	media.Conductor = r.FormValue("conductor")
+	media.Copyright = r.FormValue("copyright")
+	media.Publisher = r.FormValue("publisher")
+	media.OriginalArtist = r.FormValue("original_artist")
+	media.AlbumArtist = r.FormValue("album_artist")
+	media.Comment = r.FormValue("comment")
+	media.Lyrics = r.FormValue("lyrics")
 	media.Language = r.FormValue("language")
 	media.Mood = r.FormValue("mood")
+	media.TrackNumber = parseInt(r.FormValue("track_number"), 0)
+	media.DiscNumber = parseInt(r.FormValue("disc_number"), 0)
 	media.Explicit = r.FormValue("explicit") == "on"
 	media.ShowInArchive = r.FormValue("show_in_archive") == "on"
 	media.AllowDownload = r.FormValue("allow_download") == "on"
+
+	if r.FormValue("remove_artwork") == "on" {
+		media.Artwork = nil
+		media.ArtworkMime = ""
+	}
+	if file, _, err := r.FormFile("artwork_file"); err == nil {
+		defer file.Close()
+		const maxArtworkSize = 8 << 20 // 8 MiB
+		data, readErr := io.ReadAll(io.LimitReader(file, maxArtworkSize+1))
+		if readErr != nil {
+			http.Error(w, "Failed to read artwork file", http.StatusBadRequest)
+			return
+		}
+		if len(data) == 0 {
+			http.Error(w, "Artwork file is empty", http.StatusBadRequest)
+			return
+		}
+		if len(data) > maxArtworkSize {
+			http.Error(w, "Artwork file is too large (max 8 MiB)", http.StatusBadRequest)
+			return
+		}
+		mime := http.DetectContentType(data)
+		switch mime {
+		case "image/jpeg", "image/png", "image/webp", "image/gif":
+			media.Artwork = data
+			media.ArtworkMime = mime
+		default:
+			http.Error(w, "Unsupported artwork format. Use JPEG, PNG, WEBP, or GIF.", http.StatusBadRequest)
+			return
+		}
+	} else if err != nil && !errors.Is(err, http.ErrMissingFile) {
+		http.Error(w, "Invalid artwork upload", http.StatusBadRequest)
+		return
+	}
 
 	if err := h.db.Save(&media).Error; err != nil {
 		http.Error(w, "Failed to update media", http.StatusInternalServerError)
