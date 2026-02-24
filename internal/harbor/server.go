@@ -8,6 +8,7 @@ package harbor
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -218,6 +219,9 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		Str("username", session.Username).
 		Str("content_type", contentType).
 		Str("remote_addr", r.RemoteAddr).
+		Int64("content_length", r.ContentLength).
+		Str("transfer_encoding", fmt.Sprintf("%v", r.TransferEncoding)).
+		Str("proto", r.Proto).
 		Msg("harbor source connected")
 
 	// Create connection context.
@@ -261,7 +265,22 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	audioSource := r.Body
+
+	// Verify the body is actually readable before starting the pipeline.
+	probe := make([]byte, 1)
+	n, probeErr := r.Body.Read(probe)
+	s.logger.Info().
+		Int("probe_bytes", n).
+		Err(probeErr).
+		Msg("harbor body probe read")
+
+	if probeErr != nil {
+		s.logger.Error().Err(probeErr).Msg("harbor body is not readable, aborting")
+		return
+	}
+
+	// Wrap body with the probed byte prepended.
+	audioSource := io.MultiReader(bytes.NewReader(probe[:n]), r.Body)
 
 	// Inject live audio into the playout pipeline.
 	s.streamAudio(connCtx, conn, mount, contentType, audioSource)
