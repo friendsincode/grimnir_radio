@@ -1,4 +1,18 @@
-{{ define "content" }}
+{{define "pages/dashboard/settings/orphans"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/settings">Settings</a></li>
+        <li class="breadcrumb-item active">Orphans</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
@@ -136,6 +150,7 @@
                     </thead>
                     <tbody>
                         {{ range .Data.Orphans }}
+                        {{$orphanID := .ID}}
                         <tr id="orphan-row-{{ .ID }}">
                             <td>
                                 <input type="checkbox" class="form-check-input orphan-checkbox"
@@ -166,9 +181,9 @@
                                         {{ range $.Data.StationList }}
                                         <li>
                                             <button type="button" class="dropdown-item"
-                                                    hx-post="/dashboard/settings/orphans/{{ $.ID }}/adopt"
+                                                    hx-post="/dashboard/settings/orphans/{{ $orphanID }}/adopt"
                                                     hx-vals='{"station_id": "{{ .ID }}"}'
-                                                    hx-target="#orphan-row-{{ $.ID }}"
+                                                    hx-target="#orphan-row-{{ $orphanID }}"
                                                     hx-swap="outerHTML">
                                                 {{ .Name }}
                                             </button>
@@ -309,4 +324,4 @@ document.body.addEventListener('orphan-updated', function() {
     setTimeout(() => location.reload(), 1000);
 });
 </script>
-{{ end }}
+{{end}}
