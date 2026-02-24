@@ -333,9 +333,10 @@ func (h *Handler) SmartBlockDuplicate(w http.ResponseWriter, r *http.Request) {
 
 // previewItem represents a track in the preview with its type
 type previewItem struct {
-	Media  models.MediaItem
-	IsAd   bool
-	Energy float64
+	Media    models.MediaItem
+	IsAd     bool
+	IsBumper bool
+	Energy   float64
 }
 
 type previewRun struct {
@@ -410,9 +411,16 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 		h.logger.Debug().Int("fallbackTracksCount", len(fallbackTracks)).Msg("fetched fallback tracks")
 	}
 
+	// Get bumper tracks if enabled
+	var bumperTracks []models.MediaItem
+	if cfg.bumpersEnabled {
+		bumperTracks = h.fetchBumperTracks(station.ID, cfg)
+		h.logger.Debug().Int("bumperTracksCount", len(bumperTracks)).Msg("fetched bumper tracks")
+	}
+
 	runs := make([]previewRun, 0, previewVariants)
 	for i := 0; i < previewVariants; i++ {
-		preview := h.buildPreviewSequence(musicTracks, adTracks, fallbackTracks, cfg, loopEnabled)
+		preview := h.buildPreviewSequence(musicTracks, adTracks, fallbackTracks, bumperTracks, cfg, loopEnabled)
 
 		var media []models.MediaItem
 		var totalDurationMs int64
@@ -455,6 +463,15 @@ type previewConfig struct {
 	adsEveryN         int
 	adsPerBreak       int
 
+	// Bumpers (tail fill only)
+	bumpersEnabled        bool
+	bumpersSourceType     string
+	bumpersPlaylistID     string
+	bumpersGenre          string
+	bumpersQuery          string
+	bumpersIncludeArchive bool
+	bumpersMaxPerGap      int
+
 	// Section enabled flags
 	separationEnabled bool
 	boostersEnabled   bool
@@ -489,16 +506,45 @@ type fallbackConfig struct {
 
 func (h *Handler) extractPreviewConfig(rules, sequence map[string]any) previewConfig {
 	cfg := previewConfig{
-		targetMinutes: 60,
-		accuracyMs:    2000,
-		adsEveryN:     4,
-		adsPerBreak:   1,
-		separation:    make(map[string]int),
+		targetMinutes:    60,
+		accuracyMs:       2000,
+		adsEveryN:        4,
+		adsPerBreak:      1,
+		bumpersMaxPerGap: 8,
+		separation:       make(map[string]int),
 	}
 
 	if rules == nil {
 		cfg.targetMs = int64(cfg.targetMinutes) * 60 * 1000
 		return cfg
+	}
+
+	// Bumpers (tail fill only)
+	if bumpers, ok := rules["bumpers"].(map[string]any); ok {
+		if enabled, ok := bumpers["enabled"].(bool); ok && enabled {
+			cfg.bumpersEnabled = true
+		}
+		if st, ok := bumpers["sourceType"].(string); ok {
+			cfg.bumpersSourceType = st
+		}
+		if pid, ok := bumpers["playlistID"].(string); ok {
+			cfg.bumpersPlaylistID = pid
+		}
+		if genre, ok := bumpers["genre"].(string); ok {
+			cfg.bumpersGenre = genre
+		}
+		if query, ok := bumpers["query"].(string); ok {
+			cfg.bumpersQuery = strings.TrimSpace(query)
+		}
+		if includeArchive, ok := bumpers["includePublicArchive"].(bool); ok && includeArchive {
+			cfg.bumpersIncludeArchive = true
+		}
+		if maxPerGap, ok := bumpers["maxPerGap"]; ok {
+			cfg.bumpersMaxPerGap = toInt(maxPerGap)
+			if cfg.bumpersMaxPerGap < 1 {
+				cfg.bumpersMaxPerGap = 8
+			}
+		}
 	}
 
 	// Target duration
@@ -830,6 +876,46 @@ func (h *Handler) fetchAdTracks(stationID string, cfg previewConfig) []models.Me
 	return tracks
 }
 
+func (h *Handler) fetchBumperTracks(stationID string, cfg previewConfig) []models.MediaItem {
+	var tracks []models.MediaItem
+	query := h.db.Where("station_id = ?", stationID)
+	if cfg.bumpersIncludeArchive {
+		query = h.db.Where(
+			"(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
+			stationID, true, true, true, true,
+		)
+	}
+
+	switch cfg.bumpersSourceType {
+	case "playlist":
+		if cfg.bumpersPlaylistID != "" {
+			query.Where("id IN (SELECT media_id FROM playlist_items WHERE playlist_id = ?)", cfg.bumpersPlaylistID).
+				Order("RANDOM()").Find(&tracks)
+		}
+	case "genre":
+		if cfg.bumpersGenre != "" {
+			query.Where("genre = ?", cfg.bumpersGenre).Order("RANDOM()").Find(&tracks)
+		}
+	case "artist":
+		if cfg.bumpersQuery != "" {
+			query.Where(normalizedSQLExpr("artist")+" LIKE ?", "%"+normalizeSearchText(cfg.bumpersQuery)+"%").
+				Order("RANDOM()").Find(&tracks)
+		}
+	case "label":
+		if cfg.bumpersQuery != "" {
+			query.Where("LOWER(label) LIKE ?", "%"+strings.ToLower(cfg.bumpersQuery)+"%").
+				Order("RANDOM()").Find(&tracks)
+		}
+	default: // "title"
+		if cfg.bumpersQuery != "" {
+			query.Where("LOWER(title) LIKE ?", "%"+strings.ToLower(cfg.bumpersQuery)+"%").
+				Order("RANDOM()").Find(&tracks)
+		}
+	}
+
+	return tracks
+}
+
 func (h *Handler) fetchFallbackTracks(stationID string, fallbacks []fallbackConfig) []models.MediaItem {
 	var allTracks []models.MediaItem
 
@@ -855,7 +941,7 @@ func (h *Handler) fetchFallbackTracks(stationID string, fallbacks []fallbackConf
 	return allTracks
 }
 
-func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []models.MediaItem, cfg previewConfig, loopEnabled bool) []previewItem {
+func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks, bumperTracks []models.MediaItem, cfg previewConfig, loopEnabled bool) []previewItem {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	var result []previewItem
@@ -1027,12 +1113,12 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 	}
 
 	// Helper to add a track and update all tracking
-	addTrack := func(track models.MediaItem, isAd bool) {
+	addTrack := func(track models.MediaItem, isAd, isBumper bool) {
 		trackMs := track.Duration.Milliseconds()
-		result = append(result, previewItem{Media: track, IsAd: isAd})
+		result = append(result, previewItem{Media: track, IsAd: isAd, IsBumper: isBumper})
 		totalMs += trackMs
 
-		if !isAd {
+		if !isAd && !isBumper {
 			musicCount++
 			totalForQuota++
 			updateLastPlayed(track, totalMs)
@@ -1151,7 +1237,7 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 
 			// Add the best track
 			track := musicTracks[bestIdx]
-			addTrack(track, false)
+			addTrack(track, false, false)
 			usedInLoop[bestIdx] = true
 			lastAddedID = track.ID
 			addedThisLoop = true
@@ -1173,7 +1259,7 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 
 					// Check if adding ad would exceed target too much
 					if totalMs+adMs <= cfg.targetMs+cfg.accuracyMs {
-						addTrack(ad, true)
+						addTrack(ad, true, false)
 						adIndex++
 					}
 				}
@@ -1235,7 +1321,7 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 			}
 
 			track := fallbackTracks[bestIdx]
-			addTrack(track, false)
+			addTrack(track, false, false)
 			usedFallback[bestIdx] = true
 
 			// Insert ads if enabled and it's time
@@ -1247,10 +1333,60 @@ func (h *Handler) buildPreviewSequence(musicTracks, adTracks, fallbackTracks []m
 					ad := adTracks[adIndex]
 					adMs := ad.Duration.Milliseconds()
 					if totalMs+adMs <= cfg.targetMs+cfg.accuracyMs {
-						addTrack(ad, true)
+						addTrack(ad, true, false)
 						adIndex++
 					}
 				}
+			}
+		}
+
+		// Tail fill with bumpers only (never interleaved), respecting remaining time and anti-repeat.
+		if cfg.bumpersEnabled && len(bumperTracks) > 0 && totalMs < cfg.targetMs-cfg.accuracyMs {
+			lastBumperID := ""
+			prevBumperID := ""
+			bumpersAdded := 0
+
+			for bumpersAdded < cfg.bumpersMaxPerGap && totalMs < cfg.targetMs-cfg.accuracyMs {
+				remainingMs := cfg.targetMs - totalMs
+				if remainingMs <= 0 {
+					break
+				}
+
+				bestIdx := -1
+				var bestDur int64 = -1
+
+				for i := 0; i < len(bumperTracks); i++ {
+					b := bumperTracks[i]
+					bMs := b.Duration.Milliseconds()
+					if bMs <= 0 || bMs > remainingMs || totalMs+bMs > cfg.targetMs+cfg.accuracyMs {
+						continue
+					}
+					// Avoid immediate duplicate bumper.
+					if b.ID == lastBumperID && len(bumperTracks) > 1 {
+						continue
+					}
+					// Avoid ABAB ping-pong when possible.
+					if b.ID == prevBumperID && lastBumperID != "" && prevBumperID != "" && len(bumperTracks) > 2 {
+						continue
+					}
+
+					if bMs > bestDur {
+						bestDur = bMs
+						bestIdx = i
+					} else if bMs == bestDur && bestIdx >= 0 && rng.Intn(2) == 0 {
+						bestIdx = i
+					}
+				}
+
+				if bestIdx == -1 {
+					break
+				}
+
+				chosen := bumperTracks[bestIdx]
+				prevBumperID = lastBumperID
+				lastBumperID = chosen.ID
+				addTrack(chosen, false, true)
+				bumpersAdded++
 			}
 		}
 	}
@@ -1462,6 +1598,28 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 			interstitials["includePublicArchive"] = true
 		}
 		rules["interstitials"] = interstitials
+	}
+
+	// Bumpers (tail fill only)
+	if r.FormValue("bumpers_enabled") == "on" || r.FormValue("bumpers_enabled") == "true" {
+		bumpers := map[string]any{
+			"enabled":    true,
+			"sourceType": r.FormValue("bumpers_source_type"),
+			"maxPerGap":  parseInt(r.FormValue("bumpers_max_per_gap"), 8),
+		}
+		if playlistID := r.FormValue("bumpers_playlist"); playlistID != "" {
+			bumpers["playlistID"] = playlistID
+		}
+		if genre := r.FormValue("bumpers_genre"); genre != "" {
+			bumpers["genre"] = genre
+		}
+		if query := strings.TrimSpace(r.FormValue("bumpers_query")); query != "" {
+			bumpers["query"] = query
+		}
+		if r.FormValue("bumpers_include_archive") == "on" {
+			bumpers["includePublicArchive"] = true
+		}
+		rules["bumpers"] = bumpers
 	}
 
 	// Era filter
