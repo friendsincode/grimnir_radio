@@ -446,13 +446,14 @@ type previewConfig struct {
 	accuracyMs    int64
 
 	// Ads/Interstitials
-	adsEnabled    bool
-	adsSourceType string
-	adsPlaylistID string
-	adsGenre      string
-	adsQuery      string
-	adsEveryN     int
-	adsPerBreak   int
+	adsEnabled        bool
+	adsSourceType     string
+	adsPlaylistID     string
+	adsGenre          string
+	adsQuery          string
+	adsIncludeArchive bool
+	adsEveryN         int
+	adsPerBreak       int
 
 	// Section enabled flags
 	separationEnabled bool
@@ -527,6 +528,9 @@ func (h *Handler) extractPreviewConfig(rules, sequence map[string]any) previewCo
 		}
 		if query, ok := interstitials["query"].(string); ok {
 			cfg.adsQuery = strings.TrimSpace(query)
+		}
+		if includeArchive, ok := interstitials["includePublicArchive"].(bool); ok && includeArchive {
+			cfg.adsIncludeArchive = true
 		}
 		if every, ok := interstitials["every"]; ok {
 			cfg.adsEveryN = toInt(every)
@@ -802,29 +806,25 @@ func eraToYearRange(era string) (int, int, bool) {
 
 func (h *Handler) fetchAdTracks(stationID string, cfg previewConfig) []models.MediaItem {
 	var tracks []models.MediaItem
+	query := h.db.Where("station_id = ?", stationID)
+	if cfg.adsIncludeArchive {
+		query = h.db.Where(
+			"(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
+			stationID, true, true, true, true,
+		)
+	}
 
 	if cfg.adsSourceType == "playlist" && cfg.adsPlaylistID != "" {
-		h.db.Where("station_id = ?", stationID).
-			Where("id IN (SELECT media_id FROM playlist_items WHERE playlist_id = ?)", cfg.adsPlaylistID).
-			Order("RANDOM()").
-			Find(&tracks)
+		query.Where("id IN (SELECT media_id FROM playlist_items WHERE playlist_id = ?)", cfg.adsPlaylistID).
+			Order("RANDOM()").Find(&tracks)
 	} else if cfg.adsSourceType == "genre" && cfg.adsGenre != "" {
-		h.db.Where("station_id = ? AND genre = ?", stationID, cfg.adsGenre).
-			Order("RANDOM()").
-			Find(&tracks)
+		query.Where("genre = ?", cfg.adsGenre).Order("RANDOM()").Find(&tracks)
 	} else if cfg.adsSourceType == "title" && cfg.adsQuery != "" {
-		h.db.Where("station_id = ? AND LOWER(title) LIKE ?", stationID, "%"+strings.ToLower(cfg.adsQuery)+"%").
-			Order("RANDOM()").
-			Find(&tracks)
+		query.Where("LOWER(title) LIKE ?", "%"+strings.ToLower(cfg.adsQuery)+"%").Order("RANDOM()").Find(&tracks)
 	} else if cfg.adsSourceType == "artist" && cfg.adsQuery != "" {
-		h.db.Where(normalizedSQLExpr("artist")+" LIKE ?", "%"+normalizeSearchText(cfg.adsQuery)+"%").
-			Where("station_id = ?", stationID).
-			Order("RANDOM()").
-			Find(&tracks)
+		query.Where(normalizedSQLExpr("artist")+" LIKE ?", "%"+normalizeSearchText(cfg.adsQuery)+"%").Order("RANDOM()").Find(&tracks)
 	} else if cfg.adsSourceType == "label" && cfg.adsQuery != "" {
-		h.db.Where("station_id = ? AND LOWER(label) LIKE ?", stationID, "%"+strings.ToLower(cfg.adsQuery)+"%").
-			Order("RANDOM()").
-			Find(&tracks)
+		query.Where("LOWER(label) LIKE ?", "%"+strings.ToLower(cfg.adsQuery)+"%").Order("RANDOM()").Find(&tracks)
 	}
 
 	return tracks
@@ -1372,20 +1372,28 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 	if r.FormValue("separation_enabled") == "on" {
 		rules["separationEnabled"] = true
 		separation := make(map[string]int)
+		separationUnits := make(map[string]string)
 		if sep := parseSeparationMinutes(r.FormValue("sep_artist"), r.FormValue("sep_artist_unit")); sep > 0 {
 			separation["artist"] = sep
+			separationUnits["artist"] = strings.TrimSpace(r.FormValue("sep_artist_unit"))
 		}
 		if sep := parseSeparationMinutes(r.FormValue("sep_album"), r.FormValue("sep_album_unit")); sep > 0 {
 			separation["album"] = sep
+			separationUnits["album"] = strings.TrimSpace(r.FormValue("sep_album_unit"))
 		}
 		if sep := parseSeparationMinutes(r.FormValue("sep_title"), r.FormValue("sep_title_unit")); sep > 0 {
 			separation["title"] = sep
+			separationUnits["title"] = strings.TrimSpace(r.FormValue("sep_title_unit"))
 		}
 		if sep := parseSeparationMinutes(r.FormValue("sep_label"), r.FormValue("sep_label_unit")); sep > 0 {
 			separation["label"] = sep
+			separationUnits["label"] = strings.TrimSpace(r.FormValue("sep_label_unit"))
 		}
 		if len(separation) > 0 {
 			rules["separation"] = separation
+		}
+		if len(separationUnits) > 0 {
+			rules["separationUnits"] = separationUnits
 		}
 	}
 
@@ -1449,6 +1457,9 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 		}
 		if query := strings.TrimSpace(r.FormValue("ads_query")); query != "" {
 			interstitials["query"] = query
+		}
+		if r.FormValue("ads_include_archive") == "on" {
+			interstitials["includePublicArchive"] = true
 		}
 		rules["interstitials"] = interstitials
 	}

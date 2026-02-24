@@ -250,6 +250,7 @@
 
                 <!-- REPEAT PREVENTION -->
                 {{$sep := index $rules "separation"}}
+                {{$sepUnits := index $rules "separationUnits"}}
                 {{$sepEnabled := index $rules "separationEnabled"}}
                 <div class="accordion-item">
                     <h2 class="accordion-header">
@@ -261,7 +262,7 @@
                     <div id="separationSection" class="accordion-collapse collapse">
                         <div class="accordion-body">
                             <div class="form-check form-switch mb-3">
-                                <input class="form-check-input section-toggle" type="checkbox" name="separation_enabled" id="separationToggle" data-section="separationFields" data-badge="separationBadge">
+                                <input class="form-check-input section-toggle" type="checkbox" name="separation_enabled" id="separationToggle" data-section="separationFields" data-badge="separationBadge" {{if $sepEnabled}}checked{{end}}>
                                 <label class="form-check-label fw-bold" for="separationToggle">Enable Repeat Prevention</label>
                             </div>
                             <div id="separationFields" style="display:none;">
@@ -271,12 +272,13 @@
                                         <label class="form-label small text-uppercase text-muted">Artist</label>
                                         <div class="input-group">
                                             {{$sepArtist := 30}}{{with $sep}}{{with index . "artist"}}{{$sepArtist = .}}{{end}}{{end}}
+                                            {{$sepArtistUnit := "minutes"}}{{with $sepUnits}}{{with index . "artist"}}{{$sepArtistUnit = .}}{{end}}{{end}}
                                             <input type="number" class="form-control" name="sep_artist" value="{{$sepArtist}}" min="0">
                                             <select class="form-select" name="sep_artist_unit" style="max-width: 90px;">
-                                                <option value="minutes" selected>min</option>
-                                                <option value="hours">hrs</option>
-                                                <option value="days">days</option>
-                                                <option value="weeks">weeks</option>
+                                                <option value="minutes" {{if eq $sepArtistUnit "minutes"}}selected{{end}}>min</option>
+                                                <option value="hours" {{if eq $sepArtistUnit "hours"}}selected{{end}}>hrs</option>
+                                                <option value="days" {{if eq $sepArtistUnit "days"}}selected{{end}}>days</option>
+                                                <option value="weeks" {{if eq $sepArtistUnit "weeks"}}selected{{end}}>weeks</option>
                                             </select>
                                         </div>
                                     </div>
@@ -284,12 +286,13 @@
                                         <label class="form-label small text-uppercase text-muted">Title</label>
                                         <div class="input-group">
                                             {{$sepTitle := 180}}{{with $sep}}{{with index . "title"}}{{$sepTitle = .}}{{end}}{{end}}
+                                            {{$sepTitleUnit := "minutes"}}{{with $sepUnits}}{{with index . "title"}}{{$sepTitleUnit = .}}{{end}}{{end}}
                                             <input type="number" class="form-control" name="sep_title" value="{{$sepTitle}}" min="0">
                                             <select class="form-select" name="sep_title_unit" style="max-width: 90px;">
-                                                <option value="minutes" selected>min</option>
-                                                <option value="hours">hrs</option>
-                                                <option value="days">days</option>
-                                                <option value="weeks">weeks</option>
+                                                <option value="minutes" {{if eq $sepTitleUnit "minutes"}}selected{{end}}>min</option>
+                                                <option value="hours" {{if eq $sepTitleUnit "hours"}}selected{{end}}>hrs</option>
+                                                <option value="days" {{if eq $sepTitleUnit "days"}}selected{{end}}>days</option>
+                                                <option value="weeks" {{if eq $sepTitleUnit "weeks"}}selected{{end}}>weeks</option>
                                             </select>
                                         </div>
                                     </div>
@@ -297,12 +300,13 @@
                                         <label class="form-label small text-uppercase text-muted">Album</label>
                                         <div class="input-group">
                                             {{$sepAlbum := 15}}{{with $sep}}{{with index . "album"}}{{$sepAlbum = .}}{{end}}{{end}}
+                                            {{$sepAlbumUnit := "minutes"}}{{with $sepUnits}}{{with index . "album"}}{{$sepAlbumUnit = .}}{{end}}{{end}}
                                             <input type="number" class="form-control" name="sep_album" value="{{$sepAlbum}}" min="0">
                                             <select class="form-select" name="sep_album_unit" style="max-width: 90px;">
-                                                <option value="minutes" selected>min</option>
-                                                <option value="hours">hrs</option>
-                                                <option value="days">days</option>
-                                                <option value="weeks">weeks</option>
+                                                <option value="minutes" {{if eq $sepAlbumUnit "minutes"}}selected{{end}}>min</option>
+                                                <option value="hours" {{if eq $sepAlbumUnit "hours"}}selected{{end}}>hrs</option>
+                                                <option value="days" {{if eq $sepAlbumUnit "days"}}selected{{end}}>days</option>
+                                                <option value="weeks" {{if eq $sepAlbumUnit "weeks"}}selected{{end}}>weeks</option>
                                             </select>
                                         </div>
                                     </div>
@@ -310,12 +314,13 @@
                                         <label class="form-label small text-uppercase text-muted">Label</label>
                                         <div class="input-group">
                                             {{$sepLabel := 0}}{{with $sep}}{{with index . "label"}}{{$sepLabel = .}}{{end}}{{end}}
+                                            {{$sepLabelUnit := "minutes"}}{{with $sepUnits}}{{with index . "label"}}{{$sepLabelUnit = .}}{{end}}{{end}}
                                             <input type="number" class="form-control" name="sep_label" value="{{$sepLabel}}" min="0">
                                             <select class="form-select" name="sep_label_unit" style="max-width: 90px;">
-                                                <option value="minutes" selected>min</option>
-                                                <option value="hours">hrs</option>
-                                                <option value="days">days</option>
-                                                <option value="weeks">weeks</option>
+                                                <option value="minutes" {{if eq $sepLabelUnit "minutes"}}selected{{end}}>min</option>
+                                                <option value="hours" {{if eq $sepLabelUnit "hours"}}selected{{end}}>hrs</option>
+                                                <option value="days" {{if eq $sepLabelUnit "days"}}selected{{end}}>days</option>
+                                                <option value="weeks" {{if eq $sepLabelUnit "weeks"}}selected{{end}}>weeks</option>
                                             </select>
                                         </div>
                                     </div>
@@ -432,6 +437,15 @@
                                     <div class="col-md-6">
                                         <label class="form-label small">Ads per break</label>
                                         <input type="number" class="form-control" name="ads_per_break" value="1" min="1" max="5">
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" name="ads_include_archive" id="adsIncludeArchive"
+                                                {{with index $rules "interstitials"}}{{if index . "includePublicArchive"}}checked{{end}}{{end}}>
+                                            <label class="form-check-label" for="adsIncludeArchive">
+                                                <i class="bi bi-globe me-1"></i>Include public archive for ads only
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1029,6 +1043,7 @@
             if (existingRules.interstitials.playlistID) document.querySelector('[name="ads_playlist"]').value = existingRules.interstitials.playlistID;
             if (existingRules.interstitials.genre) document.querySelector('[name="ads_genre"]').value = existingRules.interstitials.genre;
             if (existingRules.interstitials.query) document.querySelector('[name="ads_query"]').value = existingRules.interstitials.query;
+            if (existingRules.interstitials.includePublicArchive) document.querySelector('[name="ads_include_archive"]').checked = true;
             if (existingRules.interstitials.every) document.querySelector('[name="ads_every_n"]').value = existingRules.interstitials.every;
             if (existingRules.interstitials.perBreak) document.querySelector('[name="ads_per_break"]').value = existingRules.interstitials.perBreak;
             updateAdsSourceUI();

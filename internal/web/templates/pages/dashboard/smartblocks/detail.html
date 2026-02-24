@@ -79,18 +79,25 @@
             </div>
         </div>
 
-        <!-- Source Playlists -->
-        {{with index $rules "sourcePlaylists"}}
+        <!-- Source Scope -->
+        {{if or (index $rules "sourcePlaylists") (index $rules "includePublicArchive")}}
         <div class="card mb-3">
             <div class="card-header">
-                <i class="bi bi-collection-play me-2"></i>Source Playlists
+                <i class="bi bi-collection-play me-2"></i>Source Scope
             </div>
             <div class="card-body">
+                {{with index $rules "sourcePlaylists"}}
                 <div class="d-flex flex-wrap gap-2">
                     {{range .}}
                     <span class="badge bg-secondary">{{.}}</span>
                     {{end}}
                 </div>
+                {{end}}
+                {{if index $rules "includePublicArchive"}}
+                <div class="mt-2">
+                    <span class="badge bg-info text-dark"><i class="bi bi-globe me-1"></i>Includes Public Archive (Primary Selection)</span>
+                </div>
+                {{end}}
             </div>
         </div>
         {{end}}
@@ -268,6 +275,12 @@
                     <div class="col-md-4">
                         <label class="form-label small text-body-secondary mb-1">Query</label>
                         <p class="mb-0 fw-medium">{{.}}</p>
+                    </div>
+                    {{end}}
+                    {{if index . "includePublicArchive"}}
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary mb-1">Archive Scope</label>
+                        <p class="mb-0 fw-medium"><span class="badge bg-info text-dark"><i class="bi bi-globe me-1"></i>Public Archive (Ads only)</span></p>
                     </div>
                     {{end}}
                     <div class="col-md-4">
