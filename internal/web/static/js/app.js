@@ -1535,7 +1535,7 @@ class GlobalPlayer {
 
                 // Update artwork if media_id is available
                 if (this.artworkEl && data.media_id) {
-                    const artworkUrl = `/archive/${data.media_id}/artwork`;
+                    const artworkUrl = `/dashboard/media/${data.media_id}/artwork`;
                     this.artworkEl.innerHTML = `<img src="${artworkUrl}" alt="" onerror="this.parentElement.innerHTML='<i class=\\'bi bi-broadcast\\'></i>'">`;
                 }
 
@@ -1594,7 +1594,9 @@ class GlobalPlayer {
 
     setSecondaryText(text) {
         if (!this.artistEl) return;
-        this.artistEl.textContent = (text || '').toString();
+        const next = (text || '').toString();
+        if (this.artistEl.textContent === next) return;
+        this.artistEl.textContent = next;
         this.scheduleArtistMarqueeUpdate();
     }
 
@@ -2001,6 +2003,7 @@ class GlobalPlayer {
             titleSpan.className = 'title-scroll';
             this.titleEl.replaceChildren(titleSpan);
         }
+        if (titleSpan.textContent === text) return;
         titleSpan.textContent = text;
 
         this.scheduleTitleMarqueeUpdate();
