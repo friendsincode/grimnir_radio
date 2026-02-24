@@ -8,6 +8,7 @@ package harbor
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -276,19 +277,31 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	}
 	defer hjConn.Close()
 
-	// Send HTTP/1.0 200 OK response directly on the hijacked connection.
-	_, _ = hjConn.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
+	// Send a minimal HTTP response so nginx knows we accepted the stream.
+	_, _ = hjConn.Write([]byte("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"))
 
-	// The buffered reader may contain data that was read-ahead by the HTTP
-	// server. Use it as the audio source so we don't lose any bytes.
-	var audioSource io.Reader = buf.Reader
-	if buf.Reader.Buffered() == 0 {
-		audioSource = hjConn
+	// Always use the buffered reader — it wraps the raw connection and
+	// ensures we don't lose any bytes that were read-ahead by the HTTP server.
+	audioSource := io.Reader(buf.Reader)
+
+	// Do a blocking test read to verify data is actually flowing.
+	testBuf := make([]byte, 4096)
+	hjConn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	n, readErr := audioSource.Read(testBuf)
+	hjConn.SetReadDeadline(time.Time{}) // clear deadline
+
+	s.logger.Info().
+		Int("first_read_bytes", n).
+		Err(readErr).
+		Msg("harbor first read from hijacked connection")
+
+	if n == 0 || readErr != nil {
+		s.logger.Error().Err(readErr).Msg("harbor: no data from hijacked connection")
+		return
 	}
 
-	s.logger.Debug().
-		Int("buffered_bytes", buf.Reader.Buffered()).
-		Msg("harbor connection hijacked, reading audio from socket")
+	// Prepend the test bytes we already read.
+	audioSource = io.MultiReader(bytes.NewReader(testBuf[:n]), buf.Reader)
 
 	// Inject live audio into the playout pipeline.
 	s.streamAudio(connCtx, conn, mount, contentType, audioSource)
