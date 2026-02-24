@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"database/sql"
 	"net/http"
 	"sort"
 	"strconv"
@@ -71,10 +72,38 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 	// Smart block count
 	h.db.Model(&models.SmartBlock{}).Where("station_id = ?", station.ID).Count(&data.SmartBlockCount)
 
+	// Listener stats (current, peak today, avg 24h)
+	now := time.Now()
+	windowStart := now.Add(-24 * time.Hour)
+	todayStartUTC := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+
+	if h.director != nil {
+		if listeners, err := h.director.ListenerCount(r.Context(), station.ID); err == nil {
+			data.CurrentListeners = listeners
+		}
+	}
+
+	data.PeakToday = data.CurrentListeners
+	var peakTodayDB sql.NullInt64
+	if err := h.db.Model(&models.ListenerSample{}).
+		Select("MAX(listeners)").
+		Where("station_id = ? AND captured_at >= ?", station.ID, todayStartUTC).
+		Scan(&peakTodayDB).Error; err == nil && peakTodayDB.Valid && int(peakTodayDB.Int64) > data.PeakToday {
+		data.PeakToday = int(peakTodayDB.Int64)
+	}
+
+	data.Avg24h = float64(data.CurrentListeners)
+	var avg24hDB sql.NullFloat64
+	if err := h.db.Model(&models.ListenerSample{}).
+		Select("AVG(listeners)").
+		Where("station_id = ? AND captured_at >= ?", station.ID, windowStart.UTC()).
+		Scan(&avg24hDB).Error; err == nil && avg24hDB.Valid {
+		data.Avg24h = avg24hDB.Float64
+	}
+
 	// Current/most-recent now playing item for IRT visibility on dashboard.
 	var history models.PlayHistory
 	if err := h.db.Where("station_id = ?", station.ID).Order("started_at DESC").First(&history).Error; err == nil {
-		now := time.Now()
 		if history.EndedAt.IsZero() || history.EndedAt.After(now) {
 			elapsed := now.Sub(history.StartedAt)
 			if elapsed < 0 {
@@ -289,13 +318,16 @@ func (h *Handler) enrichDashboardUpcomingEntries(entries []models.ScheduleEntry)
 
 // DashboardData holds data for the dashboard overview
 type DashboardData struct {
-	UpcomingEntries []models.ScheduleEntry
-	RecentMedia     []models.MediaItem
-	LiveSessions    []models.LiveSession
-	MediaCount      int64
-	PlaylistCount   int64
-	SmartBlockCount int64
-	NowPlaying      *NowPlayingInfo
+	UpcomingEntries  []models.ScheduleEntry
+	RecentMedia      []models.MediaItem
+	LiveSessions     []models.LiveSession
+	MediaCount       int64
+	PlaylistCount    int64
+	SmartBlockCount  int64
+	CurrentListeners int
+	PeakToday        int
+	Avg24h           float64
+	NowPlaying       *NowPlayingInfo
 }
 
 // NowPlayingInfo holds current playback info

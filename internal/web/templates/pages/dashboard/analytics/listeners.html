@@ -74,6 +74,15 @@
 <script>
 const listenerPoints = {{jsonMarshal (index .Data "SeriesPoints")}};
 
+function esc(s) {
+    return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
 function renderListenerChart(points) {
     const chartEl = document.getElementById('listenersChart');
     if (!chartEl) return;
@@ -88,26 +97,72 @@ function renderListenerChart(points) {
         return;
     }
 
-    const max = Math.max(...points.map(p => p.listeners || 0), 1);
-    const labelsEvery = Math.max(1, Math.floor(points.length / 8));
+    const normalized = points.map((p) => ({
+        timestamp: p.timestamp,
+        listeners: Number.isFinite(Number(p.listeners)) ? Number(p.listeners) : 0,
+    }));
+    const max = Math.max(1, ...normalized.map((p) => p.listeners));
+    const hasSamples = normalized.some((p) => p.listeners > 0);
+
+    if (!hasSamples) {
+        chartEl.innerHTML = `
+            <div class="text-center text-body-secondary py-5">
+                <i class="bi bi-bar-chart-line fs-1"></i>
+                <p class="mb-0">No listener samples captured yet</p>
+            </div>
+        `;
+        return;
+    }
+
+    const width = 960;
+    const height = 220;
+    const pad = { top: 12, right: 8, bottom: 28, left: 38 };
+    const innerW = width - pad.left - pad.right;
+    const innerH = height - pad.top - pad.bottom;
+    const step = normalized.length > 1 ? innerW / (normalized.length - 1) : 0;
+    const yFor = (value) => pad.top + innerH - Math.round((value / max) * innerH);
+
+    const polyline = normalized.map((point, idx) => {
+        const x = Math.round(pad.left + step * idx);
+        const y = yFor(point.listeners);
+        return `${x},${y}`;
+    }).join(' ');
+
+    const labelCount = 6;
+    const labelStep = Math.max(1, Math.floor((normalized.length - 1) / labelCount));
+    const xLabels = [];
+    for (let i = 0; i < normalized.length; i += labelStep) {
+        const dt = new Date(normalized[i].timestamp);
+        const label = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+        const x = Math.round(pad.left + step * i);
+        xLabels.push(`<text x="${x}" y="${height - 8}" font-size="10" fill="currentColor" text-anchor="middle" opacity="0.65">${esc(label)}</text>`);
+    }
+    if (normalized.length > 1) {
+        const lastIdx = normalized.length - 1;
+        const dt = new Date(normalized[lastIdx].timestamp);
+        const lastLabel = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+        const lastX = Math.round(pad.left + step * lastIdx);
+        xLabels.push(`<text x="${lastX}" y="${height - 8}" font-size="10" fill="currentColor" text-anchor="end" opacity="0.65">${esc(lastLabel)}</text>`);
+    }
+
+    const yTicks = 4;
+    const yGrid = [];
+    const yLabels = [];
+    for (let i = 0; i <= yTicks; i++) {
+        const v = Math.round((max * (yTicks - i)) / yTicks);
+        const y = pad.top + Math.round((innerH * i) / yTicks);
+        yGrid.push(`<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="currentColor" stroke-opacity="0.12" stroke-width="1" />`);
+        yLabels.push(`<text x="${pad.left - 6}" y="${y + 3}" font-size="10" fill="currentColor" text-anchor="end" opacity="0.65">${v}</text>`);
+    }
 
     chartEl.innerHTML = `
-        <div class="d-flex align-items-end justify-content-between h-100">
-            ${points.map((point, idx) => {
-                const count = point.listeners || 0;
-                const height = Math.max(2, Math.round((count / max) * 100));
-                const dt = new Date(point.timestamp);
-                const hour = String(dt.getHours()).padStart(2, '0');
-                const minute = String(dt.getMinutes()).padStart(2, '0');
-                const showLabel = idx % labelsEvery === 0 || idx === points.length - 1;
-                return `
-                    <div class="text-center flex-fill" style="padding: 0 1px;" title="${hour}:${minute} • ${count} listeners">
-                        <div class="bg-info" style="height: ${height}%; border-radius: 2px 2px 0 0;"></div>
-                        <small class="text-body-secondary" style="font-size: 0.62rem;">${showLabel ? `${hour}:${minute}` : '&nbsp;'}</small>
-                    </div>
-                `;
-            }).join('')}
-        </div>
+        <div class="small text-body-secondary mb-2">Max: ${max} listeners</div>
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" aria-label="Listeners over time chart" role="img">
+            ${yGrid.join('')}
+            ${yLabels.join('')}
+            <polyline fill="none" stroke="var(--bs-info)" stroke-width="2.5" points="${polyline}" />
+            ${xLabels.join('')}
+        </svg>
     `;
 }
 
