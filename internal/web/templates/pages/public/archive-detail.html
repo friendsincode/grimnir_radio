@@ -38,7 +38,10 @@
                                 </button>
                                 {{if $media.AllowDownload}}
                                 <a href="/archive/{{$media.ID}}/stream?download=1" class="btn btn-outline-secondary btn-lg" download>
-                                    <i class="bi bi-download me-2"></i>Download
+                                    <i class="bi bi-download me-2"></i>Download Original
+                                </a>
+                                <a href="/archive/{{$media.ID}}/stream?download=1&format=mp3" class="btn btn-outline-secondary btn-lg" download>
+                                    <i class="bi bi-filetype-mp3 me-2"></i>Download MP3
                                 </a>
                                 {{end}}
                             </div>

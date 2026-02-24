@@ -35,39 +35,6 @@
                         </select>
                     </div>
                     {{end}}
-                    {{if .Data.Genres}}
-                    <div class="col-md-3">
-                        <label class="form-label small text-body-secondary">Genre</label>
-                        <select class="form-select form-select-sm" name="genre">
-                            <option value="">All Genres</option>
-                            {{range .Data.Genres}}
-                            <option value="{{.}}" {{if eq . $.Data.Genre}}selected{{end}}>{{.}}</option>
-                            {{end}}
-                        </select>
-                    </div>
-                    {{end}}
-                    {{if .Data.Years}}
-                    <div class="col-md-2">
-                        <label class="form-label small text-body-secondary">Year</label>
-                        <select class="form-select form-select-sm" name="year">
-                            <option value="">All Years</option>
-                            {{range .Data.Years}}
-                            <option value="{{.}}" {{if eq . $.Data.Year}}selected{{end}}>{{.}}</option>
-                            {{end}}
-                        </select>
-                    </div>
-                    {{end}}
-                    {{if .Data.Artists}}
-                    <div class="col-md-4">
-                        <label class="form-label small text-body-secondary">Artist</label>
-                        <select class="form-select form-select-sm" name="artist">
-                            <option value="">All Artists</option>
-                            {{range .Data.Artists}}
-                            <option value="{{.}}" {{if eq . $.Data.Artist}}selected{{end}}>{{.}}</option>
-                            {{end}}
-                        </select>
-                    </div>
-                    {{end}}
                 </div>
 
                 <!-- Filter Row 2 -->
@@ -95,7 +62,7 @@
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-funnel me-1"></i>Apply Filters
                         </button>
-                        {{if or .Data.Query .Data.StationID .Data.Genre .Data.Year .Data.Artist .Data.Duration .Data.Sort}}
+                        {{if or .Data.Query .Data.StationID .Data.Duration .Data.Sort}}
                         <a href="/archive" class="btn btn-outline-secondary ms-2">
                             <i class="bi bi-x-circle me-1"></i>Clear
                         </a>
@@ -155,7 +122,7 @@
         <div class="col-12">
             <div class="alert alert-info">
                 <i class="bi bi-info-circle me-2"></i>
-                {{if or .Data.Query .Data.Genre .Data.Year .Data.Artist .Data.Duration}}
+                {{if or .Data.Query .Data.StationID .Data.Duration .Data.Sort}}
                 No results found. Try adjusting your filters.
                 {{else}}
                 No media available in the archive.

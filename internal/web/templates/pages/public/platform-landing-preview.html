@@ -241,6 +241,9 @@
                                         <a class="btn btn-outline-secondary btn-sm" href="{{if .Station.Shortcode}}/s/{{.Station.Shortcode}}{{else}}/station/{{.Station.ID}}{{end}}">
                                             <i class="bi bi-box-arrow-up-right me-1"></i>Station Page
                                         </a>
+                                        <a class="btn btn-outline-info btn-sm" href="/archive?station={{.Station.ID}}">
+                                            <i class="bi bi-archive me-1"></i>Archive
+                                        </a>
                                     </div>
                                 </div>
                             </div>
@@ -391,6 +394,9 @@
                                 {{end}}
                                 <a class="btn btn-outline-secondary btn-sm" href="{{if .Station.Shortcode}}/s/{{.Station.Shortcode}}{{else}}/station/{{.Station.ID}}{{end}}">
                                     <i class="bi bi-box-arrow-up-right me-1"></i>Station Page
+                                </a>
+                                <a class="btn btn-outline-info btn-sm" href="/archive?station={{.Station.ID}}">
+                                    <i class="bi bi-archive me-1"></i>Archive
                                 </a>
                             </div>
                         </div>
