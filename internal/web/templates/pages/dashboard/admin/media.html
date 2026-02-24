@@ -17,6 +17,9 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-collection me-2"></i>Platform Media Library</h4>
     <div class="d-flex gap-2">
+        <a href="/dashboard/admin/media/duplicates" class="btn btn-outline-warning btn-sm">
+            <i class="bi bi-files me-1"></i>Possible Duplicates
+        </a>
         <span class="badge bg-secondary fs-6">{{$data.Total}} media items</span>
         <span class="badge {{if gt $data.OrphanTotal 0}}bg-warning text-dark{{else}}bg-secondary{{end}} fs-6">{{$data.OrphanTotal}} orphan records</span>
     </div>
