@@ -7,8 +7,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -612,6 +619,19 @@ type MediaWithStation struct {
 	Station *models.Station
 }
 
+type DuplicateMediaItem struct {
+	models.MediaItem
+	StationName string
+	StationUser string
+	FileExists  bool
+}
+
+type DuplicateHashGroup struct {
+	Hash  string
+	Count int
+	Items []DuplicateMediaItem
+}
+
 // AdminMediaList renders the platform-wide media library
 func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 	user := h.GetUser(r)
@@ -941,9 +961,14 @@ func (h *Handler) AdminMediaDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := chi.URLParam(r, "id")
-
-	if err := h.db.Delete(&models.MediaItem{}, "id = ?", id).Error; err != nil {
+	deleted, err := h.adminDeleteMediaByIDs([]string{id})
+	if err != nil {
+		h.logger.Error().Err(err).Str("media_id", id).Str("admin_id", user.ID).Msg("failed to delete media by admin")
 		http.Error(w, "Failed to delete media", http.StatusInternalServerError)
+		return
+	}
+	if deleted == 0 {
+		http.NotFound(w, r)
 		return
 	}
 
@@ -957,6 +982,379 @@ func (h *Handler) AdminMediaDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/dashboard/admin/media", http.StatusSeeOther)
+}
+
+// AdminMediaDuplicates renders possible duplicate media groups by SHA-256 content hash.
+func (h *Handler) AdminMediaDuplicates(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	notice := strings.TrimSpace(r.URL.Query().Get("notice"))
+	errMsg := strings.TrimSpace(r.URL.Query().Get("error"))
+
+	// Find hashes with more than one media item.
+	type dupHashCount struct {
+		ContentHash string
+		Count       int64
+	}
+	var hashCounts []dupHashCount
+	if err := h.db.Model(&models.MediaItem{}).
+		Select("content_hash, COUNT(*) as count").
+		Where("content_hash IS NOT NULL AND content_hash <> ''").
+		Group("content_hash").
+		Having("COUNT(*) > 1").
+		Order("count DESC, content_hash ASC").
+		Limit(500).
+		Scan(&hashCounts).Error; err != nil {
+		h.logger.Error().Err(err).Msg("failed to load duplicate hash groups")
+		http.Error(w, "Failed to load duplicate media", http.StatusInternalServerError)
+		return
+	}
+
+	hashes := make([]string, 0, len(hashCounts))
+	for _, hc := range hashCounts {
+		if strings.TrimSpace(hc.ContentHash) == "" {
+			continue
+		}
+		hashes = append(hashes, hc.ContentHash)
+	}
+
+	groups := make([]DuplicateHashGroup, 0, len(hashes))
+	if len(hashes) > 0 {
+		var items []models.MediaItem
+		if err := h.db.Where("content_hash IN ?", hashes).
+			Order("content_hash ASC, created_at ASC").
+			Find(&items).Error; err != nil {
+			h.logger.Error().Err(err).Msg("failed to load duplicate media items")
+			http.Error(w, "Failed to load duplicate media", http.StatusInternalServerError)
+			return
+		}
+
+		var stations []models.Station
+		stationNameByID := make(map[string]string)
+		stationOwnerIDByStationID := make(map[string]string)
+		if err := h.db.Select("id,name,owner_id").Find(&stations).Error; err == nil {
+			for _, st := range stations {
+				stationNameByID[st.ID] = st.Name
+				stationOwnerIDByStationID[st.ID] = strings.TrimSpace(st.OwnerID)
+			}
+		}
+
+		userIDs := make([]string, 0)
+		seenUser := make(map[string]struct{})
+		for _, ownerID := range stationOwnerIDByStationID {
+			if ownerID == "" {
+				continue
+			}
+			if _, ok := seenUser[ownerID]; !ok {
+				seenUser[ownerID] = struct{}{}
+				userIDs = append(userIDs, ownerID)
+			}
+		}
+		for _, item := range items {
+			if item.CreatedBy != nil && strings.TrimSpace(*item.CreatedBy) != "" {
+				userID := strings.TrimSpace(*item.CreatedBy)
+				if _, ok := seenUser[userID]; !ok {
+					seenUser[userID] = struct{}{}
+					userIDs = append(userIDs, userID)
+				}
+			}
+		}
+		userEmailByID := make(map[string]string)
+		if len(userIDs) > 0 {
+			var users []models.User
+			if err := h.db.Select("id,email").Where("id IN ?", userIDs).Find(&users).Error; err == nil {
+				for _, u := range users {
+					userEmailByID[u.ID] = u.Email
+				}
+			}
+		}
+
+		itemByHash := make(map[string][]DuplicateMediaItem)
+		for _, item := range items {
+			fullPath := filepath.Join(h.mediaRoot, item.Path)
+			_, statErr := os.Stat(fullPath)
+			uploader := ""
+			if item.CreatedBy != nil {
+				uploader = userEmailByID[strings.TrimSpace(*item.CreatedBy)]
+			}
+			if uploader == "" {
+				uploader = userEmailByID[stationOwnerIDByStationID[item.StationID]]
+			}
+			itemByHash[item.ContentHash] = append(itemByHash[item.ContentHash], DuplicateMediaItem{
+				MediaItem:   item,
+				StationName: stationNameByID[item.StationID],
+				StationUser: uploader,
+				FileExists:  statErr == nil,
+			})
+		}
+
+		for _, hc := range hashCounts {
+			groupItems := itemByHash[hc.ContentHash]
+			if len(groupItems) < 2 {
+				continue
+			}
+			groups = append(groups, DuplicateHashGroup{
+				Hash:  hc.ContentHash,
+				Count: len(groupItems),
+				Items: groupItems,
+			})
+		}
+	}
+
+	var missingHashCount int64
+	_ = h.db.Model(&models.MediaItem{}).
+		Where("content_hash IS NULL OR content_hash = ''").
+		Count(&missingHashCount).Error
+
+	h.Render(w, r, "pages/dashboard/admin/media-duplicates", PageData{
+		Title:    "Possible Duplicate Media - Admin",
+		Stations: h.LoadStations(r),
+		Data: map[string]any{
+			"Groups":           groups,
+			"GroupCount":       len(groups),
+			"MissingHashCount": missingHashCount,
+			"Notice":           notice,
+			"Error":            errMsg,
+		},
+	})
+}
+
+// AdminMediaBackfillHashes computes missing SHA-256 content hashes from media files.
+func (h *Handler) AdminMediaBackfillHashes(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	var media []models.MediaItem
+	if err := h.db.Select("id,path,content_hash").
+		Where("content_hash IS NULL OR content_hash = ''").
+		Find(&media).Error; err != nil {
+		h.logger.Error().Err(err).Msg("failed to load media missing hashes")
+		http.Error(w, "Failed to load media", http.StatusInternalServerError)
+		return
+	}
+
+	updated := 0
+	missingFiles := 0
+	failed := 0
+	for _, item := range media {
+		if strings.TrimSpace(item.Path) == "" {
+			failed++
+			continue
+		}
+		fullPath := filepath.Join(h.mediaRoot, item.Path)
+		hash, err := computeSHA256File(fullPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				missingFiles++
+			} else {
+				failed++
+			}
+			continue
+		}
+		if hash == "" {
+			failed++
+			continue
+		}
+		if err := h.db.Model(&models.MediaItem{}).Where("id = ?", item.ID).Update("content_hash", hash).Error; err != nil {
+			failed++
+			continue
+		}
+		updated++
+	}
+
+	msg := fmt.Sprintf("hash backfill complete: %d updated, %d missing files, %d failed", updated, missingFiles, failed)
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", "/dashboard/admin/media/duplicates?notice="+url.QueryEscape(msg))
+		return
+	}
+	http.Redirect(w, r, "/dashboard/admin/media/duplicates?notice="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+// AdminMediaPurgeDuplicates deletes selected duplicate media records and files.
+func (h *Handler) AdminMediaPurgeDuplicates(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+	ids := r.Form["ids"]
+	if len(ids) == 0 {
+		http.Redirect(w, r, "/dashboard/admin/media/duplicates?error="+url.QueryEscape("No items selected"), http.StatusSeeOther)
+		return
+	}
+
+	// Ensure selected IDs are duplicate candidates and leave at least one item per hash.
+	var selected []models.MediaItem
+	if err := h.db.Select("id,content_hash").Where("id IN ?", ids).Find(&selected).Error; err != nil {
+		http.Error(w, "Failed to load selected media", http.StatusInternalServerError)
+		return
+	}
+	if len(selected) == 0 {
+		http.Redirect(w, r, "/dashboard/admin/media/duplicates?error="+url.QueryEscape("No matching media found"), http.StatusSeeOther)
+		return
+	}
+
+	selectedPerHash := make(map[string]int)
+	hashes := make([]string, 0)
+	seenHash := make(map[string]struct{})
+	for _, item := range selected {
+		hash := strings.TrimSpace(item.ContentHash)
+		if hash == "" {
+			continue
+		}
+		selectedPerHash[hash]++
+		if _, ok := seenHash[hash]; !ok {
+			seenHash[hash] = struct{}{}
+			hashes = append(hashes, hash)
+		}
+	}
+	if len(hashes) == 0 {
+		http.Redirect(w, r, "/dashboard/admin/media/duplicates?error="+url.QueryEscape("Selected items do not have content hashes"), http.StatusSeeOther)
+		return
+	}
+
+	type hashCount struct {
+		ContentHash string
+		Count       int64
+	}
+	var totals []hashCount
+	if err := h.db.Model(&models.MediaItem{}).
+		Select("content_hash, COUNT(*) as count").
+		Where("content_hash IN ?", hashes).
+		Group("content_hash").
+		Scan(&totals).Error; err != nil {
+		http.Error(w, "Failed to validate duplicates", http.StatusInternalServerError)
+		return
+	}
+
+	for _, t := range totals {
+		if selectedPerHash[t.ContentHash] >= int(t.Count) {
+			msg := fmt.Sprintf("Cannot purge all copies for hash %s. Leave at least one item per hash.", shortHash(t.ContentHash))
+			http.Redirect(w, r, "/dashboard/admin/media/duplicates?error="+url.QueryEscape(msg), http.StatusSeeOther)
+			return
+		}
+	}
+
+	deleted, err := h.adminDeleteMediaByIDs(ids)
+	if err != nil {
+		h.logger.Error().Err(err).Int("selected", len(ids)).Str("admin_id", user.ID).Msg("duplicate purge failed")
+		http.Redirect(w, r, "/dashboard/admin/media/duplicates?error="+url.QueryEscape("Failed to purge selected duplicates"), http.StatusSeeOther)
+		return
+	}
+
+	msg := fmt.Sprintf("Purged %d duplicate media items.", deleted)
+	http.Redirect(w, r, "/dashboard/admin/media/duplicates?notice="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+func computeSHA256File(fullPath string) (string, error) {
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func shortHash(s string) string {
+	if len(s) <= 12 {
+		return s
+	}
+	return s[:12]
+}
+
+func (h *Handler) adminDeleteMediaByIDs(ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	var items []models.MediaItem
+	if err := h.db.Select("id,path").Where("id IN ?", ids).Find(&items).Error; err != nil {
+		return 0, err
+	}
+	if len(items) == 0 {
+		return 0, nil
+	}
+	validIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		validIDs = append(validIDs, item.ID)
+	}
+
+	// Remove playlist references first to avoid dangling rows.
+	if err := h.db.Where("media_id IN ?", validIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
+		return 0, err
+	}
+	result := h.db.Where("id IN ?", validIDs).Delete(&models.MediaItem{})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+
+	for _, item := range items {
+		if strings.TrimSpace(item.Path) == "" {
+			continue
+		}
+		fullPath := filepath.Join(h.mediaRoot, item.Path)
+		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+			h.logger.Warn().Err(err).Str("path", fullPath).Msg("failed to delete media file")
+		}
+	}
+	return result.RowsAffected, nil
+}
+
+// AdminMediaStream allows platform admins to preview any media file regardless of station context.
+func (h *Handler) AdminMediaStream(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	var media models.MediaItem
+	if err := h.db.Select("id,path,title,artist").First(&media, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if strings.TrimSpace(media.Path) == "" {
+		http.Error(w, "No media file available", http.StatusNotFound)
+		return
+	}
+
+	fullPath := filepath.Join(h.mediaRoot, media.Path)
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		http.Error(w, "Media file not found", http.StatusNotFound)
+		return
+	}
+
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(media.Path), "."))
+	contentTypes := map[string]string{
+		"mp3":  "audio/mpeg",
+		"flac": "audio/flac",
+		"wav":  "audio/wav",
+		"ogg":  "audio/ogg",
+		"m4a":  "audio/mp4",
+	}
+	contentType := contentTypes[ext]
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Accept-Ranges", "bytes")
+	http.ServeFile(w, r, fullPath)
 }
 
 // =============================================================================

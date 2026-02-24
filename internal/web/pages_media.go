@@ -518,9 +518,14 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create media item record with station's default archive settings
+	var createdBy *string
+	if user := h.GetUser(r); user != nil && strings.TrimSpace(user.ID) != "" {
+		createdBy = &user.ID
+	}
 	media := models.MediaItem{
 		ID:            mediaID,
 		StationID:     station.ID,
+		CreatedBy:     createdBy,
 		Title:         strings.TrimSuffix(header.Filename, ext),
 		Path:          relPath,
 		ContentHash:   contentHash,

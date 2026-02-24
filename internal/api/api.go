@@ -771,6 +771,9 @@ func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 		ContentHash:   contentHash,
 		AnalysisState: models.AnalysisPending,
 	}
+	if strings.TrimSpace(claims.UserID) != "" {
+		item.CreatedBy = &claims.UserID
+	}
 
 	if err := a.db.WithContext(r.Context()).Create(&item).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")

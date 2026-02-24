@@ -447,6 +447,7 @@ type MediaItem struct {
 	ID          string   `gorm:"type:uuid;primaryKey"`
 	StationID   string   `gorm:"type:uuid;index"`
 	Station     *Station `gorm:"foreignKey:StationID"` // Belongs to station (for cross-station queries)
+	CreatedBy   *string  `gorm:"type:uuid;index"`      // User who uploaded/created this item (nullable for imports/system)
 	Title       string   `gorm:"index"`
 	Artist      string   `gorm:"index"`
 	Album       string   `gorm:"index"`

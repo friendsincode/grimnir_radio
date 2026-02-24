@@ -400,7 +400,11 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// Platform media library
 				r.Get("/media", h.AdminMediaList)
+				r.Get("/media/duplicates", h.AdminMediaDuplicates)
+				r.Post("/media/duplicates/hash-backfill", h.AdminMediaBackfillHashes)
+				r.Post("/media/duplicates/purge", h.AdminMediaPurgeDuplicates)
 				r.Post("/media/bulk", h.AdminMediaBulk)
+				r.Get("/media/{id}/stream", h.AdminMediaStream)
 				r.Post("/media/{id}/toggle-public", h.AdminMediaTogglePublic)
 				r.Post("/media/{id}/move", h.AdminMediaMove)
 				r.Delete("/media/{id}", h.AdminMediaDelete)

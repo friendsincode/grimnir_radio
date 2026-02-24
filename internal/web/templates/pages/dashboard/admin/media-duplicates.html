@@ -1,0 +1,137 @@
+{{define "pages/dashboard/admin/media-duplicates"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item">Platform Admin</li>
+        <li class="breadcrumb-item"><a href="/dashboard/admin/media">Media Library</a></li>
+        <li class="breadcrumb-item active">Possible Duplicates</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-files me-2"></i>Possible Duplicate Media</h4>
+    <div class="d-flex gap-2">
+        <a href="/dashboard/admin/media" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back to Media
+        </a>
+    </div>
+</div>
+
+{{if $data.Notice}}
+<div class="alert alert-success">{{$data.Notice}}</div>
+{{end}}
+{{if $data.Error}}
+<div class="alert alert-danger">{{$data.Error}}</div>
+{{end}}
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+            <div class="text-body-secondary small">
+                <strong>{{$data.GroupCount}}</strong> duplicate hash groups found.
+                Missing hashes: <strong>{{$data.MissingHashCount}}</strong>.
+            </div>
+            <form method="post" action="/dashboard/admin/media/duplicates/hash-backfill">
+                <button type="submit" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-shield-check me-1"></i>Backfill Missing SHA256
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<form method="post" action="/dashboard/admin/media/duplicates/purge" onsubmit="return confirm('Purge selected duplicate files and records? This cannot be undone.')">
+    <div class="card mb-3">
+        <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <input type="checkbox" class="form-check-input" id="selectAllDups">
+                <label class="form-check-label" for="selectAllDups">Select all listed duplicates</label>
+            </div>
+            <button type="submit" class="btn btn-danger btn-sm">
+                <i class="bi bi-trash me-1"></i>Purge Selected
+            </button>
+        </div>
+    </div>
+
+    {{range $group := $data.Groups}}
+    <div class="card mb-4 border-warning-subtle">
+        <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <strong class="text-break">{{$group.Hash}}</strong>
+                <small class="text-body-secondary ms-2">({{$group.Count}} files)</small>
+            </div>
+            <small class="text-body-secondary">Keep at least one file in each hash group.</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:40px;"></th>
+                        <th>Title / Artist</th>
+                        <th>Station</th>
+                        <th>Uploader/User</th>
+                        <th>Path</th>
+                        <th>Play</th>
+                        <th>File</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range $idx, $item := $group.Items}}
+                    <tr>
+                        <td>
+                            <input type="checkbox" class="form-check-input dup-checkbox" name="ids" value="{{$item.ID}}" {{if gt $idx 0}}checked{{end}}>
+                        </td>
+                        <td>
+                            <div class="fw-semibold text-truncate" style="max-width:280px;" title="{{$item.Title}}">{{$item.Title}}</div>
+                            <small class="text-body-secondary">{{if $item.Artist}}{{$item.Artist}}{{else}}<em>Unknown artist</em>{{end}} • {{formatDuration $item.Duration}}</small>
+                        </td>
+                        <td>{{if $item.StationName}}<span class="badge bg-primary">{{$item.StationName}}</span>{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                        <td>{{if $item.StationUser}}<small>{{$item.StationUser}}</small>{{else}}<small class="text-body-secondary">Unknown</small>{{end}}</td>
+                        <td><code class="small">{{$item.Path}}</code></td>
+                        <td>
+                            <audio controls preload="none" style="width:220px;">
+                                <source src="/dashboard/admin/media/{{$item.ID}}/stream">
+                            </audio>
+                        </td>
+                        <td>
+                            {{if $item.FileExists}}
+                            <span class="badge bg-success">On Disk</span>
+                            {{else}}
+                            <span class="badge bg-danger">Missing</span>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {{else}}
+    <div class="card">
+        <div class="card-body text-center text-body-secondary py-5">
+            No duplicate groups found.
+        </div>
+    </div>
+    {{end}}
+</form>
+{{end}}
+
+{{define "scripts"}}
+<script>
+const selectAll = document.getElementById('selectAllDups');
+if (selectAll) {
+    selectAll.addEventListener('change', () => {
+        document.querySelectorAll('.dup-checkbox').forEach((cb) => {
+            cb.checked = selectAll.checked;
+        });
+    });
+}
+</script>
+{{end}}
