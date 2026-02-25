@@ -9,6 +9,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -25,7 +26,7 @@ func (h *Handler) ClockList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var clocks []models.ClockHour
-	h.db.Preload("Slots").Where("station_id = ?", station.ID).Order("name ASC").Find(&clocks)
+	h.db.Preload("Slots").Where("station_id = ?", station.ID).Order("start_hour ASC, name ASC").Find(&clocks)
 
 	h.Render(w, r, "pages/dashboard/clocks/list", PageData{
 		Title:    "Clock Templates",
@@ -81,6 +82,18 @@ func (h *Handler) ClockCreate(w http.ResponseWriter, r *http.Request) {
 		StationID: station.ID,
 		Name:      r.FormValue("name"),
 	}
+	startHour, err := parseClockHourField(r.FormValue("start_hour"), 0, 23, 0)
+	if err != nil {
+		http.Error(w, "Invalid start hour", http.StatusBadRequest)
+		return
+	}
+	endHour, err := parseClockHourField(r.FormValue("end_hour"), 1, 24, 24)
+	if err != nil {
+		http.Error(w, "Invalid end hour", http.StatusBadRequest)
+		return
+	}
+	clock.StartHour = startHour
+	clock.EndHour = endHour
 
 	// Parse slots from JSON
 	if slotsJSON := r.FormValue("slots"); slotsJSON != "" {
@@ -198,6 +211,18 @@ func (h *Handler) ClockUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clock.Name = r.FormValue("name")
+	startHour, err := parseClockHourField(r.FormValue("start_hour"), 0, 23, 0)
+	if err != nil {
+		http.Error(w, "Invalid start hour", http.StatusBadRequest)
+		return
+	}
+	endHour, err := parseClockHourField(r.FormValue("end_hour"), 1, 24, 24)
+	if err != nil {
+		http.Error(w, "Invalid end hour", http.StatusBadRequest)
+		return
+	}
+	clock.StartHour = startHour
+	clock.EndHour = endHour
 
 	// Delete existing slots
 	h.db.Delete(&models.ClockSlot{}, "clock_hour_id = ?", id)
@@ -379,6 +404,20 @@ func (h *Handler) ClockSimulate(w http.ResponseWriter, r *http.Request) {
 		"TotalDurationMs": totalDurationMs,
 		"TargetMs":        int64(60 * 60 * 1000), // 1 hour target
 	})
+}
+
+func parseClockHourField(raw string, min, max, fallback int) (int, error) {
+	if raw == "" {
+		return fallback, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, err
+	}
+	if v < min || v > max {
+		return 0, strconv.ErrRange
+	}
+	return v, nil
 }
 
 // materializeSmartBlock generates actual tracks for a smart block

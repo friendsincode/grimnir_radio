@@ -35,11 +35,22 @@ func (p *Planner) Compile(stationID string, start time.Time, horizon time.Durati
 		horizon = time.Hour
 	}
 
-	var clockHour models.ClockHour
+	var station models.Station
+	loc := time.UTC
+	if err := p.db.Select("timezone").Where("id = ?", stationID).First(&station).Error; err == nil && station.Timezone != "" {
+		loaded, loadErr := time.LoadLocation(station.Timezone)
+		if loadErr == nil {
+			loc = loaded
+		} else {
+			p.logger.Warn().Err(loadErr).Str("station_id", stationID).Str("timezone", station.Timezone).Msg("invalid station timezone, falling back to UTC")
+		}
+	}
+
+	var clockHours []models.ClockHour
 	err := p.db.Where("station_id = ?", stationID).
 		Preload("Slots").
 		Order("created_at ASC").
-		First(&clockHour).Error
+		Find(&clockHours).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -47,11 +58,11 @@ func (p *Planner) Compile(stationID string, start time.Time, horizon time.Durati
 		return nil, err
 	}
 
-	if len(clockHour.Slots) == 0 {
+	if len(clockHours) == 0 {
 		return nil, nil
 	}
 
-	plans := buildPlans(clockHour, start, horizon)
+	plans := buildPlansForStation(clockHours, start, horizon, loc)
 	return plans, nil
 }
 
@@ -81,7 +92,7 @@ func buildPlans(clockHour models.ClockHour, start time.Time, horizon time.Durati
 	})
 
 	plans := make([]SlotPlan, 0, len(slots)*int(horizon/time.Hour+1))
-	cursor := start
+	cursor := start.Truncate(time.Hour)
 	end := start.Add(horizon)
 
 	for cursor.Before(end) {
@@ -110,6 +121,64 @@ func buildPlans(clockHour models.ClockHour, start time.Time, horizon time.Durati
 	}
 
 	return plans
+}
+
+func buildPlansForStation(clockHours []models.ClockHour, start time.Time, horizon time.Duration, loc *time.Location) []SlotPlan {
+	if len(clockHours) == 0 {
+		return nil
+	}
+	cursor := start.Truncate(time.Hour)
+	end := start.Add(horizon)
+	plans := make([]SlotPlan, 0, len(clockHours)*int(horizon/time.Hour+1))
+
+	for cursor.Before(end) {
+		clockHour := selectClockHour(clockHours, cursor, loc)
+		if clockHour != nil && len(clockHour.Slots) > 0 {
+			hourPlans := buildPlans(*clockHour, cursor, time.Hour)
+			for _, plan := range hourPlans {
+				if plan.StartsAt.Before(start) || !plan.StartsAt.Before(end) {
+					continue
+				}
+				plans = append(plans, plan)
+			}
+		}
+		cursor = cursor.Add(time.Hour)
+	}
+
+	return plans
+}
+
+func selectClockHour(clockHours []models.ClockHour, instant time.Time, loc *time.Location) *models.ClockHour {
+	local := instant.In(loc)
+	hour := local.Hour()
+
+	for i := range clockHours {
+		if clockWindowApplies(clockHours[i], hour) {
+			return &clockHours[i]
+		}
+	}
+	return nil
+}
+
+func clockWindowApplies(clockHour models.ClockHour, hour int) bool {
+	startHour, endHour := normalizeClockWindow(clockHour.StartHour, clockHour.EndHour)
+	if startHour == endHour {
+		return true
+	}
+	if startHour < endHour {
+		return hour >= startHour && hour < endHour
+	}
+	return hour >= startHour || hour < endHour
+}
+
+func normalizeClockWindow(startHour, endHour int) (int, int) {
+	if startHour < 0 || startHour > 23 {
+		startHour = 0
+	}
+	if endHour < 1 || endHour > 24 {
+		endHour = 24
+	}
+	return startHour, endHour
 }
 
 func slotPayloadDuration(payload map[string]any) time.Duration {

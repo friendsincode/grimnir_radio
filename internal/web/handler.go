@@ -272,6 +272,7 @@ func (h *Handler) loadTemplates() error {
 		"formatDurationMs":  formatDurationMs,
 		"formatDurationSec": formatDurationSec,
 		"sourceStationID":   sourceStationID,
+		"formatHourWindow":  formatHourWindow,
 	}
 
 	h.templates = make(map[string]*template.Template)
@@ -659,6 +660,16 @@ func formatDurationMs(ms int) string {
 
 func formatDurationSec(d time.Duration) int {
 	return int(d.Seconds())
+}
+
+func formatHourWindow(startHour, endHour int) string {
+	if startHour < 0 || startHour > 23 {
+		startHour = 0
+	}
+	if endHour < 1 || endHour > 24 {
+		endHour = 24
+	}
+	return fmt.Sprintf("%02d:00-%02d:00", startHour, endHour%24)
 }
 
 func sourceStationID(sourceID string) string {
