@@ -584,6 +584,8 @@ type ClockHour struct {
 	ID        string `gorm:"type:uuid;primaryKey"`
 	StationID string `gorm:"type:uuid;index"`
 	Name      string
+	StartHour int         `gorm:"not null;default:0"`  // Inclusive local hour [0-23]
+	EndHour   int         `gorm:"not null;default:24"` // Exclusive local hour [1-24], supports overnight ranges
 	Slots     []ClockSlot `gorm:"foreignKey:ClockHourID"`
 
 	// Import provenance (nullable for manually created items)

@@ -178,6 +178,8 @@ type smartBlockMaterializeRequest struct {
 type clockCreateRequest struct {
 	StationID string             `json:"station_id"`
 	Name      string             `json:"name"`
+	StartHour int                `json:"start_hour"`
+	EndHour   int                `json:"end_hour"`
 	Slots     []clockSlotRequest `json:"slots"`
 }
 
@@ -1020,7 +1022,7 @@ func (a *API) handleClocksList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var clocks []models.ClockHour
-	if err := query.Preload("Slots").Order("name ASC").Find(&clocks).Error; err != nil {
+	if err := query.Preload("Slots").Order("start_hour ASC, name ASC").Find(&clocks).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
@@ -1037,6 +1039,12 @@ func (a *API) handleClocksCreate(w http.ResponseWriter, r *http.Request) {
 	if req.StationID == "" || req.Name == "" {
 		writeError(w, http.StatusBadRequest, "missing_required_fields")
 		return
+	}
+	if req.StartHour < 0 || req.StartHour > 23 {
+		req.StartHour = 0
+	}
+	if req.EndHour < 1 || req.EndHour > 24 {
+		req.EndHour = 24
 	}
 	if !a.requireStationAccess(w, r, req.StationID) {
 		return
@@ -1059,6 +1067,8 @@ func (a *API) handleClocksCreate(w http.ResponseWriter, r *http.Request) {
 		ID:        clockID,
 		StationID: req.StationID,
 		Name:      req.Name,
+		StartHour: req.StartHour,
+		EndHour:   req.EndHour,
 		Slots:     slots,
 	}
 

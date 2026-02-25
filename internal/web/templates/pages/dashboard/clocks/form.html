@@ -33,6 +33,11 @@
     </a>
 </div>
 
+<div class="alert alert-info">
+    <div class="fw-semibold mb-1">How this template is used</div>
+    <div class="small mb-0">Clock templates are helpers that generate future schedule windows. This template applies daily between the configured start and end hour, and repeats for each hour in that range.</div>
+</div>
+
 <form method="POST" id="clockForm"
       action="{{if $isNew}}/dashboard/clocks{{else}}/dashboard/clocks/{{$clock.ID}}{{end}}"
       {{if $isNew}}
@@ -56,6 +61,19 @@
                                value="{{$clock.Name}}" required
                                placeholder="e.g. Morning Show Hour">
                     </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Start Hour</label>
+                            <input type="number" class="form-control" name="start_hour" min="0" max="23"
+                                   value="{{if ge $clock.StartHour 0}}{{$clock.StartHour}}{{else}}0{{end}}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">End Hour</label>
+                            <input type="number" class="form-control" name="end_hour" min="1" max="24"
+                                   value="{{if gt $clock.EndHour 0}}{{$clock.EndHour}}{{else}}24{{end}}">
+                        </div>
+                    </div>
+                    <div class="form-text">Uses local station time. Example: `6` to `12` applies from 06:00 to 11:59.</div>
                 </div>
             </div>
 

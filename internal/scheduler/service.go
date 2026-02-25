@@ -9,6 +9,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/cache"
@@ -31,6 +32,8 @@ type Service struct {
 	cache      *cache.Cache
 	logger     zerolog.Logger
 	lookahead  time.Duration
+	warnMu     sync.Mutex
+	warnedKeys map[string]struct{}
 }
 
 // New constructs the scheduler service.
@@ -38,7 +41,15 @@ func New(db *gorm.DB, planner *clock.Planner, engine *smartblock.Engine, stateSt
 	if lookahead <= 0 {
 		lookahead = 24 * time.Hour
 	}
-	return &Service{db: db, planner: planner, engine: engine, stateStore: stateStore, lookahead: lookahead, logger: logger}
+	return &Service{
+		db:         db,
+		planner:    planner,
+		engine:     engine,
+		stateStore: stateStore,
+		lookahead:  lookahead,
+		logger:     logger,
+		warnedKeys: make(map[string]struct{}),
+	}
 }
 
 // SetCache sets the cache instance for the scheduler.
@@ -156,6 +167,9 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 		if plan.StartsAt.Before(start) {
 			continue
 		}
+		if !s.validatePlanPayload(stationID, plan) {
+			continue
+		}
 
 		alreadyScheduled, err := s.slotAlreadyScheduled(ctx, stationID, plan)
 		if err != nil {
@@ -210,23 +224,68 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 	return nil
 }
 
+func (s *Service) validatePlanPayload(stationID string, plan clock.SlotPlan) bool {
+	switch plan.SlotType {
+	case string(models.SlotTypeHardItem):
+		if stringValue(plan.Payload["media_id"]) == "" {
+			s.warnOnce("hard_item_missing_media_id:"+stationID+":"+plan.SlotID, func(e *zerolog.Event) {
+				e.Str("station", stationID).Str("slot", plan.SlotID).Msg("hard item slot missing media_id")
+			})
+			return false
+		}
+	case string(models.SlotTypePlaylist):
+		if stringValue(plan.Payload["playlist_id"]) == "" {
+			s.warnOnce("playlist_missing_playlist_id:"+stationID+":"+plan.SlotID, func(e *zerolog.Event) {
+				e.Str("station", stationID).Str("slot", plan.SlotID).Msg("playlist slot missing playlist_id")
+			})
+			return false
+		}
+	case string(models.SlotTypeWebstream):
+		if stringValue(plan.Payload["webstream_id"]) == "" {
+			s.warnOnce("webstream_missing_webstream_id:"+stationID+":"+plan.SlotID, func(e *zerolog.Event) {
+				e.Str("station", stationID).Str("slot", plan.SlotID).Msg("webstream slot missing webstream_id")
+			})
+			return false
+		}
+	}
+
+	return true
+}
+
+func (s *Service) warnOnce(key string, logFn func(e *zerolog.Event)) {
+	s.warnMu.Lock()
+	if s.warnedKeys == nil {
+		s.warnedKeys = make(map[string]struct{})
+	}
+	if _, ok := s.warnedKeys[key]; ok {
+		s.warnMu.Unlock()
+		return
+	}
+	s.warnedKeys[key] = struct{}{}
+	s.warnMu.Unlock()
+
+	logFn(s.logger.Warn())
+}
+
 func (s *Service) explainNoPlans(ctx context.Context, stationID string) (reason, details, action string) {
-	var clockHour models.ClockHour
+	var clockHours []models.ClockHour
 	err := s.db.WithContext(ctx).
 		Where("station_id = ?", stationID).
 		Preload("Slots").
 		Order("created_at ASC").
-		First(&clockHour).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+		Find(&clockHours).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) || len(clockHours) == 0 {
 		return "no_clock_template", "No clock template exists for this station.", "Create a Clock Template and add at least one slot."
 	}
 	if err != nil {
 		return "clock_lookup_failed", "Scheduler could not inspect clock configuration: " + err.Error(), "Check database health and retry scheduler."
 	}
-	if len(clockHour.Slots) == 0 {
-		return "clock_has_no_slots", "Clock template \"" + clockHour.Name + "\" has zero slots.", "Edit this clock and add at least one slot (playlist, smart block, webstream, etc.)."
+	for _, clockHour := range clockHours {
+		if len(clockHour.Slots) > 0 {
+			return "no_slots_generated", "Clock templates exist, but no slot plans were generated for the requested window.", "Verify clock start/end hour windows, slot offsets/durations, and scheduler lookahead."
+		}
 	}
-	return "no_slots_generated", "Clock template exists, but no slot plans were generated for the requested window.", "Verify slot offsets/durations and scheduler lookahead settings."
+	return "clock_has_no_slots", "Clock templates exist, but all are empty (zero slots).", "Edit a Clock Template and add at least one slot (playlist, smart block, webstream, etc.)."
 }
 
 func (s *Service) slotAlreadyScheduled(ctx context.Context, stationID string, plan clock.SlotPlan) (bool, error) {
@@ -374,7 +433,9 @@ func (s *Service) createPlaylistEntry(ctx context.Context, stationID string, pla
 
 	playlistID := stringValue(plan.Payload["playlist_id"])
 	if playlistID == "" {
-		s.logger.Warn().Str("slot", plan.SlotID).Msg("playlist slot missing playlist_id")
+		s.warnOnce("playlist_missing_playlist_id:"+stationID+":"+plan.SlotID, func(e *zerolog.Event) {
+			e.Str("station", stationID).Str("slot", plan.SlotID).Msg("playlist slot missing playlist_id")
+		})
 		return nil
 	}
 
@@ -402,7 +463,9 @@ func (s *Service) createHardItemEntry(ctx context.Context, stationID string, pla
 	}
 	mediaID := stringValue(plan.Payload["media_id"])
 	if mediaID == "" {
-		s.logger.Warn().Str("slot", plan.SlotID).Msg("hard item slot missing media_id")
+		s.warnOnce("hard_item_missing_media_id:"+stationID+":"+plan.SlotID, func(e *zerolog.Event) {
+			e.Str("station", stationID).Str("slot", plan.SlotID).Msg("hard item slot missing media_id")
+		})
 		return nil
 	}
 	entry := models.ScheduleEntry{
@@ -469,7 +532,9 @@ func (s *Service) createWebstreamEntry(ctx context.Context, stationID string, pl
 	}
 	webstreamID := stringValue(plan.Payload["webstream_id"])
 	if webstreamID == "" {
-		s.logger.Warn().Str("slot", plan.SlotID).Msg("webstream slot missing webstream_id")
+		s.warnOnce("webstream_missing_webstream_id:"+stationID+":"+plan.SlotID, func(e *zerolog.Event) {
+			e.Str("station", stationID).Str("slot", plan.SlotID).Msg("webstream slot missing webstream_id")
+		})
 		return nil
 	}
 	entry := models.ScheduleEntry{

@@ -30,6 +30,9 @@
                 <p class="card-text text-body-secondary">
                     {{len .Slots}} slots configured
                 </p>
+                <p class="card-text small text-body-secondary mb-3">
+                    Active window: {{formatHourWindow .StartHour .EndHour}}
+                </p>
                 <div class="d-flex gap-2">
                     <a href="/dashboard/clocks/{{.ID}}" class="btn btn-sm btn-outline-primary">
                         <i class="bi bi-eye me-1"></i>View

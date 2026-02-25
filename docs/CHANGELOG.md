@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.18.16 — 2026-02-25
+
+### Clock Windowing, Multi-Hour Planning, and Scheduler Noise Reduction
+- Added clock-hour active windows with explicit `start_hour` (inclusive) and `end_hour` (exclusive) support.
+- Updated clock compilation to evaluate all station clock templates and select the applicable template per hour using station timezone.
+- Added overnight window support (for example, `22 -> 2`) and aligned hourly planning to `HH:00` boundaries.
+- Improved clock UX to clarify that clocks are reusable scheduling helpers and added start/end hour controls in create/edit/detail/list views.
+- Extended clock API create payloads with `start_hour` and `end_hour`.
+- Reduced scheduler warning noise for invalid slot payloads by validating earlier and suppressing repeated identical warning emissions.
+- Added planner regression tests for multi-window and overnight clock behavior.
+
+---
+
 ## 1.17.35 — 2026-02-24
 
 ### Live Scheduling UUID Normalization

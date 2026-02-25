@@ -35,6 +35,11 @@
     </div>
 </div>
 
+<div class="alert alert-info">
+    <div class="fw-semibold mb-1">Template behavior</div>
+    <div class="small mb-0">This clock is a reusable hourly template, not a one-time schedule row. The scheduler applies it each day during the active window below and materializes schedule entries ahead of time.</div>
+</div>
+
 <div class="row g-4">
     <!-- Clock Visualization -->
     <div class="col-lg-5">
@@ -167,6 +172,10 @@
             </div>
             <div class="card-body">
                 <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label small text-body-secondary">Active Window</label>
+                        <p class="mb-0">{{formatHourWindow $clock.StartHour $clock.EndHour}}</p>
+                    </div>
                     <div class="col-md-4">
                         <label class="form-label small text-body-secondary">Created</label>
                         <p class="mb-0">{{formatTime $clock.CreatedAt}}</p>
