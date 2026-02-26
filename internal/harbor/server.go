@@ -468,6 +468,99 @@ func (s *Server) resolveSessionAndMount(ctx context.Context, token, rawPath stri
 	return &session, mount, nil
 }
 
+// handleMetadataUpdate handles Icecast metadata update requests from source clients.
+// BUTT sends: GET /admin/metadata?mount=/mountname&mode=updinfo&song=Title
+func (s *Server) handleMetadataUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Authenticate via Basic auth — must match an active source connection.
+	token, ok := s.parseBasicAuth(r)
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Basic realm="Grimnir Harbor"`)
+		http.Error(w, "Authorization required", http.StatusUnauthorized)
+		return
+	}
+
+	mode := r.URL.Query().Get("mode")
+	if mode != "updinfo" {
+		http.Error(w, "Unsupported mode", http.StatusBadRequest)
+		return
+	}
+
+	song := r.URL.Query().Get("song")
+	if song == "" {
+		http.Error(w, "song parameter required", http.StatusBadRequest)
+		return
+	}
+
+	// Find the active source connection matching this token.
+	s.mu.Lock()
+	var conn *SourceConnection
+	for _, c := range s.conns {
+		conn = c
+		break
+	}
+	s.mu.Unlock()
+
+	if conn == nil {
+		http.Error(w, "No active source connection", http.StatusNotFound)
+		return
+	}
+
+	// Parse artist - title from song string (common format: "Artist - Title").
+	artist, title := "", song
+	if idx := strings.Index(song, " - "); idx > 0 {
+		artist = song[:idx]
+		title = song[idx+3:]
+	}
+
+	s.logger.Info().
+		Str("session_id", conn.SessionID).
+		Str("mount", conn.MountName).
+		Str("song", song).
+		Str("artist", artist).
+		Str("title", title).
+		Msg("harbor metadata update")
+
+	// Update play history with the new song title.
+	now := time.Now().UTC()
+	history := models.PlayHistory{
+		ID:        fmt.Sprintf("%s-%d", conn.SessionID, now.UnixNano()),
+		StationID: conn.StationID,
+		MountID:   conn.MountID,
+		Artist:    artist,
+		Title:     title,
+		StartedAt: now,
+		EndedAt:   now.Add(24 * time.Hour), // Open-ended for live
+		Metadata: map[string]any{
+			"type":        "live",
+			"source_type": "live",
+			"token":       token,
+		},
+	}
+	if err := s.db.Create(&history).Error; err != nil {
+		s.logger.Error().Err(err).Msg("failed to create play history for metadata update")
+	}
+
+	// Publish now-playing event so WebSocket clients update immediately.
+	s.bus.Publish(events.EventNowPlaying, events.Payload{
+		"station_id":  conn.StationID,
+		"mount_id":    conn.MountID,
+		"artist":      artist,
+		"title":       title,
+		"source_type": "live",
+		"type":        "live",
+		"is_live_dj":  true,
+		"started_at":  now,
+	})
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("OK"))
+}
+
 // Addr returns the listen address of the harbor server.
 func (s *Server) Addr() string {
 	return fmt.Sprintf("%s:%d", s.cfg.Bind, s.cfg.Port)
@@ -525,6 +618,7 @@ func (s *Server) ListenAndServeWithSOURCE() error {
 	addr := fmt.Sprintf("%s:%d", s.cfg.Bind, s.cfg.Port)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/admin/metadata", s.handleMetadataUpdate)
 	mux.HandleFunc("/", s.handleSource)
 
 	s.httpServer = &http.Server{
