@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.18.22 — 2026-02-25
+## 1.18.23 — 2026-02-26
+
+### Harbor Metadata Fix
+- Fixed PlayHistory ID using invalid UUID format (`session_id-nanos`) which caused all metadata updates from BUTT to fail on database insert. Now uses `uuid.NewString()`.
+- Harbor now creates an initial "Live DJ" PlayHistory entry when a source first connects, so the player immediately shows live status instead of the previous automation track.
+
+---
+
+## 1.18.22 — 2026-02-26
 
 ### Live DJ UI Improvements
 - Fixed live DJ timer showing incorrect duration (e.g. "4:xx") instead of counting up with "LIVE" label. Harbor metadata updates no longer set a fake `EndedAt` time; the now-playing API now returns `null` for `ended_at` on live DJ tracks.

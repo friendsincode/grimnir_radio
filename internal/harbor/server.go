@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
@@ -244,6 +245,34 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.conns[session.ID] = conn
 	s.mu.Unlock()
+
+	// Create initial play history entry so the player shows "Live DJ" immediately.
+	initialHistory := models.PlayHistory{
+		ID:        uuid.NewString(),
+		StationID: mount.StationID,
+		MountID:   mount.ID,
+		Artist:    session.Username,
+		Title:     "Live DJ",
+		StartedAt: time.Now().UTC(),
+		Metadata: map[string]any{
+			"type":        "live",
+			"source_type": "live",
+		},
+	}
+	if err := s.db.Create(&initialHistory).Error; err != nil {
+		s.logger.Error().Err(err).Msg("failed to create initial play history for live DJ")
+	} else {
+		s.bus.Publish(events.EventNowPlaying, events.Payload{
+			"station_id":  mount.StationID,
+			"mount_id":    mount.ID,
+			"artist":      session.Username,
+			"title":       "Live DJ",
+			"source_type": "live",
+			"type":        "live",
+			"is_live_dj":  true,
+			"started_at":  initialHistory.StartedAt,
+		})
+	}
 
 	// Cleanup on disconnect.
 	defer func() {
@@ -528,7 +557,7 @@ func (s *Server) handleMetadataUpdate(w http.ResponseWriter, r *http.Request) {
 	// Update play history with the new song title.
 	now := time.Now().UTC()
 	history := models.PlayHistory{
-		ID:        fmt.Sprintf("%s-%d", conn.SessionID, now.UnixNano()),
+		ID:        uuid.NewString(),
 		StationID: conn.StationID,
 		MountID:   conn.MountID,
 		Artist:    artist,
