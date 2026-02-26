@@ -1604,16 +1604,19 @@ class GlobalPlayer {
                 }
 
                 // Store track timing info for local time updates
-                if (data.started_at) {
+                if (this.isLiveDJ && data.session_started_at) {
+                    // For live DJ, timer shows session duration (not per-track)
+                    this._trackStarted = new Date(data.session_started_at);
+                    this._trackEnded = null;
+                    this._trackDuration = 0;
+                } else if (data.started_at) {
                     this._trackStarted = new Date(data.started_at);
-                    // Check for a valid ended_at (non-zero, in the future)
                     const endedAt = data.ended_at ? new Date(data.ended_at) : null;
                     const hasValidEnd = endedAt && endedAt.getFullYear() > 1970;
-                    if (hasValidEnd && !this.isLiveDJ) {
+                    if (hasValidEnd) {
                         this._trackEnded = endedAt;
                         this._trackDuration = Math.floor((this._trackEnded - this._trackStarted) / 1000);
                     } else {
-                        // Live DJ with no end time — count up indefinitely
                         this._trackEnded = null;
                         this._trackDuration = 0;
                     }

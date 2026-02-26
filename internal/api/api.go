@@ -1397,14 +1397,23 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 	}
 
 	isLiveDJ := sourceType == "live"
+	var sessionStartedAt *time.Time
 	if !isLiveDJ {
-		var activeSessions int64
+		var session models.LiveSession
 		if err := a.db.WithContext(r.Context()).
-			Model(&models.LiveSession{}).
 			Where("station_id = ? AND active = ?", stationID, true).
-			Count(&activeSessions).Error; err == nil && activeSessions > 0 {
+			First(&session).Error; err == nil {
 			isLiveDJ = true
 			sourceType = "live"
+			sessionStartedAt = &session.ConnectedAt
+		}
+	} else {
+		// Already know it's live — still fetch session start time
+		var session models.LiveSession
+		if err := a.db.WithContext(r.Context()).
+			Where("station_id = ? AND active = ?", stationID, true).
+			First(&session).Error; err == nil {
+			sessionStartedAt = &session.ConnectedAt
 		}
 	}
 
@@ -1416,7 +1425,7 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 		endedAt = history.EndedAt
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"id":          history.ID,
 		"station_id":  history.StationID,
 		"mount_id":    history.MountID,
@@ -1430,7 +1439,11 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 		"type":        typeStr,
 		"source_type": sourceType,
 		"is_live_dj":  isLiveDJ,
-	})
+	}
+	if sessionStartedAt != nil {
+		resp["session_started_at"] = *sessionStartedAt
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func splitNowPlayingArtistTitle(artist, title string) (string, string) {

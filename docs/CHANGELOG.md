@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.18.24 — 2026-02-26
+
+### Live DJ Session Timer
+- Global player timer now shows session duration (time since DJ connected) instead of resetting on each metadata/song update.
+- Now-playing API returns `session_started_at` from the active live session's `connected_at` time.
+
+---
+
 ## 1.18.23 — 2026-02-26
 
 ### Harbor Metadata Fix
