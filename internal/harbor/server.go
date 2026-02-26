@@ -534,7 +534,8 @@ func (s *Server) handleMetadataUpdate(w http.ResponseWriter, r *http.Request) {
 		Artist:    artist,
 		Title:     title,
 		StartedAt: now,
-		EndedAt:   now.Add(24 * time.Hour), // Open-ended for live
+		// EndedAt left as zero — live DJ tracks have no known end time.
+		// The now-playing API will return null ended_at so the player shows "LIVE".
 		Metadata: map[string]any{
 			"type":        "live",
 			"source_type": "live",

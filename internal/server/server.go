@@ -344,6 +344,7 @@ func (s *Server) initDependencies() error {
 		harborCfg := harbor.Config{
 			Bind:         s.cfg.HarborBind,
 			Port:         s.cfg.HarborPort,
+			MountPrefix:  s.cfg.HarborMountPrefix,
 			MaxSources:   s.cfg.HarborMaxSources,
 			GStreamerBin: s.cfg.GStreamerBin,
 		}
@@ -449,6 +450,7 @@ func (s *Server) initDependencies() error {
 		Host:        harborHost,
 		Port:        harborPublicPort,
 		MountPrefix: s.cfg.HarborMountPrefix,
+		SSL:         s.cfg.HarborSSL,
 	}
 	webHandler, err := web.NewHandler(
 		database,

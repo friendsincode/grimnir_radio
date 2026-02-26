@@ -7,10 +7,16 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package harbor
 
 import (
+	"context"
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/friendsincode/grimnir_radio/internal/models"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestParseBasicAuth(t *testing.T) {
@@ -210,5 +216,103 @@ func TestAddr(t *testing.T) {
 	}
 	if got := s.Addr(); got != "0.0.0.0:8088" {
 		t.Errorf("Addr() = %q, want %q", got, "0.0.0.0:8088")
+	}
+}
+
+func TestResolveSessionAndMount_UsesTokenSessionWhenMountNamesOverlap(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationA := models.Station{ID: "station-a", Name: "A", Timezone: "UTC", Active: true}
+	stationB := models.Station{ID: "station-b", Name: "B", Timezone: "UTC", Active: true}
+	if err := db.Create(&stationA).Error; err != nil {
+		t.Fatalf("create station A: %v", err)
+	}
+	if err := db.Create(&stationB).Error; err != nil {
+		t.Fatalf("create station B: %v", err)
+	}
+
+	mountA := models.Mount{ID: "mount-a", StationID: stationA.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	mountB := models.Mount{ID: "mount-b", StationID: stationB.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	if err := db.Create(&mountA).Error; err != nil {
+		t.Fatalf("create mount A: %v", err)
+	}
+	if err := db.Create(&mountB).Error; err != nil {
+		t.Fatalf("create mount B: %v", err)
+	}
+
+	session := models.LiveSession{
+		ID:          "session-b",
+		StationID:   stationB.ID,
+		MountID:     mountB.ID,
+		UserID:      "user-1",
+		Username:    "dj",
+		Priority:    models.PriorityLiveScheduled,
+		Token:       "token-b",
+		ConnectedAt: time.Now(),
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	s := &Server{db: db}
+	gotSession, gotMount, err := s.resolveSessionAndMount(context.Background(), "token-b", "/live")
+	if err != nil {
+		t.Fatalf("resolveSessionAndMount: %v", err)
+	}
+	if gotSession.ID != session.ID {
+		t.Fatalf("session id = %s, want %s", gotSession.ID, session.ID)
+	}
+	if gotMount.ID != mountB.ID {
+		t.Fatalf("mount id = %s, want %s", gotMount.ID, mountB.ID)
+	}
+}
+
+func TestResolveSessionAndMount_StripsMountPrefix(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	station := models.Station{ID: "station-1", Name: "S1", Timezone: "UTC", Active: true}
+	if err := db.Create(&station).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	mount := models.Mount{ID: "mount-1", StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	if err := db.Create(&mount).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+	session := models.LiveSession{
+		ID:          "session-1",
+		StationID:   station.ID,
+		MountID:     mount.ID,
+		UserID:      "user-1",
+		Username:    "dj",
+		Priority:    models.PriorityLiveScheduled,
+		Token:       "token-1",
+		ConnectedAt: time.Now(),
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	s := &Server{db: db, cfg: Config{MountPrefix: "/harbor"}}
+	gotSession, gotMount, err := s.resolveSessionAndMount(context.Background(), "token-1", "/harbor/live")
+	if err != nil {
+		t.Fatalf("resolveSessionAndMount: %v", err)
+	}
+	if gotSession.ID != session.ID {
+		t.Fatalf("session id = %s, want %s", gotSession.ID, session.ID)
+	}
+	if gotMount.ID != mount.ID {
+		t.Fatalf("mount id = %s, want %s", gotMount.ID, mount.ID)
 	}
 }

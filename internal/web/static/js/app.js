@@ -1585,9 +1585,10 @@ class GlobalPlayer {
                 // Update player UI with the track info
                 this.setTitle(displayTitle);
 
-                // Second line in global player is station name.
+                // Second line: show artist if available, otherwise station name
+                const artist = (data.artist || '').toString().trim();
                 const stationName = this.resolveCurrentStationName();
-                const artistText = this.getLiveSecondaryText();
+                const artistText = artist || stationName || 'On-Air';
                 this.setSecondaryText(artistText);
 
                 this.isLiveDJ = data.is_live_dj === true || data.source_type === 'live' || data.type === 'live';
@@ -1605,8 +1606,11 @@ class GlobalPlayer {
                 // Store track timing info for local time updates
                 if (data.started_at) {
                     this._trackStarted = new Date(data.started_at);
-                    if (data.ended_at) {
-                        this._trackEnded = new Date(data.ended_at);
+                    // Check for a valid ended_at (non-zero, in the future)
+                    const endedAt = data.ended_at ? new Date(data.ended_at) : null;
+                    const hasValidEnd = endedAt && endedAt.getFullYear() > 1970;
+                    if (hasValidEnd && !this.isLiveDJ) {
+                        this._trackEnded = endedAt;
                         this._trackDuration = Math.floor((this._trackEnded - this._trackStarted) / 1000);
                     } else {
                         // Live DJ with no end time — count up indefinitely

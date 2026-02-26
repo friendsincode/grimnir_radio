@@ -94,6 +94,7 @@ type Handler struct {
 	harborHost        string
 	harborPort        int
 	harborMountPrefix string
+	harborSSL         bool
 }
 
 // PageData holds common data passed to all templates.
@@ -140,6 +141,7 @@ type HarborConfig struct {
 	Host        string
 	Port        int
 	MountPrefix string // e.g. "/harbor" when behind nginx proxy
+	SSL         bool   // whether DJs should enable SSL/TLS
 }
 
 // NewHandler creates a new web handler.
@@ -177,6 +179,7 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 		harborHost:         harborCfg.Host,
 		harborPort:         harborCfg.Port,
 		harborMountPrefix:  harborCfg.MountPrefix,
+		harborSSL:          harborCfg.SSL,
 		maxUploadBytes:     maxUploadBytes,
 	}
 

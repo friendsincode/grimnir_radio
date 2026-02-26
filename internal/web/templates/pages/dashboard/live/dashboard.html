@@ -220,7 +220,7 @@
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Mount</td>
-                            <td><code>{{.Data.HarborMountPrefix}}/</code><span class="text-body-secondary">&lt;mount name&gt;</span> <small class="text-body-secondary">(shown after generating token)</small></td>
+                            <td><span class="text-body-secondary">&lt;mount name&gt;</span> <small class="text-body-secondary">(shown after generating token)</small></td>
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Username</td>
@@ -230,6 +230,12 @@
                             <td class="text-body-secondary">Password</td>
                             <td><span class="text-body-secondary">(use generated token)</span></td>
                         </tr>
+                        {{if .Data.HarborSSL}}
+                        <tr>
+                            <td class="text-body-secondary">SSL/TLS</td>
+                            <td><span class="badge bg-success">Required</span></td>
+                        </tr>
+                        {{end}}
                     </tbody>
                 </table>
                 <div class="accordion" id="softwareGuides">
@@ -247,9 +253,10 @@
                                     <li>Address: <strong>{{.Data.HarborHost}}</strong></li>
                                     <li>Port: <strong>{{.Data.HarborPort}}</strong></li>
                                     <li>Password: <strong>paste your generated token</strong></li>
-                                    <li>Icecast mountpoint: <strong>{{.Data.HarborMountPrefix}}/&lt;mount name&gt;</strong> (e.g. <code>{{.Data.HarborMountPrefix}}/live</code>)</li>
+                                    <li>Icecast mountpoint: <strong>&lt;mount name&gt;</strong> (e.g. <code>code</code>) &mdash; just the name, no leading slash or prefix</li>
                                     <li>Icecast user: <strong>source</strong></li>
-                                    {{if eq .Data.HarborPort 443}}<li>Check <strong>Use SSL/TLS</strong></li>{{end}}
+                                    {{if .Data.HarborSSL}}<li>Check <strong>Use SSL/TLS</strong></li>{{end}}
+                                    <li>Under Settings &rarr; Audio, ensure <strong>Update song name from file</strong> is checked to send metadata</li>
                                     <li>Click Save, then click the Play button to connect</li>
                                 </ol>
                             </div>
@@ -270,8 +277,8 @@
                                     <li>Port: <strong>{{.Data.HarborPort}}</strong></li>
                                     <li>Login: <strong>source</strong></li>
                                     <li>Password: <strong>paste your generated token</strong></li>
-                                    <li>Mount: <strong>{{.Data.HarborMountPrefix}}/&lt;mount name&gt;</strong></li>
-                                    {{if eq .Data.HarborPort 443}}<li>Check <strong>Enable SSL</strong></li>{{end}}
+                                    <li>Mount: <strong>&lt;mount name&gt;</strong> (e.g. <code>code</code>) &mdash; just the name, no prefix</li>
+                                    {{if .Data.HarborSSL}}<li>Check <strong>Enable SSL</strong></li>{{end}}
                                     <li>Click OK, then enable broadcasting</li>
                                 </ol>
                             </div>
@@ -303,7 +310,7 @@
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Mount</td>
-                            <td><span class="text-body-secondary">(shown after generating token)</span></td>
+                            <td><span class="text-body-secondary">(use your configured Icecast mount, e.g. <code>/live</code>)</span></td>
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Username</td>
@@ -311,7 +318,7 @@
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Password</td>
-                            <td><span class="text-body-secondary">(use generated token)</span></td>
+                            <td><span class="text-body-secondary">(use your Icecast source password)</span></td>
                         </tr>
                     </tbody>
                 </table>
@@ -329,7 +336,7 @@
                                     <li>Type: <strong>Icecast</strong></li>
                                     <li>Address: <strong>{{.Data.IcecastHost}}</strong></li>
                                     <li>Port: <strong>{{.Data.IcecastPort}}</strong></li>
-                                    <li>Password: <strong>paste your generated token</strong></li>
+                                    <li>Password: <strong>your Icecast source password</strong></li>
                                     <li>Icecast mountpoint: <strong>your mount name</strong> (e.g. <code>/live</code>)</li>
                                     <li>Icecast user: <strong>source</strong></li>
                                     <li>Click Save, then click the Play button to connect</li>
@@ -351,7 +358,7 @@
                                     <li>Host: <strong>{{.Data.IcecastHost}}</strong></li>
                                     <li>Port: <strong>{{.Data.IcecastPort}}</strong></li>
                                     <li>Login: <strong>source</strong></li>
-                                    <li>Password: <strong>paste your generated token</strong></li>
+                                    <li>Password: <strong>your Icecast source password</strong></li>
                                     <li>Mount: <strong>your mount name</strong></li>
                                     <li>Click OK, then enable broadcasting</li>
                                 </ol>

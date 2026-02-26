@@ -84,6 +84,7 @@ func (h *Handler) LiveDashboard(w http.ResponseWriter, r *http.Request) {
 			"HarborHost":        h.harborHost,
 			"HarborPort":        h.harborPort,
 			"HarborMountPrefix": h.harborMountPrefix,
+			"HarborSSL":         h.harborSSL,
 		},
 	})
 }
@@ -168,6 +169,7 @@ func (h *Handler) LiveGenerateToken(w http.ResponseWriter, r *http.Request) {
 			"HarborHost":        h.harborHost,
 			"HarborPort":        h.harborPort,
 			"HarborMountPrefix": h.harborMountPrefix,
+			"HarborSSL":         h.harborSSL,
 		})
 		return
 

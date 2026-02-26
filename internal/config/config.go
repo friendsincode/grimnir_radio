@@ -80,6 +80,7 @@ type Config struct {
 	HarborHost        string // GRIMNIR_HARBOR_HOST — public hostname DJs connect to (shown in UI)
 	HarborPublicPort  int    // GRIMNIR_HARBOR_PUBLIC_PORT — public port shown to DJs (default: same as HarborPort)
 	HarborMountPrefix string // GRIMNIR_HARBOR_MOUNT_PREFIX — path prefix when behind reverse proxy (e.g. "/harbor")
+	HarborSSL         bool   // GRIMNIR_HARBOR_SSL — whether DJs should enable SSL/TLS (default: false)
 	HarborMaxSources  int    // GRIMNIR_HARBOR_MAX_SOURCES (default: 10)
 
 	// Media Engine configuration
@@ -146,6 +147,7 @@ func Load() (*Config, error) {
 		HarborHost:        getEnvAny([]string{"GRIMNIR_HARBOR_HOST", "HARBOR_HOST"}, ""),
 		HarborPublicPort:  getEnvIntAny([]string{"GRIMNIR_HARBOR_PUBLIC_PORT", "HARBOR_PUBLIC_PORT"}, 0),
 		HarborMountPrefix: getEnvAny([]string{"GRIMNIR_HARBOR_MOUNT_PREFIX", "HARBOR_MOUNT_PREFIX"}, ""),
+		HarborSSL:         getEnvBoolAny([]string{"GRIMNIR_HARBOR_SSL", "HARBOR_SSL"}, false),
 		HarborMaxSources:  getEnvIntAny([]string{"GRIMNIR_HARBOR_MAX_SOURCES", "HARBOR_MAX_SOURCES"}, 10),
 
 		// Media Engine configuration

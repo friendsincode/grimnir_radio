@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.18.22 — 2026-02-25
+
+### Live DJ UI Improvements
+- Fixed live DJ timer showing incorrect duration (e.g. "4:xx") instead of counting up with "LIVE" label. Harbor metadata updates no longer set a fake `EndedAt` time; the now-playing API now returns `null` for `ended_at` on live DJ tracks.
+- Fixed global player showing station name on the artist line instead of the actual artist from BUTT metadata. The secondary text now shows the artist when available, falling back to station name.
+- Added `HARBOR_SSL` config option (`GRIMNIR_HARBOR_SSL`) so the Live DJ dashboard can indicate when SSL/TLS is required.
+- Updated Live DJ dashboard connection info: mount names no longer show a `/harbor/` prefix (not needed with TCP stream proxy), SSL badge shown when configured, BUTT/Mixxx guides updated with correct settings.
+- Redesigned token display partial to show all connection settings (server, port, mount, username, SSL) in a clear table with copy buttons.
+
+---
+
 ## 1.18.21 — 2026-02-26
 
 ### Harbor Metadata Updates, Live Timer, and Player Title Scrolling
