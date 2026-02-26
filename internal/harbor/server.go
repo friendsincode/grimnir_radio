@@ -262,28 +262,38 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 			Msg("harbor source disconnected")
 	}()
 
-	// Send 200 OK with Content-Length: 0 to prevent Go from using chunked
-	// Transfer-Encoding on the response. Without this, nginx waits for chunk
-	// data that never comes, blocking the response from reaching the client.
-	//
-	// Harbor must read request body after replying 200 (Icecast source
-	// handshake). Enable full-duplex so net/http keeps the request body open
-	// while we stream response headers.
-	if rc := http.NewResponseController(w); rc != nil {
-		if err := rc.EnableFullDuplex(); err != nil {
-			s.logger.Warn().Err(err).Str("session_id", session.ID).Msg("failed to enable full duplex")
-		}
+	// Icecast source clients (BUTT, Mixxx, etc.) send a PUT/SOURCE request
+	// with NO Content-Length and NO Transfer-Encoding header. Per HTTP/1.1
+	// spec, Go's parser treats this as an empty body (r.Body returns EOF
+	// immediately). To read the actual audio stream, we must hijack the
+	// underlying TCP connection after sending the 200 OK handshake response.
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		s.logger.Error().Str("session_id", session.ID).Msg("ResponseWriter does not support Hijack")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
+
+	// Write the 200 OK response manually before hijacking, so BUTT knows
+	// the handshake succeeded and starts streaming audio.
 	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	s.logger.Info().Str("session_id", session.ID).Msg("200 OK sent, entering streamAudio")
 
-	// Read audio directly from the request body. Requires nginx to forward
-	// the body with Transfer-Encoding: chunked (proxy_set_header Transfer-Encoding chunked).
-	audioSource := r.Body
+	rawConn, bufrw, err := hj.Hijack()
+	if err != nil {
+		s.logger.Error().Err(err).Str("session_id", session.ID).Msg("failed to hijack connection")
+		return
+	}
+	defer rawConn.Close()
+
+	s.logger.Info().Str("session_id", session.ID).Msg("200 OK sent, connection hijacked, entering streamAudio")
+
+	// Use the buffered reader from Hijack — it may already contain audio
+	// bytes that arrived while the HTTP parser was running.
+	var audioSource io.Reader = bufrw.Reader
 
 	// Inject live audio into the playout pipeline.
 	s.streamAudio(connCtx, conn, mount, contentType, audioSource)
