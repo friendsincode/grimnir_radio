@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.25 — 2026-02-26
+
+### Live DJ Token UI Polish
+- Changed token display from green alert box to neutral card for better readability.
+- BUTT and Mixxx guides now auto-fill with mount name and token when Generate Token is clicked.
+- Connection Info table mount field fills in dynamically after token generation.
+
+---
+
 ## 1.18.24 — 2026-02-26
 
 ### Live DJ Session Timer

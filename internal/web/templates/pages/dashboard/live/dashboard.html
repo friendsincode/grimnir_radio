@@ -220,7 +220,7 @@
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Mount</td>
-                            <td><span class="text-body-secondary">&lt;mount name&gt;</span> <small class="text-body-secondary">(shown after generating token)</small></td>
+                            <td><code data-guide-fill="mount">&mdash;</code> <small class="text-body-secondary">(shown after generating token)</small></td>
                         </tr>
                         <tr>
                             <td class="text-body-secondary">Username</td>
@@ -252,8 +252,8 @@
                                     <li>Type: <strong>Icecast</strong></li>
                                     <li>Address: <strong>{{.Data.HarborHost}}</strong></li>
                                     <li>Port: <strong>{{.Data.HarborPort}}</strong></li>
-                                    <li>Password: <strong>paste your generated token</strong></li>
-                                    <li>Icecast mountpoint: <strong>&lt;mount name&gt;</strong> (e.g. <code>code</code>) &mdash; just the name, no leading slash or prefix</li>
+                                    <li>Password: <strong data-guide-fill="password">paste your generated token</strong></li>
+                                    <li>Icecast mountpoint: <strong data-guide-fill="mount">&lt;mount name&gt;</strong> &mdash; just the name, no leading slash or prefix</li>
                                     <li>Icecast user: <strong>source</strong></li>
                                     {{if .Data.HarborSSL}}<li>Check <strong>Use SSL/TLS</strong></li>{{end}}
                                     <li>Under Settings &rarr; Audio, ensure <strong>Update song name from file</strong> is checked to send metadata</li>
@@ -276,8 +276,8 @@
                                     <li>Host: <strong>{{.Data.HarborHost}}</strong></li>
                                     <li>Port: <strong>{{.Data.HarborPort}}</strong></li>
                                     <li>Login: <strong>source</strong></li>
-                                    <li>Password: <strong>paste your generated token</strong></li>
-                                    <li>Mount: <strong>&lt;mount name&gt;</strong> (e.g. <code>code</code>) &mdash; just the name, no prefix</li>
+                                    <li>Password: <strong data-guide-fill="password">paste your generated token</strong></li>
+                                    <li>Mount: <strong data-guide-fill="mount">&lt;mount name&gt;</strong> &mdash; just the name, no prefix</li>
                                     {{if .Data.HarborSSL}}<li>Check <strong>Enable SSL</strong></li>{{end}}
                                     <li>Click OK, then enable broadcasting</li>
                                 </ol>

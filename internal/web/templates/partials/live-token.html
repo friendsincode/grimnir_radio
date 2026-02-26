@@ -1,68 +1,84 @@
 {{define "partials/live-token"}}
-<div class="alert alert-success">
-    <h6><i class="bi bi-key me-2"></i>Your Live Token</h6>
-    <div class="input-group mb-2">
-        <input type="text" class="form-control font-monospace" value="{{.Token}}" readonly id="tokenValue">
-        <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('tokenValue').value); this.innerHTML='<i class=\'bi bi-check\'></i> Copied'" title="Copy to clipboard">
-            <i class="bi bi-clipboard"></i>
-        </button>
+<div class="card">
+    <div class="card-body">
+        <h6 class="card-title"><i class="bi bi-key me-2"></i>Your Live Token</h6>
+        <div class="input-group mb-3">
+            <input type="text" class="form-control font-monospace" value="{{.Token}}" readonly id="tokenValue">
+            <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('tokenValue').value); this.innerHTML='<i class=\'bi bi-check\'></i> Copied'" title="Copy to clipboard">
+                <i class="bi bi-clipboard"></i>
+            </button>
+        </div>
+        {{if .HarborEnabled}}
+        <table class="table table-sm table-borderless mb-2">
+            <tbody>
+                <tr>
+                    <td class="text-body-secondary ps-0" style="width: 90px;">Server</td>
+                    <td>
+                        <code id="tokenServer">{{.HarborHost}}</code>
+                        <button class="btn btn-sm btn-outline-secondary ms-1 py-0 px-1" onclick="navigator.clipboard.writeText(document.getElementById('tokenServer').textContent)" title="Copy">
+                            <i class="bi bi-clipboard" style="font-size: 0.7rem;"></i>
+                        </button>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="text-body-secondary ps-0">Port</td>
+                    <td><code>{{.HarborPort}}</code></td>
+                </tr>
+                {{if .MountName}}
+                <tr>
+                    <td class="text-body-secondary ps-0">Mount</td>
+                    <td>
+                        <code id="tokenMount">{{.MountName}}</code>
+                        <button class="btn btn-sm btn-outline-secondary ms-1 py-0 px-1" onclick="navigator.clipboard.writeText(document.getElementById('tokenMount').textContent)" title="Copy">
+                            <i class="bi bi-clipboard" style="font-size: 0.7rem;"></i>
+                        </button>
+                    </td>
+                </tr>
+                {{end}}
+                <tr>
+                    <td class="text-body-secondary ps-0">Username</td>
+                    <td><code>source</code></td>
+                </tr>
+                {{if .HarborSSL}}
+                <tr>
+                    <td class="text-body-secondary ps-0">SSL/TLS</td>
+                    <td><span class="badge bg-success">Required</span></td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+        <small class="text-body-secondary">
+            This token is reusable for Harbor live input on mount <strong>{{.MountName}}</strong>.
+        </small>
+        {{else if and .IcecastHost .IcecastPort}}
+        {{if .MountName}}
+        <div class="mb-2">
+            <small class="text-body-secondary">Mount:</small>
+            <code>/{{.MountName}}</code>
+        </div>
+        {{end}}
+        <div class="mb-2">
+            <small class="text-body-secondary">Server:</small>
+            <code>{{.IcecastHost}}:{{.IcecastPort}}</code>
+        </div>
+        <small class="text-body-secondary">
+            This token applies to Grimnir Harbor live input. If you are using direct Icecast, use your Icecast source password instead.
+        </small>
+        {{end}}
     </div>
-    {{if .HarborEnabled}}
-    <table class="table table-sm table-borderless mb-2" style="max-width: 400px;">
-        <tbody>
-            <tr>
-                <td class="text-body-secondary ps-0" style="width: 80px;">Server</td>
-                <td>
-                    <code id="tokenServer">{{.HarborHost}}</code>
-                    <button class="btn btn-sm btn-outline-secondary ms-1 py-0 px-1" onclick="navigator.clipboard.writeText(document.getElementById('tokenServer').textContent)" title="Copy">
-                        <i class="bi bi-clipboard" style="font-size: 0.7rem;"></i>
-                    </button>
-                </td>
-            </tr>
-            <tr>
-                <td class="text-body-secondary ps-0">Port</td>
-                <td><code>{{.HarborPort}}</code></td>
-            </tr>
-            {{if .MountName}}
-            <tr>
-                <td class="text-body-secondary ps-0">Mount</td>
-                <td>
-                    <code id="tokenMount">{{.MountName}}</code>
-                    <button class="btn btn-sm btn-outline-secondary ms-1 py-0 px-1" onclick="navigator.clipboard.writeText(document.getElementById('tokenMount').textContent)" title="Copy">
-                        <i class="bi bi-clipboard" style="font-size: 0.7rem;"></i>
-                    </button>
-                </td>
-            </tr>
-            {{end}}
-            <tr>
-                <td class="text-body-secondary ps-0">Username</td>
-                <td><code>source</code></td>
-            </tr>
-            {{if .HarborSSL}}
-            <tr>
-                <td class="text-body-secondary ps-0">SSL/TLS</td>
-                <td><span class="badge bg-success">Required</span></td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
-    <small class="text-body-secondary">
-        This token is reusable for Harbor live input on mount <strong>{{.MountName}}</strong>.
-    </small>
-    {{else if and .IcecastHost .IcecastPort}}
-    {{if .MountName}}
-    <div class="mb-2">
-        <small class="text-body-secondary">Mount:</small>
-        <code>/{{.MountName}}</code>
-    </div>
-    {{end}}
-    <div class="mb-2">
-        <small class="text-body-secondary">Server:</small>
-        <code>{{.IcecastHost}}:{{.IcecastPort}}</code>
-    </div>
-    <small class="text-body-secondary">
-        This token applies to Grimnir Harbor live input. If you are using direct Icecast, use your Icecast source password instead.
-    </small>
-    {{end}}
 </div>
+{{if .HarborEnabled}}
+<script>
+(function() {
+    var mount = '{{.MountName}}';
+    var token = document.getElementById('tokenValue')?.value || '';
+    document.querySelectorAll('[data-guide-fill="mount"]').forEach(function(el) {
+        el.textContent = mount;
+    });
+    document.querySelectorAll('[data-guide-fill="password"]').forEach(function(el) {
+        el.textContent = token;
+    });
+})();
+</script>
+{{end}}
 {{end}}
