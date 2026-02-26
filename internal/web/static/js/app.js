@@ -1603,10 +1603,16 @@ class GlobalPlayer {
                 }
 
                 // Store track timing info for local time updates
-                if (data.started_at && data.ended_at) {
+                if (data.started_at) {
                     this._trackStarted = new Date(data.started_at);
-                    this._trackEnded = new Date(data.ended_at);
-                    this._trackDuration = Math.floor((this._trackEnded - this._trackStarted) / 1000);
+                    if (data.ended_at) {
+                        this._trackEnded = new Date(data.ended_at);
+                        this._trackDuration = Math.floor((this._trackEnded - this._trackStarted) / 1000);
+                    } else {
+                        // Live DJ with no end time — count up indefinitely
+                        this._trackEnded = null;
+                        this._trackDuration = 0;
+                    }
                 }
 
                 // Also update the current track object
@@ -1774,20 +1780,26 @@ class GlobalPlayer {
 
         // Update time display every second
         this._liveTimeTicker = setInterval(() => {
-            if (!this.isLive || !this._trackStarted || !this._trackDuration) return;
+            if (!this.isLive || !this._trackStarted) return;
 
             const now = new Date();
             const elapsed = Math.floor((now - this._trackStarted) / 1000);
+            if (elapsed < 0) return;
 
-            if (elapsed >= 0 && elapsed <= this._trackDuration) {
-                if (this.currentTimeEl) this.currentTimeEl.textContent = this.formatTime(elapsed);
+            if (this.currentTimeEl) this.currentTimeEl.textContent = this.formatTime(elapsed);
+
+            if (this._trackDuration > 0) {
+                // Scheduled track with known duration
                 if (this.durationEl) this.durationEl.textContent = this.formatTime(this._trackDuration);
-                // Update progress bar
                 const pct = Math.min(100, (elapsed / this._trackDuration) * 100);
                 if (this.progressBar) this.progressBar.style.width = pct + '%';
-            } else if (elapsed > this._trackDuration) {
-                // Track should have ended, fetch new metadata
-                this.fetchNowPlayingMetadata();
+                if (elapsed > this._trackDuration) {
+                    this.fetchNowPlayingMetadata();
+                }
+            } else {
+                // Live DJ — count up with "LIVE" label, no progress bar
+                if (this.durationEl) this.durationEl.textContent = 'LIVE';
+                if (this.progressBar) this.progressBar.style.width = '100%';
             }
         }, 1000);
     }

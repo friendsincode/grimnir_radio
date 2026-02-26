@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.18.21 — 2026-02-26
+
+### Harbor Metadata Updates, Live Timer, and Player Title Scrolling
+- Added `/admin/metadata` endpoint to harbor for BUTT/Icecast source client song title updates (`GET /admin/metadata?mode=updinfo&song=Artist - Title`).
+- Metadata updates create play history entries and publish now-playing events so WebSocket clients update immediately.
+- Fixed live DJ timer stuck at "0:00 / LIVE" — timer now counts up elapsed time for live streams with no fixed duration.
+- Fixed now-playing metadata not setting `_trackStarted` when `ended_at` is absent (live DJ sources).
+- Fixed global player title not scrolling by removing conflicting Bootstrap `text-truncate` class that overrode the custom scroll CSS.
+
+---
+
 ## 1.18.20 — 2026-02-26
 
 ### Harbor Connection Hijack for Icecast Source Compatibility
