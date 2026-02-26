@@ -337,27 +337,8 @@ func (s *Server) streamAudio(ctx context.Context, conn *SourceConnection, mount 
 		n     int64
 		err   error
 	}
-	done := make(chan copyResult, 2)
 
-	// Goroutine 1: decoder stdout → encoder stdin.
-	go func() {
-		n, err := io.Copy(encoderIn, dec.stdout)
-		done <- copyResult{"decoder→encoder", n, err}
-	}()
-
-	// Goroutine 2: audio source (HTTP body) → decoder stdin.
-	go func() {
-		n, err := io.Copy(dec.stdin, audioSource)
-		// Close decoder stdin to signal EOF to GStreamer.
-		_ = dec.stdin.Close()
-		done <- copyResult{"source→decoder", n, err}
-	}()
-
-	// Wait for either goroutine to finish (source disconnect or error).
-	select {
-	case <-ctx.Done():
-		s.logger.Warn().Str("session_id", conn.SessionID).Msg("harbor connection context cancelled")
-	case r := <-done:
+	logCopyResult := func(r copyResult) {
 		if r.err != nil {
 			s.logger.Warn().Err(r.err).
 				Str("session_id", conn.SessionID).
@@ -371,11 +352,44 @@ func (s *Server) streamAudio(ctx context.Context, conn *SourceConnection, mount 
 				Int64("bytes", r.n).
 				Msg("harbor stream pipe closed (EOF)")
 		}
-		if r.label == "source→decoder" && r.n == 0 {
-			s.logger.Warn().
-				Str("session_id", conn.SessionID).
-				Msg("harbor received zero audio bytes; check nginx proxy_request_buffering off and chunked transfer settings for harbor route")
+	}
+
+	decoderDone := make(chan copyResult, 1)
+	sourceDone := make(chan copyResult, 1)
+
+	// Goroutine 1: decoder stdout → encoder stdin.
+	go func() {
+		n, err := io.Copy(encoderIn, dec.stdout)
+		decoderDone <- copyResult{"decoder→encoder", n, err}
+	}()
+
+	// Goroutine 2: audio source (HTTP body) → decoder stdin.
+	go func() {
+		n, err := io.Copy(dec.stdin, audioSource)
+		// Close decoder stdin to signal EOF to GStreamer.
+		_ = dec.stdin.Close()
+		sourceDone <- copyResult{"source→decoder", n, err}
+	}()
+
+	// Source copy completion defines ingest success/failure. The decoder pipe can
+	// finish early, but we must keep reading source bytes until it ends.
+	var sourceRes *copyResult
+	for sourceRes == nil {
+		select {
+		case <-ctx.Done():
+			s.logger.Warn().Str("session_id", conn.SessionID).Msg("harbor connection context cancelled")
+			return
+		case r := <-decoderDone:
+			logCopyResult(r)
+		case r := <-sourceDone:
+			sourceRes = &r
+			logCopyResult(r)
 		}
+	}
+	if sourceRes.n == 0 {
+		s.logger.Warn().
+			Str("session_id", conn.SessionID).
+			Msg("harbor received zero audio bytes; check nginx proxy_request_buffering off and chunked transfer settings for harbor route")
 	}
 
 	// Log decoder stderr if it captured any errors.

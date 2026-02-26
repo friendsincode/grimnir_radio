@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.18.19 — 2026-02-26
+
+### Harbor Source Copy Synchronization Fix
+- Fixed Harbor ingest race where decoder pipe completion could end stream handling before request-body copy finished.
+- Harbor now waits for `source→decoder` copy completion, preventing false zero-byte disconnects during live DJ connects.
+
+---
+
 ## 1.18.17 — 2026-02-26
 
 ### Harbor Full-Duplex Source Ingest Fix
