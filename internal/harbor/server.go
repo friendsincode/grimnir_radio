@@ -42,6 +42,7 @@ type SourceConnection struct {
 type Config struct {
 	Bind         string
 	Port         int
+	MountPrefix  string
 	MaxSources   int
 	GStreamerBin string
 }
@@ -159,27 +160,24 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve mount from URL path (e.g., "/live.mp3" -> mount name "live.mp3").
-	mountPath := strings.TrimPrefix(r.URL.Path, "/")
-	if mountPath == "" {
+	// Validate mount path early to preserve explicit 400 for empty mount requests.
+	requestPath := strings.Trim(strings.TrimPrefix(r.URL.Path, "/"), " ")
+	if prefix := strings.Trim(strings.TrimSpace(s.cfg.MountPrefix), "/"); prefix != "" {
+		requestPath = strings.TrimPrefix(requestPath, prefix+"/")
+	}
+	if requestPath == "" {
 		http.Error(w, "Mount path required", http.StatusBadRequest)
 		return
 	}
 
-	// Look up mount by name.
-	var mount models.Mount
-	if err := s.db.Where("name = ?", mountPath).First(&mount).Error; err != nil {
-		// Try without extension (e.g., "live.mp3" -> "live").
-		baseName := mountPath
-		if idx := strings.LastIndex(mountPath, "."); idx > 0 {
-			baseName = mountPath[:idx]
-		}
-		if err2 := s.db.Where("name = ?", baseName).First(&mount).Error; err2 != nil {
-			s.logger.Warn().Str("mount", mountPath).Msg("mount not found")
-			http.Error(w, "Mount not found", http.StatusNotFound)
-			return
-		}
+	sessionRecord, mount, err := s.resolveSessionAndMount(r.Context(), token, r.URL.Path)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("path", r.URL.Path).Msg("failed to resolve session/mount for harbor source")
+		w.Header().Set("WWW-Authenticate", `Basic realm="Grimnir Harbor"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
+	mountPath := strings.TrimPrefix(r.URL.Path, "/")
 
 	// Validate and consume the token before connecting.
 	if _, err := s.liveSvc.AuthorizeSource(r.Context(), mount.StationID, mount.ID, token); err != nil {
@@ -203,6 +201,12 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="Grimnir Harbor"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
+	}
+	if session.ID != sessionRecord.ID {
+		s.logger.Warn().
+			Str("expected_session_id", sessionRecord.ID).
+			Str("connected_session_id", session.ID).
+			Msg("connected live session differs from resolved token session")
 	}
 
 	meta := parseIceHeaders(r)
@@ -258,8 +262,10 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 			Msg("harbor source disconnected")
 	}()
 
-	s.logger.Info().Str("session_id", session.ID).Msg("sending 200 OK to source client")
-	// Send 200 OK and flush so the client knows we accepted the stream.
+	// Send 200 OK with Content-Length: 0 to prevent Go from using chunked
+	// Transfer-Encoding on the response. Without this, nginx waits for chunk
+	// data that never comes, blocking the response from reaching the client.
+	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
@@ -319,22 +325,23 @@ func (s *Server) streamAudio(ctx context.Context, conn *SourceConnection, mount 
 	// Pipe decoded PCM from decoder stdout to encoder stdin.
 	type copyResult struct {
 		label string
+		n     int64
 		err   error
 	}
 	done := make(chan copyResult, 2)
 
 	// Goroutine 1: decoder stdout → encoder stdin.
 	go func() {
-		_, err := io.Copy(encoderIn, dec.stdout)
-		done <- copyResult{"decoder→encoder", err}
+		n, err := io.Copy(encoderIn, dec.stdout)
+		done <- copyResult{"decoder→encoder", n, err}
 	}()
 
 	// Goroutine 2: audio source (HTTP body) → decoder stdin.
 	go func() {
-		_, err := io.Copy(dec.stdin, audioSource)
+		n, err := io.Copy(dec.stdin, audioSource)
 		// Close decoder stdin to signal EOF to GStreamer.
 		_ = dec.stdin.Close()
-		done <- copyResult{"source→decoder", err}
+		done <- copyResult{"source→decoder", n, err}
 	}()
 
 	// Wait for either goroutine to finish (source disconnect or error).
@@ -346,12 +353,19 @@ func (s *Server) streamAudio(ctx context.Context, conn *SourceConnection, mount 
 			s.logger.Warn().Err(r.err).
 				Str("session_id", conn.SessionID).
 				Str("pipe", r.label).
+				Int64("bytes", r.n).
 				Msg("harbor stream pipe error")
 		} else {
 			s.logger.Info().
 				Str("session_id", conn.SessionID).
 				Str("pipe", r.label).
+				Int64("bytes", r.n).
 				Msg("harbor stream pipe closed (EOF)")
+		}
+		if r.label == "source→decoder" && r.n == 0 {
+			s.logger.Warn().
+				Str("session_id", conn.SessionID).
+				Msg("harbor received zero audio bytes; check nginx proxy_request_buffering off and chunked transfer settings for harbor route")
 		}
 	}
 
@@ -388,6 +402,37 @@ func (s *Server) parseBasicAuth(r *http.Request) (string, bool) {
 
 	// parts[0] = username (ignored), parts[1] = token
 	return parts[1], true
+}
+
+func (s *Server) resolveSessionAndMount(ctx context.Context, token, rawPath string) (*models.LiveSession, models.Mount, error) {
+	path := strings.TrimPrefix(rawPath, "/")
+	path = strings.TrimSpace(path)
+	if prefix := strings.Trim(strings.TrimSpace(s.cfg.MountPrefix), "/"); prefix != "" {
+		path = strings.TrimPrefix(path, prefix+"/")
+	}
+	if path == "" {
+		return nil, models.Mount{}, fmt.Errorf("mount path required")
+	}
+
+	var session models.LiveSession
+	if err := s.db.WithContext(ctx).Where("token = ?", token).First(&session).Error; err != nil {
+		return nil, models.Mount{}, err
+	}
+
+	var mount models.Mount
+	if err := s.db.WithContext(ctx).First(&mount, "id = ?", session.MountID).Error; err != nil {
+		return nil, models.Mount{}, err
+	}
+
+	base := path
+	if idx := strings.LastIndex(path, "."); idx > 0 {
+		base = path[:idx]
+	}
+	if mount.Name != path && mount.Name != base {
+		return nil, models.Mount{}, fmt.Errorf("mount mismatch")
+	}
+
+	return &session, mount, nil
 }
 
 // Addr returns the listen address of the harbor server.
