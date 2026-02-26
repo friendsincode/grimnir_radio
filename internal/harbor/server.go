@@ -265,6 +265,15 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	// Send 200 OK with Content-Length: 0 to prevent Go from using chunked
 	// Transfer-Encoding on the response. Without this, nginx waits for chunk
 	// data that never comes, blocking the response from reaching the client.
+	//
+	// Harbor must read request body after replying 200 (Icecast source
+	// handshake). Enable full-duplex so net/http keeps the request body open
+	// while we stream response headers.
+	if rc := http.NewResponseController(w); rc != nil {
+		if err := rc.EnableFullDuplex(); err != nil {
+			s.logger.Warn().Err(err).Str("session_id", session.ID).Msg("failed to enable full duplex")
+		}
+	}
 	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 	if f, ok := w.(http.Flusher); ok {

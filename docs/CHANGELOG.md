@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.17 — 2026-02-26
+
+### Harbor Full-Duplex Source Ingest Fix
+- Fixed Harbor live-source ingest disconnect loops where sources authenticated and connected but immediately dropped with zero-byte reads.
+- Enabled HTTP full-duplex mode in Harbor source handler so request bodies stay readable after sending `200 OK` handshake responses to Icecast-compatible source clients.
+- Prevented `http: invalid Read on closed Body` failures during live DJ source ingest.
+
+---
+
 ## 1.18.16 — 2026-02-25
 
 ### Clock Windowing, Multi-Hour Planning, and Scheduler Noise Reduction
