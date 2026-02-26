@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.18.20 — 2026-02-26
+
+### Harbor Connection Hijack for Icecast Source Compatibility
+- Fixed BUTT/Icecast source clients receiving zero audio bytes through nginx proxy.
+- Root cause: BUTT sends PUT requests without Content-Length or Transfer-Encoding headers. Go's HTTP parser treats this as an empty body per HTTP/1.1 spec, so `r.Body` returns EOF immediately.
+- Harbor now hijacks the underlying TCP connection after the 200 OK handshake response, reading the raw audio stream directly from the socket instead of relying on Go's HTTP body parser.
+- This bypasses the HTTP/1.1 body-length determination entirely, allowing the Icecast full-duplex protocol to work correctly regardless of proxy configuration.
+
+---
+
 ## 1.18.19 — 2026-02-26
 
 ### Harbor Source Copy Synchronization Fix
