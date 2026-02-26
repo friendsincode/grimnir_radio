@@ -1410,6 +1410,12 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 
 	displayArtist, displayTitle := splitNowPlayingArtistTitle(history.Artist, history.Title)
 
+	// Return null for ended_at when the time is zero (live DJ with no known end).
+	var endedAt any
+	if !history.EndedAt.IsZero() {
+		endedAt = history.EndedAt
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":          history.ID,
 		"station_id":  history.StationID,
@@ -1419,7 +1425,7 @@ func (a *API) handleAnalyticsNowPlaying(w http.ResponseWriter, r *http.Request) 
 		"title":       displayTitle,
 		"album":       history.Album,
 		"started_at":  history.StartedAt,
-		"ended_at":    history.EndedAt,
+		"ended_at":    endedAt,
 		"status":      status,
 		"type":        typeStr,
 		"source_type": sourceType,
