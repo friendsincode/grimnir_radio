@@ -1276,7 +1276,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 id: 'schedule',
                 events: function(info, successCallback, failureCallback) {
                     const mountId = mountFilter.value;
-                    let url = `/dashboard/schedule/events?start=${info.startStr}&end=${info.endStr}`;
+                    const viewType = calendar.view ? calendar.view.type : '';
+                    let url = `/dashboard/schedule/events?start=${info.startStr}&end=${info.endStr}&view=${viewType}`;
                     if (mountId) {
                         url += `&mount_id=${mountId}`;
                     }
@@ -1866,31 +1867,174 @@ document.addEventListener('DOMContentLoaded', function() {
         return `<div class="text-body-secondary small">No source details available.</div>`;
     }
 
-    function renderTrackList(tracks, limit = 10) {
+    function renderEditableTrackList(tracks) {
+        if (!tracks || tracks.length === 0) {
+            return '<div class="text-body-secondary small">No tracks queued for this entry.</div>';
+        }
+
+        let html = '<div class="list-group list-group-flush small" style="max-height: 400px; overflow-y: auto;" id="editableTrackListInner">';
+        for (let idx = 0; idx < tracks.length; idx++) {
+            const track = tracks[idx];
+            const title = escapeHtml(track.title || 'Unknown');
+            const titleHTML = track.media_id
+                ? `<a href="/dashboard/media/${encodeURIComponent(track.media_id)}" target="_blank" rel="noopener">${title}</a>`
+                : title;
+            html += `<div class="list-group-item py-1 px-2 d-flex align-items-center gap-2" data-track-index="${idx}" data-media-id="${escapeHtml(track.media_id || '')}">
+                <span class="text-body-secondary" style="min-width:24px;">${idx + 1}.</span>
+                <span class="text-truncate flex-grow-1">
+                    <strong>${titleHTML}</strong>
+                    ${track.artist ? `<span class="text-body-secondary"> - ${escapeHtml(track.artist)}</span>` : ''}
+                </span>
+                <span class="text-body-secondary me-1">${formatDuration(track.duration)}</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 track-swap-btn" title="Replace track" data-idx="${idx}">
+                    <i class="bi bi-arrow-left-right"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 track-remove-btn" title="Remove track" data-idx="${idx}">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>`;
+        }
+        html += '</div>';
+
+        // Inline search for swapping
+        html += `<div class="d-none mt-2 p-2 border rounded" id="trackSwapSearch">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <strong class="small">Replace track #<span id="trackSwapIndex">-</span></strong>
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-auto py-0 px-1" id="trackSwapCancel">Cancel</button>
+            </div>
+            <input type="text" class="form-control form-control-sm mb-2" id="trackSwapSearchInput" placeholder="Search by title or artist...">
+            <div id="trackSwapResults" class="list-group list-group-flush small" style="max-height: 200px; overflow-y: auto;"></div>
+        </div>`;
+
+        return html;
+    }
+
+    // Track currently being swapped
+    let _trackSwapIdx = -1;
+    let _editTrackOverrides = {};
+
+    // Delegate click events for swap/remove buttons
+    document.addEventListener('click', function(e) {
+        const swapBtn = e.target.closest('.track-swap-btn');
+        const removeBtn = e.target.closest('.track-remove-btn');
+
+        if (swapBtn) {
+            const idx = parseInt(swapBtn.dataset.idx);
+            _trackSwapIdx = idx;
+            const swapSearch = document.getElementById('trackSwapSearch');
+            const swapIndex = document.getElementById('trackSwapIndex');
+            swapIndex.textContent = (idx + 1).toString();
+            swapSearch.classList.remove('d-none');
+            document.getElementById('trackSwapSearchInput').value = '';
+            document.getElementById('trackSwapResults').innerHTML = '<div class="text-body-secondary small p-1">Type to search...</div>';
+            document.getElementById('trackSwapSearchInput').focus();
+        }
+
+        if (removeBtn) {
+            const idx = parseInt(removeBtn.dataset.idx);
+            _editTrackOverrides[idx] = '__remove__';
+            const row = removeBtn.closest('[data-track-index]');
+            if (row) {
+                row.classList.add('text-decoration-line-through', 'opacity-50');
+                row.querySelector('.track-swap-btn')?.remove();
+                row.querySelector('.track-remove-btn')?.remove();
+            }
+        }
+    });
+
+    document.getElementById('trackSwapCancel')?.addEventListener('click', function() {
+        document.getElementById('trackSwapSearch').classList.add('d-none');
+        _trackSwapIdx = -1;
+    });
+
+    // Debounced search for track swap
+    let _trackSwapTimer;
+    document.getElementById('trackSwapSearchInput')?.addEventListener('input', function() {
+        clearTimeout(_trackSwapTimer);
+        const q = this.value.trim();
+        if (q.length < 2) {
+            document.getElementById('trackSwapResults').innerHTML = '<div class="text-body-secondary small p-1">Type at least 2 characters...</div>';
+            return;
+        }
+        _trackSwapTimer = setTimeout(async () => {
+            try {
+                const resp = await fetch(`/dashboard/schedule/media.json?q=${encodeURIComponent(q)}&include_archive=true`);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const items = data.items || [];
+                if (items.length === 0) {
+                    document.getElementById('trackSwapResults').innerHTML = '<div class="text-body-secondary small p-1">No results found.</div>';
+                    return;
+                }
+                let html = '';
+                for (const item of items) {
+                    html += `<a href="#" class="list-group-item list-group-item-action py-1 px-2 track-swap-pick" data-media-id="${escapeHtml(item.id)}" data-title="${escapeHtml(item.title || '')}" data-artist="${escapeHtml(item.artist || '')}" data-duration="${item.duration || 0}">
+                        <strong>${escapeHtml(item.title || 'Unknown')}</strong>
+                        ${item.artist ? `<span class="text-body-secondary"> - ${escapeHtml(item.artist)}</span>` : ''}
+                        <span class="text-body-secondary float-end">${formatDuration(item.duration || 0)}</span>
+                    </a>`;
+                }
+                document.getElementById('trackSwapResults').innerHTML = html;
+            } catch (e) {
+                console.warn('Track swap search failed:', e);
+            }
+        }, 300);
+    });
+
+    // Handle track swap selection
+    document.addEventListener('click', function(e) {
+        const pick = e.target.closest('.track-swap-pick');
+        if (!pick) return;
+        e.preventDefault();
+
+        const mediaId = pick.dataset.mediaId;
+        const title = pick.dataset.title;
+        const artist = pick.dataset.artist;
+        const duration = parseFloat(pick.dataset.duration) || 0;
+
+        // Store override
+        _editTrackOverrides[_trackSwapIdx] = mediaId;
+
+        // Update the row visually
+        const row = document.querySelector(`[data-track-index="${_trackSwapIdx}"]`);
+        if (row) {
+            row.dataset.mediaId = mediaId;
+            const titleSpan = row.querySelector('.text-truncate');
+            if (titleSpan) {
+                const titleHTML = `<a href="/dashboard/media/${encodeURIComponent(mediaId)}" target="_blank" rel="noopener">${escapeHtml(title)}</a>`;
+                titleSpan.innerHTML = `<strong>${titleHTML}</strong>${artist ? `<span class="text-body-secondary"> - ${escapeHtml(artist)}</span>` : ''}`;
+            }
+            const durSpan = row.querySelector('.text-body-secondary.me-1');
+            if (durSpan) durSpan.textContent = formatDuration(duration);
+            row.classList.add('list-group-item-warning');
+        }
+
+        // Hide search
+        document.getElementById('trackSwapSearch').classList.add('d-none');
+        _trackSwapIdx = -1;
+    });
+
+    function renderTrackList(tracks, limit = 999) {
         if (!tracks || tracks.length === 0) {
             return '<div class="text-body-secondary small">No tracks</div>';
         }
 
-        let html = '<div class="list-group list-group-flush small" style="max-height: 200px; overflow-y: auto;">';
+        let html = '<div class="list-group list-group-flush small" style="max-height: 400px; overflow-y: auto;">';
         const displayTracks = tracks.slice(0, limit);
 
-        for (const track of displayTracks) {
+        for (let idx = 0; idx < displayTracks.length; idx++) {
+            const track = displayTracks[idx];
             const title = escapeHtml(track.title || 'Unknown');
             const titleHTML = track.media_id
                 ? `<a href="/dashboard/media/${encodeURIComponent(track.media_id)}" target="_blank" rel="noopener"><strong>${title}</strong></a>`
                 : `<strong>${title}</strong>`;
             html += `<div class="list-group-item py-1 px-2 d-flex justify-content-between">
                 <span class="text-truncate" style="max-width: 70%;">
+                    <span class="text-body-secondary me-1">${idx + 1}.</span>
                     ${titleHTML}
                     ${track.artist ? `<span class="text-body-secondary"> - ${escapeHtml(track.artist)}</span>` : ''}
                 </span>
                 <span class="text-body-secondary">${formatDuration(track.duration)}</span>
-            </div>`;
-        }
-
-        if (tracks.length > limit) {
-            html += `<div class="list-group-item py-1 px-2 text-body-secondary text-center">
-                ... and ${tracks.length - limit} more tracks
             </div>`;
         }
 
@@ -2757,6 +2901,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         updateEditDurationDisplay();
 
+        // Reset track overrides for this edit session
+        _editTrackOverrides = {};
+
         // Fetch and display queued tracks (unless orphaned or live/webstream)
         const trackSection = document.getElementById('editQueuedTracks');
         const trackContent = document.getElementById('editTrackListContent');
@@ -2767,13 +2914,13 @@ document.addEventListener('DOMContentLoaded', function() {
             trackSection.classList.remove('d-none');
             trackContent.innerHTML = '<div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading tracks...</div>';
             trackSummary.textContent = '';
-            fetchEditTracks(props.source_type, props.source_id, startDate, endDate, props.mount_id);
+            fetchEditTracks(props.source_type, props.source_id, startDate, endDate, props.mount_id, event.id);
         }
 
         editScheduleModal.show();
     }
 
-    async function fetchEditTracks(sourceType, sourceId, startDate, endDate, mountId) {
+    async function fetchEditTracks(sourceType, sourceId, startDate, endDate, mountId, entryId) {
         const trackContent = document.getElementById('editTrackListContent');
         const trackSummary = document.getElementById('editTrackSummary');
         const trackSection = document.getElementById('editQueuedTracks');
@@ -2785,6 +2932,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 ends_at: endDate.toISOString(),
             });
             if (mountId) params.set('mount_id', mountId);
+            if (entryId) params.set('entry_id', entryId);
             const resp = await fetch(`/dashboard/schedule/source-tracks?${params}`);
             if (!resp.ok) {
                 trackContent.innerHTML = '<div class="text-body-secondary small">Could not load tracks.</div>';
@@ -2816,7 +2964,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             trackSummary.textContent = `${tracks.length} track${tracks.length !== 1 ? 's' : ''}, ${formatDuration(data.total_duration || 0)}`;
-            trackContent.innerHTML = renderTrackList(tracks, 30);
+            trackContent.innerHTML = renderEditableTrackList(tracks);
         } catch (e) {
             console.warn('Failed to fetch source tracks:', e);
             trackSection.classList.add('d-none');
@@ -2953,6 +3101,14 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             if (baseMetadata && baseMetadata.crossfade) {
                 delete baseMetadata.crossfade;
+            }
+        }
+        // Include track overrides if any were made
+        if (Object.keys(_editTrackOverrides).length > 0) {
+            baseMetadata.track_overrides = Object.assign({}, baseMetadata.track_overrides || {}, _editTrackOverrides);
+            // Clean out any null/undefined entries
+            for (const [k, v] of Object.entries(baseMetadata.track_overrides)) {
+                if (!v) delete baseMetadata.track_overrides[k];
             }
         }
         payload.metadata = baseMetadata;
