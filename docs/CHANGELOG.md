@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.18.29 — 2026-02-27
+
+### Genre Manager (#84)
+- New **Manage Genres** page at `/dashboard/media/genres` lists all genres with track counts.
+- Rename action: batch-updates all tracks from one genre to another.
+- Delete action: reassign tracks to a replacement genre or clear genre entirely.
+- Added "Manage Genres" button to Media Library header.
+
+---
+
 ## 1.18.28 — 2026-02-27
 
 ### Fix Search Not Returning All Media (#85, #86)

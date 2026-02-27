@@ -910,6 +910,84 @@ func (h *Handler) MediaBulk(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// MediaGenres renders the genre management page.
+func (h *Handler) MediaGenres(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+
+	type genreRow struct {
+		Genre string
+		Count int64
+	}
+
+	var rows []genreRow
+	h.db.Model(&models.MediaItem{}).
+		Select("genre, COUNT(*) as count").
+		Where("station_id = ? AND genre != ''", station.ID).
+		Group("genre").
+		Order("genre ASC").
+		Scan(&rows)
+
+	// Also count items with no genre
+	var noGenreCount int64
+	h.db.Model(&models.MediaItem{}).
+		Where("station_id = ? AND (genre = '' OR genre IS NULL)", station.ID).
+		Count(&noGenreCount)
+
+	h.Render(w, r, "pages/dashboard/media/genres", PageData{
+		Title:    "Manage Genres",
+		Stations: h.LoadStations(r),
+		Data: map[string]any{
+			"Genres":       rows,
+			"NoGenreCount": noGenreCount,
+		},
+	})
+}
+
+// MediaGenreReassign batch-reassigns all media from one genre to another.
+func (h *Handler) MediaGenreReassign(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	oldGenre := strings.TrimSpace(r.FormValue("old_genre"))
+	newGenre := strings.TrimSpace(r.FormValue("new_genre"))
+
+	if oldGenre == "" {
+		http.Error(w, "No genre specified", http.StatusBadRequest)
+		return
+	}
+
+	result := h.db.Model(&models.MediaItem{}).
+		Where("station_id = ? AND genre = ?", station.ID, oldGenre).
+		Update("genre", newGenre)
+
+	if result.Error != nil {
+		h.logger.Error().Err(result.Error).Str("old", oldGenre).Str("new", newGenre).Msg("genre reassign failed")
+		http.Error(w, "Update failed", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().
+		Str("old_genre", oldGenre).
+		Str("new_genre", newGenre).
+		Int64("affected", result.RowsAffected).
+		Str("station_id", station.ID).
+		Msg("genre reassigned")
+
+	http.Redirect(w, r, "/dashboard/media/genres", http.StatusSeeOther)
+}
+
 // MediaWaveform returns the waveform data for a media item
 func (h *Handler) MediaWaveform(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
