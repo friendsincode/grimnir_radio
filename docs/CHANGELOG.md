@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.18.27 — 2026-02-27
+
+### Fix Playlist Add from Archive & Bulk Add (#83)
+- Relaxed station ownership check in `PlaylistAddItem` to accept media with `show_in_archive = true`, allowing cross-station archive media to be added to playlists.
+- Fixed missing UUID for `PlaylistItem.ID` in `MediaBulk` bulk add-to-playlist action, which caused silent insert failures on PostgreSQL.
+
+---
+
 ## 1.18.26 — 2026-02-26
 
 ### Player Station Switch Timer Reset
