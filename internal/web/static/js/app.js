@@ -1256,6 +1256,12 @@ class GlobalPlayer {
         };
         this.isLive = true;
         this.isLiveDJ = false;
+        this._trackStarted = null;
+        this._trackEnded = null;
+        this._trackDuration = 0;
+        if (this.currentTimeEl) this.currentTimeEl.textContent = '0:00';
+        if (this.durationEl) this.durationEl.textContent = '--:--';
+        if (this.progressBar) this.progressBar.style.width = '0%';
         this.updateUI();
         this.show();
 

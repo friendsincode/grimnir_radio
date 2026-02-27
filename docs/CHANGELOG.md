@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.18.26 — 2026-02-26
+
+### Player Station Switch Timer Reset
+- Fixed global player timer not resetting when switching between stations. Timer state (`_trackStarted`, `_trackDuration`, display) is now fully cleared in `playLive()` before metadata fetch begins.
+
+---
+
 ## 1.18.25 — 2026-02-26
 
 ### Live DJ Token UI Polish
