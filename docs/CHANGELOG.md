@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.28 — 2026-02-27
+
+### Fix Search Not Returning All Media (#85, #86)
+- Raised playlist media search limit from 200 to 1000 so filtered results aren't silently capped.
+- Raised initial media load from 100 to 500 on playlist detail page.
+- Genre, artist, and mood filter dropdowns now include archive items (`show_in_archive = true`), so cross-station genres appear in filters.
+
+---
+
 ## 1.18.27 — 2026-02-27
 
 ### Fix Playlist Add from Archive & Bulk Add (#83)
