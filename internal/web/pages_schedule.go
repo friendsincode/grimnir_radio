@@ -1426,6 +1426,236 @@ func (h *Handler) ScheduleRefresh(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// ScheduleSourceTracks returns the track list for a given source type and ID.
+// This works for any source regardless of how it was scheduled (direct, recurring, etc).
+func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	sourceType := r.URL.Query().Get("source_type")
+	sourceID := r.URL.Query().Get("source_id")
+	startsAtStr := r.URL.Query().Get("starts_at")
+	endsAtStr := r.URL.Query().Get("ends_at")
+	mountID := r.URL.Query().Get("mount_id")
+
+	if sourceType == "" || sourceID == "" {
+		http.Error(w, "source_type and source_id required", http.StatusBadRequest)
+		return
+	}
+
+	startsAt, _ := time.Parse(time.RFC3339, startsAtStr)
+	endsAt, _ := time.Parse(time.RFC3339, endsAtStr)
+	duration := endsAt.Sub(startsAt)
+	if duration <= 0 {
+		duration = time.Hour
+	}
+
+	type trackInfo struct {
+		MediaID  string `json:"media_id"`
+		Title    string `json:"title"`
+		Artist   string `json:"artist"`
+		Duration int64  `json:"duration"`
+	}
+
+	response := map[string]any{
+		"source_type": sourceType,
+		"source_id":   sourceID,
+	}
+
+	var tracks []trackInfo
+
+	switch sourceType {
+	case "playlist":
+		var playlist models.Playlist
+		if err := h.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
+			return db.Order("position ASC").Limit(100)
+		}).Preload("Items.Media").First(&playlist, "id = ?", sourceID).Error; err == nil {
+			response["source_name"] = playlist.Name
+			for _, item := range playlist.Items {
+				tracks = append(tracks, trackInfo{
+					MediaID:  item.Media.ID,
+					Title:    item.Media.Title,
+					Artist:   item.Media.Artist,
+					Duration: int64(item.Media.Duration.Seconds()),
+				})
+			}
+		}
+
+	case "smart_block":
+		var sb models.SmartBlock
+		if err := h.db.First(&sb, "id = ?", sourceID).Error; err == nil {
+			response["source_name"] = sb.Name
+			engine := smartblock.New(h.db, h.logger)
+			result, err := engine.Generate(r.Context(), smartblock.GenerateRequest{
+				SmartBlockID: sb.ID,
+				Seed:         startsAt.Unix(),
+				Duration:     duration.Milliseconds(),
+				StationID:    station.ID,
+				MountID:      mountID,
+			})
+			if err == nil {
+				mediaIDs := make([]string, 0, len(result.Items))
+				for _, item := range result.Items {
+					if item.MediaID != "" {
+						mediaIDs = append(mediaIDs, item.MediaID)
+					}
+				}
+				mediaByID := make(map[string]models.MediaItem, len(mediaIDs))
+				if len(mediaIDs) > 0 {
+					var mediaItems []models.MediaItem
+					h.db.Select("id, title, artist, duration").Where("id IN ?", mediaIDs).Find(&mediaItems)
+					for _, m := range mediaItems {
+						mediaByID[m.ID] = m
+					}
+				}
+				for _, item := range result.Items {
+					media := mediaByID[item.MediaID]
+					tracks = append(tracks, trackInfo{
+						MediaID:  item.MediaID,
+						Title:    media.Title,
+						Artist:   media.Artist,
+						Duration: int64(media.Duration.Seconds()),
+					})
+				}
+			} else {
+				response["error"] = err.Error()
+			}
+		}
+
+	case "clock_template":
+		var clockHour models.ClockHour
+		if err := h.db.Preload("Slots").First(&clockHour, "id = ?", sourceID).Error; err == nil {
+			response["source_name"] = clockHour.Name
+			slotsSorted := append([]models.ClockSlot(nil), clockHour.Slots...)
+			sort.Slice(slotsSorted, func(i, j int) bool {
+				return slotsSorted[i].Position < slotsSorted[j].Position
+			})
+			for _, slot := range slotsSorted {
+				switch slot.Type {
+				case models.SlotTypePlaylist:
+					if playlistID, ok := slot.Payload["playlist_id"].(string); ok {
+						var pl models.Playlist
+						if h.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
+							return db.Order("position ASC").Limit(50)
+						}).Preload("Items.Media").First(&pl, "id = ?", playlistID).Error == nil {
+							for _, item := range pl.Items {
+								tracks = append(tracks, trackInfo{
+									MediaID:  item.Media.ID,
+									Title:    item.Media.Title,
+									Artist:   item.Media.Artist,
+									Duration: int64(item.Media.Duration.Seconds()),
+								})
+							}
+						}
+					}
+				case models.SlotTypeSmartBlock:
+					if sbID, ok := slot.Payload["smart_block_id"].(string); ok {
+						var sb models.SmartBlock
+						if h.db.First(&sb, "id = ?", sbID).Error == nil {
+							slotStart := startsAt.Add(slot.Offset)
+							slotEnd := endsAt
+							// Find the end of this slot (next slot start or entry end)
+							for _, ns := range slotsSorted {
+								if ns.Position > slot.Position {
+									nextStart := startsAt.Add(ns.Offset)
+									if nextStart.Before(slotEnd) {
+										slotEnd = nextStart
+									}
+									break
+								}
+							}
+							slotDuration := slotEnd.Sub(slotStart)
+							if slotDuration <= 0 {
+								slotDuration = duration
+							}
+							engine := smartblock.New(h.db, h.logger)
+							result, err := engine.Generate(r.Context(), smartblock.GenerateRequest{
+								SmartBlockID: sb.ID,
+								Seed:         slotStart.Unix(),
+								Duration:     slotDuration.Milliseconds(),
+								StationID:    station.ID,
+								MountID:      mountID,
+							})
+							if err == nil {
+								mediaIDs := make([]string, 0, len(result.Items))
+								for _, item := range result.Items {
+									if item.MediaID != "" {
+										mediaIDs = append(mediaIDs, item.MediaID)
+									}
+								}
+								mediaByID := make(map[string]models.MediaItem, len(mediaIDs))
+								if len(mediaIDs) > 0 {
+									var mediaItems []models.MediaItem
+									h.db.Select("id, title, artist, duration").Where("id IN ?", mediaIDs).Find(&mediaItems)
+									for _, m := range mediaItems {
+										mediaByID[m.ID] = m
+									}
+								}
+								for _, item := range result.Items {
+									media := mediaByID[item.MediaID]
+									tracks = append(tracks, trackInfo{
+										MediaID:  item.MediaID,
+										Title:    media.Title,
+										Artist:   media.Artist,
+										Duration: int64(media.Duration.Seconds()),
+									})
+								}
+							}
+						}
+					}
+				case models.SlotTypeHardItem:
+					if mediaID, ok := slot.Payload["media_id"].(string); ok {
+						var media models.MediaItem
+						if h.db.Select("id, title, artist, duration").First(&media, "id = ?", mediaID).Error == nil {
+							tracks = append(tracks, trackInfo{
+								MediaID:  media.ID,
+								Title:    media.Title,
+								Artist:   media.Artist,
+								Duration: int64(media.Duration.Seconds()),
+							})
+						}
+					}
+				}
+			}
+		}
+
+	case "media":
+		var media models.MediaItem
+		if err := h.db.Select("id, title, artist, duration").First(&media, "id = ?", sourceID).Error; err == nil {
+			tracks = append(tracks, trackInfo{
+				MediaID:  media.ID,
+				Title:    media.Title,
+				Artist:   media.Artist,
+				Duration: int64(media.Duration.Seconds()),
+			})
+		}
+
+	case "webstream":
+		var ws models.Webstream
+		if err := h.db.First(&ws, "id = ?", sourceID).Error; err == nil {
+			response["source_name"] = ws.Name
+			if len(ws.URLs) > 0 {
+				response["url"] = ws.URLs[0]
+			}
+		}
+	}
+
+	response["tracks"] = tracks
+	response["track_count"] = len(tracks)
+
+	var totalDuration int64
+	for _, t := range tracks {
+		totalDuration += t.Duration
+	}
+	response["total_duration"] = totalDuration
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // SchedulePlaylistsJSON returns playlists as JSON for schedule dropdowns
 func (h *Handler) SchedulePlaylistsJSON(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)

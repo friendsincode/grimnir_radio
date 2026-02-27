@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.18.34 — 2026-02-27
+
+### Show Queued Tracks in Schedule Edit Modal
+- Clicking any schedule entry now shows the full track listing in the edit modal, regardless of source type (playlist, smart block, clock template, or single media).
+- New `/dashboard/schedule/source-tracks` endpoint returns track list for any source type/ID combination, working for real entries, recurring instances, and expanded smart block children.
+- Smart block entries generate tracks on-the-fly using the same seed-based engine as playout.
+- Clock template entries expand all slots (playlists, smart blocks, hard items) into a combined track list.
+- Orphaned entries skip track loading and show only the error warning.
+
+---
+
 ## 1.18.33 — 2026-02-27
 
 ### Orphaned Schedule Entry Detection
