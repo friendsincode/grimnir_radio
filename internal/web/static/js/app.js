@@ -1259,6 +1259,7 @@ class GlobalPlayer {
         this._trackStarted = null;
         this._trackEnded = null;
         this._trackDuration = 0;
+        this._trackEndRefreshPending = false;
         if (this.currentTimeEl) this.currentTimeEl.textContent = '0:00';
         if (this.durationEl) this.durationEl.textContent = '--:--';
         if (this.progressBar) this.progressBar.style.width = '0%';
@@ -1597,7 +1598,7 @@ class GlobalPlayer {
                 const artistText = artist || stationName || 'On-Air';
                 this.setSecondaryText(artistText);
 
-                this.isLiveDJ = data.is_live_dj === true || data.source_type === 'live' || data.type === 'live';
+                this.isLiveDJ = data.is_live_dj === true;
                 if (this.container) {
                     this.container.classList.toggle('is-on-air', this.isLive);
                     this.container.classList.toggle('is-live-dj', this.isLive && this.isLiveDJ);
@@ -1646,9 +1647,11 @@ class GlobalPlayer {
         const artist = (data.artist || '').toString().trim();
         const title = (data.title || '').toString().trim();
 
-        if (data.is_live_dj === true || data.source_type === 'live' || data.type === 'live') {
+        if (data.is_live_dj === true) {
+            // Live DJ: show song title from metadata, fallback to "Live DJ"
             return title || 'Live DJ';
         }
+        // Automation: show "Artist - Title"
         if (artist && title) return `${artist} - ${title}`;
         if (title) return title;
         if (artist) return artist;
@@ -1806,8 +1809,11 @@ class GlobalPlayer {
                 if (this.durationEl) this.durationEl.textContent = this.formatTime(this._trackDuration);
                 const pct = Math.min(100, (elapsed / this._trackDuration) * 100);
                 if (this.progressBar) this.progressBar.style.width = pct + '%';
-                if (elapsed > this._trackDuration) {
-                    this.fetchNowPlayingMetadata();
+                if (elapsed > this._trackDuration && !this._trackEndRefreshPending) {
+                    this._trackEndRefreshPending = true;
+                    this.fetchNowPlayingMetadata().then(() => {
+                        this._trackEndRefreshPending = false;
+                    });
                 }
             } else {
                 // Live DJ — count up with "LIVE" label, no progress bar

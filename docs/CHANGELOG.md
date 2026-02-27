@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.18.30 — 2026-02-27
+
+### Global Player: Live DJ vs Automation (#87)
+- Fixed `isLiveDJ` detection to only trigger on actual live DJ sessions (`is_live_dj === true`), no longer conflating scheduled live content with DJ input.
+- Title display: Live DJ shows song title from metadata; automation shows "Artist - Title".
+- Fixed timer overflow calling `fetchNowPlayingMetadata` on every tick when track exceeds duration — now debounced with a pending flag.
+- Clean state reset on station switch includes `_trackEndRefreshPending` flag.
+
+---
+
 ## 1.18.29 — 2026-02-27
 
 ### Genre Manager (#84)
