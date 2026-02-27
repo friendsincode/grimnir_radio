@@ -9,6 +9,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"net/http"
 	"sort"
@@ -228,12 +229,15 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Expand smart_block entries into individual track events so the calendar
-	// shows the generated queue. The parent block is kept for click-to-detail.
+	// Only expand smart_block entries into individual track events on day/time views,
+	// not on week or month views where they'd clutter the calendar.
+	calendarView := r.URL.Query().Get("view")
+	expandTracks := calendarView == "" || calendarView == "timeGridDay" || calendarView == "listDay" || calendarView == "listWeek"
+
 	engine := smartblock.New(h.db, h.logger)
 	var expandedEntries []models.ScheduleEntry
 	for _, entry := range entries {
-		if entry.SourceType != "smart_block" {
+		if !expandTracks || entry.SourceType != "smart_block" {
 			continue
 		}
 		targetDuration := entry.EndsAt.Sub(entry.StartsAt)
@@ -1440,6 +1444,7 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 	startsAtStr := r.URL.Query().Get("starts_at")
 	endsAtStr := r.URL.Query().Get("ends_at")
 	mountID := r.URL.Query().Get("mount_id")
+	entryID := r.URL.Query().Get("entry_id")
 
 	if sourceType == "" || sourceID == "" {
 		http.Error(w, "source_type and source_id required", http.StatusBadRequest)
@@ -1451,6 +1456,24 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 	duration := endsAt.Sub(startsAt)
 	if duration <= 0 {
 		duration = time.Hour
+	}
+
+	// Look up existing track overrides from the entry metadata
+	var trackOverrides map[string]string
+	if entryID != "" {
+		var entry models.ScheduleEntry
+		if h.db.Select("id, metadata").First(&entry, "id = ?", entryID).Error == nil && entry.Metadata != nil {
+			if overridesRaw, ok := entry.Metadata["track_overrides"]; ok {
+				if ovMap, ok := overridesRaw.(map[string]any); ok {
+					trackOverrides = make(map[string]string, len(ovMap))
+					for k, v := range ovMap {
+						if s, ok := v.(string); ok {
+							trackOverrides[k] = s
+						}
+					}
+				}
+			}
+		}
 	}
 
 	type trackInfo struct {
@@ -1471,7 +1494,7 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 	case "playlist":
 		var playlist models.Playlist
 		if err := h.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
-			return db.Order("position ASC").Limit(100)
+			return db.Order("position ASC")
 		}).Preload("Items.Media").First(&playlist, "id = ?", sourceID).Error; err == nil {
 			response["source_name"] = playlist.Name
 			for _, item := range playlist.Items {
@@ -1539,7 +1562,7 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 					if playlistID, ok := slot.Payload["playlist_id"].(string); ok {
 						var pl models.Playlist
 						if h.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
-							return db.Order("position ASC").Limit(50)
+							return db.Order("position ASC")
 						}).Preload("Items.Media").First(&pl, "id = ?", playlistID).Error == nil {
 							for _, item := range pl.Items {
 								tracks = append(tracks, trackInfo{
@@ -1641,6 +1664,46 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 				response["url"] = ws.URLs[0]
 			}
 		}
+	}
+
+	// Apply track overrides from entry metadata
+	if len(trackOverrides) > 0 && len(tracks) > 0 {
+		// Collect replacement media IDs
+		var replacementIDs []string
+		for _, mediaID := range trackOverrides {
+			if mediaID != "" && mediaID != "__remove__" {
+				replacementIDs = append(replacementIDs, mediaID)
+			}
+		}
+		replacementMedia := make(map[string]models.MediaItem, len(replacementIDs))
+		if len(replacementIDs) > 0 {
+			var items []models.MediaItem
+			h.db.Select("id, title, artist, duration").Where("id IN ?", replacementIDs).Find(&items)
+			for _, m := range items {
+				replacementMedia[m.ID] = m
+			}
+		}
+
+		var finalTracks []trackInfo
+		for i, t := range tracks {
+			idxStr := fmt.Sprintf("%d", i)
+			if replacement, ok := trackOverrides[idxStr]; ok {
+				if replacement == "__remove__" {
+					continue // Skip removed tracks
+				}
+				if media, ok := replacementMedia[replacement]; ok {
+					finalTracks = append(finalTracks, trackInfo{
+						MediaID:  media.ID,
+						Title:    media.Title,
+						Artist:   media.Artist,
+						Duration: int64(media.Duration.Seconds()),
+					})
+					continue
+				}
+			}
+			finalTracks = append(finalTracks, t)
+		}
+		tracks = finalTracks
 	}
 
 	response["tracks"] = tracks
