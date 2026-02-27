@@ -1230,6 +1230,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    let currentCalendarView = 'timeGridWeek';
     const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'timeGridWeek',
         headerToolbar: {
@@ -1276,7 +1277,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 id: 'schedule',
                 events: function(info, successCallback, failureCallback) {
                     const mountId = mountFilter.value;
-                    const viewType = calendar.view ? calendar.view.type : '';
+                    const viewType = currentCalendarView;
                     let url = `/dashboard/schedule/events?start=${info.startStr}&end=${info.endStr}&view=${viewType}`;
                     if (mountId) {
                         url += `&mount_id=${mountId}`;
@@ -3573,6 +3574,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Auto-validate on calendar date change (optional, runs in background)
     calendar.on('datesSet', function(info) {
+        currentCalendarView = info.view.type;
         // Silently update validation badge after a delay
         setTimeout(async () => {
             try {
