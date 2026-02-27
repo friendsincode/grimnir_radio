@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.18.33 — 2026-02-27
+
+### Orphaned Schedule Entry Detection
+- Schedule entries that reference deleted sources (smart blocks, playlists, media, etc.) now appear as red striped blocks on the calendar with a "MISSING" label.
+- Clicking an orphaned entry shows a red warning banner explaining the broken reference and prompting the user to change the source or delete the entry.
+
+---
+
 ## 1.18.32 — 2026-02-27
 
 ### Show Smart Block Generated Queue on Schedule Calendar
