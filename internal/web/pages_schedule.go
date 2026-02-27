@@ -228,6 +228,61 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Expand smart_block entries into individual track events so the calendar
+	// shows the generated queue. The parent block is kept for click-to-detail.
+	engine := smartblock.New(h.db, h.logger)
+	var expandedEntries []models.ScheduleEntry
+	for _, entry := range entries {
+		if entry.SourceType != "smart_block" {
+			continue
+		}
+		targetDuration := entry.EndsAt.Sub(entry.StartsAt)
+		if targetDuration <= 0 {
+			continue
+		}
+		result, err := engine.Generate(r.Context(), smartblock.GenerateRequest{
+			SmartBlockID: entry.SourceID,
+			Seed:         entry.StartsAt.Unix(),
+			Duration:     targetDuration.Milliseconds(),
+			StationID:    station.ID,
+			MountID:      entry.MountID,
+		})
+		if err != nil {
+			continue
+		}
+		for _, item := range result.Items {
+			child := models.ScheduleEntry{
+				ID:         entry.ID + "-t-" + item.MediaID,
+				StationID:  station.ID,
+				MountID:    entry.MountID,
+				StartsAt:   entry.StartsAt.Add(time.Duration(item.StartsAtMS) * time.Millisecond),
+				EndsAt:     entry.StartsAt.Add(time.Duration(item.EndsAtMS) * time.Millisecond),
+				SourceType: "media",
+				SourceID:   item.MediaID,
+				Metadata: map[string]any{
+					"smart_block_id": entry.SourceID,
+					"expanded":       true,
+				},
+			}
+			expandedEntries = append(expandedEntries, child)
+			mediaIDs = append(mediaIDs, item.MediaID)
+		}
+	}
+
+	// Fetch names for expanded media items
+	if len(expandedEntries) > 0 {
+		var items []models.MediaItem
+		h.db.Select("id, title, artist").Where("id IN ?", mediaIDs).Find(&items)
+		for _, m := range items {
+			if m.Artist != "" {
+				mediaNames[m.ID] = m.Artist + " - " + m.Title
+			} else {
+				mediaNames[m.ID] = m.Title
+			}
+		}
+		entries = append(entries, expandedEntries...)
+	}
+
 	// Convert to FullCalendar event format
 	type calendarEvent struct {
 		ID              string `json:"id"`
