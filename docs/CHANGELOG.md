@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.31 — 2026-02-27
+
+### Storage Meter on Admin Media Page
+- Added disk usage progress bar to Platform Admin > Media Library showing used/total/free space.
+- Bar color changes: green (<75%), yellow (75-90%), red (>90%).
+- Uses `syscall.Statfs` on the media root volume.
+
+---
+
 ## 1.18.30 — 2026-02-27
 
 ### Global Player: Live DJ vs Automation (#87)
