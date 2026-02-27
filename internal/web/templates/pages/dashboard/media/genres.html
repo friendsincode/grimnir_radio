@@ -1,0 +1,129 @@
+{{define "pages/dashboard/media/genres"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/media">Media Library</a></li>
+        <li class="breadcrumb-item active">Manage Genres</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-tags me-2"></i>Manage Genres</h4>
+    <a href="/dashboard/media" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Back to Library
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <span>{{len .Data.Genres}} genres</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Genre</th>
+                    <th style="width: 100px;">Tracks</th>
+                    <th style="width: 220px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Data.Genres}}
+                <tr id="genre-row-{{.Genre}}">
+                    <td>
+                        <span class="badge bg-secondary me-1">{{.Genre}}</span>
+                    </td>
+                    <td>{{.Count}}</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="renameGenre('{{.Genre}}')" title="Rename">
+                                <i class="bi bi-pencil me-1"></i>Rename
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteGenre('{{.Genre}}', {{.Count}})" title="Delete">
+                                <i class="bi bi-trash me-1"></i>Delete
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="3" class="text-center py-4 text-body-secondary">
+                        No genres found in your media library.
+                    </td>
+                </tr>
+                {{end}}
+                {{if gt .Data.NoGenreCount 0}}
+                <tr class="table-light">
+                    <td><em class="text-body-secondary">No genre set</em></td>
+                    <td>{{.Data.NoGenreCount}}</td>
+                    <td></td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Reassign Modal -->
+<div class="modal fade" id="reassignModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="/dashboard/media/genres/reassign">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="reassignModalTitle">Reassign Genre</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="old_genre" id="reassignOldGenre">
+                    <p id="reassignMessage"></p>
+                    <div class="mb-3">
+                        <label class="form-label">New Genre</label>
+                        <input type="text" class="form-control" name="new_genre" id="reassignNewGenre"
+                               list="existingGenres" placeholder="Leave blank to clear genre">
+                        <datalist id="existingGenres">
+                            {{range .Data.Genres}}
+                            <option value="{{.Genre}}">
+                            {{end}}
+                        </datalist>
+                        <small class="text-body-secondary">Select an existing genre or type a new one. Leave blank to remove genre from all tracks.</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="reassignSubmitBtn">Apply</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const reassignModal = new bootstrap.Modal(document.getElementById('reassignModal'));
+
+function renameGenre(genre) {
+    document.getElementById('reassignOldGenre').value = genre;
+    document.getElementById('reassignNewGenre').value = '';
+    document.getElementById('reassignModalTitle').textContent = 'Rename Genre: ' + genre;
+    document.getElementById('reassignMessage').textContent = 'All tracks with genre "' + genre + '" will be updated to the new genre.';
+    document.getElementById('reassignSubmitBtn').textContent = 'Rename';
+    document.getElementById('reassignSubmitBtn').className = 'btn btn-primary';
+    reassignModal.show();
+}
+
+function deleteGenre(genre, count) {
+    document.getElementById('reassignOldGenre').value = genre;
+    document.getElementById('reassignNewGenre').value = '';
+    document.getElementById('reassignModalTitle').textContent = 'Delete Genre: ' + genre;
+    document.getElementById('reassignMessage').innerHTML = '<strong>' + count + ' track(s)</strong> have this genre. Choose a replacement genre or leave blank to clear the genre from all tracks.';
+    document.getElementById('reassignSubmitBtn').textContent = 'Delete Genre';
+    document.getElementById('reassignSubmitBtn').className = 'btn btn-danger';
+    reassignModal.show();
+}
+</script>
+{{end}}

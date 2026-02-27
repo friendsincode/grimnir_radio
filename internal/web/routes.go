@@ -165,6 +165,8 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Route("/media", func(r chi.Router) {
 					r.Get("/", h.MediaList)
 					r.Post("/bulk", h.MediaBulk)
+					r.Get("/genres", h.MediaGenres)
+					r.Post("/genres/reassign", h.MediaGenreReassign)
 					r.With(h.RequireStationPermission("edit_metadata")).Post("/reanalyze-durations", h.MediaReanalyzeDurations)
 					r.With(h.RequireStationPermission("edit_metadata")).Get("/reanalyze-durations/status", h.MediaReanalyzeDurationsStatus)
 					r.With(h.RequireStationPermission("edit_metadata")).Get("/reanalyze-durations/current-status", h.MediaReanalyzeDurationsCurrentStatus)
