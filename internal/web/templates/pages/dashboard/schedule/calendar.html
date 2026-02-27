@@ -661,6 +661,17 @@
                     </div>
                 </div>
 
+                <!-- Queued tracks for this entry -->
+                <div class="d-none mb-3" id="editQueuedTracks">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <h6 class="mb-0"><i class="bi bi-music-note-list me-2"></i>Queued Tracks</h6>
+                        <small class="text-body-secondary" id="editTrackSummary"></small>
+                    </div>
+                    <div id="editTrackListContent">
+                        <div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading tracks...</div>
+                    </div>
+                </div>
+
                 <!-- Source selection (hidden by default) -->
                 <div class="d-none" id="editSourceSelection">
                     <div class="mb-3">
@@ -2745,7 +2756,71 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('editEndMinute').value = endMin >= 60 ? 55 : endMin;
 
         updateEditDurationDisplay();
+
+        // Fetch and display queued tracks (unless orphaned or live/webstream)
+        const trackSection = document.getElementById('editQueuedTracks');
+        const trackContent = document.getElementById('editTrackListContent');
+        const trackSummary = document.getElementById('editTrackSummary');
+        if (props.orphaned || props.source_type === 'live') {
+            trackSection.classList.add('d-none');
+        } else {
+            trackSection.classList.remove('d-none');
+            trackContent.innerHTML = '<div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading tracks...</div>';
+            trackSummary.textContent = '';
+            fetchEditTracks(props.source_type, props.source_id, startDate, endDate, props.mount_id);
+        }
+
         editScheduleModal.show();
+    }
+
+    async function fetchEditTracks(sourceType, sourceId, startDate, endDate, mountId) {
+        const trackContent = document.getElementById('editTrackListContent');
+        const trackSummary = document.getElementById('editTrackSummary');
+        const trackSection = document.getElementById('editQueuedTracks');
+        try {
+            const params = new URLSearchParams({
+                source_type: sourceType,
+                source_id: sourceId,
+                starts_at: startDate.toISOString(),
+                ends_at: endDate.toISOString(),
+            });
+            if (mountId) params.set('mount_id', mountId);
+            const resp = await fetch(`/dashboard/schedule/source-tracks?${params}`);
+            if (!resp.ok) {
+                trackContent.innerHTML = '<div class="text-body-secondary small">Could not load tracks.</div>';
+                return;
+            }
+            const data = await resp.json();
+            const tracks = data.tracks || [];
+
+            if (sourceType === 'webstream') {
+                trackContent.innerHTML = `<div class="small text-body-secondary">
+                    <i class="bi bi-broadcast me-1"></i>${escapeHtml(data.source_name || 'Webstream')}
+                    ${data.url ? `<div class="text-truncate">${escapeHtml(data.url)}</div>` : ''}
+                </div>`;
+                trackSummary.textContent = 'Live stream';
+                return;
+            }
+
+            if (tracks.length === 0) {
+                if (data.error) {
+                    trackContent.innerHTML = `<div class="alert alert-warning py-2 small mb-0">
+                        <i class="bi bi-exclamation-triangle me-1"></i>Could not generate track list.
+                        <div class="text-body-secondary mt-1">${escapeHtml(data.error)}</div>
+                    </div>`;
+                } else {
+                    trackContent.innerHTML = '<div class="text-body-secondary small">No tracks queued for this entry.</div>';
+                }
+                trackSummary.textContent = '0 tracks';
+                return;
+            }
+
+            trackSummary.textContent = `${tracks.length} track${tracks.length !== 1 ? 's' : ''}, ${formatDuration(data.total_duration || 0)}`;
+            trackContent.innerHTML = renderTrackList(tracks, 30);
+        } catch (e) {
+            console.warn('Failed to fetch source tracks:', e);
+            trackSection.classList.add('d-none');
+        }
     }
 
     function getEditStartDateTime() {
