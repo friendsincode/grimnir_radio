@@ -225,24 +225,24 @@ func (h *Handler) PlaylistDetail(w http.ResponseWriter, r *http.Request) {
 		totalDuration += media.Duration
 	}
 	var availableMedia []models.MediaItem
-	h.db.Where("station_id = ?", station.ID).Order("artist ASC, title ASC").Limit(100).Find(&availableMedia)
+	h.db.Where("station_id = ?", station.ID).Order("artist ASC, title ASC").Limit(500).Find(&availableMedia)
 
-	// Get unique genres for filter dropdown
+	// Get unique genres for filter dropdown (include archive genres)
 	var genres []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND genre != ''", station.ID).
+		Where("(station_id = ? OR show_in_archive = ?) AND genre != ''", station.ID, true).
 		Distinct().Pluck("genre", &genres)
 
-	// Get unique artists for filter dropdown
+	// Get unique artists for filter dropdown (include archive artists)
 	var artists []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND artist != ''", station.ID).
-		Distinct().Order("artist ASC").Limit(50).Pluck("artist", &artists)
+		Where("(station_id = ? OR show_in_archive = ?) AND artist != ''", station.ID, true).
+		Distinct().Order("artist ASC").Pluck("artist", &artists)
 
-	// Get unique moods for filter dropdown
+	// Get unique moods for filter dropdown (include archive moods)
 	var moods []string
 	h.db.Model(&models.MediaItem{}).
-		Where("station_id = ? AND mood != ''", station.ID).
+		Where("(station_id = ? OR show_in_archive = ?) AND mood != ''", station.ID, true).
 		Distinct().Pluck("mood", &moods)
 
 	// Get smart blocks for quick filter selection
@@ -800,7 +800,7 @@ func (h *Handler) PlaylistMediaSearch(w http.ResponseWriter, r *http.Request) {
 		dbQuery = dbQuery.Preload("Station")
 	}
 
-	dbQuery.Order("artist ASC, title ASC").Limit(200).Find(&media)
+	dbQuery.Order("artist ASC, title ASC").Limit(1000).Find(&media)
 
 	// Pass current station ID to template for comparison
 	type templateData struct {
