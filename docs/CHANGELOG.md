@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.32 — 2026-02-27
+
+### Show Smart Block Generated Queue on Schedule Calendar
+- Schedule calendar now expands smart block entries into individual track events, showing the generated queue of songs that will play during each smart block time slot.
+- Tracks are generated on-the-fly using the same seed-based engine as playout, so the preview matches what will actually play.
+- Parent smart block event is preserved for click-to-detail.
+
+---
+
 ## 1.18.31 — 2026-02-27
 
 ### Storage Meter on Admin Media Page
