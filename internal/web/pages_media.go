@@ -859,6 +859,7 @@ func (h *Handler) MediaBulk(w http.ResponseWriter, r *http.Request) {
 		// Add each media item to playlist
 		for i, mediaID := range req.IDs {
 			item := models.PlaylistItem{
+				ID:         uuid.NewString(),
 				PlaylistID: playlist.ID,
 				MediaID:    mediaID,
 				Position:   maxPos + i + 1,

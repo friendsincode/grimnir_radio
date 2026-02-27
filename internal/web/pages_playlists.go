@@ -468,9 +468,11 @@ func (h *Handler) PlaylistAddItem(w http.ResponseWriter, r *http.Request) {
 	}
 	mediaIDs = deduped
 
-	// Verify all media IDs belong to the station.
+	// Verify all media IDs belong to the station or are public archive items.
 	var mediaCount int64
-	h.db.Model(&models.MediaItem{}).Where("id IN ? AND station_id = ?", mediaIDs, station.ID).Count(&mediaCount)
+	h.db.Model(&models.MediaItem{}).
+		Where("id IN ? AND (station_id = ? OR show_in_archive = ?)", mediaIDs, station.ID, true).
+		Count(&mediaCount)
 	if mediaCount != int64(len(mediaIDs)) {
 		http.Error(w, "One or more media items not found", http.StatusNotFound)
 		return
