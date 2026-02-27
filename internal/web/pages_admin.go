@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/go-chi/chi/v5"
 	"gorm.io/gorm"
@@ -25,6 +26,52 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+// diskUsageInfo holds filesystem usage stats for the media storage volume.
+type diskUsageInfo struct {
+	Total   string
+	Used    string
+	Free    string
+	UsedPct int
+	Path    string
+}
+
+func getDiskUsage(path string) *diskUsageInfo {
+	if path == "" {
+		return nil
+	}
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return nil
+	}
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	used := total - free
+	pct := 0
+	if total > 0 {
+		pct = int(float64(used) / float64(total) * 100)
+	}
+	return &diskUsageInfo{
+		Total:   formatBytesUint64(total),
+		Used:    formatBytesUint64(used),
+		Free:    formatBytesUint64(free),
+		UsedPct: pct,
+		Path:    path,
+	}
+}
+
+func formatBytesUint64(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := uint64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %s", float64(b)/float64(div), []string{"KB", "MB", "GB", "TB", "PB"}[exp])
+}
 
 // AdminStationsList renders the platform admin stations management page
 func (h *Handler) AdminStationsList(w http.ResponseWriter, r *http.Request) {
@@ -767,6 +814,9 @@ func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get disk usage for media storage volume
+	diskUsage := getDiskUsage(h.mediaRoot)
+
 	h.Render(w, r, "pages/dashboard/admin/media", PageData{
 		Title:    "Platform Media Library - Admin",
 		Stations: h.LoadStations(r),
@@ -787,6 +837,7 @@ func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 			"Orphans":        orphans,
 			"OrphanTotal":    orphanTotal,
 			"IncludeOrphans": includeOrphans,
+			"DiskUsage":      diskUsage,
 		},
 	})
 }
