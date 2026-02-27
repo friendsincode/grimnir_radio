@@ -298,26 +298,42 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 	events := make([]calendarEvent, 0, len(entries))
 	for _, entry := range entries {
-		// Get title based on source type
+		// Get title based on source type and detect orphaned references
 		var title string
 		var sourceLabel string
+		orphaned := false
 
 		switch entry.SourceType {
 		case "playlist":
 			title = playlistNames[entry.SourceID]
 			sourceLabel = "Playlist"
+			if title == "" && entry.SourceID != "" {
+				orphaned = true
+			}
 		case "smart_block":
 			title = smartBlockNames[entry.SourceID]
 			sourceLabel = "Smart Block"
+			if title == "" && entry.SourceID != "" {
+				orphaned = true
+			}
 		case "clock_template":
 			title = clockNames[entry.SourceID]
 			sourceLabel = "Clock"
+			if title == "" && entry.SourceID != "" {
+				orphaned = true
+			}
 		case "webstream":
 			title = webstreamNames[entry.SourceID]
 			sourceLabel = "Webstream"
+			if title == "" && entry.SourceID != "" {
+				orphaned = true
+			}
 		case "media":
 			title = mediaNames[entry.SourceID]
 			sourceLabel = "Track"
+			if title == "" && entry.SourceID != "" {
+				orphaned = true
+			}
 		case "live":
 			if entry.Metadata != nil {
 				if name, ok := entry.Metadata["session_name"].(string); ok {
@@ -341,6 +357,11 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		default:
 			title = entry.SourceType
 			sourceLabel = entry.SourceType
+		}
+
+		// Orphaned entries get error styling
+		if orphaned {
+			title = "\u26a0 MISSING " + sourceLabel
 		}
 
 		// Fallback to metadata or source type
@@ -370,12 +391,17 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		className := "event-" + entry.SourceType
+		if orphaned {
+			className = "event-orphaned"
+		}
+
 		event := calendarEvent{
 			ID:        entry.ID,
 			Title:     title,
 			Start:     entry.StartsAt.Format(time.RFC3339),
 			End:       entry.EndsAt.Format(time.RFC3339),
-			ClassName: "event-" + entry.SourceType,
+			ClassName: className,
 			Extendedprops: map[string]any{
 				"source_type":  entry.SourceType,
 				"source_id":    entry.SourceID,
@@ -385,6 +411,7 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 				"metadata":     entry.Metadata,
 				"recurrence":   recurrenceInfo,
 				"is_instance":  entry.IsInstance,
+				"orphaned":     orphaned,
 			},
 		}
 

@@ -83,6 +83,14 @@
     .fc-event.event-show { border-width: 2px !important; }
     .fc-event.event-show.event-cancelled { opacity: 0.5; text-decoration: line-through; }
     .fc-event.event-show.event-exception { border-style: dashed !important; }
+    .fc-event.event-orphaned {
+        background: #dc3545 !important;
+        border-color: #a71d2a !important;
+        color: #fff !important;
+        background-image: repeating-linear-gradient(
+            45deg, transparent, transparent 5px, rgba(0,0,0,0.1) 5px, rgba(0,0,0,0.1) 10px
+        ) !important;
+    }
     .fc-event.event-overlap {
         background: var(--bs-danger) !important;
         border-color: #8b1a1a !important;
@@ -633,6 +641,13 @@
                             <label class="form-check-label" for="editModeAll">Edit all occurrences</label>
                         </div>
                     </div>
+                </div>
+
+                <!-- Orphaned source warning -->
+                <div class="alert alert-danger d-none mb-3" id="editOrphanedWarning">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <strong>Broken reference!</strong> The source this entry points to has been deleted.
+                    Change the source to fix it, or delete this entry.
                 </div>
 
                 <!-- Current source info -->
@@ -2645,6 +2660,16 @@ document.addEventListener('DOMContentLoaded', function() {
         badge.textContent = props.source_label || props.source_type;
 
         document.getElementById('editEntryName').textContent = props.source_name || event.title;
+
+        // Show/hide orphaned source warning
+        const orphanWarning = document.getElementById('editOrphanedWarning');
+        if (props.orphaned) {
+            orphanWarning.classList.remove('d-none');
+            badge.className = 'badge bg-danger';
+            badge.textContent = 'MISSING ' + (props.source_label || props.source_type);
+        } else {
+            orphanWarning.classList.add('d-none');
+        }
 
         // Populate crossfade controls from metadata (if present)
         const md = props.metadata || {};
