@@ -244,7 +244,7 @@ func (h *Handler) Routes(r chi.Router) {
 
 					r.Get("/source-tracks", h.ScheduleSourceTracks) // JSON track list for any source
 
-				// JSON endpoints for schedule dropdowns
+					// JSON endpoints for schedule dropdowns
 					r.Get("/playlists.json", h.SchedulePlaylistsJSON)
 					r.Get("/smart-blocks.json", h.ScheduleSmartBlocksJSON)
 					r.Get("/clocks.json", h.ScheduleClocksJSON)
