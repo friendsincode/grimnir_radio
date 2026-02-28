@@ -16,8 +16,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
 )
 
 // SmartBlockList renders the smart blocks page
@@ -40,25 +42,24 @@ func (h *Handler) SmartBlockList(w http.ResponseWriter, r *http.Request) {
 
 // SmartBlockNew renders the new smart block form
 func (h *Handler) SmartBlockNew(w http.ResponseWriter, r *http.Request) {
-	// Get genres and other metadata for rule builder
+	// Get genres and other metadata for rule builder — station-scoped only.
+	// Cross-station archive data is only relevant when editing an existing block
+	// with include_public_archive enabled.
 	station := h.GetStation(r)
 
 	var genres []string
 	h.db.Model(&models.MediaItem{}).
-		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND genre != ''",
-			station.ID, true, true, true, true).
+		Where("station_id = ? AND genre != ''", station.ID).
 		Distinct().Pluck("genre", &genres)
 
 	var artists []string
 	h.db.Model(&models.MediaItem{}).
-		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND artist != ''",
-			station.ID, true, true, true, true).
+		Where("station_id = ? AND artist != ''", station.ID).
 		Distinct().Pluck("artist", &artists)
 
 	var moods []string
 	h.db.Model(&models.MediaItem{}).
-		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND mood != ''",
-			station.ID, true, true, true, true).
+		Where("station_id = ? AND mood != ''", station.ID).
 		Distinct().Pluck("mood", &moods)
 
 	// Get other smart blocks for fallback selection
@@ -167,23 +168,32 @@ func (h *Handler) SmartBlockEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Only include cross-station archive data in dropdowns when the block has
+	// include_public_archive enabled, preventing users from selecting values
+	// that only exist on other stations.
+	archiveEnabled := false
+	if include, ok := block.Rules["includePublicArchive"].(bool); ok && include {
+		archiveEnabled = true
+	}
+	if include, ok := block.Rules["include_archive"].(bool); ok && include {
+		archiveEnabled = true
+	}
+
+	metadataScope := h.db.Model(&models.MediaItem{}).Where("station_id = ?", station.ID)
+	if archiveEnabled {
+		metadataScope = h.db.Model(&models.MediaItem{}).
+			Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?)))",
+				station.ID, true, true, true, true)
+	}
+
 	var genres []string
-	h.db.Model(&models.MediaItem{}).
-		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND genre != ''",
-			station.ID, true, true, true, true).
-		Distinct().Pluck("genre", &genres)
+	metadataScope.Session(&gorm.Session{}).Where("genre != ''").Distinct().Pluck("genre", &genres)
 
 	var artists []string
-	h.db.Model(&models.MediaItem{}).
-		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND artist != ''",
-			station.ID, true, true, true, true).
-		Distinct().Pluck("artist", &artists)
+	metadataScope.Session(&gorm.Session{}).Where("artist != ''").Distinct().Pluck("artist", &artists)
 
 	var moods []string
-	h.db.Model(&models.MediaItem{}).
-		Where("((station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))) AND mood != ''",
-			station.ID, true, true, true, true).
-		Distinct().Pluck("mood", &moods)
+	metadataScope.Session(&gorm.Session{}).Where("mood != ''").Distinct().Pluck("mood", &moods)
 
 	// Get other smart blocks for fallback selection (excluding current)
 	var otherBlocks []models.SmartBlock
@@ -273,7 +283,30 @@ func (h *Handler) SmartBlockDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.db.Delete(&models.SmartBlock{}, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		// Remove clock template slots referencing this smart block.
+		tx.Exec(
+			`DELETE FROM clock_slots WHERE type = 'smart_block' AND payload->>'smart_block_id' = ?`, id,
+		)
+
+		// Remove schedule entries generated from this smart block.
+		tx.Exec(
+			`DELETE FROM schedule_entries WHERE source_type = 'media' AND metadata->>'smart_block_id' = ?`, id,
+		)
+
+		// Remove fallback references in other smart blocks' rules JSON.
+		// Best-effort: clear fallback entries that point to this block.
+		var others []models.SmartBlock
+		if err := tx.Where("station_id = ? AND id != ?", station.ID, id).Find(&others).Error; err == nil {
+			for _, other := range others {
+				if cleaned := removeSmartBlockFallbackRef(other.Rules, id); cleaned {
+					tx.Model(&other).Update("rules", other.Rules)
+				}
+			}
+		}
+
+		return tx.Delete(&models.SmartBlock{}, "id = ? AND station_id = ?", id, station.ID).Error
+	}); err != nil {
 		http.Error(w, "Failed to delete smart block", http.StatusInternalServerError)
 		return
 	}
@@ -367,15 +400,23 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 	// Prefer in-form values when present so preview reflects unsaved edits.
 	rules := block.Rules
 	sequence := block.Sequence
+	useFormValues := false
 	if err := r.ParseForm(); err == nil {
 		if raw := strings.TrimSpace(r.FormValue("variants")); raw != "" {
 			if parsed := parseInt(raw, 1); parsed > 0 {
 				previewVariants = parsed
 			}
 		}
-		if r.FormValue("name") != "" || r.FormValue("filter_text_search") != "" ||
-			r.FormValue("filter_genre") != "" || r.FormValue("filter_artist") != "" ||
-			r.FormValue("filter_mood") != "" || r.FormValue("duration_value") != "" {
+		// Detect any form field that indicates the user is editing.
+		for key := range r.Form {
+			if strings.HasPrefix(key, "filter_") || strings.HasPrefix(key, "sep_") ||
+				strings.HasPrefix(key, "duration_") || strings.HasPrefix(key, "source_") ||
+				key == "name" || key == "separation_enabled" {
+				useFormValues = true
+				break
+			}
+		}
+		if useFormValues {
 			rules, sequence = h.parseSmartBlockForm(r)
 		}
 	}
@@ -383,6 +424,83 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 		previewVariants = 5
 	}
 
+	// If the scheduler service is available, use the engine for core track selection.
+	// This ensures preview matches actual scheduling behavior.
+	if h.scheduler != nil {
+		_ = sequence // sequence is consumed via rules by the engine
+
+		// Save rules temporarily to the block so the engine can load them.
+		// We use a temporary update if form values changed, then restore after.
+		var origRules map[string]any
+		if useFormValues {
+			origRules = block.Rules
+			block.Rules = rules
+			_ = h.db.Model(&block).Update("rules", rules).Error
+		}
+
+		cfg := h.extractPreviewConfig(rules, sequence)
+		targetMs := cfg.targetMs
+		if targetMs <= 0 {
+			targetMs = int64(cfg.targetMinutes) * 60 * 1000
+		}
+		if targetMs <= 0 {
+			targetMs = 15 * 60 * 1000
+		}
+
+		runs := make([]previewRun, 0, previewVariants)
+		for i := 0; i < previewVariants; i++ {
+			seed := time.Now().UnixNano() + int64(i)*1000
+			result, err := h.scheduler.Materialize(r.Context(), smartblock.GenerateRequest{
+				SmartBlockID: block.ID,
+				Seed:         seed,
+				Duration:     targetMs,
+				StationID:    station.ID,
+			})
+
+			var media []models.MediaItem
+			var totalDurationMs int64
+			if err == nil && len(result.Items) > 0 {
+				mediaIDs := make([]string, len(result.Items))
+				for j, item := range result.Items {
+					mediaIDs[j] = item.MediaID
+				}
+				var items []models.MediaItem
+				h.db.Where("id IN ?", mediaIDs).Find(&items)
+				itemMap := make(map[string]models.MediaItem, len(items))
+				for _, item := range items {
+					itemMap[item.ID] = item
+				}
+				for _, seqItem := range result.Items {
+					if m, ok := itemMap[seqItem.MediaID]; ok {
+						media = append(media, m)
+						totalDurationMs += m.Duration.Milliseconds()
+					}
+				}
+			} else if err != nil {
+				h.logger.Debug().Err(err).Str("block", block.ID).Msg("engine preview failed, showing empty")
+			}
+
+			runs = append(runs, previewRun{
+				Name:            fmt.Sprintf("Variant %d", i+1),
+				Tracks:          media,
+				TotalDurationMs: totalDurationMs,
+			})
+		}
+
+		// Restore original rules if we temporarily updated them.
+		if useFormValues && origRules != nil {
+			_ = h.db.Model(&block).Update("rules", origRules).Error
+		}
+
+		h.RenderPartial(w, r, "partials/smartblock-preview", map[string]any{
+			"Runs":          runs,
+			"TargetMinutes": cfg.targetMinutes,
+			"LoopEnabled":   loopEnabled,
+		})
+		return
+	}
+
+	// Fallback: legacy preview path (used when scheduler is not wired up).
 	// Extract all settings from rules
 	cfg := h.extractPreviewConfig(rules, sequence)
 
@@ -391,31 +509,27 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 		Bool("loop", loopEnabled).
 		Bool("adsEnabled", cfg.adsEnabled).
 		Interface("separation", cfg.separation).
-		Msg("smart block preview starting")
+		Msg("smart block preview starting (legacy path)")
 
 	// Get music tracks
 	musicTracks := h.fetchMusicTracks(station.ID, rules)
-	h.logger.Debug().Int("musicTracksCount", len(musicTracks)).Msg("fetched music tracks")
 
 	// Get ad tracks if enabled
 	var adTracks []models.MediaItem
 	if cfg.adsEnabled {
 		adTracks = h.fetchAdTracks(station.ID, cfg)
-		h.logger.Debug().Int("adTracksCount", len(adTracks)).Msg("fetched ad tracks")
 	}
 
 	// Get fallback tracks if configured
 	var fallbackTracks []models.MediaItem
 	if len(cfg.fallbacks) > 0 {
 		fallbackTracks = h.fetchFallbackTracks(station.ID, cfg.fallbacks)
-		h.logger.Debug().Int("fallbackTracksCount", len(fallbackTracks)).Msg("fetched fallback tracks")
 	}
 
 	// Get bumper tracks if enabled
 	var bumperTracks []models.MediaItem
 	if cfg.bumpersEnabled {
 		bumperTracks = h.fetchBumperTracks(station.ID, cfg)
-		h.logger.Debug().Int("bumperTracksCount", len(bumperTracks)).Msg("fetched bumper tracks")
 	}
 
 	runs := make([]previewRun, 0, previewVariants)
@@ -435,10 +549,6 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 			TotalDurationMs: totalDurationMs,
 		})
 	}
-
-	h.logger.Debug().
-		Int("variants", len(runs)).
-		Msg("preview complete")
 
 	h.RenderPartial(w, r, "partials/smartblock-preview", map[string]any{
 		"Runs":          runs,
@@ -727,7 +837,8 @@ func toString(v any) string {
 
 func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []models.MediaItem {
 	var tracks []models.MediaItem
-	query := h.db.Where("station_id = ?", stationID)
+	query := h.db.Where("station_id = ?", stationID).
+		Where("analysis_state = ?", models.AnalysisComplete)
 
 	var (
 		yearMin         int
@@ -748,7 +859,7 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 			query = h.db.Where(
 				"(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
 				stationID, true, true, true, true,
-			)
+			).Where("analysis_state = ?", models.AnalysisComplete)
 		}
 
 		// Free text search across title/artist/album
@@ -1888,4 +1999,42 @@ func parseSeparationMinutes(value, unit string) int {
 	default:
 		return n
 	}
+}
+
+// removeSmartBlockFallbackRef removes references to targetID from fallback rules
+// stored in a smart block's rules map. Returns true if any changes were made.
+func removeSmartBlockFallbackRef(rules map[string]any, targetID string) bool {
+	if rules == nil {
+		return false
+	}
+	changed := false
+
+	// Check "fallbacks" key (JSON-native format)
+	if fallbacks, ok := rules["fallbacks"].([]any); ok {
+		filtered := make([]any, 0, len(fallbacks))
+		for _, fb := range fallbacks {
+			if fbMap, ok := fb.(map[string]any); ok {
+				if id, _ := fbMap["smart_block_id"].(string); id == targetID {
+					changed = true
+					continue
+				}
+			}
+			filtered = append(filtered, fb)
+		}
+		if changed {
+			rules["fallbacks"] = filtered
+		}
+	}
+
+	// Check numbered fallback fields (legacy form format: fallback_0_block, fallback_1_block, ...)
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("fallback_%d_block", i)
+		if id, ok := rules[key].(string); ok && id == targetID {
+			delete(rules, key)
+			delete(rules, fmt.Sprintf("fallback_%d_limit", i))
+			changed = true
+		}
+	}
+
+	return changed
 }

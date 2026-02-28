@@ -27,6 +27,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
 	"github.com/friendsincode/grimnir_radio/internal/version"
 )
 
@@ -44,6 +45,7 @@ const (
 // SchedulerService defines the interface for schedule operations.
 type SchedulerService interface {
 	RefreshStation(ctx context.Context, stationID string) error
+	Materialize(ctx context.Context, req smartblock.GenerateRequest) (smartblock.GenerateResult, error)
 }
 
 // WebstreamService defines the interface for webstream operations.
