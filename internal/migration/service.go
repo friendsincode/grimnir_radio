@@ -181,10 +181,12 @@ func (s *Service) StartJob(parentCtx context.Context, jobID string) error {
 					Msg("migration job panicked")
 
 				// Update job status to failed
+				s.mu.Lock()
 				job.Status = JobStatusFailed
 				job.Error = fmt.Sprintf("panic: %v", r)
 				now := time.Now()
 				job.CompletedAt = &now
+				s.mu.Unlock()
 				_ = s.updateJob(context.Background(), job)
 			}
 		}()
@@ -199,10 +201,13 @@ func (s *Service) StartJob(parentCtx context.Context, jobID string) error {
 func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 	startTime := time.Now()
 	now := startTime
+
+	s.mu.Lock()
 	job.StartedAt = &now
+	job.Status = JobStatusRunning
+	s.mu.Unlock()
 
 	// Update status to running
-	job.Status = JobStatusRunning
 	if err := s.updateJob(ctx, job); err != nil {
 		s.logger.Error().Err(err).Str("job_id", job.ID).Msg("failed to update job status")
 		return
@@ -210,6 +215,7 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 
 	// Create progress callback
 	progressCallback := func(progress Progress) {
+		s.mu.Lock()
 		// Preserve and extend step history for UI visibility.
 		history := job.Progress.StepHistory
 		if len(history) == 0 && len(progress.StepHistory) > 0 {
@@ -238,6 +244,9 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 		}
 		progress.StepHistory = history
 		job.Progress = progress
+		status := job.Status
+		s.mu.Unlock()
+
 		if err := s.updateJob(ctx, job); err != nil {
 			s.logger.Error().Err(err).Str("job_id", job.ID).Msg("failed to update progress")
 		}
@@ -245,7 +254,7 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 		// Publish progress event
 		s.bus.Publish(events.EventMigration, events.Payload{
 			"job_id":     job.ID,
-			"status":     string(job.Status),
+			"status":     string(status),
 			"progress":   progress,
 			"percentage": progress.Percentage,
 		})
@@ -254,24 +263,17 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 	// Run import
 	result, err := importer.Import(ctx, job.Options, progressCallback)
 	duration := time.Since(startTime)
+
+	s.mu.Lock()
 	if result != nil {
 		job.Result = result
 		job.AnomalyReport = BuildAnomalyReport(result)
 	}
 
 	if err != nil {
-		s.logger.Error().Err(err).Str("job_id", job.ID).Msg("migration failed")
 		job.Status = JobStatusFailed
 		job.Error = err.Error()
 	} else {
-		s.logger.Info().
-			Str("job_id", job.ID).
-			Dur("duration", duration).
-			Int("stations", result.StationsCreated).
-			Int("media", result.MediaItemsImported).
-			Int("playlists", result.PlaylistsCreated).
-			Msg("migration completed")
-
 		job.Status = JobStatusCompleted
 		result.DurationSeconds = duration.Seconds()
 		job.Result = result
@@ -280,6 +282,22 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 	// Update completion time
 	now = time.Now()
 	job.CompletedAt = &now
+	finalStatus := job.Status
+	finalError := job.Error
+	delete(s.cancels, job.ID)
+	s.mu.Unlock()
+
+	if err != nil {
+		s.logger.Error().Err(err).Str("job_id", job.ID).Msg("migration failed")
+	} else {
+		s.logger.Info().
+			Str("job_id", job.ID).
+			Dur("duration", duration).
+			Int("stations", result.StationsCreated).
+			Int("media", result.MediaItemsImported).
+			Int("playlists", result.PlaylistsCreated).
+			Msg("migration completed")
+	}
 
 	// Final update
 	if err := s.updateJob(ctx, job); err != nil {
@@ -289,37 +307,34 @@ func (s *Service) runJob(ctx context.Context, job *Job, importer Importer) {
 	// Publish completion event
 	s.bus.Publish(events.EventMigration, events.Payload{
 		"job_id": job.ID,
-		"status": string(job.Status),
+		"status": string(finalStatus),
 		"result": result,
-		"error":  job.Error,
+		"error":  finalError,
 	})
-
-	// Cleanup
-	s.mu.Lock()
-	delete(s.cancels, job.ID)
-	s.mu.Unlock()
 }
 
 // StartStagedJob runs analysis for a staged import job and produces a staged import record for review.
 func (s *Service) StartStagedJob(parentCtx context.Context, jobID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	job, ok := s.jobs[jobID]
 	if !ok {
 		job = &Job{}
 		if err := s.db.WithContext(parentCtx).First(job, "id = ?", jobID).Error; err != nil {
+			s.mu.Unlock()
 			return fmt.Errorf("job not found: %w", err)
 		}
 		s.jobs[jobID] = job
 	}
 
 	if job.Status != JobStatusAnalyzing {
+		s.mu.Unlock()
 		return fmt.Errorf("job is not in analyzing state: %s", job.Status)
 	}
 
 	importer, ok := s.importers[job.SourceType]
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("no importer registered for source type: %s", job.SourceType)
 	}
 
@@ -327,6 +342,7 @@ func (s *Service) StartStagedJob(parentCtx context.Context, jobID string) error 
 		AnalyzeForStaging(ctx context.Context, jobID string, options Options) (*models.StagedImport, error)
 	})
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("importer does not support staged analysis: %s", job.SourceType)
 	}
 
@@ -348,6 +364,7 @@ func (s *Service) StartStagedJob(parentCtx context.Context, jobID string) error 
 			Step:  "Analyzing source data for review...",
 		}},
 	}
+	s.mu.Unlock()
 	_ = s.updateJob(ctx, job)
 
 	go func() {
@@ -361,40 +378,47 @@ func (s *Service) StartStagedJob(parentCtx context.Context, jobID string) error 
 		staged, err := analyzer.AnalyzeForStaging(ctx, jobID, job.Options)
 		if err != nil {
 			s.logger.Error().Err(err).Str("job_id", jobID).Msg("staged analysis failed")
+			s.mu.Lock()
 			job.Status = JobStatusFailed
 			job.Error = err.Error()
 			done := time.Now()
 			job.CompletedAt = &done
 			job.Progress.Phase = "failed"
 			job.Progress.CurrentStep = "Analysis failed"
+			status := job.Status
+			errMsg := job.Error
+			s.mu.Unlock()
 			_ = s.updateJob(context.Background(), job)
 			s.bus.Publish(events.EventMigration, events.Payload{
 				"job_id":      jobID,
-				"status":      string(job.Status),
+				"status":      string(status),
 				"staged_mode": true,
-				"error":       job.Error,
+				"error":       errMsg,
 			})
 			return
 		}
 		if staged == nil || staged.ID == "" {
 			errMsg := "staged analysis produced no review data"
 			s.logger.Error().Str("job_id", jobID).Msg(errMsg)
+			s.mu.Lock()
 			job.Status = JobStatusFailed
 			job.Error = errMsg
 			done := time.Now()
 			job.CompletedAt = &done
 			job.Progress.Phase = "failed"
 			job.Progress.CurrentStep = "Analysis failed"
+			s.mu.Unlock()
 			_ = s.updateJob(context.Background(), job)
 			s.bus.Publish(events.EventMigration, events.Payload{
 				"job_id":      jobID,
-				"status":      string(job.Status),
+				"status":      string(JobStatusFailed),
 				"staged_mode": true,
-				"error":       job.Error,
+				"error":       errMsg,
 			})
 			return
 		}
 
+		s.mu.Lock()
 		job.Status = JobStatusStaged
 		job.Error = ""
 		job.StagedImportID = &staged.ID
@@ -407,13 +431,15 @@ func (s *Service) StartStagedJob(parentCtx context.Context, jobID string) error 
 			Step:       "Analysis complete. Ready for review.",
 			Percentage: 100,
 		})
+		stagedID := staged.ID
+		s.mu.Unlock()
 		_ = s.updateJob(context.Background(), job)
 
 		s.bus.Publish(events.EventMigration, events.Payload{
 			"job_id":      jobID,
-			"status":      string(job.Status),
+			"status":      string(JobStatusStaged),
 			"staged_mode": true,
-			"staged_id":   job.StagedImportID,
+			"staged_id":   &stagedID,
 		})
 	}()
 
@@ -432,7 +458,7 @@ func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string)
 		return fmt.Errorf("staged import is not ready: %s", staged.Status)
 	}
 
-	job, err := s.GetJob(parentCtx, staged.JobID)
+	job, err := s.getJobLive(parentCtx, staged.JobID)
 	if err != nil {
 		return fmt.Errorf("job not found: %w", err)
 	}
@@ -465,6 +491,7 @@ func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string)
 		}()
 
 		startTime := time.Now()
+		s.mu.Lock()
 		job.Status = JobStatusRunning
 		job.Error = ""
 		job.StartedAt = &startTime
@@ -481,9 +508,11 @@ func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string)
 				Step:  "Starting staged import...",
 			}},
 		}
+		s.mu.Unlock()
 		_ = s.updateJob(context.Background(), job)
 
 		progressCallback := func(p Progress) {
+			s.mu.Lock()
 			// Preserve and extend step history.
 			history := job.Progress.StepHistory
 			lastStep := ""
@@ -507,10 +536,12 @@ func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string)
 			}
 			p.StepHistory = history
 			job.Progress = p
+			status := job.Status
+			s.mu.Unlock()
 			_ = s.updateJob(context.Background(), job)
 			s.bus.Publish(events.EventMigration, events.Payload{
 				"job_id":     job.ID,
-				"status":     string(job.Status),
+				"status":     string(status),
 				"progress":   p,
 				"percentage": p.Percentage,
 				"staged_id":  stagedID,
@@ -518,12 +549,12 @@ func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string)
 		}
 
 		result, err := committer.CommitStagedImport(ctx, staged, job.ID, job.Options, progressCallback)
+		s.mu.Lock()
 		if result != nil {
 			job.Result = result
 			job.AnomalyReport = BuildAnomalyReport(result)
 		}
 		if err != nil {
-			s.logger.Error().Err(err).Str("job_id", job.ID).Msg("staged import commit failed")
 			job.Status = JobStatusFailed
 			job.Error = err.Error()
 		} else {
@@ -531,13 +562,21 @@ func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string)
 		}
 		done := time.Now()
 		job.CompletedAt = &done
+		finalStatus := job.Status
+		finalError := job.Error
+		s.mu.Unlock()
+
+		if err != nil {
+			s.logger.Error().Err(err).Str("job_id", job.ID).Msg("staged import commit failed")
+		}
+
 		_ = s.updateJob(context.Background(), job)
 
 		s.bus.Publish(events.EventMigration, events.Payload{
 			"job_id":    job.ID,
-			"status":    string(job.Status),
+			"status":    string(finalStatus),
 			"result":    result,
-			"error":     job.Error,
+			"error":     finalError,
 			"staged_id": stagedID,
 		})
 	}()
@@ -545,8 +584,21 @@ func (s *Service) CommitStagedImport(parentCtx context.Context, stagedID string)
 	return nil
 }
 
-// GetJob retrieves a migration job by ID.
+// GetJob retrieves a migration job by ID (returns a snapshot safe for concurrent reads).
 func (s *Service) GetJob(ctx context.Context, jobID string) (*Job, error) {
+	job, err := s.getJobLive(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	// Return a snapshot to avoid racing with background goroutines.
+	s.mu.RLock()
+	snap := *job
+	s.mu.RUnlock()
+	return &snap, nil
+}
+
+// getJobLive returns the live (mutable) pointer for internal use.
+func (s *Service) getJobLive(ctx context.Context, jobID string) (*Job, error) {
 	s.mu.RLock()
 	job, ok := s.jobs[jobID]
 	s.mu.RUnlock()
@@ -650,15 +702,22 @@ func (s *Service) DeleteJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-// updateJob updates a job in the database.
+// updateJob persists the job to the database. It saves a copy so that GORM's
+// internal field writes (e.g. UpdatedAt) don't race with concurrent readers.
 func (s *Service) updateJob(ctx context.Context, job *Job) error {
-	return s.db.WithContext(ctx).Save(job).Error
+	s.mu.RLock()
+	snap := *job
+	s.mu.RUnlock()
+	return s.db.WithContext(ctx).Save(&snap).Error
 }
 
 // hydrateStagedImportRef ensures staged jobs have staged_import_id populated.
 // Older rows or partial writes may leave this denormalized field empty.
 func (s *Service) hydrateStagedImportRef(ctx context.Context, job *Job) {
-	if job == nil || job.Status != JobStatusStaged || (job.StagedImportID != nil && *job.StagedImportID != "") {
+	s.mu.RLock()
+	skip := job == nil || job.Status != JobStatusStaged || (job.StagedImportID != nil && *job.StagedImportID != "")
+	s.mu.RUnlock()
+	if skip {
 		return
 	}
 	var staged models.StagedImport
@@ -669,7 +728,9 @@ func (s *Service) hydrateStagedImportRef(ctx context.Context, job *Job) {
 		return
 	}
 	stagedID := staged.ID
+	s.mu.Lock()
 	job.StagedImportID = &stagedID
+	s.mu.Unlock()
 
 	// Best-effort backfill for future queries.
 	if err := s.db.WithContext(ctx).
