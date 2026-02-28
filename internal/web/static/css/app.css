@@ -627,6 +627,11 @@ tr:has(.preview-playing) {
     display: none;
 }
 
+#playerArtist .artist-scroll {
+    display: inline-block;
+    white-space: nowrap;
+}
+
 /* On-air / live DJ indicator */
 .global-player.is-on-air #playerPlayIcon {
     color: var(--bs-danger);

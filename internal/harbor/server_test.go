@@ -9,6 +9,8 @@ package harbor
 import (
 	"context"
 	"encoding/base64"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -272,6 +274,265 @@ func TestResolveSessionAndMount_UsesTokenSessionWhenMountNamesOverlap(t *testing
 		t.Fatalf("mount id = %s, want %s", gotMount.ID, mountB.ID)
 	}
 }
+
+func TestResolveSessionAndMount_InvalidToken(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	s := &Server{db: db}
+	_, _, err = s.resolveSessionAndMount(context.Background(), "nonexistent-token", "/live")
+	if err == nil {
+		t.Fatal("resolveSessionAndMount() should fail for invalid token")
+	}
+}
+
+func TestResolveSessionAndMount_MountMismatch(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	station := models.Station{ID: "station-1", Name: "S1", Timezone: "UTC", Active: true}
+	db.Create(&station)
+	mount := models.Mount{ID: "mount-1", StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	db.Create(&mount)
+	session := models.LiveSession{
+		ID: "session-1", StationID: station.ID, MountID: mount.ID,
+		UserID: "user-1", Username: "dj", Priority: models.PriorityLiveScheduled,
+		Token: "token-1", ConnectedAt: time.Now(),
+	}
+	db.Create(&session)
+
+	s := &Server{db: db}
+	_, _, err = s.resolveSessionAndMount(context.Background(), "token-1", "/wrong-mount")
+	if err == nil {
+		t.Fatal("resolveSessionAndMount() should fail for wrong mount path")
+	}
+}
+
+func TestResolveSessionAndMount_EmptyPath(t *testing.T) {
+	s := &Server{}
+	_, _, err := s.resolveSessionAndMount(context.Background(), "token", "/")
+	if err == nil {
+		t.Fatal("resolveSessionAndMount() should fail for empty path")
+	}
+}
+
+func TestResolveSessionAndMount_FileExtensionStripping(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	station := models.Station{ID: "station-1", Name: "S1", Timezone: "UTC", Active: true}
+	db.Create(&station)
+	mount := models.Mount{ID: "mount-1", StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	db.Create(&mount)
+	session := models.LiveSession{
+		ID: "session-1", StationID: station.ID, MountID: mount.ID,
+		UserID: "user-1", Username: "dj", Priority: models.PriorityLiveScheduled,
+		Token: "token-1", ConnectedAt: time.Now(),
+	}
+	db.Create(&session)
+
+	s := &Server{db: db}
+	// Should match mount "live" when path is "/live.mp3"
+	gotSession, gotMount, err := s.resolveSessionAndMount(context.Background(), "token-1", "/live.mp3")
+	if err != nil {
+		t.Fatalf("resolveSessionAndMount: %v", err)
+	}
+	if gotSession.ID != session.ID {
+		t.Errorf("session id = %s, want %s", gotSession.ID, session.ID)
+	}
+	if gotMount.ID != mount.ID {
+		t.Errorf("mount id = %s, want %s", gotMount.ID, mount.ID)
+	}
+}
+
+func TestHandleSource_MaxSourcesZeroConfig(t *testing.T) {
+	// MaxSources=0 means no sources allowed
+	s := &Server{
+		conns: make(map[string]*SourceConnection),
+		cfg:   Config{MaxSources: 0},
+	}
+
+	r := httptest.NewRequest(http.MethodPut, "/live.mp3", nil)
+	r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("source:token")))
+	w := httptest.NewRecorder()
+	s.handleSource(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("handleSource() max=0 status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestSourceMethodConn_RewritesSOURCE(t *testing.T) {
+	r, w := newPipeConn()
+	defer r.Close()
+
+	go func() {
+		w.Write([]byte("SOURCE /live.mp3 HTTP/1.0\r\n\r\n"))
+		w.Close()
+	}()
+
+	smc := &sourceMethodConn{Conn: r}
+	all, err := io.ReadAll(smc)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	got := string(all)
+	if !startsWith(got, "PUT /live.mp3") {
+		t.Errorf("sourceMethodConn rewrote to %q, want prefix %q", got, "PUT /live.mp3")
+	}
+}
+
+func TestSourceMethodConn_PassesPUT(t *testing.T) {
+	r, w := newPipeConn()
+	defer r.Close()
+
+	go func() {
+		w.Write([]byte("PUT /live.mp3 HTTP/1.1\r\n\r\n"))
+		w.Close()
+	}()
+
+	smc := &sourceMethodConn{Conn: r}
+	all, err := io.ReadAll(smc)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	got := string(all)
+	if !startsWith(got, "PUT /live.mp3") {
+		t.Errorf("sourceMethodConn should pass PUT unchanged, got %q", got)
+	}
+}
+
+func TestHandleMetadataUpdate_MethodNotAllowed(t *testing.T) {
+	s := &Server{
+		conns: make(map[string]*SourceConnection),
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/admin/metadata", nil)
+	w := httptest.NewRecorder()
+	s.handleMetadataUpdate(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("handleMetadataUpdate(POST) status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestHandleMetadataUpdate_NoAuth(t *testing.T) {
+	s := &Server{
+		conns: make(map[string]*SourceConnection),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/metadata?mode=updinfo&song=Test", nil)
+	w := httptest.NewRecorder()
+	s.handleMetadataUpdate(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("handleMetadataUpdate() no auth status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleMetadataUpdate_BadMode(t *testing.T) {
+	s := &Server{
+		conns: make(map[string]*SourceConnection),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/metadata?mode=invalid&song=Test", nil)
+	r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("source:token")))
+	w := httptest.NewRecorder()
+	s.handleMetadataUpdate(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("handleMetadataUpdate() bad mode status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleMetadataUpdate_MissingSong(t *testing.T) {
+	s := &Server{
+		conns: make(map[string]*SourceConnection),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/metadata?mode=updinfo", nil)
+	r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("source:token")))
+	w := httptest.NewRecorder()
+	s.handleMetadataUpdate(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("handleMetadataUpdate() missing song status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleMetadataUpdate_NoActiveConnection(t *testing.T) {
+	s := &Server{
+		conns: make(map[string]*SourceConnection),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/metadata?mode=updinfo&song=Artist+-+Title", nil)
+	r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("source:token")))
+	w := httptest.NewRecorder()
+	s.handleMetadataUpdate(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("handleMetadataUpdate() no connection status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestSourceConnection_Fields(t *testing.T) {
+	now := time.Now()
+	conn := &SourceConnection{
+		SessionID:   "sess-1",
+		StationID:   "station-1",
+		MountID:     "mount-1",
+		MountName:   "live",
+		ConnectedAt: now,
+		Metadata:    map[string]string{"Ice-Name": "Test"},
+	}
+
+	if conn.SessionID != "sess-1" {
+		t.Errorf("SessionID = %q, want %q", conn.SessionID, "sess-1")
+	}
+	if conn.StationID != "station-1" {
+		t.Errorf("StationID = %q, want %q", conn.StationID, "station-1")
+	}
+	if conn.Metadata["Ice-Name"] != "Test" {
+		t.Errorf("Metadata[Ice-Name] = %q, want %q", conn.Metadata["Ice-Name"], "Test")
+	}
+}
+
+// -- helpers --
+
+func startsWith(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+// newPipeConn returns two connected net.Conn-like ends using io.Pipe.
+// Writing to the second end makes data available to Read on the first.
+func newPipeConn() (*pipeNetConn, *pipeNetConn) {
+	pr, pw := io.Pipe()
+	return &pipeNetConn{Reader: pr, Closer: pr}, &pipeNetConn{Writer: pw, Closer: pw}
+}
+
+// pipeNetConn is a minimal net.Conn backed by an io.Pipe for testing.
+type pipeNetConn struct {
+	io.Reader
+	io.Writer
+	io.Closer
+}
+
+func (p *pipeNetConn) Read(b []byte) (int, error)  { return p.Reader.Read(b) }
+func (p *pipeNetConn) Write(b []byte) (int, error) { return p.Writer.Write(b) }
+func (p *pipeNetConn) LocalAddr() net.Addr          { return &net.TCPAddr{} }
+func (p *pipeNetConn) RemoteAddr() net.Addr         { return &net.TCPAddr{} }
+func (p *pipeNetConn) SetDeadline(time.Time) error  { return nil }
+func (p *pipeNetConn) SetReadDeadline(time.Time) error  { return nil }
+func (p *pipeNetConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestResolveSessionAndMount_StripsMountPrefix(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

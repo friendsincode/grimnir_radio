@@ -969,9 +969,28 @@ class GlobalPlayer {
 
     async loadPublicStations() {
         try {
-            const response = await fetch('/api/v1/public/stations');
-            if (response.ok) {
-                const stations = await response.json();
+            // On the dashboard, try the authenticated endpoint first so
+            // non-public/unapproved stations are included in the switcher.
+            const isDashboard = document.body.classList.contains('dashboard-layout');
+            let stations = null;
+
+            if (isDashboard) {
+                try {
+                    const dashResp = await fetch('/dashboard/api/stations');
+                    if (dashResp.ok) {
+                        stations = await dashResp.json();
+                    }
+                } catch (_) { /* fall through to public API */ }
+            }
+
+            if (!stations) {
+                const response = await fetch('/api/v1/public/stations');
+                if (response.ok) {
+                    stations = await response.json();
+                }
+            }
+
+            if (stations) {
                 this.publicStations = this.applyPreferredStationOrder(stations);
                 this.updateTransportMenu();
                 this.updateStationMenu();
@@ -1710,13 +1729,20 @@ class GlobalPlayer {
     setSecondaryText(text) {
         if (!this.artistEl) return;
         const next = (text || '').toString();
-        if (this.artistEl.textContent === next) {
+
+        let artistSpan = this.artistEl.querySelector('.artist-scroll');
+        if (!artistSpan) {
+            artistSpan = document.createElement('span');
+            artistSpan.className = 'artist-scroll';
+            this.artistEl.replaceChildren(artistSpan);
+        }
+        if (artistSpan.textContent === next) {
             if (this.container && this.container.style.display !== 'none') {
                 this.scheduleArtistMarqueeUpdate();
             }
             return;
         }
-        this.artistEl.textContent = next;
+        artistSpan.textContent = next;
         this.scheduleArtistMarqueeUpdate();
     }
 
@@ -1738,6 +1764,8 @@ class GlobalPlayer {
 
     updateArtistMarquee() {
         if (!this.artistEl) return;
+        const artistSpan = this.artistEl.querySelector('.artist-scroll');
+        if (!artistSpan) return;
         if (this.artistEl.clientWidth <= 0) {
             setTimeout(() => this.updateArtistMarquee(), 60);
             return;
@@ -1746,7 +1774,7 @@ class GlobalPlayer {
         this.stopArtistAutoScroll();
         this.artistEl.scrollLeft = 0;
 
-        const initialMax = this.artistEl.scrollWidth - this.artistEl.clientWidth;
+        const initialMax = artistSpan.scrollWidth - this.artistEl.clientWidth;
         if (initialMax <= 4) return;
 
         let lastTs = 0;
@@ -1755,7 +1783,7 @@ class GlobalPlayer {
 
         const tick = (ts) => {
             this.artistAutoScrollRaf = requestAnimationFrame(tick);
-            const max = this.artistEl.scrollWidth - this.artistEl.clientWidth;
+            const max = artistSpan.scrollWidth - this.artistEl.clientWidth;
             if (max <= 4) return;
             if (!lastTs) {
                 lastTs = ts;
