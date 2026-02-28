@@ -588,15 +588,6 @@ tr:has(.preview-playing) {
     display: none;
 }
 
-#playerTitle.scrollable {
-    cursor: grab;
-    user-select: none;
-}
-
-#playerTitle.dragging-title {
-    cursor: grabbing;
-}
-
 #playerTitle .title-scroll {
     display: inline-block;
     white-space: nowrap;
