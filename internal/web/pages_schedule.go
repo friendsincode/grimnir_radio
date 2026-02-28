@@ -396,8 +396,16 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 
 		className := "event-" + entry.SourceType
+		health := "green"
 		if orphaned {
 			className = "event-orphaned"
+			health = "red"
+		} else if entry.Metadata != nil {
+			if _, ok := entry.Metadata["emergency_fallback"]; ok {
+				health = "yellow"
+			} else if _, ok := entry.Metadata["constraint_relaxed"]; ok {
+				health = "yellow"
+			}
 		}
 
 		event := calendarEvent{
@@ -416,6 +424,7 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 				"recurrence":   recurrenceInfo,
 				"is_instance":  entry.IsInstance,
 				"orphaned":     orphaned,
+				"health":       health,
 			},
 		}
 

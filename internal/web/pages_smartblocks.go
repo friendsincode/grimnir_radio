@@ -1736,27 +1736,24 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 		rules["separationEnabled"] = true
 		separation := make(map[string]int)
 		separationUnits := make(map[string]string)
-		if sep := parseSeparationMinutes(r.FormValue("sep_artist"), r.FormValue("sep_artist_unit")); sep > 0 {
-			separation["artist"] = sep
-			separationUnits["artist"] = strings.TrimSpace(r.FormValue("sep_artist_unit"))
-		}
-		if sep := parseSeparationMinutes(r.FormValue("sep_album"), r.FormValue("sep_album_unit")); sep > 0 {
-			separation["album"] = sep
-			separationUnits["album"] = strings.TrimSpace(r.FormValue("sep_album_unit"))
-		}
-		if sep := parseSeparationMinutes(r.FormValue("sep_title"), r.FormValue("sep_title_unit")); sep > 0 {
-			separation["title"] = sep
-			separationUnits["title"] = strings.TrimSpace(r.FormValue("sep_title_unit"))
-		}
-		if sep := parseSeparationMinutes(r.FormValue("sep_label"), r.FormValue("sep_label_unit")); sep > 0 {
-			separation["label"] = sep
-			separationUnits["label"] = strings.TrimSpace(r.FormValue("sep_label_unit"))
+		separationValues := make(map[string]int) // raw user-entered values (not converted)
+		for _, field := range []string{"artist", "album", "title", "label"} {
+			raw := parseInt(r.FormValue("sep_"+field), 0)
+			unit := strings.TrimSpace(r.FormValue("sep_" + field + "_unit"))
+			if sep := parseSeparationMinutes(r.FormValue("sep_"+field), unit); sep > 0 {
+				separation[field] = sep
+				separationUnits[field] = unit
+				separationValues[field] = raw
+			}
 		}
 		if len(separation) > 0 {
 			rules["separation"] = separation
 		}
 		if len(separationUnits) > 0 {
 			rules["separationUnits"] = separationUnits
+		}
+		if len(separationValues) > 0 {
+			rules["separationValues"] = separationValues
 		}
 	}
 

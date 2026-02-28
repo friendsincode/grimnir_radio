@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.18.37 — 2026-02-28
+
+### Fix: Global Player Marquee Not Scrolling (#99)
+- Un-minimizing the player now restarts both title and artist/station name marquee animations.
+- Artist marquee now retries measurement when element has zero width (matching title marquee behavior).
+
+### Fix: Separation Values Not Round-Tripping Correctly (#96)
+- Separation form now stores raw user-entered values alongside the converted minutes, so editing shows "2 hours" instead of "120 minutes".
+- Units are correctly restored in the dropdown on re-edit.
+
+### Fix: Schedule Visibility Improvements (#95)
+- Calendar events now show health indicator dots (yellow for emergency fallback/relaxed constraints, red for missing sources).
+- Scheduler automatically cleans up materialized schedule entries older than 7 days.
+
+### Fix: Duplicate Upload Shows Existing Item (#90)
+- Upload rejection now shows the title and artist of the existing duplicate item instead of a generic error message.
+
+---
+
 ## 1.18.36 — 2026-02-28
 
 ### Fix: Smart Block Delete Cascade Cleanup (#98)

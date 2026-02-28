@@ -250,6 +250,7 @@
 
                 <!-- REPEAT PREVENTION -->
                 {{$sep := index $rules "separation"}}
+                {{$sepVals := index $rules "separationValues"}}
                 {{$sepUnits := index $rules "separationUnits"}}
                 {{$sepEnabled := index $rules "separationEnabled"}}
                 <div class="accordion-item">
@@ -271,7 +272,7 @@
                                     <div class="col-6 col-md-3">
                                         <label class="form-label small text-uppercase text-muted">Artist</label>
                                         <div class="input-group">
-                                            {{$sepArtist := 30}}{{with $sep}}{{with index . "artist"}}{{$sepArtist = .}}{{end}}{{end}}
+                                            {{$sepArtist := 30}}{{with $sepVals}}{{with index . "artist"}}{{$sepArtist = .}}{{end}}{{else}}{{with $sep}}{{with index . "artist"}}{{$sepArtist = .}}{{end}}{{end}}{{end}}
                                             {{$sepArtistUnit := "minutes"}}{{with $sepUnits}}{{with index . "artist"}}{{$sepArtistUnit = .}}{{end}}{{end}}
                                             <input type="number" class="form-control" name="sep_artist" value="{{$sepArtist}}" min="0">
                                             <select class="form-select" name="sep_artist_unit" style="max-width: 90px;">
@@ -285,7 +286,7 @@
                                     <div class="col-6 col-md-3">
                                         <label class="form-label small text-uppercase text-muted">Title</label>
                                         <div class="input-group">
-                                            {{$sepTitle := 180}}{{with $sep}}{{with index . "title"}}{{$sepTitle = .}}{{end}}{{end}}
+                                            {{$sepTitle := 180}}{{with $sepVals}}{{with index . "title"}}{{$sepTitle = .}}{{end}}{{else}}{{with $sep}}{{with index . "title"}}{{$sepTitle = .}}{{end}}{{end}}{{end}}
                                             {{$sepTitleUnit := "minutes"}}{{with $sepUnits}}{{with index . "title"}}{{$sepTitleUnit = .}}{{end}}{{end}}
                                             <input type="number" class="form-control" name="sep_title" value="{{$sepTitle}}" min="0">
                                             <select class="form-select" name="sep_title_unit" style="max-width: 90px;">
@@ -299,7 +300,7 @@
                                     <div class="col-6 col-md-3">
                                         <label class="form-label small text-uppercase text-muted">Album</label>
                                         <div class="input-group">
-                                            {{$sepAlbum := 15}}{{with $sep}}{{with index . "album"}}{{$sepAlbum = .}}{{end}}{{end}}
+                                            {{$sepAlbum := 15}}{{with $sepVals}}{{with index . "album"}}{{$sepAlbum = .}}{{end}}{{else}}{{with $sep}}{{with index . "album"}}{{$sepAlbum = .}}{{end}}{{end}}{{end}}
                                             {{$sepAlbumUnit := "minutes"}}{{with $sepUnits}}{{with index . "album"}}{{$sepAlbumUnit = .}}{{end}}{{end}}
                                             <input type="number" class="form-control" name="sep_album" value="{{$sepAlbum}}" min="0">
                                             <select class="form-select" name="sep_album_unit" style="max-width: 90px;">
@@ -313,7 +314,7 @@
                                     <div class="col-6 col-md-3">
                                         <label class="form-label small text-uppercase text-muted">Label</label>
                                         <div class="input-group">
-                                            {{$sepLabel := 0}}{{with $sep}}{{with index . "label"}}{{$sepLabel = .}}{{end}}{{end}}
+                                            {{$sepLabel := 0}}{{with $sepVals}}{{with index . "label"}}{{$sepLabel = .}}{{end}}{{else}}{{with $sep}}{{with index . "label"}}{{$sepLabel = .}}{{end}}{{end}}{{end}}
                                             {{$sepLabelUnit := "minutes"}}{{with $sepUnits}}{{with index . "label"}}{{$sepLabelUnit = .}}{{end}}{{end}}
                                             <input type="number" class="form-control" name="sep_label" value="{{$sepLabel}}" min="0">
                                             <select class="form-select" name="sep_label_unit" style="max-width: 90px;">

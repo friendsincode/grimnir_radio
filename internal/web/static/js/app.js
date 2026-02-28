@@ -1197,6 +1197,7 @@ class GlobalPlayer {
         }
         if (!this.isMinimized) {
             this.scheduleTitleMarqueeUpdate();
+            this.scheduleArtistMarqueeUpdate();
         }
     }
 
@@ -1737,6 +1738,10 @@ class GlobalPlayer {
 
     updateArtistMarquee() {
         if (!this.artistEl) return;
+        if (this.artistEl.clientWidth <= 0) {
+            setTimeout(() => this.updateArtistMarquee(), 60);
+            return;
+        }
 
         this.stopArtistAutoScroll();
         this.artistEl.scrollLeft = 0;

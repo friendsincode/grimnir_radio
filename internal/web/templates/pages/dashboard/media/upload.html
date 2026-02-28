@@ -233,7 +233,7 @@ function uploadFile(file) {
                 addResult(file.name, 'success', 'Uploaded successfully');
             } else if (xhr.status === 409) {
                 currentBatch.failedCount += 1;
-                addResult(file.name, 'warning', 'Skipped duplicate (already in library)');
+                addResult(file.name, 'warning', xhr.responseText.trim() || 'Skipped duplicate (already in library)');
             } else {
                 currentBatch.failedCount += 1;
                 addResult(file.name, 'danger', 'Upload failed: ' + readableServerError(xhr));
