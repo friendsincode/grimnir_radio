@@ -579,6 +579,7 @@ tr:has(.preview-playing) {
     position: relative;
     overflow: hidden;
     white-space: nowrap;
+    color: var(--bs-emphasis-color);
 }
 
 #playerTitle .title-scroll {
@@ -591,11 +592,11 @@ tr:has(.preview-playing) {
 }
 
 #playerTitle .title-separator {
-    opacity: 0.55;
+    opacity: 0.7;
 }
 
 #playerTitle .title-secondary {
-    opacity: 0.8;
+    opacity: 0.9;
     font-weight: 500;
 }
 
