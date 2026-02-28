@@ -864,7 +864,7 @@ class GlobalPlayer {
         let offset = 0;
         let lastTs = 0;
         let holdUntil = Date.now() + 1200;
-        let resetPending = false;
+        let direction = 1; // 1 = scrolling right, -1 = scrolling back left
 
         const tick = (ts) => {
             this.titleAutoScrollRaf = requestAnimationFrame(tick);
@@ -883,26 +883,18 @@ class GlobalPlayer {
                 return;
             }
 
-            if (resetPending) {
-                offset = 0;
-                span.style.transform = 'translateX(0)';
-                resetPending = false;
-                holdUntil = now + 1000;
-                lastTs = ts;
-                return;
-            }
-
             const dt = (ts - lastTs) / 1000;
             lastTs = ts;
-            offset += dt * this.titleScrollPxPerSecond;
+            offset += dt * this.titleScrollPxPerSecond * direction;
 
             if (offset >= maxScroll) {
                 offset = maxScroll;
-                span.style.transform = `translateX(-${offset}px)`;
-                holdUntil = now + 2200;
-                resetPending = true;
-                lastTs = ts;
-                return;
+                direction = -1;
+                holdUntil = now + 1500;
+            } else if (offset <= 0) {
+                offset = 0;
+                direction = 1;
+                holdUntil = now + 1500;
             }
 
             span.style.transform = `translateX(-${offset}px)`;
@@ -1703,7 +1695,7 @@ class GlobalPlayer {
         let offset = 0;
         let lastTs = 0;
         let holdUntil = Date.now() + 900;
-        let resetPending = false;
+        let direction = 1;
 
         const tick = (ts) => {
             this.artistAutoScrollRaf = requestAnimationFrame(tick);
@@ -1720,26 +1712,18 @@ class GlobalPlayer {
                 return;
             }
 
-            if (resetPending) {
-                offset = 0;
-                artistSpan.style.transform = 'translateX(0)';
-                resetPending = false;
-                holdUntil = now + 800;
-                lastTs = ts;
-                return;
-            }
-
             const dt = (ts - lastTs) / 1000;
             lastTs = ts;
-            offset += dt * 10;
+            offset += dt * 10 * direction;
 
             if (offset >= max) {
                 offset = max;
-                artistSpan.style.transform = `translateX(-${offset}px)`;
-                holdUntil = now + 1700;
-                resetPending = true;
-                lastTs = ts;
-                return;
+                direction = -1;
+                holdUntil = now + 1500;
+            } else if (offset <= 0) {
+                offset = 0;
+                direction = 1;
+                holdUntil = now + 1500;
             }
 
             artistSpan.style.transform = `translateX(-${offset}px)`;
