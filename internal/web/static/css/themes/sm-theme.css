@@ -64,7 +64,8 @@
     border-right: 1px solid #003300;
 }
 
-[data-bs-theme="sm-theme"] .card {
+[data-bs-theme="sm-theme"] .card,
+[data-bs-theme="sm-theme"] .global-player {
     background: #121212;
     border: 1px solid #003300;
     box-shadow: 0 0 8px rgba(0, 170, 0, 0.08);
@@ -72,6 +73,25 @@
 
 [data-bs-theme="sm-theme"] .card:hover {
     box-shadow: 0 0 12px rgba(0, 170, 0, 0.15);
+}
+
+[data-bs-theme="sm-theme"] .global-player-header {
+    background: #0a0a0a;
+    border-bottom-color: #003300;
+}
+
+[data-bs-theme="sm-theme"] .global-player-progress {
+    background: #0a0a0a;
+}
+
+[data-bs-theme="sm-theme"] .global-player-progress-bar {
+    background: #00bb00;
+    box-shadow: 0 0 6px rgba(0, 170, 0, 0.6);
+}
+
+[data-bs-theme="sm-theme"] .global-player {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace !important;
+    color: #00aa00;
 }
 
 [data-bs-theme="sm-theme"] h1,

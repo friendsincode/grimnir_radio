@@ -173,10 +173,24 @@
     --bs-btn-hover-border-color: #dc2626;
 }
 
-/* Cards */
-[data-bs-theme="broadcast"] .card {
+/* Cards & Player */
+[data-bs-theme="broadcast"] .card,
+[data-bs-theme="broadcast"] .global-player {
     background: #0f0f0f;
     border-color: #262626;
+}
+
+[data-bs-theme="broadcast"] .global-player-header {
+    background: #0a0a0a;
+    border-bottom-color: #262626;
+}
+
+[data-bs-theme="broadcast"] .global-player-progress {
+    background: #0a0a0a;
+}
+
+[data-bs-theme="broadcast"] .global-player-progress-bar {
+    background: #ef4444;
 }
 
 /* Forms */

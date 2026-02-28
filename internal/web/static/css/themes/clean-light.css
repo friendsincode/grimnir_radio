@@ -52,10 +52,28 @@
     box-shadow: 1px 0 3px rgba(0, 0, 0, 0.05);
 }
 
-[data-bs-theme="clean-light"] .card {
+[data-bs-theme="clean-light"] .card,
+[data-bs-theme="clean-light"] .global-player {
     background: #ffffff;
     border: 1px solid #e5e7eb;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-bs-theme="clean-light"] .global-player {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+[data-bs-theme="clean-light"] .global-player-header {
+    background: #f9fafb;
+    border-bottom-color: #e5e7eb;
+}
+
+[data-bs-theme="clean-light"] .global-player-progress {
+    background: #e5e7eb;
+}
+
+[data-bs-theme="clean-light"] .global-player-progress-bar {
+    background: #6366f1;
 }
 
 [data-bs-theme="clean-light"] .btn-primary {
