@@ -7,7 +7,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -572,71 +571,3 @@ func parseIntOrDefault(raw string, fallback int) int {
 	return v
 }
 
-// DashboardAPIStations returns all stations (with mounts) that the
-// authenticated user has access to, regardless of public/approved status.
-// This powers the global player station switcher on the dashboard.
-func (h *Handler) DashboardAPIStations(w http.ResponseWriter, r *http.Request) {
-	user := h.GetUser(r)
-	if user == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	var stations []models.Station
-	if user.IsPlatformAdmin() {
-		h.db.Where("active = ?", true).Order("sort_order ASC, name ASC").Find(&stations)
-	} else {
-		// Non-admin users see stations they're members of.
-		var memberStationIDs []string
-		h.db.Model(&models.StationUser{}).Where("user_id = ?", user.ID).Pluck("station_id", &memberStationIDs)
-		if len(memberStationIDs) == 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte("[]"))
-			return
-		}
-		h.db.Where("id IN ? AND active = ?", memberStationIDs, true).Order("sort_order ASC, name ASC").Find(&stations)
-	}
-
-	type mountInfo struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Format  string `json:"format"`
-		Bitrate int    `json:"bitrate"`
-		URL     string `json:"url"`
-		LQURL   string `json:"lq_url"`
-	}
-	type stationInfo struct {
-		ID          string      `json:"id"`
-		Name        string      `json:"name"`
-		Description string      `json:"description,omitempty"`
-		Mounts      []mountInfo `json:"mounts"`
-	}
-
-	result := make([]stationInfo, 0, len(stations))
-	for _, s := range stations {
-		var mounts []models.Mount
-		h.db.Where("station_id = ?", s.ID).Find(&mounts)
-
-		mountList := make([]mountInfo, 0, len(mounts))
-		for _, m := range mounts {
-			mountList = append(mountList, mountInfo{
-				ID:      m.ID,
-				Name:    m.Name,
-				Format:  m.Format,
-				Bitrate: m.Bitrate,
-				URL:     "/live/" + m.Name,
-				LQURL:   "/live/" + m.Name + "-lq",
-			})
-		}
-
-		result = append(result, stationInfo{
-			ID:          s.ID,
-			Name:        s.Name,
-			Description: s.Description,
-			Mounts:      mountList,
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
-}

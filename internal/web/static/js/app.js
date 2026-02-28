@@ -969,28 +969,9 @@ class GlobalPlayer {
 
     async loadPublicStations() {
         try {
-            // On the dashboard, try the authenticated endpoint first so
-            // non-public/unapproved stations are included in the switcher.
-            const isDashboard = document.body.classList.contains('dashboard-layout');
-            let stations = null;
-
-            if (isDashboard) {
-                try {
-                    const dashResp = await fetch('/dashboard/api/stations');
-                    if (dashResp.ok) {
-                        stations = await dashResp.json();
-                    }
-                } catch (_) { /* fall through to public API */ }
-            }
-
-            if (!stations) {
-                const response = await fetch('/api/v1/public/stations');
-                if (response.ok) {
-                    stations = await response.json();
-                }
-            }
-
-            if (stations) {
+            const response = await fetch('/api/v1/public/stations');
+            if (response.ok) {
+                const stations = await response.json();
                 this.publicStations = this.applyPreferredStationOrder(stations);
                 this.updateTransportMenu();
                 this.updateStationMenu();
