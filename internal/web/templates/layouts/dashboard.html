@@ -13,9 +13,9 @@
     <!-- Bootstrap Icons -->
     <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
 
-    <!-- Theme CSS -->
-    <link href="/static/css/themes/{{.Theme}}.css" rel="stylesheet">
+    <!-- App CSS, then theme overrides -->
     <link href="/static/css/app.css" rel="stylesheet">
+    <link href="/static/css/themes/{{.Theme}}.css" rel="stylesheet">
 
     {{block "head" .}}{{end}}
 </head>

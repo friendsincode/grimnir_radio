@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.18.47 — 2026-02-28
+
+### Fix: Theme CSS Load Order — Theme Overrides Now Applied Correctly
+- Swapped CSS load order in dashboard and base layouts: `app.css` now loads before theme CSS, so theme overrides always win regardless of specificity.
+- Previously theme CSS loaded first and `app.css` loaded second, causing base styles to override theme-specific player/component styles.
+
+---
+
 ## 1.18.46 — 2026-02-28
 
 ### Enhancement: Global Player Follows Site Theme
