@@ -504,10 +504,15 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Reject duplicate content in the same station.
 	var existing models.MediaItem
-	err = h.db.Select("id").Where("station_id = ? AND content_hash = ?", station.ID, contentHash).First(&existing).Error
+	err = h.db.Select("id, title, artist").Where("station_id = ? AND content_hash = ?", station.ID, contentHash).First(&existing).Error
 	if err == nil {
 		_ = os.Remove(fullPath)
-		http.Error(w, "Duplicate file already exists in media library", http.StatusConflict)
+		msg := "Duplicate file already exists in media library"
+		if existing.Title != "" || existing.Artist != "" {
+			msg = fmt.Sprintf("This file already exists as \"%s\" by \"%s\"",
+				existing.Title, existing.Artist)
+		}
+		http.Error(w, msg, http.StatusConflict)
 		return
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {

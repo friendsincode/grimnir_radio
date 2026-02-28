@@ -26,15 +26,17 @@ import (
 
 // Service orchestrates the rolling playout plan.
 type Service struct {
-	db         *gorm.DB
-	planner    *clock.Planner
-	engine     *smartblock.Engine
-	stateStore *state.Store
-	cache      *cache.Cache
-	logger     zerolog.Logger
-	lookahead  time.Duration
-	warnMu     sync.Mutex
-	warnedKeys map[string]struct{}
+	db          *gorm.DB
+	planner     *clock.Planner
+	engine      *smartblock.Engine
+	stateStore  *state.Store
+	cache       *cache.Cache
+	logger      zerolog.Logger
+	lookahead   time.Duration
+	warnMu      sync.Mutex
+	warnedKeys  map[string]struct{}
+	mu          sync.Mutex
+	lastCleanup time.Time
 }
 
 // New constructs the scheduler service.
@@ -91,6 +93,33 @@ func (s *Service) tick(ctx context.Context) {
 			s.logger.Warn().Err(err).Str("station", stationID).Msg("station scheduling failed")
 			telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "schedule_station").Inc()
 		}
+	}
+
+	// Periodically clean up old materialized entries (once per hour)
+	s.maybeCleanupOldEntries(ctx)
+}
+
+// maybeCleanupOldEntries deletes materialized schedule entries older than 7 days.
+// Runs at most once per hour to avoid unnecessary DB churn.
+func (s *Service) maybeCleanupOldEntries(ctx context.Context) {
+	s.mu.Lock()
+	if time.Since(s.lastCleanup) < time.Hour {
+		s.mu.Unlock()
+		return
+	}
+	s.lastCleanup = time.Now()
+	s.mu.Unlock()
+
+	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
+	result := s.db.WithContext(ctx).
+		Where("ends_at < ? AND is_instance = ?", cutoff, true).
+		Delete(&models.ScheduleEntry{})
+	if result.Error != nil {
+		s.logger.Warn().Err(result.Error).Msg("failed to clean up old schedule entries")
+		return
+	}
+	if result.RowsAffected > 0 {
+		s.logger.Info().Int64("deleted", result.RowsAffected).Msg("cleaned up old materialized schedule entries")
 	}
 }
 
