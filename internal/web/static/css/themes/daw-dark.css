@@ -51,9 +51,23 @@
     background: linear-gradient(180deg, #1a1a1a 0%, #151515 100%) !important;
 }
 
-[data-bs-theme="daw-dark"] .card {
+[data-bs-theme="daw-dark"] .card,
+[data-bs-theme="daw-dark"] .global-player {
     background: #252525;
     border-color: #3a3a3a;
+}
+
+[data-bs-theme="daw-dark"] .global-player-header {
+    background: #1a1a1a;
+    border-bottom-color: #3a3a3a;
+}
+
+[data-bs-theme="daw-dark"] .global-player-progress {
+    background: #1a1a1a;
+}
+
+[data-bs-theme="daw-dark"] .global-player-progress-bar {
+    background: #ff6b35;
 }
 
 [data-bs-theme="daw-dark"] .btn-primary {

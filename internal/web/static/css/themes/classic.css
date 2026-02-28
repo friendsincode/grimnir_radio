@@ -53,11 +53,37 @@
 }
 
 /* Classic 3D borders */
-[data-bs-theme="classic"] .card {
+[data-bs-theme="classic"] .card,
+[data-bs-theme="classic"] .global-player {
     background: #ffffff;
     border: none;
     box-shadow: inset -1px -1px 0 #808080, inset 1px 1px 0 #ffffff,
                 inset -2px -2px 0 #404040, inset 2px 2px 0 #dfdfdf;
+}
+
+[data-bs-theme="classic"] .global-player {
+    border-radius: 0;
+}
+
+[data-bs-theme="classic"] .global-player-header {
+    background: linear-gradient(90deg, #0a246a 0%, #a6caf0 100%);
+    color: #ffffff;
+    border-radius: 0;
+    border-bottom-color: #808080;
+}
+
+[data-bs-theme="classic"] .global-player-header .drag-handle,
+[data-bs-theme="classic"] .global-player-header .btn {
+    color: #ffffff;
+}
+
+[data-bs-theme="classic"] .global-player-progress {
+    background: #ffffff;
+    box-shadow: inset 1px 1px 0 #808080;
+}
+
+[data-bs-theme="classic"] .global-player-progress-bar {
+    background: linear-gradient(180deg, #000080 0%, #1084d0 50%, #000080 100%);
 }
 
 [data-bs-theme="classic"] .btn {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.18.46 — 2026-02-28
+
+### Enhancement: Global Player Follows Site Theme
+- Added `.global-player` styling to all 5 theme CSS files (daw-dark, sm-theme, broadcast, classic, clean-light).
+- Player background, header, progress bar, and border colors now match the active theme's card/panel styling.
+- Each theme's accent color is used for the progress bar (orange for DAW Dark, green for SM Theme, red for Broadcast, indigo for Clean Light, blue gradient for Classic).
+- Classic theme gets the Windows 95-style 3D borders and blue title bar gradient.
+- SM Theme gets the JetBrains Mono font and green terminal colors.
+
+---
+
 ## 1.18.45 — 2026-02-28
 
 ### Fix: Player Title Text Too Light
