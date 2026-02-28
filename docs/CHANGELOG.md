@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.18.43 — 2026-02-28
+
+### Enhancement: Ping-Pong Marquee Scrolling
+- Title and artist text now scrolls right to the end, pauses, then scrolls back left to the start in a continuous ping-pong loop.
+- Previously text snapped back to the start after reaching the end.
+
+---
+
 ## 1.18.42 — 2026-02-28
 
 ### Fix: Title and Artist Marquee Scrolling Rewritten with CSS Transform
