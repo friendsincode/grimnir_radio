@@ -273,7 +273,21 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 		}
 	}
 
-	if sep, ok := rules["separation"].(map[string]any); ok {
+	// Respect the separationEnabled flag: if explicitly false or absent while
+	// separation values exist from legacy data, zero them out so the engine
+	// doesn't silently apply constraints the user disabled.
+	separationEnabled := true
+	if enabled, ok := rules["separationEnabled"].(bool); ok {
+		separationEnabled = enabled
+	} else if _, hasSep := rules["separation"]; hasSep {
+		// Legacy data with separation values but no explicit enabled flag:
+		// treat as enabled for backward compatibility.
+		separationEnabled = true
+	}
+
+	if !separationEnabled {
+		def.Separation = SeparationRules{}
+	} else if sep, ok := rules["separation"].(map[string]any); ok {
 		if def.Separation.ArtistSec == 0 {
 			def.Separation.ArtistSec = toInt(sep["artist"]) * 60
 		}

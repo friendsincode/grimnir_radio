@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.18.36 — 2026-02-28
+
+### Fix: Smart Block Delete Cascade Cleanup (#98)
+- Deleting a smart block now removes referencing clock template slots, schedule entries, and fallback references in other smart blocks within a transaction.
+
+### Fix: Preview Now Uses Engine for Track Selection (#97)
+- Smart block preview now calls the same engine.Generate() used by the scheduler, ensuring preview matches actual scheduling behavior.
+- Preview form change detection expanded to catch all form fields (separation, source playlists, BPM, year, etc.), not just a subset.
+- Legacy preview path retained as fallback when scheduler is not wired up.
+
+### Fix: Cross-Station Query Scoping (#93)
+- Genre/artist/mood dropdowns in smart block forms now only include cross-station data when `include_public_archive` is explicitly enabled in the block's rules.
+- Preview `fetchMusicTracks` now filters by `analysis_state = AnalysisComplete`, matching the engine's behavior.
+
+### Fix: Separation Rules Respect Enabled Flag (#91)
+- Engine's `applyLegacyRuleCompat` now checks the `separationEnabled` flag. When explicitly disabled, separation rules are zeroed out even if non-zero values exist in legacy data.
+- Prevents silent constraint application when users disable separation in the UI.
+
+---
+
 ## 1.18.35 — 2026-02-27
 
 ### Fix: Dead Air from Unresolved Smart Blocks (#92)
