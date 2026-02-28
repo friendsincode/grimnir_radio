@@ -113,6 +113,33 @@
             min-height: 300px;
             border: none;
         }
+        /* Global player - match landing page theme */
+        .global-player {
+            background: var(--card-bg) !important;
+            border-color: var(--border-color) !important;
+            color: var(--text-color);
+        }
+        .global-player-header {
+            background: var(--surface-color) !important;
+            border-bottom-color: var(--border-color) !important;
+        }
+        .global-player-header .drag-handle,
+        .global-player-header .btn {
+            color: var(--text-muted-color) !important;
+        }
+        .global-player-progress {
+            background: var(--border-color);
+        }
+        .global-player-progress-bar {
+            background: var(--primary-color) !important;
+        }
+        .global-player .text-body,
+        .global-player .text-body-secondary {
+            color: var(--text-muted-color) !important;
+        }
+        #playerTitle {
+            color: var(--text-color) !important;
+        }
     </style>
 </head>
 <body>
@@ -484,9 +511,9 @@
                 <div id="playerArtwork" class="player-artwork">
                     <i class="bi bi-music-note-beamed"></i>
                 </div>
-                <div class="player-info flex-grow-1 text-truncate">
-                    <div id="playerTitle" class="fw-semibold text-truncate">-</div>
-                    <div id="playerArtist" class="small text-body-secondary text-truncate">-</div>
+                <div class="player-info flex-grow-1">
+                    <div id="playerTitle" class="fw-semibold">-</div>
+                    <div id="playerArtist" class="small text-body-secondary">-</div>
                 </div>
                 <div class="d-flex align-items-center gap-1">
                     <button class="btn btn-sm btn-link text-body" id="playerPrev" title="Previous" style="visibility: hidden;">

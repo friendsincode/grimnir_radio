@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.48 — 2026-02-28
+
+### Fix: Global Player Ignoring Theme on Landing Page
+- The platform landing preview page is a standalone template without `data-bs-theme` or theme CSS, so theme-based player styles never applied — player stayed white.
+- Added inline player styles using the landing page's own CSS variables (`--card-bg`, `--surface-color`, `--primary-color`, etc.) so the player matches the configured landing page theme.
+- Removed `text-truncate` from player title/artist on landing page which was preventing marquee scroll.
+
+---
+
 ## 1.18.47 — 2026-02-28
 
 ### Fix: Theme CSS Load Order — Theme Overrides Now Applied Correctly
