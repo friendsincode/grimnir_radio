@@ -577,15 +577,8 @@ tr:has(.preview-playing) {
 
 #playerTitle {
     position: relative;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: hidden;
     white-space: nowrap;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-
-#playerTitle::-webkit-scrollbar {
-    display: none;
 }
 
 #playerTitle .title-scroll {
@@ -607,15 +600,8 @@ tr:has(.preview-playing) {
 }
 
 #playerArtist {
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: hidden;
     white-space: nowrap;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-
-#playerArtist::-webkit-scrollbar {
-    display: none;
 }
 
 #playerArtist .artist-scroll {

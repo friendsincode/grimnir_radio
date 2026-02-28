@@ -850,12 +850,18 @@ class GlobalPlayer {
             cancelAnimationFrame(this.titleAutoScrollRaf);
             this.titleAutoScrollRaf = null;
         }
+        const span = this.titleEl && this.titleEl.querySelector('.title-scroll');
+        if (span) span.style.transform = '';
     }
 
     startTitleAutoScroll() {
         if (!this.titleEl) return;
 
         this.stopTitleAutoScroll();
+        const span = this.titleEl.querySelector('.title-scroll');
+        if (!span) return;
+
+        let offset = 0;
         let lastTs = 0;
         let holdUntil = Date.now() + 1200;
         let resetPending = false;
@@ -863,10 +869,8 @@ class GlobalPlayer {
         const tick = (ts) => {
             this.titleAutoScrollRaf = requestAnimationFrame(tick);
 
-            const maxScroll = this.titleEl.scrollWidth - this.titleEl.clientWidth;
-            if (maxScroll <= 4 || !this.titleEl.classList.contains('scrollable')) {
-                return;
-            }
+            const maxScroll = span.offsetWidth - this.titleEl.clientWidth;
+            if (maxScroll <= 4) return;
 
             if (!lastTs) {
                 lastTs = ts;
@@ -880,7 +884,8 @@ class GlobalPlayer {
             }
 
             if (resetPending) {
-                this.titleEl.scrollLeft = 0;
+                offset = 0;
+                span.style.transform = 'translateX(0)';
                 resetPending = false;
                 holdUntil = now + 1000;
                 lastTs = ts;
@@ -889,16 +894,18 @@ class GlobalPlayer {
 
             const dt = (ts - lastTs) / 1000;
             lastTs = ts;
-            const next = this.titleEl.scrollLeft + (dt * this.titleScrollPxPerSecond);
+            offset += dt * this.titleScrollPxPerSecond;
 
-            if (next >= maxScroll) {
-                this.titleEl.scrollLeft = maxScroll;
+            if (offset >= maxScroll) {
+                offset = maxScroll;
+                span.style.transform = `translateX(-${offset}px)`;
                 holdUntil = now + 2200;
                 resetPending = true;
+                lastTs = ts;
                 return;
             }
 
-            this.titleEl.scrollLeft = next;
+            span.style.transform = `translateX(-${offset}px)`;
         };
 
         this.titleAutoScrollRaf = requestAnimationFrame(tick);
@@ -1666,6 +1673,8 @@ class GlobalPlayer {
             cancelAnimationFrame(this.artistAutoScrollRaf);
             this.artistAutoScrollRaf = null;
         }
+        const span = this.artistEl && this.artistEl.querySelector('.artist-scroll');
+        if (span) span.style.transform = '';
     }
 
     scheduleArtistMarqueeUpdate() {
@@ -1687,18 +1696,18 @@ class GlobalPlayer {
         }
 
         this.stopArtistAutoScroll();
-        this.artistEl.scrollLeft = 0;
 
-        const initialMax = artistSpan.scrollWidth - this.artistEl.clientWidth;
-        if (initialMax <= 4) return;
+        const overflow = artistSpan.offsetWidth - this.artistEl.clientWidth;
+        if (overflow <= 4) return;
 
+        let offset = 0;
         let lastTs = 0;
         let holdUntil = Date.now() + 900;
         let resetPending = false;
 
         const tick = (ts) => {
             this.artistAutoScrollRaf = requestAnimationFrame(tick);
-            const max = artistSpan.scrollWidth - this.artistEl.clientWidth;
+            const max = artistSpan.offsetWidth - this.artistEl.clientWidth;
             if (max <= 4) return;
             if (!lastTs) {
                 lastTs = ts;
@@ -1712,7 +1721,8 @@ class GlobalPlayer {
             }
 
             if (resetPending) {
-                this.artistEl.scrollLeft = 0;
+                offset = 0;
+                artistSpan.style.transform = 'translateX(0)';
                 resetPending = false;
                 holdUntil = now + 800;
                 lastTs = ts;
@@ -1721,16 +1731,18 @@ class GlobalPlayer {
 
             const dt = (ts - lastTs) / 1000;
             lastTs = ts;
-            const next = this.artistEl.scrollLeft + (dt * 10);
+            offset += dt * 10;
 
-            if (next >= max) {
-                this.artistEl.scrollLeft = max;
+            if (offset >= max) {
+                offset = max;
+                artistSpan.style.transform = `translateX(-${offset}px)`;
                 holdUntil = now + 1700;
                 resetPending = true;
+                lastTs = ts;
                 return;
             }
 
-            this.artistEl.scrollLeft = next;
+            artistSpan.style.transform = `translateX(-${offset}px)`;
         };
 
         this.artistAutoScrollRaf = requestAnimationFrame(tick);
@@ -2111,13 +2123,10 @@ class GlobalPlayer {
         }
 
         this.stopTitleAutoScroll();
-        this.titleEl.classList.remove('scrollable');
-        this.titleEl.scrollLeft = 0;
 
-        const overflow = titleSpan.scrollWidth - this.titleEl.clientWidth;
+        const overflow = titleSpan.offsetWidth - this.titleEl.clientWidth;
         if (overflow <= 4) return;
 
-        this.titleEl.classList.add('scrollable');
         this.startTitleAutoScroll();
     }
 
