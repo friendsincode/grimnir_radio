@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.39 — 2026-02-28
+
+### Fix: Station Switcher Dropdown Clipped by Overflow Hidden
+- Root cause: `.global-player` had `overflow: hidden` (for border-radius clipping), which clipped the Bootstrap dropdown menu opening upward from within the fixed-position container.
+- Removed `overflow: hidden` from `.global-player` and moved border-radius to the header element instead.
+- Reverted unnecessary dashboard API endpoint for station loading; the public stations API returns the correct set.
+
+---
+
 ## 1.18.38 — 2026-02-28
 
 ### Fix: Global Player Marquee Scroll — Proper Inline-Block Measurement (#99)

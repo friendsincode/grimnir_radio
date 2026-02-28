@@ -95,9 +95,6 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/stations/select", h.StationSelect)
 			r.Post("/stations/select", h.StationSelectSubmit)
 
-			// Dashboard API: stations with mounts (for player switcher)
-			r.Get("/api/stations", h.DashboardAPIStations)
-
 			// Station user management (requires station)
 			r.Route("/station", func(r chi.Router) {
 				r.Use(h.RequireStation)
