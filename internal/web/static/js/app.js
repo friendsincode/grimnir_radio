@@ -1650,12 +1650,7 @@ class GlobalPlayer {
             artistSpan.className = 'artist-scroll';
             this.artistEl.replaceChildren(artistSpan);
         }
-        if (artistSpan.textContent === next) {
-            if (this.container && this.container.style.display !== 'none') {
-                this.scheduleArtistMarqueeUpdate();
-            }
-            return;
-        }
+        if (artistSpan.textContent === next) return;
         artistSpan.textContent = next;
         this.scheduleArtistMarqueeUpdate();
     }
@@ -2076,12 +2071,7 @@ class GlobalPlayer {
             titleSpan.className = 'title-scroll';
             this.titleEl.replaceChildren(titleSpan);
         }
-        if (titleSpan.textContent === text) {
-            if (this.container && this.container.style.display !== 'none') {
-                this.scheduleTitleMarqueeUpdate();
-            }
-            return;
-        }
+        if (titleSpan.textContent === text) return;
         titleSpan.textContent = text;
 
         this.scheduleTitleMarqueeUpdate();

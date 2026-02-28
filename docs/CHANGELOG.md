@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.18.44 — 2026-02-28
+
+### Fix: Marquee Snap-Back on Metadata Updates
+- Stopped `setTitle()` and `setSecondaryText()` from restarting the marquee scroll when the text hasn't changed. Repeated metadata updates (same song) were resetting the transform to 0 every few seconds, causing the visible snap-back.
+
+---
+
 ## 1.18.43 — 2026-02-28
 
 ### Enhancement: Ping-Pong Marquee Scrolling
