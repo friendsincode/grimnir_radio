@@ -65,7 +65,16 @@ type GenerateResult struct {
 }
 
 // Generate materializes a sequence using smart block rules.
+// It applies progressive constraint relaxation when strict rules produce no results,
+// then tries fallback smart blocks before returning ErrUnresolved.
 func (e *Engine) Generate(ctx context.Context, req GenerateRequest) (GenerateResult, error) {
+	return e.generateWithDepth(ctx, req, 0)
+}
+
+// maxFallbackDepth prevents infinite recursion through fallback chains.
+const maxFallbackDepth = 3
+
+func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, depth int) (GenerateResult, error) {
 	def, err := e.loadDefinition(ctx, req.SmartBlockID)
 	if err != nil {
 		return GenerateResult{}, err
@@ -80,27 +89,96 @@ func (e *Engine) Generate(ctx context.Context, req GenerateRequest) (GenerateRes
 		}
 	}
 
-	recent, err := e.recentPlays(ctx, req.StationID, def.Separation.SeparationDurations())
-	if err != nil {
-		return GenerateResult{}, err
+	// Progressive constraint relaxation: try increasingly lenient rule sets.
+	// Level 0: strict (current behavior)
+	// Level 1: drop separation rules
+	// Level 2: drop separation + quotas
+	// Level 3: drop separation + quotas + exclude rules
+	for level := 0; level <= 3; level++ {
+		relaxed := relaxDefinition(def, level)
+
+		recent, err := e.recentPlays(ctx, req.StationID, relaxed.Separation.SeparationDurations())
+		if err != nil {
+			return GenerateResult{}, err
+		}
+
+		candidates, err := e.fetchCandidates(ctx, relaxed, req.StationID, recent)
+		if err != nil {
+			return GenerateResult{}, err
+		}
+
+		if len(candidates) == 0 {
+			continue
+		}
+
+		rng := rand.New(rand.NewSource(req.Seed))
+		result := e.selectSequence(ctx, rng, candidates, relaxed, target)
+		if len(result.Items) == 0 {
+			continue
+		}
+
+		if level > 0 {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("constraint_relaxed:%d", level))
+			e.logger.Info().
+				Str("smart_block", req.SmartBlockID).
+				Int("relaxation_level", level).
+				Msg("smart block resolved with relaxed constraints")
+		}
+		return result, nil
 	}
 
-	candidates, err := e.fetchCandidates(ctx, def, req.StationID, recent)
-	if err != nil {
-		return GenerateResult{}, err
+	// Fallback chain: try alternative smart blocks defined in the definition.
+	if depth < maxFallbackDepth {
+		for _, fb := range def.Fallbacks {
+			if fb.SmartBlockID == "" || fb.SmartBlockID == req.SmartBlockID {
+				continue // skip self-references
+			}
+
+			fbReq := req
+			fbReq.SmartBlockID = fb.SmartBlockID
+			result, err := e.generateWithDepth(ctx, fbReq, depth+1)
+			if err != nil {
+				e.logger.Debug().Err(err).
+					Str("fallback_block", fb.SmartBlockID).
+					Msg("fallback smart block failed")
+				continue
+			}
+
+			if fb.Limit > 0 && len(result.Items) > fb.Limit {
+				result.Items = result.Items[:fb.Limit]
+				// Recalculate TotalMS from truncated items.
+				if len(result.Items) > 0 {
+					result.TotalMS = result.Items[len(result.Items)-1].EndsAtMS
+				} else {
+					result.TotalMS = 0
+				}
+			}
+
+			result.Warnings = append(result.Warnings, "used_fallback:"+fb.SmartBlockID)
+			return result, nil
+		}
 	}
 
-	if len(candidates) == 0 {
-		return GenerateResult{}, ErrUnresolved
-	}
+	return GenerateResult{}, ErrUnresolved
+}
 
-	rng := rand.New(rand.NewSource(req.Seed))
-	result := e.selectSequence(ctx, rng, candidates, def, target)
-	if len(result.Items) == 0 {
-		return GenerateResult{}, ErrUnresolved
+// relaxDefinition returns a copy of def with constraints removed according to the level.
+func relaxDefinition(def Definition, level int) Definition {
+	if level <= 0 {
+		return def
 	}
-
-	return result, nil
+	relaxed := def
+	// Level 1+: drop separation rules
+	relaxed.Separation = SeparationRules{}
+	if level >= 2 {
+		// Level 2+: drop quotas
+		relaxed.Quotas = nil
+	}
+	if level >= 3 {
+		// Level 3: drop exclude rules (only includes remain)
+		relaxed.Exclude = nil
+	}
+	return relaxed
 }
 
 func (e *Engine) loadDefinition(ctx context.Context, smartBlockID string) (Definition, error) {

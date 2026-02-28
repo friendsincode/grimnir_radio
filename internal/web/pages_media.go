@@ -776,13 +776,18 @@ func (h *Handler) MediaDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete from database (station already verified above)
-	if err := h.db.Delete(&models.MediaItem{}, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+	// Delete from database within a transaction, cleaning up all references first.
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := adminDeleteMediaReferences(tx, []string{id}); err != nil {
+			return err
+		}
+		return tx.Delete(&models.MediaItem{}, "id = ? AND station_id = ?", id, station.ID).Error
+	}); err != nil {
 		http.Error(w, "Failed to delete media", http.StatusInternalServerError)
 		return
 	}
 
-	// Delete file from disk
+	// Best-effort file deletion outside transaction.
 	if media.Path != "" {
 		fullPath := filepath.Join(h.mediaRoot, media.Path)
 		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.18.35 — 2026-02-27
+
+### Fix: Dead Air from Unresolved Smart Blocks (#92)
+- Smart block engine now applies progressive constraint relaxation (4 levels) when strict rules produce no candidates: drops separation → quotas → exclude rules.
+- Fallback chain support: if all relaxation levels fail, tries alternative smart blocks defined in the block's fallback list (with recursion depth guard).
+- Scheduler safety net: when smart block generation fails entirely, picks a random analyzed track as emergency fallback instead of silently leaving a gap.
+- Schedule entries created by emergency fallback are tagged with `{"emergency_fallback": true}` metadata.
+
+### Fix: Dangling References After Duplicate Purge (#88)
+- Duplicate media purge now remaps all foreign references (ScheduleEntry, MountPlayoutState, PlayHistory, UnderwritingObligation, ClockSlot, WebDJSession) to the surviving copy before deleting.
+- Playlist item deduplication after remap prevents duplicate entries in the same playlist.
+- Station-level media delete now cleans up all references in a transaction (PlaylistItem, ScheduleEntry, MountPlayoutState, PlayHistory, UnderwritingObligation, ClockSlot).
+- Refactored `adminDeleteMediaByIDs` into transaction-composable variant for use by both purge and direct delete paths.
+
+---
+
 ## 1.18.34 — 2026-02-27
 
 ### Show Queued Tracks in Schedule Edit Modal
