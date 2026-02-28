@@ -526,11 +526,11 @@ type pipeNetConn struct {
 	io.Closer
 }
 
-func (p *pipeNetConn) Read(b []byte) (int, error)  { return p.Reader.Read(b) }
-func (p *pipeNetConn) Write(b []byte) (int, error) { return p.Writer.Write(b) }
-func (p *pipeNetConn) LocalAddr() net.Addr          { return &net.TCPAddr{} }
-func (p *pipeNetConn) RemoteAddr() net.Addr         { return &net.TCPAddr{} }
-func (p *pipeNetConn) SetDeadline(time.Time) error  { return nil }
+func (p *pipeNetConn) Read(b []byte) (int, error)       { return p.Reader.Read(b) }
+func (p *pipeNetConn) Write(b []byte) (int, error)      { return p.Writer.Write(b) }
+func (p *pipeNetConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
+func (p *pipeNetConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
+func (p *pipeNetConn) SetDeadline(time.Time) error      { return nil }
 func (p *pipeNetConn) SetReadDeadline(time.Time) error  { return nil }
 func (p *pipeNetConn) SetWriteDeadline(time.Time) error { return nil }
 
