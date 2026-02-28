@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.18.40 — 2026-02-28
+
+### Fix: Live Stream Secondary Text Shows Station Name Instead of Artist
+- The global player's secondary line (below the title) now shows the station name for live streams instead of the artist, since the artist is already included in the title line ("Artist - Title" format).
+
+---
+
 ## 1.18.39 — 2026-02-28
 
 ### Fix: Station Switcher Dropdown Clipped by Overflow Hidden

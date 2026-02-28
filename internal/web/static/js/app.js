@@ -1593,11 +1593,8 @@ class GlobalPlayer {
                 // Update player UI with the track info
                 this.setTitle(displayTitle);
 
-                // Second line: show artist if available, otherwise station name
-                const artist = (data.artist || '').toString().trim();
-                const stationName = this.resolveCurrentStationName();
-                const artistText = artist || stationName || 'On-Air';
-                this.setSecondaryText(artistText);
+                // Second line: station name (artist is already in the title line)
+                this.setSecondaryText(this.getLiveSecondaryText());
 
                 this.isLiveDJ = data.is_live_dj === true;
                 if (this.container) {
@@ -1632,8 +1629,8 @@ class GlobalPlayer {
 
                 // Also update the current track object
                 this.currentTrack.title = displayTitle;
-                this.currentTrack.artist = artistText;
-                if (stationName) this.currentTrack.stationName = stationName;
+                this.currentTrack.artist = this.getLiveSecondaryText();
+                if (this.resolveCurrentStationName()) this.currentTrack.stationName = this.resolveCurrentStationName();
                 this.currentTrack.mediaId = data.media_id;
 
                 // Start local time ticker if not already running
