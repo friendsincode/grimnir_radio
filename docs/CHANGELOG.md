@@ -1,11 +1,12 @@
 # Changelog
 
-## 1.18.41 — 2026-02-28
+## 1.18.42 — 2026-02-28
 
-### Fix: Remove Title Drag-to-Scroll from Global Player
-- Removed mouse/touch drag-to-scroll interaction on the title bar that was interfering with the auto-scroll marquee.
-- Auto-scroll continues to work via `requestAnimationFrame` tick loop.
-- Removed related CSS (grab/grabbing cursors) and unused instance variables.
+### Fix: Title and Artist Marquee Scrolling Rewritten with CSS Transform
+- Replaced `scrollLeft`-based auto-scroll with `transform: translateX()` on the inner span — more reliable across browsers and doesn't depend on scroll container quirks.
+- Changed `#playerTitle` and `#playerArtist` from `overflow-x: auto` to `overflow: hidden` since scrolling is now handled via transform.
+- Removed title drag-to-scroll (mouse/touch/wheel handlers) that was interfering with auto-scroll.
+- Removed related CSS (grab/grabbing cursors, scrollbar hiding) and unused instance variables.
 
 ### Fix: Flaky TestLoginFlow E2E Test
 - Replaced fixed 500ms sleep with a polling loop (up to 5s) that waits for the HTMX redirect to `/dashboard` to complete, fixing intermittent failures under load.
