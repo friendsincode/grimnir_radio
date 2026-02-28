@@ -9,6 +9,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -388,8 +389,8 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 
 	if err != nil {
 		if errors.Is(err, smartblock.ErrUnresolved) {
-			s.logger.Debug().Str("smart_block", blockID).Msg("smart block unresolved - no analyzed media available")
-			return nil
+			s.logger.Warn().Str("smart_block", blockID).Str("station", stationID).Msg("smart block unresolved - attempting emergency fallback")
+			return s.pickRandomTrack(ctx, stationID, mountID, plan)
 		}
 		return err
 	}
@@ -587,6 +588,49 @@ func (s *Service) Upcoming(ctx context.Context, stationID string, from time.Time
 		Order("starts_at ASC").
 		Find(&entries).Error
 	return entries, err
+}
+
+// pickRandomTrack selects one random analyzed track for the station and creates
+// an emergency schedule entry. This is the last-resort safety net to prevent dead air
+// when smart block generation fails completely.
+func (s *Service) pickRandomTrack(ctx context.Context, stationID, mountID string, plan clock.SlotPlan) error {
+	var item models.MediaItem
+	err := s.db.WithContext(ctx).
+		Where("station_id = ? AND analysis_state = ?", stationID, models.AnalysisComplete).
+		Order("RANDOM()").
+		First(&item).Error
+	if err != nil {
+		s.logger.Error().Err(err).
+			Str("station", stationID).
+			Msg("CRITICAL: dead air possible - no analyzed media for emergency fallback")
+		return fmt.Errorf("no analyzed media available for station %s: %w", stationID, err)
+	}
+
+	dur := item.Duration
+	if dur <= 0 {
+		dur = 3 * time.Minute
+	}
+
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		StartsAt:   plan.StartsAt,
+		EndsAt:     plan.StartsAt.Add(dur),
+		SourceType: "media",
+		SourceID:   item.ID,
+		Metadata: map[string]any{
+			"emergency_fallback": true,
+		},
+	}
+
+	s.logger.Warn().
+		Str("station", stationID).
+		Str("media_id", item.ID).
+		Str("title", item.Title).
+		Msg("using emergency fallback track to prevent dead air")
+
+	return s.db.WithContext(ctx).Create(&entry).Error
 }
 
 func stringValue(value any) string {

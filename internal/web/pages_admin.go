@@ -1289,6 +1289,7 @@ func (h *Handler) AdminMediaPurgeDuplicates(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Validate that at least one copy survives per hash.
 	for _, t := range totals {
 		if selectedPerHash[t.ContentHash] >= int(t.Count) {
 			msg := fmt.Sprintf("Cannot purge all copies for hash %s. Leave at least one item per hash.", shortHash(t.ContentHash))
@@ -1297,7 +1298,36 @@ func (h *Handler) AdminMediaPurgeDuplicates(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	deleted, err := h.adminDeleteMediaByIDs(ids)
+	// For each hash, find the survivor (first item NOT in the delete set).
+	survivorByHash := make(map[string]string)
+	for _, hash := range hashes {
+		var survivors []models.MediaItem
+		if err := h.db.Select("id").
+			Where("content_hash = ? AND id NOT IN ?", hash, ids).
+			Order("created_at ASC").
+			Limit(1).
+			Find(&survivors).Error; err == nil && len(survivors) > 0 {
+			survivorByHash[hash] = survivors[0].ID
+		}
+	}
+
+	var deleted int64
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		// Remap references from each deleted item to its survivor.
+		for _, item := range selected {
+			hash := strings.TrimSpace(item.ContentHash)
+			survivor, ok := survivorByHash[hash]
+			if !ok || survivor == "" {
+				continue
+			}
+			if err := adminRemapMediaReferences(tx, []string{item.ID}, survivor); err != nil {
+				return fmt.Errorf("remap %s: %w", item.ID, err)
+			}
+		}
+		var txErr error
+		deleted, txErr = h.adminDeleteMediaByIDsTx(tx, ids)
+		return txErr
+	})
 	if err != nil {
 		h.logger.Error().Err(err).Int("selected", len(ids)).Str("admin_id", user.ID).Msg("duplicate purge failed")
 		http.Redirect(w, r, "/dashboard/admin/media/duplicates?error="+url.QueryEscape("Failed to purge selected duplicates"), http.StatusSeeOther)
@@ -1333,8 +1363,23 @@ func (h *Handler) adminDeleteMediaByIDs(ids []string) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
+	var deleted int64
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		n, err := h.adminDeleteMediaByIDsTx(tx, ids)
+		deleted = n
+		return err
+	})
+	return deleted, err
+}
+
+// adminDeleteMediaByIDsTx deletes media records and their references within an existing
+// transaction. File deletion happens outside the transaction (best-effort, non-fatal).
+func (h *Handler) adminDeleteMediaByIDsTx(tx *gorm.DB, ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
 	var items []models.MediaItem
-	if err := h.db.Select("id,path").Where("id IN ?", ids).Find(&items).Error; err != nil {
+	if err := tx.Select("id,path").Where("id IN ?", ids).Find(&items).Error; err != nil {
 		return 0, err
 	}
 	if len(items) == 0 {
@@ -1345,15 +1390,17 @@ func (h *Handler) adminDeleteMediaByIDs(ids []string) (int64, error) {
 		validIDs = append(validIDs, item.ID)
 	}
 
-	// Remove playlist references first to avoid dangling rows.
-	if err := h.db.Where("media_id IN ?", validIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
+	// Remove all references to these media items.
+	if err := adminDeleteMediaReferences(tx, validIDs); err != nil {
 		return 0, err
 	}
-	result := h.db.Where("id IN ?", validIDs).Delete(&models.MediaItem{})
+
+	result := tx.Where("id IN ?", validIDs).Delete(&models.MediaItem{})
 	if result.Error != nil {
 		return 0, result.Error
 	}
 
+	// Best-effort file deletion (outside transaction scope).
 	for _, item := range items {
 		if strings.TrimSpace(item.Path) == "" {
 			continue
@@ -1364,6 +1411,167 @@ func (h *Handler) adminDeleteMediaByIDs(ids []string) (int64, error) {
 		}
 	}
 	return result.RowsAffected, nil
+}
+
+// adminRemapMediaReferences re-points all foreign references from oldIDs to newID
+// within the given transaction. Used during duplicate purge to preserve references.
+func adminRemapMediaReferences(tx *gorm.DB, oldIDs []string, newID string) error {
+	if len(oldIDs) == 0 || newID == "" {
+		return nil
+	}
+
+	// PlaylistItem: re-point then deduplicate
+	if err := tx.Model(&models.PlaylistItem{}).
+		Where("media_id IN ?", oldIDs).
+		Update("media_id", newID).Error; err != nil {
+		return fmt.Errorf("remap PlaylistItem: %w", err)
+	}
+	if err := deduplicatePlaylistItems(tx, newID); err != nil {
+		return fmt.Errorf("deduplicate PlaylistItem: %w", err)
+	}
+
+	// ScheduleEntry (where SourceType="media")
+	if err := tx.Model(&models.ScheduleEntry{}).
+		Where("source_type = ? AND source_id IN ?", "media", oldIDs).
+		Update("source_id", newID).Error; err != nil {
+		return fmt.Errorf("remap ScheduleEntry: %w", err)
+	}
+
+	// MountPlayoutState
+	if err := tx.Model(&models.MountPlayoutState{}).
+		Where("media_id IN ?", oldIDs).
+		Update("media_id", newID).Error; err != nil {
+		return fmt.Errorf("remap MountPlayoutState: %w", err)
+	}
+
+	// PlayHistory
+	if err := tx.Model(&models.PlayHistory{}).
+		Where("media_id IN ?", oldIDs).
+		Update("media_id", newID).Error; err != nil {
+		return fmt.Errorf("remap PlayHistory: %w", err)
+	}
+
+	// UnderwritingObligation (MediaID is *string)
+	if err := tx.Model(&models.UnderwritingObligation{}).
+		Where("media_id IN ?", oldIDs).
+		Update("media_id", newID).Error; err != nil {
+		return fmt.Errorf("remap UnderwritingObligation: %w", err)
+	}
+
+	// ClockSlot: best-effort JSON update for hard_item payload
+	for _, oldID := range oldIDs {
+		tx.Exec(
+			`UPDATE clock_slots SET payload = jsonb_set(payload, '{media_id}', to_jsonb(?::text))
+			 WHERE type = 'hard_item' AND payload->>'media_id' = ?`,
+			newID, oldID,
+		)
+	}
+
+	// WebDJSession: best-effort JSON update for deck states
+	for _, oldID := range oldIDs {
+		tx.Exec(
+			`UPDATE web_dj_sessions SET deck_a_state = jsonb_set(deck_a_state, '{media_id}', to_jsonb(?::text))
+			 WHERE deck_a_state->>'media_id' = ?`,
+			newID, oldID,
+		)
+		tx.Exec(
+			`UPDATE web_dj_sessions SET deck_b_state = jsonb_set(deck_b_state, '{media_id}', to_jsonb(?::text))
+			 WHERE deck_b_state->>'media_id' = ?`,
+			newID, oldID,
+		)
+	}
+
+	return nil
+}
+
+// deduplicatePlaylistItems removes duplicate entries within the same playlist
+// after a media remap (same playlist_id + media_id), keeping the lowest position.
+func deduplicatePlaylistItems(tx *gorm.DB, mediaID string) error {
+	// Find playlists that have duplicates for this media_id.
+	type dupKey struct {
+		PlaylistID string
+	}
+	var dups []dupKey
+	if err := tx.Model(&models.PlaylistItem{}).
+		Select("playlist_id").
+		Where("media_id = ?", mediaID).
+		Group("playlist_id").
+		Having("COUNT(*) > 1").
+		Scan(&dups).Error; err != nil {
+		return err
+	}
+
+	for _, dup := range dups {
+		// Find all items for this playlist+media combination.
+		var items []models.PlaylistItem
+		if err := tx.Where("playlist_id = ? AND media_id = ?", dup.PlaylistID, mediaID).
+			Order("position ASC").
+			Find(&items).Error; err != nil {
+			return err
+		}
+		if len(items) <= 1 {
+			continue
+		}
+		// Delete all except the first (lowest position).
+		deleteIDs := make([]string, 0, len(items)-1)
+		for _, item := range items[1:] {
+			deleteIDs = append(deleteIDs, item.ID)
+		}
+		if err := tx.Where("id IN ?", deleteIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// adminDeleteMediaReferences removes or nullifies all foreign references to the
+// given media IDs. Used when deleting media without a survivor to remap to.
+func adminDeleteMediaReferences(tx *gorm.DB, mediaIDs []string) error {
+	if len(mediaIDs) == 0 {
+		return nil
+	}
+
+	// PlaylistItem: delete
+	if err := tx.Where("media_id IN ?", mediaIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
+		return fmt.Errorf("delete PlaylistItem refs: %w", err)
+	}
+
+	// ScheduleEntry (SourceType="media"): delete
+	if err := tx.Where("source_type = ? AND source_id IN ?", "media", mediaIDs).
+		Delete(&models.ScheduleEntry{}).Error; err != nil {
+		return fmt.Errorf("delete ScheduleEntry refs: %w", err)
+	}
+
+	// MountPlayoutState: clear MediaID
+	if err := tx.Model(&models.MountPlayoutState{}).
+		Where("media_id IN ?", mediaIDs).
+		Update("media_id", "").Error; err != nil {
+		return fmt.Errorf("clear MountPlayoutState.MediaID: %w", err)
+	}
+
+	// PlayHistory: clear MediaID (keep historical row)
+	if err := tx.Model(&models.PlayHistory{}).
+		Where("media_id IN ?", mediaIDs).
+		Update("media_id", "").Error; err != nil {
+		return fmt.Errorf("clear PlayHistory.MediaID: %w", err)
+	}
+
+	// UnderwritingObligation: nullify MediaID
+	if err := tx.Model(&models.UnderwritingObligation{}).
+		Where("media_id IN ?", mediaIDs).
+		Update("media_id", nil).Error; err != nil {
+		return fmt.Errorf("nullify UnderwritingObligation.MediaID: %w", err)
+	}
+
+	// ClockSlot: remove media_id from payload JSON (best-effort)
+	for _, id := range mediaIDs {
+		tx.Exec(
+			`UPDATE clock_slots SET payload = payload - 'media_id'
+			 WHERE type = 'hard_item' AND payload->>'media_id' = ?`, id,
+		)
+	}
+
+	return nil
 }
 
 // AdminMediaStream allows platform admins to preview any media file regardless of station context.

@@ -8,6 +8,7 @@ package smartblock
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -410,5 +411,272 @@ func TestMostRecentMediaIDSkipsEmpty(t *testing.T) {
 
 	if got := mostRecentMediaID(plays); got != "usable" {
 		t.Fatalf("mostRecentMediaID() = %q, want %q", got, "usable")
+	}
+}
+
+// TestGenerate_RelaxesSeparation verifies that when all candidates violate separation
+// rules, the engine relaxes constraints and still produces output.
+func TestGenerate_RelaxesSeparation(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-sep"
+	// Create media items all by the same artist.
+	for i := 0; i < 5; i++ {
+		item := models.MediaItem{
+			ID:            fmt.Sprintf("m-sep-%d", i),
+			StationID:     stationID,
+			Title:         fmt.Sprintf("Song %d", i),
+			Artist:        "Same Artist",
+			Duration:      2 * time.Minute,
+			AnalysisState: models.AnalysisComplete,
+		}
+		if err := db.Create(&item).Error; err != nil {
+			t.Fatalf("create media: %v", err)
+		}
+	}
+
+	// Add recent play for this artist within the separation window.
+	play := models.PlayHistory{
+		ID:        "ph-1",
+		StationID: stationID,
+		MediaID:   "m-sep-0",
+		Artist:    "Same Artist",
+		StartedAt: time.Now().Add(-5 * time.Minute),
+	}
+	if err := db.Create(&play).Error; err != nil {
+		t.Fatalf("create play history: %v", err)
+	}
+
+	// Smart block with aggressive artist separation (2 hours).
+	sb := models.SmartBlock{
+		ID:        "sb-sep",
+		StationID: stationID,
+		Name:      "Separation Test",
+		Rules: map[string]any{
+			"targetMinutes": 10,
+			"separation": map[string]any{
+				"artist": 120, // 120 minutes separation
+			},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smartblock: %v", err)
+	}
+
+	eng := New(db, zerolog.Nop())
+	res, err := eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         42,
+		Duration:     int64(6 * time.Minute / time.Millisecond),
+		StationID:    stationID,
+		MountID:      "mount-1",
+	})
+	if err != nil {
+		t.Fatalf("expected relaxation to succeed, got error: %v", err)
+	}
+	if len(res.Items) == 0 {
+		t.Fatal("expected items after relaxation")
+	}
+
+	// Should have a constraint_relaxed warning.
+	hasRelaxedWarning := false
+	for _, w := range res.Warnings {
+		if len(w) > 20 && w[:20] == "constraint_relaxed:1" || w == "constraint_relaxed:1" {
+			hasRelaxedWarning = true
+		}
+	}
+	if !hasRelaxedWarning {
+		t.Errorf("expected constraint_relaxed warning, got: %v", res.Warnings)
+	}
+}
+
+// TestGenerate_UsesFallbackChain verifies that when the primary smart block has
+// impossible filters, fallback smart blocks are tried.
+func TestGenerate_UsesFallbackChain(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-fb"
+
+	// Create media items in the "Rock" genre only.
+	for i := 0; i < 3; i++ {
+		item := models.MediaItem{
+			ID:            fmt.Sprintf("m-fb-%d", i),
+			StationID:     stationID,
+			Title:         fmt.Sprintf("Rock Song %d", i),
+			Genre:         "Rock",
+			Duration:      3 * time.Minute,
+			AnalysisState: models.AnalysisComplete,
+		}
+		if err := db.Create(&item).Error; err != nil {
+			t.Fatalf("create media: %v", err)
+		}
+	}
+
+	// Fallback block that matches Rock genre.
+	fbBlock := models.SmartBlock{
+		ID:        "sb-fb-fallback",
+		StationID: stationID,
+		Name:      "Fallback Block",
+		Rules: map[string]any{
+			"targetMinutes": 10,
+			"genre":         "Rock",
+		},
+	}
+	if err := db.Create(&fbBlock).Error; err != nil {
+		t.Fatalf("create fallback smartblock: %v", err)
+	}
+
+	// Primary block that filters for non-existent genre, with a fallback.
+	primaryBlock := models.SmartBlock{
+		ID:        "sb-fb-primary",
+		StationID: stationID,
+		Name:      "Primary Block",
+		Rules: map[string]any{
+			"targetMinutes": 10,
+			"genre":         "NonExistentGenre",
+			"fallbacks": []map[string]any{
+				{"smart_block_id": "sb-fb-fallback", "limit": 2},
+			},
+		},
+	}
+	if err := db.Create(&primaryBlock).Error; err != nil {
+		t.Fatalf("create primary smartblock: %v", err)
+	}
+
+	eng := New(db, zerolog.Nop())
+	res, err := eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: primaryBlock.ID,
+		Seed:         42,
+		Duration:     int64(10 * time.Minute / time.Millisecond),
+		StationID:    stationID,
+		MountID:      "mount-1",
+	})
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got error: %v", err)
+	}
+	if len(res.Items) == 0 {
+		t.Fatal("expected items from fallback block")
+	}
+	if len(res.Items) > 2 {
+		t.Errorf("expected at most 2 items due to fallback limit, got %d", len(res.Items))
+	}
+
+	hasFallbackWarning := false
+	for _, w := range res.Warnings {
+		if len(w) > 13 && w[:13] == "used_fallback" {
+			hasFallbackWarning = true
+		}
+	}
+	if !hasFallbackWarning {
+		t.Errorf("expected used_fallback warning, got: %v", res.Warnings)
+	}
+}
+
+// TestGenerate_FallbackSelfReferenceSkipped ensures a fallback pointing to itself
+// does not cause an infinite loop.
+func TestGenerate_FallbackSelfReferenceSkipped(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-self"
+
+	// Block with impossible filters and a self-referencing fallback.
+	sb := models.SmartBlock{
+		ID:        "sb-self",
+		StationID: stationID,
+		Name:      "Self Ref Block",
+		Rules: map[string]any{
+			"targetMinutes": 10,
+			"genre":         "NonExistent",
+			"fallbacks": []map[string]any{
+				{"smart_block_id": "sb-self"},
+			},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smartblock: %v", err)
+	}
+
+	eng := New(db, zerolog.Nop())
+	_, err = eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         42,
+		Duration:     int64(5 * time.Minute / time.Millisecond),
+		StationID:    stationID,
+		MountID:      "mount-1",
+	})
+
+	if err == nil {
+		t.Fatal("expected ErrUnresolved, got nil")
+	}
+	if err != ErrUnresolved {
+		t.Fatalf("expected ErrUnresolved, got: %v", err)
+	}
+}
+
+// TestGenerate_AllExhausted_ReturnsErrUnresolved verifies that when there is zero
+// media available, ErrUnresolved is returned.
+func TestGenerate_AllExhausted_ReturnsErrUnresolved(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-empty"
+
+	sb := models.SmartBlock{
+		ID:        "sb-empty",
+		StationID: stationID,
+		Name:      "Empty Block",
+		Rules: map[string]any{
+			"targetMinutes": 10,
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smartblock: %v", err)
+	}
+
+	eng := New(db, zerolog.Nop())
+	_, err = eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         42,
+		Duration:     int64(5 * time.Minute / time.Millisecond),
+		StationID:    stationID,
+		MountID:      "mount-1",
+	})
+
+	if err == nil {
+		t.Fatal("expected ErrUnresolved, got nil")
+	}
+	if err != ErrUnresolved {
+		t.Fatalf("expected ErrUnresolved, got: %v", err)
 	}
 }
