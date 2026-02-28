@@ -721,7 +721,7 @@ class GlobalPlayer {
         this.webrtcEnabled = this.webrtcCfg.enabled === true;
         this.webrtcFailureCooldownMs = 5 * 60 * 1000;
         this.webrtcFailureUntil = Number(localStorage.getItem('grimnir-webrtc-disabled-until') || '0') || 0;
-        this.liveTransport = localStorage.getItem('grimnir-live-transport') || 'http';
+        this.liveTransport = localStorage.getItem('grimnir-live-transport') || 'webrtc';
         if (!this.webrtcEnabled || Date.now() < this.webrtcFailureUntil) {
             this.liveTransport = 'http';
             localStorage.setItem('grimnir-live-transport', 'http');

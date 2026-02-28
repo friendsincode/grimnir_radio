@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.18.49 — 2026-02-28
+
+### Fix: Station and Transport Dropdown Menus White on Landing Page
+- Added themed styles for `.dropdown-menu`, `.dropdown-item`, and `.dropdown-header` inside the global player on the landing page, using the page's CSS variables.
+
+### Change: Default Streaming Transport to WebRTC
+- New users now default to Low Latency (WebRTC) instead of Standard (HTTP). Existing users who already chose a transport keep their setting via localStorage.
+
+---
+
 ## 1.18.48 — 2026-02-28
 
 ### Fix: Global Player Ignoring Theme on Landing Page
