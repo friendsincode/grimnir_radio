@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.18.41 — 2026-02-28
+
+### Fix: Remove Title Drag-to-Scroll from Global Player
+- Removed mouse/touch drag-to-scroll interaction on the title bar that was interfering with the auto-scroll marquee.
+- Auto-scroll continues to work via `requestAnimationFrame` tick loop.
+- Removed related CSS (grab/grabbing cursors) and unused instance variables.
+
+### Fix: Flaky TestLoginFlow E2E Test
+- Replaced fixed 500ms sleep with a polling loop (up to 5s) that waits for the HTMX redirect to `/dashboard` to complete, fixing intermittent failures under load.
+
+---
+
 ## 1.18.40 — 2026-02-28
 
 ### Fix: Live Stream Secondary Text Shows Station Name Instead of Artist

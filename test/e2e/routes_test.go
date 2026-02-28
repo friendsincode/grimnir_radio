@@ -466,16 +466,27 @@ func TestLoginFlow(t *testing.T) {
 	page.MustElement("input[name=password]").MustInput("testpass123")
 	page.MustElement("button[type=submit]").MustClick()
 
-	// Wait for page to stabilize after form submission
-	time.Sleep(500 * time.Millisecond)
-	page.WaitLoad()
-
-	info, err := page.Info()
-	if err != nil {
-		t.Skipf("failed to get page info: %v", err)
+	// Wait for HTMX redirect to /dashboard (polls URL instead of fixed sleep)
+	deadline := time.Now().Add(5 * time.Second)
+	redirected := false
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		info, err := page.Info()
+		if err != nil {
+			continue
+		}
+		if strings.Contains(info.URL, "/dashboard") {
+			redirected = true
+			break
+		}
 	}
-	if !strings.Contains(info.URL, "/dashboard") {
-		t.Errorf("expected redirect to dashboard, got %s", info.URL)
+	if !redirected {
+		info, _ := page.Info()
+		url := ""
+		if info != nil {
+			url = info.URL
+		}
+		t.Errorf("expected redirect to dashboard, got %s", url)
 	}
 }
 
