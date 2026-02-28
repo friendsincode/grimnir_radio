@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.18.45 — 2026-02-28
+
+### Fix: Player Title Text Too Light
+- Set `#playerTitle` color to `var(--bs-emphasis-color)` (white in dark mode, black in light mode) for stronger contrast.
+- Bumped title separator opacity from 0.55 → 0.7 and secondary text opacity from 0.8 → 0.9.
+
+---
+
 ## 1.18.44 — 2026-02-28
 
 ### Fix: Marquee Snap-Back on Metadata Updates
