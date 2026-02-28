@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.18.38 — 2026-02-28
+
+### Fix: Global Player Marquee Scroll — Proper Inline-Block Measurement (#99)
+- Artist/station name text now uses same inline-block `<span>` wrapper pattern as title for reliable overflow measurement.
+- Fixes the root cause: block-level elements report `scrollWidth == clientWidth` when content overflows with `overflow-x: auto`, preventing auto-scroll from triggering.
+
+### Fix: Station Switcher Missing Non-Public Stations
+- Dashboard global player now fetches stations from an authenticated endpoint (`/dashboard/api/stations`) that includes all stations the user has access to, regardless of public/approved status.
+- Non-admin users see stations they're members of; platform admins see all active stations.
+
+### Feature: Harbor Test Suite (#82)
+- Added 14 new tests for the harbor source receiver covering SOURCE method rewriting, mount resolution (invalid token, mount mismatch, file extension stripping, empty path), metadata update handler validation, and connection lifecycle.
+- Added decoder tests for nil safety, stderr capture, and process cleanup.
+
+---
+
 ## 1.18.37 — 2026-02-28
 
 ### Fix: Global Player Marquee Not Scrolling (#99)
