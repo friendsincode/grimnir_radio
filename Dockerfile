@@ -43,7 +43,6 @@ RUN apk add --no-cache \
     gst-plugins-good \
     gst-plugins-bad \
     gst-plugins-ugly \
-    libshout \
     && addgroup -S grimnir \
     && adduser -S -G grimnir grimnir
 

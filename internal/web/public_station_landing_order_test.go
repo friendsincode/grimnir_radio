@@ -73,8 +73,6 @@ func TestStationLandingOrdersStations_CurrentThenPlatformFirstThenRest(t *testin
 		[]byte("test"),
 		"/tmp",
 		nil,
-		"",
-		"",
 		WebRTCConfig{},
 		HarborConfig{},
 		0,

@@ -31,7 +31,7 @@ echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 
 ### 1. Basic: Just the Binaries (For Nerds)
 
-**Use case:** You know what you're doing. You have PostgreSQL, Redis, and Icecast2 already running. You just want the Grimnir Radio binaries.
+**Use case:** You know what you're doing. You have PostgreSQL and Redis already running. You just want the Grimnir Radio binaries.
 
 #### Install and Run
 
@@ -71,7 +71,6 @@ nix profile install .
 
 - **PostgreSQL**: Database for metadata and schedules
 - **Redis**: Event bus and leader election
-- **Icecast2**: Streaming server (optional, for live output)
 - **Configuration**: Environment variables or config file
 
 **Example configuration:**
@@ -94,7 +93,7 @@ grimnirradio serve
 
 ### 2. Full: Turn-Key Installation (White Glove Treatment)
 
-**Use case:** You want everything installed and configured automatically. PostgreSQL, Redis, Icecast2, Grimnir Radio - all managed by NixOS.
+**Use case:** You want everything installed and configured automatically. PostgreSQL, Redis, Grimnir Radio - all managed by NixOS.
 
 #### Requirements
 
@@ -133,10 +132,6 @@ Edit `/etc/nixos/configuration.nix`:
     enableRedis = true;
     redisUrl = "redis://localhost:6379/0";
 
-    # Icecast (auto-configured)
-    enableIcecast = true;
-    icecastPassword = "CHANGE_ME_IN_PRODUCTION";
-
     # JWT secret (CHANGE THIS!)
     jwtSecret = "your-super-secret-jwt-key-change-this-in-production";
 
@@ -171,7 +166,7 @@ Edit `/etc/nixos/configuration.nix`:
   };
 
   # Open firewall ports
-  networking.firewall.allowedTCPPorts = [ 80 443 8000 8080 ];
+  networking.firewall.allowedTCPPorts = [ 80 443 8080 ];
 }
 ```
 
@@ -186,24 +181,21 @@ systemctl status grimnir-radio
 systemctl status grimnir-mediaengine
 systemctl status postgresql
 systemctl status redis-grimnir
-systemctl status icecast
 ```
 
 #### What Gets Installed
 
 1. **PostgreSQL** - Database with `grimnir` database and user created
 2. **Redis** - Event bus and caching
-3. **Icecast2** - Streaming server on port 8000
-4. **Grimnir Radio Media Engine** - GStreamer-based audio engine
-5. **Grimnir Radio Control Plane** - API and scheduler
-6. **systemd services** - Automatic startup and restart
-7. **User/group** - Dedicated `grimnir` system user
-8. **Firewall rules** - Ports opened automatically
+3. **Grimnir Radio Media Engine** - GStreamer-based audio engine
+4. **Grimnir Radio Control Plane** - API and scheduler
+5. **systemd services** - Automatic startup and restart
+6. **User/group** - Dedicated `grimnir` system user
+7. **Firewall rules** - Ports opened automatically
 
 #### Access Points
 
 - **API**: http://localhost:8080
-- **Icecast**: http://localhost:8000
 - **Logs**: `journalctl -u grimnir-radio -f`
 
 #### Initial Setup
@@ -276,7 +268,6 @@ The development shell provides:
 **Infrastructure:**
 - PostgreSQL (for local DB)
 - Redis (for event bus)
-- Icecast (for streaming)
 - Docker Compose (for containerized stack)
 
 **Kubernetes Tools:**
@@ -509,7 +500,7 @@ sudo -u grimnir psql -h localhost -U grimnir -d grimnir -c "SELECT version();"
 redis-cli ping
 
 # Check if ports are available
-sudo netstat -tlnp | grep -E ':(8080|9091|6379|5432|8000)'
+sudo netstat -tlnp | grep -E ':(8080|9091|6379|5432)'
 ```
 
 ### Permission Denied

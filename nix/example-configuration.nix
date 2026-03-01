@@ -21,8 +21,6 @@
     # Auto-install PostgreSQL, Redis, and Icecast2
     enableDatabase = true;
     enableRedis = true;
-    enableIcecast = true;
-
     # Database configuration (auto-created)
     databaseUrl = "postgres://grimnir:grimnir@localhost:5432/grimnir?sslmode=disable";
 
@@ -32,9 +30,8 @@
     # Media engine gRPC address
     mediaEngineGrpcAddr = "localhost:9091";
 
-    # SECURITY: Change these in production!
+    # SECURITY: Change this in production!
     jwtSecret = "CHANGE_THIS_TO_A_RANDOM_SECRET_IN_PRODUCTION";
-    icecastPassword = "CHANGE_THIS_ICECAST_PASSWORD";
 
     # Media storage
     mediaStoragePath = "/var/lib/grimnir-radio/media";
@@ -81,15 +78,6 @@
       };
     };
 
-    # Icecast reverse proxy (optional)
-    virtualHosts."stream.example.com" = {
-      enableACME = true;
-      forceSSL = true;
-
-      locations."/" = {
-        proxyPass = "http://localhost:8000";
-      };
-    };
   };
 
   # ACME (Let's Encrypt) configuration
@@ -102,7 +90,6 @@
   networking.firewall.allowedTCPPorts = [
     80    # HTTP (for ACME challenge)
     443   # HTTPS (Nginx)
-    8000  # Icecast (if accessing directly)
     # 8080 # Grimnir API (only if not behind Nginx)
   ];
 

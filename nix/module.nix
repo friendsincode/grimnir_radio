@@ -118,18 +118,6 @@ in
       description = "Enable Redis (full installation)";
     };
 
-    enableIcecast = mkOption {
-      type = types.bool;
-      default = true;
-      description = "Enable Icecast2 streaming server (full installation)";
-    };
-
-    icecastPassword = mkOption {
-      type = types.str;
-      default = "hackme";
-      description = "Icecast source password";
-    };
-
     user = mkOption {
       type = types.str;
       default = "grimnir";
@@ -178,22 +166,6 @@ in
       port = 6379;
       bind = "127.0.0.1";
       save = [ [ 900 1 ] [ 300 10 ] [ 60 10000 ] ];
-    };
-
-    # Icecast (if enabled)
-    services.icecast = mkIf cfg.enableIcecast {
-      enable = true;
-      hostname = "localhost";
-      admin.password = cfg.icecastPassword;
-      extraConf = ''
-        <limits>
-          <clients>100</clients>
-          <sources>10</sources>
-        </limits>
-        <authentication>
-          <source-password>${cfg.icecastPassword}</source-password>
-        </authentication>
-      '';
     };
 
     # Media Engine systemd service
@@ -294,9 +266,6 @@ in
     };
 
     # Firewall rules (open ports)
-    networking.firewall.allowedTCPPorts = mkMerge [
-      (mkIf cfg.enableIcecast [ 8000 ])
-      [ cfg.httpPort ]
-    ];
+    networking.firewall.allowedTCPPorts = [ cfg.httpPort ];
   };
 }

@@ -48,8 +48,6 @@ RUN apt-get update && apt-get install -y \
     gstreamer1.0-pulseaudio \
     # Additional codecs and filters
     libgstreamer-plugins-bad1.0-0 \
-    # Icecast client
-    libshout3 \
     # SRT support
     libsrt1.4-gnutls \
     # Analysis tools

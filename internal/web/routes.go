@@ -32,11 +32,6 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(h.RequireSetup)
 
-		// Stream proxy (no auth needed, before other routes)
-		r.Get("/stream/{station}/{mount}", h.StreamProxy)
-		r.Get("/stream/{station}", h.StreamInfo)
-		r.Get("/ws/stream/{station}/{mount}", h.StreamWebSocket)
-
 		// Public routes (with optional auth context)
 		r.Group(func(r chi.Router) {
 			r.Use(h.AuthMiddleware)

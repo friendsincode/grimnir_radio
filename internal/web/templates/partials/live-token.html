@@ -50,20 +50,6 @@
         <small class="text-body-secondary">
             This token is reusable for Harbor live input on mount <strong>{{.MountName}}</strong>.
         </small>
-        {{else if and .IcecastHost .IcecastPort}}
-        {{if .MountName}}
-        <div class="mb-2">
-            <small class="text-body-secondary">Mount:</small>
-            <code>/{{.MountName}}</code>
-        </div>
-        {{end}}
-        <div class="mb-2">
-            <small class="text-body-secondary">Server:</small>
-            <code>{{.IcecastHost}}:{{.IcecastPort}}</code>
-        </div>
-        <small class="text-body-secondary">
-            This token applies to Grimnir Harbor live input. If you are using direct Icecast, use your Icecast source password instead.
-        </small>
         {{end}}
     </div>
 </div>

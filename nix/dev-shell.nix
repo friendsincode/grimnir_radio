@@ -10,7 +10,6 @@
 , gst_all_1
 , postgresql
 , redis
-, icecast
 , docker-compose
 , kubectl
 , k9s
@@ -50,7 +49,6 @@ mkShell {
     # Infrastructure (optional - can run separately)
     postgresql
     redis
-    icecast
 
     # Container & Orchestration tools
     docker-compose

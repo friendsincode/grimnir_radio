@@ -144,90 +144,6 @@ func TestEncoderBuilder_BuildFLAC(t *testing.T) {
 	t.Logf("FLAC pipeline: %s", pipeline)
 }
 
-func TestEncoderBuilder_IcecastOutput(t *testing.T) {
-	config := EncoderConfig{
-		OutputType:  OutputTypeIcecast,
-		OutputURL:   "http://icecast.example.com:8000/stream.mp3",
-		Username:    "source",
-		Password:    "hackme",
-		Mount:       "/stream.mp3",
-		StreamName:  "Test Station",
-		Description: "Test Description",
-		Genre:       "Test Genre",
-		URL:         "https://test.example.com",
-		Format:      AudioFormatMP3,
-		Bitrate:     128,
-		SampleRate:  44100,
-		Channels:    2,
-	}
-
-	builder := NewEncoderBuilder(config)
-	pipeline, err := builder.Build()
-	if err != nil {
-		t.Fatalf("Build() failed: %v", err)
-	}
-
-	// Check for shout2send with Icecast config
-	if !strings.Contains(pipeline, "shout2send") {
-		t.Error("Pipeline missing shout2send")
-	}
-	if !strings.Contains(pipeline, "ip=icecast.example.com") {
-		t.Error("Pipeline missing ip=icecast.example.com")
-	}
-	if !strings.Contains(pipeline, "port=8000") {
-		t.Error("Pipeline missing port=8000")
-	}
-	if !strings.Contains(pipeline, "mount=/stream.mp3") {
-		t.Error("Pipeline missing mount=/stream.mp3")
-	}
-	if !strings.Contains(pipeline, "username=source") {
-		t.Error("Pipeline missing username=source")
-	}
-	if !strings.Contains(pipeline, "password=hackme") {
-		t.Error("Pipeline missing password=hackme")
-	}
-	if !strings.Contains(pipeline, "protocol=http") {
-		t.Error("Pipeline missing protocol=http")
-	}
-	if !strings.Contains(pipeline, `streamname="Test Station"`) {
-		t.Error("Pipeline missing streamname")
-	}
-
-	t.Logf("Icecast pipeline: %s", pipeline)
-}
-
-func TestEncoderBuilder_ShoutcastOutput(t *testing.T) {
-	config := EncoderConfig{
-		OutputType: OutputTypeShoutcast,
-		OutputURL:  "http://shoutcast.example.com:8000",
-		Password:   "hackme",
-		StreamName: "Test Shoutcast",
-		Format:     AudioFormatMP3,
-		Bitrate:    128,
-		SampleRate: 44100,
-		Channels:   2,
-	}
-
-	builder := NewEncoderBuilder(config)
-	pipeline, err := builder.Build()
-	if err != nil {
-		t.Fatalf("Build() failed: %v", err)
-	}
-
-	// Check for shout2send with Shoutcast config
-	if !strings.Contains(pipeline, "shout2send") {
-		t.Error("Pipeline missing shout2send")
-	}
-	if !strings.Contains(pipeline, "protocol=icy") {
-		t.Error("Pipeline missing protocol=icy (Shoutcast)")
-	}
-	if !strings.Contains(pipeline, "password=hackme") {
-		t.Error("Pipeline missing password")
-	}
-
-	t.Logf("Shoutcast pipeline: %s", pipeline)
-}
-
 func TestEncoderBuilder_FileOutput(t *testing.T) {
 	config := EncoderConfig{
 		OutputType: OutputTypeFile,
@@ -335,32 +251,6 @@ func TestEncoderBuilder_ValidateConfig(t *testing.T) {
 			},
 			wantError: true,
 		},
-		{
-			name: "Icecast missing password",
-			config: EncoderConfig{
-				OutputType: OutputTypeIcecast,
-				OutputURL:  "http://icecast.example.com:8000/stream.mp3",
-				Mount:      "/stream.mp3",
-				Format:     AudioFormatMP3,
-				Bitrate:    128,
-				SampleRate: 44100,
-				Channels:   2,
-			},
-			wantError: true,
-		},
-		{
-			name: "Icecast missing mount",
-			config: EncoderConfig{
-				OutputType: OutputTypeIcecast,
-				OutputURL:  "http://icecast.example.com:8000",
-				Password:   "hackme",
-				Format:     AudioFormatMP3,
-				Bitrate:    128,
-				SampleRate: 44100,
-				Channels:   2,
-			},
-			wantError: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -462,9 +352,6 @@ func TestEncoderBuilder_Defaults(t *testing.T) {
 	if builder.config.Channels != 2 {
 		t.Errorf("Default channels = %d, want 2", builder.config.Channels)
 	}
-	if builder.config.Username != "source" {
-		t.Errorf("Default username = %q, want %q", builder.config.Username, "source")
-	}
 }
 
 func TestEncoderBuilder_MonoEncoding(t *testing.T) {
@@ -492,28 +379,13 @@ func TestEncoderBuilder_MonoEncoding(t *testing.T) {
 	t.Logf("Mono pipeline: %s", pipeline)
 }
 
-func TestUpdateMetadata(t *testing.T) {
-	metadata := UpdateMetadata("Test Artist", "Test Song")
-	expected := "Test Artist - Test Song"
-
-	if metadata != expected {
-		t.Errorf("UpdateMetadata() = %q, want %q", metadata, expected)
-	}
-}
-
 func BenchmarkEncoderBuilder_Build(b *testing.B) {
 	config := EncoderConfig{
-		OutputType:  OutputTypeIcecast,
-		OutputURL:   "http://icecast.example.com:8000/stream.mp3",
-		Username:    "source",
-		Password:    "hackme",
-		Mount:       "/stream.mp3",
-		StreamName:  "Benchmark Station",
-		Description: "Benchmark Test",
-		Format:      AudioFormatMP3,
-		Bitrate:     192,
-		SampleRate:  44100,
-		Channels:    2,
+		OutputType: OutputTypeTest,
+		Format:     AudioFormatMP3,
+		Bitrate:    192,
+		SampleRate: 44100,
+		Channels:   2,
 	}
 
 	b.ResetTimer()

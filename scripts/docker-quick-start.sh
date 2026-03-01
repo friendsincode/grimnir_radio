@@ -24,7 +24,6 @@
 #   - postgres:5432     (PostgreSQL database)
 #   - redis:6379        (Redis for events/leader election)
 #   - mediaengine:9091  (Media Engine gRPC)
-#   - icecast:8000      (Icecast streaming server)
 
 set -e
 
@@ -51,7 +50,6 @@ OVERRIDE_FILE=""
 DEFAULT_HTTP_PORT=8080
 DEFAULT_METRICS_PORT=9000
 DEFAULT_GRPC_PORT=9091
-DEFAULT_ICECAST_PORT=8000
 DEFAULT_POSTGRES_PORT=5432
 DEFAULT_REDIS_PORT=6379
 
@@ -62,8 +60,6 @@ declare -a REQUIRED_CONFIG=(
     "POSTGRES_PASSWORD||PostgreSQL password|password"
     "REDIS_PASSWORD||Redis password|password"
     "JWT_SIGNING_KEY||JWT signing key for authentication|password"
-    "ICECAST_ADMIN_PASSWORD||Icecast admin password|password"
-    "ICECAST_SOURCE_PASSWORD||Icecast source password|password"
 
     # Database - assumes grimnir-network
     "GRIMNIR_DB_BACKEND|postgres|Database backend (postgres/mysql/sqlite)|text"
@@ -76,9 +72,6 @@ declare -a REQUIRED_CONFIG=(
     # Media Engine - assumes grimnir-network
     "GRIMNIR_MEDIA_ENGINE_GRPC_ADDR|mediaengine:9091|Media Engine gRPC address|text"
 
-    # Icecast - assumes grimnir-network
-    "GRIMNIR_ICECAST_URL|http://icecast:8000|Internal Icecast URL|text"
-
     # Media storage
     "GRIMNIR_MEDIA_ROOT|/var/lib/grimnir/media|Media files root path|text"
     "GRIMNIR_MEDIA_BACKEND|filesystem|Media storage backend (filesystem/s3)|text"
@@ -90,13 +83,6 @@ declare -a REQUIRED_CONFIG=(
     # Environment
     "ENVIRONMENT|production|Environment (development/staging/production)|text"
     "LOG_LEVEL|info|Log level (debug/info/warn/error)|text"
-
-    # Icecast settings
-    "ICECAST_ADMIN_USERNAME|admin|Icecast admin username|text"
-    "ICECAST_HOSTNAME|localhost|Icecast hostname|text"
-    "ICECAST_LOCATION|Earth|Icecast location|text"
-    "ICECAST_MAX_CLIENTS|100|Maximum Icecast clients|text"
-    "ICECAST_MAX_SOURCES|10|Maximum Icecast sources|text"
 
     # Optional but recommended
     "LEADER_ELECTION_ENABLED|false|Enable multi-instance leader election|bool"
@@ -554,8 +540,6 @@ verify_docker_network_config() {
     local media_engine_addr=$(get_env_value "GRIMNIR_MEDIA_ENGINE_GRPC_ADDR" "$env_file")
     local redis_addr=$(get_env_value "GRIMNIR_REDIS_ADDR" "$env_file")
     local db_dsn=$(get_env_value "GRIMNIR_DB_DSN" "$env_file")
-    local icecast_url=$(get_env_value "GRIMNIR_ICECAST_URL" "$env_file")
-
     # Check Media Engine address
     if is_value_set "$media_engine_addr"; then
         if [[ "$media_engine_addr" == "localhost"* ]] || [[ "$media_engine_addr" == "127.0.0.1"* ]]; then
@@ -580,15 +564,6 @@ verify_docker_network_config() {
             issues+=("GRIMNIR_DB_DSN uses localhost - should use 'host=postgres' for Docker network")
         elif [[ "$db_dsn" == *"host=postgres"* ]]; then
             print_success "Database: Using Docker network hostname"
-        fi
-    fi
-
-    # Check Icecast URL
-    if is_value_set "$icecast_url"; then
-        if [[ "$icecast_url" == *"localhost"* ]] || [[ "$icecast_url" == *"127.0.0.1"* ]]; then
-            issues+=("GRIMNIR_ICECAST_URL uses localhost - should be 'http://icecast:8000' for Docker network")
-        elif [[ "$icecast_url" == *"icecast:"* ]]; then
-            print_success "Icecast: Using Docker network hostname"
         fi
     fi
 
@@ -638,12 +613,6 @@ fix_docker_network_config() {
             local new_dsn="host=postgres port=5432 user=grimnir password=${postgres_password} dbname=grimnir sslmode=disable"
             sed -i "s|^GRIMNIR_DB_DSN=.*|GRIMNIR_DB_DSN=${new_dsn}|" "$env_file"
         fi
-    fi
-
-    # Fix Icecast URL
-    if grep -q "^GRIMNIR_ICECAST_URL=" "$env_file"; then
-        sed -i 's|^GRIMNIR_ICECAST_URL=.*localhost.*|GRIMNIR_ICECAST_URL=http://icecast:8000|' "$env_file"
-        sed -i 's|^GRIMNIR_ICECAST_URL=.*127\.0\.0\.1.*|GRIMNIR_ICECAST_URL=http://icecast:8000|' "$env_file"
     fi
 
     print_success "Fixed Docker network configuration"
@@ -704,7 +673,7 @@ configure_deploy_dir() {
 
     # Data directory
     print_info "Where should application data be stored?"
-    print_info "  (media-data/, postgres-data/, redis-data/, icecast-logs/)"
+    print_info "  (media-data/, postgres-data/, redis-data/)"
     print_info "  This can be a separate mount point (e.g., NFS)"
     echo ""
 
@@ -813,7 +782,6 @@ DATA_DIR="$DATA_DIR"
 HTTP_PORT=$HTTP_PORT
 METRICS_PORT=$METRICS_PORT
 GRPC_PORT=$GRPC_PORT
-ICECAST_PORT=$ICECAST_PORT
 POSTGRES_PORT=$POSTGRES_PORT
 REDIS_PORT=$REDIS_PORT
 
@@ -821,7 +789,6 @@ REDIS_PORT=$REDIS_PORT
 MEDIA_STORAGE_PATH="$MEDIA_STORAGE_PATH"
 POSTGRES_DATA_PATH="$POSTGRES_DATA_PATH"
 REDIS_DATA_PATH="$REDIS_DATA_PATH"
-ICECAST_LOGS_PATH="$ICECAST_LOGS_PATH"
 
 # Database configuration
 USE_EXTERNAL_POSTGRES=$USE_EXTERNAL_POSTGRES
@@ -843,8 +810,6 @@ INSTANCE_COUNT=$INSTANCE_COUNT
 POSTGRES_PASSWORD="$POSTGRES_PASSWORD"
 REDIS_PASSWORD="$REDIS_PASSWORD"
 JWT_SIGNING_KEY="$JWT_SIGNING_KEY"
-ICECAST_ADMIN_PASSWORD="$ICECAST_ADMIN_PASSWORD"
-ICECAST_SOURCE_PASSWORD="$ICECAST_SOURCE_PASSWORD"
 EOF
 
     chmod 600 "$CONFIG_FILE"
@@ -894,7 +859,6 @@ configure_quick_mode() {
     HTTP_PORT=$(suggest_port $DEFAULT_HTTP_PORT "HTTP API")
     METRICS_PORT=$(suggest_port $DEFAULT_METRICS_PORT "Prometheus metrics")
     GRPC_PORT=$(suggest_port $DEFAULT_GRPC_PORT "Media Engine gRPC")
-    ICECAST_PORT=$(suggest_port $DEFAULT_ICECAST_PORT "Icecast streaming")
     POSTGRES_PORT=$(suggest_port $DEFAULT_POSTGRES_PORT "PostgreSQL")
     REDIS_PORT=$(suggest_port $DEFAULT_REDIS_PORT "Redis")
 
@@ -903,14 +867,12 @@ configure_quick_mode() {
     print_info "  HTTP API:      $HTTP_PORT"
     print_info "  Metrics:       $METRICS_PORT"
     print_info "  Media Engine:  $GRPC_PORT"
-    print_info "  Icecast:       $ICECAST_PORT"
     print_info "  PostgreSQL:    $POSTGRES_PORT"
     print_info "  Redis:         $REDIS_PORT"
 
     MEDIA_STORAGE_PATH="$DATA_DIR/media-data"
     POSTGRES_DATA_PATH="$DATA_DIR/postgres-data"
     REDIS_DATA_PATH="$DATA_DIR/redis-data"
-    ICECAST_LOGS_PATH="$DATA_DIR/icecast-logs"
 
     USE_EXTERNAL_POSTGRES=false
     USE_EXTERNAL_REDIS=false
@@ -1061,24 +1023,6 @@ configure_ports() {
         fi
     done
 
-    # Icecast streaming port
-    local suggested_icecast=$(suggest_port $DEFAULT_ICECAST_PORT "Icecast streaming")
-    while true; do
-        prompt "Icecast streaming port" "$suggested_icecast" "ICECAST_PORT"
-        if validate_port "$ICECAST_PORT"; then
-            if check_port "$ICECAST_PORT" "Icecast"; then
-                break
-            else
-                suggested_icecast=$(find_available_port $ICECAST_PORT)
-                if [ -n "$suggested_icecast" ]; then
-                    print_info "Try port: $suggested_icecast"
-                fi
-            fi
-        else
-            print_error "Invalid port number (must be 1-65535)"
-        fi
-    done
-
     # PostgreSQL port (if using local database)
     if ! $USE_EXTERNAL_POSTGRES; then
         local suggested_postgres=$(suggest_port $DEFAULT_POSTGRES_PORT "PostgreSQL")
@@ -1130,7 +1074,6 @@ configure_volumes() {
     prompt "Media storage path" "$DATA_DIR/media-data" "MEDIA_STORAGE_PATH"
     prompt "PostgreSQL data path" "$DATA_DIR/postgres-data" "POSTGRES_DATA_PATH"
     prompt "Redis data path" "$DATA_DIR/redis-data" "REDIS_DATA_PATH"
-    prompt "Icecast logs path" "$DATA_DIR/icecast-logs" "ICECAST_LOGS_PATH"
 }
 
 # Configure production volumes
@@ -1147,12 +1090,6 @@ configure_production_volumes() {
         fi
     done
 
-    while true; do
-        prompt "Icecast logs path" "$DATA_DIR/icecast-logs" "ICECAST_LOGS_PATH"
-        if check_path "$ICECAST_LOGS_PATH" "Icecast logs path"; then
-            break
-        fi
-    done
 }
 
 # Configure PostgreSQL volume
@@ -1237,16 +1174,6 @@ generate_passwords() {
         JWT_SIGNING_KEY=$(generate_password)
         print_success "Generated JWT signing key"
     fi
-
-    if [ -z "$ICECAST_ADMIN_PASSWORD" ]; then
-        ICECAST_ADMIN_PASSWORD=$(generate_password)
-        print_success "Generated Icecast admin password"
-    fi
-
-    if [ -z "$ICECAST_SOURCE_PASSWORD" ]; then
-        ICECAST_SOURCE_PASSWORD=$(generate_password)
-        print_success "Generated Icecast source password"
-    fi
 }
 
 # Create .env file
@@ -1265,7 +1192,6 @@ LOG_LEVEL=info
 # Ports
 GRIMNIR_HTTP_PORT=$HTTP_PORT
 GRIMNIR_METRICS_PORT=$METRICS_PORT
-ICECAST_PORT=$ICECAST_PORT
 
 # Database
 EOF
@@ -1314,17 +1240,6 @@ GRIMNIR_JWT_TTL_MINUTES=15
 # Media Storage
 GRIMNIR_MEDIA_BACKEND=filesystem
 GRIMNIR_MEDIA_ROOT=/var/lib/grimnir/media
-
-# Icecast
-ICECAST_ADMIN_USERNAME=admin
-ICECAST_ADMIN_PASSWORD=$ICECAST_ADMIN_PASSWORD
-ICECAST_SOURCE_PASSWORD=$ICECAST_SOURCE_PASSWORD
-ICECAST_RELAY_PASSWORD=$ICECAST_SOURCE_PASSWORD
-ICECAST_HOSTNAME=localhost
-ICECAST_LOCATION=Earth
-ICECAST_ADMIN_EMAIL=admin@localhost
-ICECAST_MAX_CLIENTS=100
-ICECAST_MAX_SOURCES=10
 
 # Scheduler
 GRIMNIR_SCHEDULER_LOOKAHEAD=48h
@@ -1407,12 +1322,6 @@ EOF
   mediaengine:
     ports:
       - "$GRPC_PORT:9091"
-
-  icecast:
-    ports:
-      - "$ICECAST_PORT:8000"
-    volumes:
-      - $ICECAST_LOGS_PATH:/var/log/icecast2
 EOF
 
     if [ "$ENABLE_MULTI_INSTANCE" = true ]; then
@@ -1832,14 +1741,12 @@ display_summary() {
     local ports_changed=false
     if [ "$HTTP_PORT" != "$DEFAULT_HTTP_PORT" ] || \
        [ "$METRICS_PORT" != "$DEFAULT_METRICS_PORT" ] || \
-       [ "$GRPC_PORT" != "$DEFAULT_GRPC_PORT" ] || \
-       [ "$ICECAST_PORT" != "$DEFAULT_ICECAST_PORT" ]; then
+       [ "$GRPC_PORT" != "$DEFAULT_GRPC_PORT" ]; then
         ports_changed=true
         echo -e "${YELLOW}NOTE: Some ports were changed from defaults due to conflicts:${NC}"
         [ "$HTTP_PORT" != "$DEFAULT_HTTP_PORT" ] && echo -e "  HTTP API: $DEFAULT_HTTP_PORT → $HTTP_PORT"
         [ "$METRICS_PORT" != "$DEFAULT_METRICS_PORT" ] && echo -e "  Metrics: $DEFAULT_METRICS_PORT → $METRICS_PORT"
         [ "$GRPC_PORT" != "$DEFAULT_GRPC_PORT" ] && echo -e "  gRPC: $DEFAULT_GRPC_PORT → $GRPC_PORT"
-        [ "$ICECAST_PORT" != "$DEFAULT_ICECAST_PORT" ] && echo -e "  Icecast: $DEFAULT_ICECAST_PORT → $ICECAST_PORT"
         if [ "$USE_EXTERNAL_POSTGRES" = false ]; then
             [ "$POSTGRES_PORT" != "$DEFAULT_POSTGRES_PORT" ] && echo -e "  PostgreSQL: $DEFAULT_POSTGRES_PORT → $POSTGRES_PORT"
         fi
@@ -1852,8 +1759,6 @@ display_summary() {
     echo -e "${CYAN}Service URLs:${NC}"
     echo -e "  API:           http://localhost:$HTTP_PORT"
     echo -e "  Metrics:       http://localhost:$METRICS_PORT/metrics"
-    echo -e "  Icecast:       http://localhost:$ICECAST_PORT"
-    echo -e "  Icecast Admin: http://localhost:$ICECAST_PORT/admin"
     echo ""
 
     if [ "$ENABLE_MULTI_INSTANCE" = true ]; then
@@ -1865,10 +1770,6 @@ display_summary() {
         echo ""
     fi
 
-    echo -e "${CYAN}Credentials:${NC}"
-    echo -e "  Icecast Admin: admin / ${ICECAST_ADMIN_PASSWORD}"
-    echo ""
-
     echo -e "${CYAN}Storage Locations:${NC}"
     echo -e "  Media:         $MEDIA_STORAGE_PATH"
     if [ "$USE_EXTERNAL_POSTGRES" = false ]; then
@@ -1877,7 +1778,6 @@ display_summary() {
     if [ "$USE_EXTERNAL_REDIS" = false ]; then
         echo -e "  Redis:         $REDIS_DATA_PATH"
     fi
-    echo -e "  Icecast Logs:  $ICECAST_LOGS_PATH"
     echo ""
 
     echo -e "${CYAN}Configuration Files:${NC}"
@@ -2018,7 +1918,7 @@ show_help() {
     echo "  $0 --stop             # Stop all services"
     echo ""
     echo "The script assumes services communicate over the 'grimnir-network'"
-    echo "Docker network using service hostnames (postgres, redis, mediaengine, icecast)."
+    echo "Docker network using service hostnames (postgres, redis, mediaengine)."
     echo ""
 }
 
@@ -2073,8 +1973,6 @@ main() {
                     HTTP_PORT=${HTTP_PORT:-8080}
                     METRICS_PORT=${METRICS_PORT:-9000}
                     GRPC_PORT=${GRPC_PORT:-9091}
-                    ICECAST_PORT=$(get_env_value "ICECAST_PORT" "$ENV_FILE")
-                    ICECAST_PORT=${ICECAST_PORT:-8000}
                     POSTGRES_PORT=${POSTGRES_PORT:-5432}
                     REDIS_PORT=${REDIS_PORT:-6379}
 
@@ -2082,7 +1980,6 @@ main() {
                     MEDIA_STORAGE_PATH="${DATA_DIR:-$DEPLOY_DIR}/media-data"
                     POSTGRES_DATA_PATH="${DATA_DIR:-$DEPLOY_DIR}/postgres-data"
                     REDIS_DATA_PATH="${DATA_DIR:-$DEPLOY_DIR}/redis-data"
-                    ICECAST_LOGS_PATH="${DATA_DIR:-$DEPLOY_DIR}/icecast-logs"
 
                     USE_EXTERNAL_POSTGRES=false
                     USE_EXTERNAL_REDIS=false

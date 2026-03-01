@@ -147,11 +147,6 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Skip timeout for audio stream proxy (long-running connections)
-			if len(r.URL.Path) >= 8 && r.URL.Path[:8] == "/stream/" {
-				next.ServeHTTP(w, r)
-				return
-			}
 			// Skip timeout for broadcast streams (long-running connections)
 			if len(r.URL.Path) >= 6 && r.URL.Path[:6] == "/live/" {
 				next.ServeHTTP(w, r)
@@ -459,8 +454,6 @@ func (s *Server) initDependencies() error {
 		[]byte(s.cfg.JWTSigningKey),
 		s.cfg.MediaRoot,
 		mediaService,
-		s.cfg.IcecastURL,
-		s.cfg.IcecastPublicURL,
 		webrtcCfg,
 		harborCfg,
 		s.cfg.MaxUploadSizeBytes(),
