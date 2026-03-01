@@ -191,10 +191,6 @@ func outputConfigFromGraph(graph *pb.DSPGraph) *EncoderConfig {
 	}
 
 	switch strings.ToLower(strings.TrimSpace(params["output_type"])) {
-	case "icecast":
-		cfg.OutputType = OutputTypeIcecast
-	case "shoutcast":
-		cfg.OutputType = OutputTypeShoutcast
 	case "http":
 		cfg.OutputType = OutputTypeHTTP
 	case "file":
@@ -231,10 +227,6 @@ func outputConfigFromGraph(graph *pb.DSPGraph) *EncoderConfig {
 	}
 
 	cfg.OutputURL = strings.TrimSpace(params["output_url"])
-	cfg.Mount = strings.TrimSpace(params["mount"])
-	cfg.Username = strings.TrimSpace(params["username"])
-	cfg.Password = strings.TrimSpace(params["password"])
-	cfg.StreamName = strings.TrimSpace(params["stream_name"])
 	if cfg.OutputURL == "" {
 		cfg.OutputURL = strings.TrimSpace(params["file_path"])
 	}

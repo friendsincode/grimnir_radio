@@ -35,14 +35,12 @@ The script will:
 1. ✓ Check Docker and Docker Compose are installed
 2. ✓ Create `.env` file with secure random passwords
 3. ✓ Build Docker images
-4. ✓ Start all services (API, Media Engine, PostgreSQL, Redis, Icecast2)
+4. ✓ Start all services (API, Media Engine, PostgreSQL, Redis)
 5. ✓ Display access URLs and credentials
 
 **Default URLs:**
 - API: http://localhost:8080
 - Metrics: http://localhost:9000/metrics
-- Icecast2: http://localhost:8000
-- Icecast Admin: http://localhost:8000/admin
 
 ---
 
@@ -71,7 +69,6 @@ Ensure these ports are available:
 - **8080** - Grimnir Radio HTTP API
 - **9000** - Prometheus metrics
 - **9091** - Media Engine gRPC
-- **8000** - Icecast2 streaming server
 - **5432** - PostgreSQL database
 - **6379** - Redis
 
@@ -88,7 +85,6 @@ Full production-ready deployment with all dependencies included.
 - ✓ Media Engine (GStreamer)
 - ✓ PostgreSQL database
 - ✓ Redis (event bus & leader election)
-- ✓ Icecast2 streaming server
 - ✓ Health checks on all services
 - ✓ Auto-generated secure passwords
 - ✓ Persistent data volumes
@@ -202,17 +198,6 @@ JWT_SIGNING_KEY=your-random-secret-change-in-production
 GRIMNIR_JWT_TTL_MINUTES=15
 ```
 
-#### Icecast2
-
-```bash
-ICECAST_ADMIN_USERNAME=admin
-ICECAST_ADMIN_PASSWORD=secure-password
-ICECAST_SOURCE_PASSWORD=source-password
-ICECAST_PORT=8000
-ICECAST_MAX_CLIENTS=100
-ICECAST_MAX_SOURCES=10
-```
-
 #### Media Storage
 
 ```bash
@@ -289,14 +274,14 @@ services:
 │        Grimnir Radio Control Plane          │
 │         (HTTP API, Scheduler)               │
 │              Port: 8080, 9000               │
-└──┬─────────┬─────────┬───────────┬──────────┘
-   │         │         │           │
-   ▼         ▼         ▼           ▼
-┌──────┐ ┌────────┐ ┌──────┐ ┌──────────┐
-│ DB   │ │ Redis  │ │Media │ │ Icecast2 │
-│(PG)  │ │        │ │Engine│ │          │
-│:5432 │ │ :6379  │ │:9091 │ │  :8000   │
-└──────┘ └────────┘ └──────┘ └──────────┘
+└──┬─────────┬─────────┬──────────────────────┘
+   │         │         │
+   ▼         ▼         ▼
+┌──────┐ ┌────────┐ ┌──────┐
+│ DB   │ │ Redis  │ │Media │
+│(PG)  │ │        │ │Engine│
+│:5432 │ │ :6379  │ │:9091 │
+└──────┘ └────────┘ └──────┘
 ```
 
 ### Service Details
@@ -341,16 +326,6 @@ services:
 **Purpose:** Event bus, leader election, session storage
 
 **Volume:** `redis-data` (persistent with AOF)
-
-#### 5. Icecast2
-
-**Container:** `grimnir-icecast`
-**Ports:** 8000
-**Purpose:** HTTP streaming server for audio broadcast
-
-**Volume:** `icecast-logs` (logs)
-
-**Admin URL:** http://localhost:8000/admin
 
 ---
 
@@ -595,7 +570,6 @@ docker-compose logs -f
 # View specific service logs
 docker-compose logs -f grimnir
 docker-compose logs -f mediaengine
-docker-compose logs -f icecast
 
 # Check health
 docker-compose exec grimnir curl -f http://localhost:8080/healthz
@@ -643,27 +617,7 @@ docker-compose exec grimnir nc -zv mediaengine 9091
 docker-compose logs mediaengine
 ```
 
-#### 3. Icecast Not Accessible
-
-**Error:** `connection refused on port 8000`
-
-**Solution:**
-
-```bash
-# Check icecast is running
-docker-compose ps icecast
-
-# Check port binding
-docker-compose port icecast 8000
-
-# Test connection
-curl -I http://localhost:8000/status.xsl
-
-# Check logs
-docker-compose logs icecast
-```
-
-#### 4. Port Already in Use
+#### 3. Port Already in Use
 
 **Error:** `bind: address already in use`
 
@@ -677,7 +631,7 @@ netstat -tlnp | grep 8080
 # Kill the process or change port in docker-compose.override.yml
 ```
 
-#### 5. Permission Denied on Volumes
+#### 4. Permission Denied on Volumes
 
 **Error:** `permission denied` when accessing volumes
 
@@ -789,7 +743,6 @@ Before deploying to production:
 - [ ] Test disaster recovery procedure
 - [ ] Document runbooks for common issues
 - [ ] Enable multi-instance deployment for HA
-- [ ] Configure CDN for Icecast streams (optional)
 - [ ] Set up automated updates (Watchtower)
 
 ---

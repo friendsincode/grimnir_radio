@@ -70,8 +70,6 @@ type Handler struct {
 	jwtSecret        []byte
 	mediaRoot        string                        // Root directory for media files
 	mediaService     *media.Service                // Media storage service
-	icecastURL       string                        // Internal Icecast URL for stream proxy
-	icecastPublicURL string                        // Public Icecast URL for browser playback
 	templates        map[string]*template.Template // Each page gets its own template set
 	partials         *template.Template            // Shared partials
 	updateChecker    *version.Checker              // Checks for new versions
@@ -148,7 +146,7 @@ type HarborConfig struct {
 }
 
 // NewHandler creates a new web handler.
-func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, icecastURL string, icecastPublicURL string, webrtcCfg WebRTCConfig, harborCfg HarborConfig, maxUploadBytes int64, eventBus *events.Bus, director *playout.Director, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *media.Service, webrtcCfg WebRTCConfig, harborCfg HarborConfig, maxUploadBytes int64, eventBus *events.Bus, director *playout.Director, logger zerolog.Logger) (*Handler, error) {
 	// Create migration service
 	migrationService := migration.NewService(db, eventBus, logger)
 
@@ -167,8 +165,6 @@ func NewHandler(db *gorm.DB, jwtSecret []byte, mediaRoot string, mediaService *m
 		jwtSecret:          jwtSecret,
 		mediaRoot:          mediaRoot,
 		mediaService:       mediaService,
-		icecastURL:         icecastURL,
-		icecastPublicURL:   icecastPublicURL,
 		updateChecker:      version.NewChecker(logger),
 		migrationService:   migrationService,
 		eventBus:           eventBus,

@@ -34,27 +34,10 @@ func TestLoadReportsLegacyEnvWarnings(t *testing.T) {
 	}
 }
 
-func TestLoadProductionRequiresNonDefaultIcecastSourcePassword(t *testing.T) {
-	t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
-	t.Setenv("GRIMNIR_JWT_SIGNING_KEY", "supersecret")
-	t.Setenv("GRIMNIR_ENV", "production")
-	t.Setenv("GRIMNIR_ICECAST_SOURCE_PASSWORD", "")
-
-	if _, err := Load(); err == nil {
-		t.Fatal("expected production config load to fail when source password is missing")
-	}
-
-	t.Setenv("GRIMNIR_ICECAST_SOURCE_PASSWORD", "hackme")
-	if _, err := Load(); err == nil {
-		t.Fatal("expected production config load to fail when source password is default")
-	}
-}
-
 func TestLoadProductionRequiresTurnCredentialsWhenTurnEnabled(t *testing.T) {
 	t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
 	t.Setenv("GRIMNIR_JWT_SIGNING_KEY", "supersecret")
 	t.Setenv("GRIMNIR_ENV", "production")
-	t.Setenv("GRIMNIR_ICECAST_SOURCE_PASSWORD", "not-default")
 	t.Setenv("GRIMNIR_WEBRTC_TURN_URL", "turn:turn.example.com:3478")
 	t.Setenv("GRIMNIR_WEBRTC_TURN_USERNAME", "")
 	t.Setenv("GRIMNIR_WEBRTC_TURN_PASSWORD", "")

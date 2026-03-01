@@ -31,10 +31,6 @@ services:
     ports:
       - "9091:9091"  # gRPC
 
-  icecast:
-    ports:
-      - "8000:8000"  # Icecast streaming
-
   # =============================================================================
   # EXAMPLE: Change HTTP API port from 8080 to 3000
   # =============================================================================
@@ -81,20 +77,6 @@ services:
   # postgres:
   #   profiles:
   #     - disabled
-
-  # =============================================================================
-  # EXAMPLE: Change Icecast port from 8000 to 8080
-  # =============================================================================
-  # icecast:
-  #   ports:
-  #     - "8080:8000"
-
-  # =============================================================================
-  # EXAMPLE: Add custom Icecast configuration file
-  # =============================================================================
-  # icecast:
-  #   volumes:
-  #     - ./icecast.xml:/etc/icecast2/icecast.xml:ro
 
   # =============================================================================
   # EXAMPLE: Run multiple Grimnir instances with leader election
@@ -197,7 +179,6 @@ services:
   #     - grimnir-network
   #   depends_on:
   #     - grimnir
-  #     - icecast
 
 # =============================================================================
 # EXAMPLE: Add custom volumes

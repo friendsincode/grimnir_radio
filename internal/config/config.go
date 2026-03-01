@@ -60,11 +60,6 @@ type Config struct {
 	RedisDB               int
 	InstanceID            string
 
-	// Icecast configuration
-	IcecastURL            string // Internal URL for stream proxy (e.g., http://icecast:8000)
-	IcecastPublicURL      string // Public URL for direct access (e.g., http://radio.example.com:8000)
-	IcecastSourcePassword string // Source password for connecting to Icecast
-
 	// WebRTC configuration
 	WebRTCEnabled      bool   // Enable WebRTC audio streaming
 	WebRTCRTPPort      int    // UDP port for RTP audio input (default: 5004)
@@ -126,11 +121,6 @@ func Load() (*Config, error) {
 		RedisDB:               getEnvIntAny([]string{"GRIMNIR_REDIS_DB", "RLM_REDIS_DB"}, 0),
 		InstanceID:            getEnvAny([]string{"GRIMNIR_INSTANCE_ID", "RLM_INSTANCE_ID"}, ""),
 
-		// Icecast configuration
-		IcecastURL:            getEnvAny([]string{"GRIMNIR_ICECAST_URL", "ICECAST_URL"}, "http://icecast:8000"),
-		IcecastPublicURL:      getEnvAny([]string{"GRIMNIR_ICECAST_PUBLIC_URL", "ICECAST_PUBLIC_URL"}, ""),
-		IcecastSourcePassword: getEnvAny([]string{"GRIMNIR_ICECAST_SOURCE_PASSWORD", "ICECAST_SOURCE_PASSWORD"}, ""),
-
 		// WebRTC configuration (enabled by default for low-latency streaming)
 		WebRTCEnabled: getEnvBoolAny([]string{"GRIMNIR_WEBRTC_ENABLED", "WEBRTC_ENABLED"}, true),
 		WebRTCRTPPort: getEnvIntAny([]string{"GRIMNIR_WEBRTC_RTP_PORT", "WEBRTC_RTP_PORT"}, 5004),
@@ -167,10 +157,6 @@ func Load() (*Config, error) {
 	}
 
 	if strings.EqualFold(cfg.Environment, "production") {
-		if cfg.IcecastSourcePassword == "" || strings.EqualFold(cfg.IcecastSourcePassword, "hackme") {
-			return nil, fmt.Errorf("GRIMNIR_ICECAST_SOURCE_PASSWORD or ICECAST_SOURCE_PASSWORD must be set to a non-default value in production")
-		}
-
 		if cfg.WebRTCTURNURL != "" && (cfg.WebRTCTURNUsername == "" || cfg.WebRTCTURNPassword == "") {
 			return nil, fmt.Errorf("GRIMNIR_WEBRTC_TURN_USERNAME and GRIMNIR_WEBRTC_TURN_PASSWORD are required when TURN is enabled in production")
 		}

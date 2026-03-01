@@ -8,24 +8,14 @@ package mediaengine
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 )
 
 // EncoderConfig contains configuration for audio encoding and output
 type EncoderConfig struct {
 	// Output settings
-	OutputType OutputType // icecast, shoutcast, http, file, test
-	OutputURL  string     // Full URL for streaming (e.g., http://icecast:8000/stream.mp3)
-
-	// Icecast/Shoutcast settings
-	Username    string // Usually "source" for Icecast
-	Password    string
-	Mount       string // Mount point (e.g., "/stream.mp3")
-	StreamName  string // Station name
-	Description string
-	Genre       string
-	URL         string // Station URL
+	OutputType OutputType // http, file, test, stdout, rtp
+	OutputURL  string     // Full URL for streaming or file path
 
 	// Encoder settings
 	Format     AudioFormat // mp3, aac, opus, vorbis, flac
@@ -47,13 +37,11 @@ type EncoderConfig struct {
 type OutputType string
 
 const (
-	OutputTypeIcecast   OutputType = "icecast"   // Icecast2 server
-	OutputTypeShoutcast OutputType = "shoutcast" // Shoutcast server
-	OutputTypeHTTP      OutputType = "http"      // Generic HTTP PUT/POST
-	OutputTypeFile      OutputType = "file"      // File output
-	OutputTypeTest      OutputType = "test"      // Test sink (no actual output)
-	OutputTypeStdout    OutputType = "stdout"    // Output to stdout for Go broadcast server
-	OutputTypeRTP       OutputType = "rtp"       // RTP/UDP output for WebRTC broadcaster
+	OutputTypeHTTP   OutputType = "http"   // Generic HTTP PUT/POST
+	OutputTypeFile   OutputType = "file"   // File output
+	OutputTypeTest   OutputType = "test"   // Test sink (no actual output)
+	OutputTypeStdout OutputType = "stdout" // Output to stdout for Go broadcast server
+	OutputTypeRTP    OutputType = "rtp"    // RTP/UDP output for WebRTC broadcaster
 )
 
 // AudioFormat represents supported audio encoding formats
@@ -84,16 +72,6 @@ func NewEncoderBuilder(config EncoderConfig) *EncoderBuilder {
 	if config.Channels == 0 {
 		config.Channels = 2 // Default to stereo
 	}
-	if config.Username == "" {
-		config.Username = "source" // Icecast default
-	}
-	if config.Mount == "" && config.OutputURL != "" {
-		// Extract mount from URL
-		if parsedURL, err := url.Parse(config.OutputURL); err == nil {
-			config.Mount = parsedURL.Path
-		}
-	}
-
 	return &EncoderBuilder{
 		config: config,
 	}
@@ -247,12 +225,6 @@ func (eb *EncoderBuilder) buildMuxer() string {
 // buildOutput generates the output element based on output type
 func (eb *EncoderBuilder) buildOutput() (string, error) {
 	switch eb.config.OutputType {
-	case OutputTypeIcecast:
-		return eb.buildIcecastOutput(), nil
-
-	case OutputTypeShoutcast:
-		return eb.buildShoutcastOutput(), nil
-
 	case OutputTypeHTTP:
 		return eb.buildHTTPOutput(), nil
 
@@ -271,80 +243,6 @@ func (eb *EncoderBuilder) buildOutput() (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported output type: %s", eb.config.OutputType)
 	}
-}
-
-// buildIcecastOutput builds output for Icecast2 server
-func (eb *EncoderBuilder) buildIcecastOutput() string {
-	// Use shout2send element for Icecast
-	// Parse URL to extract host and port
-	parsedURL, err := url.Parse(eb.config.OutputURL)
-	if err != nil {
-		// Fallback to basic config
-		return fmt.Sprintf("shout2send ip=localhost port=8000 mount=%s password=%s",
-			eb.config.Mount, eb.config.Password)
-	}
-
-	host := parsedURL.Hostname()
-	port := parsedURL.Port()
-	if port == "" {
-		port = "8000" // Default Icecast port
-	}
-
-	// Build shout2send element
-	var output strings.Builder
-	output.WriteString("shout2send ")
-	output.WriteString(fmt.Sprintf("ip=%s ", host))
-	output.WriteString(fmt.Sprintf("port=%s ", port))
-	output.WriteString(fmt.Sprintf("mount=%s ", eb.config.Mount))
-	output.WriteString(fmt.Sprintf("username=%s ", eb.config.Username))
-	output.WriteString(fmt.Sprintf("password=%s ", eb.config.Password))
-	output.WriteString("protocol=http ") // Icecast uses HTTP protocol
-
-	// Add metadata
-	if eb.config.StreamName != "" {
-		output.WriteString(fmt.Sprintf("streamname=\"%s\" ", escapeQuotes(eb.config.StreamName)))
-	}
-	if eb.config.Description != "" {
-		output.WriteString(fmt.Sprintf("description=\"%s\" ", escapeQuotes(eb.config.Description)))
-	}
-	if eb.config.Genre != "" {
-		output.WriteString(fmt.Sprintf("genre=\"%s\" ", escapeQuotes(eb.config.Genre)))
-	}
-	if eb.config.URL != "" {
-		output.WriteString(fmt.Sprintf("url=\"%s\" ", eb.config.URL))
-	}
-
-	return output.String()
-}
-
-// buildShoutcastOutput builds output for Shoutcast server
-func (eb *EncoderBuilder) buildShoutcastOutput() string {
-	// Shoutcast uses similar config but different protocol
-	parsedURL, err := url.Parse(eb.config.OutputURL)
-	if err != nil {
-		return fmt.Sprintf("shout2send ip=localhost port=8000 password=%s protocol=icy",
-			eb.config.Password)
-	}
-
-	host := parsedURL.Hostname()
-	port := parsedURL.Port()
-	if port == "" {
-		port = "8000" // Default Shoutcast port
-	}
-
-	var output strings.Builder
-	output.WriteString("shout2send ")
-	output.WriteString(fmt.Sprintf("ip=%s ", host))
-	output.WriteString(fmt.Sprintf("port=%s ", port))
-	output.WriteString(fmt.Sprintf("password=%s ", eb.config.Password))
-	output.WriteString("protocol=icy ") // Shoutcast uses ICY protocol
-
-	// Shoutcast metadata
-	if eb.config.StreamName != "" {
-		output.WriteString(fmt.Sprintf("streamname=\"%s\" ", escapeQuotes(eb.config.StreamName)))
-	}
-
-	return output.String()
 }
 
 // buildHTTPOutput builds generic HTTP output
@@ -430,16 +328,6 @@ func (eb *EncoderBuilder) ValidateConfig() error {
 		return fmt.Errorf("output URL is required for output type: %s", eb.config.OutputType)
 	}
 
-	// Check Icecast/Shoutcast specific settings
-	if eb.config.OutputType == OutputTypeIcecast || eb.config.OutputType == OutputTypeShoutcast {
-		if eb.config.Password == "" {
-			return fmt.Errorf("password is required for %s output", eb.config.OutputType)
-		}
-		if eb.config.Mount == "" && eb.config.OutputType == OutputTypeIcecast {
-			return fmt.Errorf("mount point is required for Icecast output")
-		}
-	}
-
 	// Check bitrate is reasonable
 	if eb.config.Bitrate < 8 || eb.config.Bitrate > 320 {
 		return fmt.Errorf("bitrate must be between 8 and 320 kbps, got: %d", eb.config.Bitrate)
@@ -464,20 +352,4 @@ func (eb *EncoderBuilder) ValidateConfig() error {
 	}
 
 	return nil
-}
-
-// Helper function to escape quotes in string values
-func escapeQuotes(s string) string {
-	return strings.ReplaceAll(s, "\"", "\\\"")
-}
-
-// UpdateMetadata generates a shout2send metadata update command
-// This can be used to update ICY metadata (song title, artist) without restarting the stream
-func UpdateMetadata(artist, title string) string {
-	// Format: artist - title
-	metadata := fmt.Sprintf("%s - %s", artist, title)
-	// Note: Actual metadata updates require GObject property setting
-	// This would be: g_object_set(shout2send_element, "meta", metadata, NULL)
-	// For now, return the formatted metadata string
-	return metadata
 }
