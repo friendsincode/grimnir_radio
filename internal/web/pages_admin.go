@@ -742,10 +742,10 @@ func (h *Handler) AdminMediaList(w http.ResponseWriter, r *http.Request) {
 	var total int64
 	dbQuery.Session(&gorm.Session{}).Count(&total)
 
-	// Fetch media with pagination
+	// Fetch media with pagination — omit large blobs from list queries
 	var media []models.MediaItem
 	orderClause := sortBy + " " + strings.ToUpper(sortOrder)
-	dbQuery.Session(&gorm.Session{}).Order(orderClause).
+	dbQuery.Session(&gorm.Session{}).Omit("artwork", "waveform").Order(orderClause).
 		Offset((page - 1) * perPage).
 		Limit(perPage).
 		Find(&media)

@@ -6,7 +6,7 @@ RACE ?= 1
 PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test test-e2e test-frontend build verify ci proto proto-clean \
+.PHONY: help fmt fmt-check vet lint tidy test test-e2e test-frontend build build-mediascan verify ci proto proto-clean \
         dev-db dev-redis dev-stack run-control run-media
 
 help:
@@ -56,6 +56,9 @@ test:
 build:
 	@$(GO) build $(GOFLAGS) -o ./grimnirradio ./cmd/grimnirradio
 	@$(GO) build $(GOFLAGS) -o ./mediaengine ./cmd/mediaengine
+
+build-mediascan:
+	@$(GO) build $(GOFLAGS) -o ./bin/mediascan ./cmd/mediascan
 
 verify: tidy fmt vet lint test
 
