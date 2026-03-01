@@ -202,6 +202,14 @@ func (s *Service) BulkDeleteOrphans(ctx context.Context, orphanIDs []string, del
 	return s.orphanScanner.BulkDeleteOrphans(ctx, orphanIDs, deleteFiles)
 }
 
+// GetAllOrphanIDs returns all orphan IDs (for bulk select-all operations).
+func (s *Service) GetAllOrphanIDs(ctx context.Context) ([]string, error) {
+	if s.orphanScanner == nil {
+		return nil, fmt.Errorf("orphan scanner not initialized")
+	}
+	return s.orphanScanner.GetAllOrphanIDs(ctx)
+}
+
 // GetOrphanStats returns aggregate statistics about orphans.
 func (s *Service) GetOrphanStats(ctx context.Context) (count int64, totalSize int64, err error) {
 	if s.orphanScanner == nil {
