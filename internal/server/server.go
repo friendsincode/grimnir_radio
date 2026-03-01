@@ -302,6 +302,7 @@ func (s *Server) initDependencies() error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize media service: %w", err)
 	}
+	mediaService.InitOrphanScanner(database)
 
 	// Webstream service with health checking (created early for director dependency)
 	webstreamService := webstream.NewService(database, s.bus, s.logger)
