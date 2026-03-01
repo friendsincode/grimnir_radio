@@ -66,7 +66,7 @@
                     </div>
                     <button class="btn btn-sm {{if $hasCover}}btn-danger{{else}}btn-outline-danger{{end}} delete-btn"
                             hx-delete="/dashboard/playlists/{{.ID}}"
-                            hx-confirm="Delete this playlist?"
+                            hx-confirm="Delete playlist '{{.Name}}' and all {{.ItemCount}} track(s) inside it?"
                             hx-target="closest .col-sm-6"
                             hx-swap="outerHTML"
                             onclick="event.stopPropagation();"
@@ -144,7 +144,7 @@
                     <td>
                         <button class="btn btn-sm btn-outline-danger delete-btn"
                                 hx-delete="/dashboard/playlists/{{.ID}}"
-                                hx-confirm="Delete this playlist?"
+                                hx-confirm="Delete playlist '{{.Name}}' and all {{.ItemCount}} track(s) inside it?"
                                 hx-target="closest tr"
                                 hx-swap="outerHTML"
                                 onclick="event.stopPropagation();"
@@ -265,7 +265,7 @@ function bulkAction(action) {
 
     let message = '';
     switch(action) {
-        case 'delete': message = `DELETE ${ids.length} playlist(s)? This cannot be undone!`; break;
+        case 'delete': message = `DELETE ${ids.length} playlist(s) and ALL tracks inside them? This cannot be undone!`; break;
         default: message = `Apply action to ${ids.length} playlist(s)?`;
     }
 
