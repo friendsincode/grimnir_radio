@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"net/url"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -835,31 +834,23 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		mount.Name = "stream"
 	}
 
-	// Build pipeline: webstream source -> decode -> encode -> icecast
-	pipeline, err := d.buildWebstreamIcecastPipeline(currentURL, mount, ws)
-	if err != nil {
-		return fmt.Errorf("build webstream pipeline: %w", err)
+	stopAt := entry.EndsAt
+	policy := d.getScheduleBoundaryPolicy(ctx, entry.StationID)
+	if policy.Mode == "soft" && policy.SoftOverrun > 0 {
+		stopAt = stopAt.Add(policy.SoftOverrun)
 	}
 
 	d.mu.Lock()
 	prev, hasPrev := d.active[entry.MountID]
 	d.active[entry.MountID] = playoutState{
-		MediaID:   webstreamID, // Store webstream ID in MediaID field for tracking
-		EntryID:   entry.ID,
-		StationID: entry.StationID,
-		Started:   entry.StartsAt,
-		Ends: func() time.Time {
-			stopAt := entry.EndsAt
-			policy := d.getScheduleBoundaryPolicy(ctx, entry.StationID)
-			if policy.Mode == "soft" && policy.SoftOverrun > 0 {
-				stopAt = stopAt.Add(policy.SoftOverrun)
-			}
-			return stopAt
-		}(),
+		MediaID:    webstreamID,
+		EntryID:    entry.ID,
+		StationID:  entry.StationID,
+		Started:    entry.StartsAt,
+		Ends:       stopAt,
+		SourceType: "webstream",
+		SourceID:   webstreamID,
 	}
-	d.mu.Unlock()
-	// Persist on transition.
-	d.mu.Lock()
 	s := d.active[entry.MountID]
 	d.mu.Unlock()
 	d.persistMountState(ctx, entry.MountID, s)
@@ -869,14 +860,62 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
 	}
 
+	// Set mount defaults
+	mountBitrate := mount.Bitrate
+	if mountBitrate == 0 {
+		mountBitrate = 128
+	}
+	lqBitrate := 64
+
+	// Ensure broadcast mounts exist (HQ and LQ)
+	contentType := "audio/mpeg"
+	if mount.Format == "aac" {
+		contentType = "audio/aac"
+	} else if mount.Format == "ogg" || mount.Format == "vorbis" {
+		contentType = "audio/ogg"
+	}
+
+	broadcastMount := d.broadcast.GetMount(mount.Name)
+	if broadcastMount == nil {
+		broadcastMount = d.broadcast.CreateMount(mount.Name, contentType, mountBitrate)
+		d.logger.Info().Str("mount", mount.Name).Int("bitrate", mountBitrate).Msg("created broadcast mount (HQ)")
+	}
+
+	lqMountName := mount.Name + "-lq"
+	lqMount := d.broadcast.GetMount(lqMountName)
+	if lqMount == nil {
+		lqMount = d.broadcast.CreateMount(lqMountName, contentType, lqBitrate)
+		d.logger.Info().Str("mount", lqMountName).Int("bitrate", lqBitrate).Msg("created broadcast mount (LQ)")
+	}
+
 	d.logger.Info().
 		Str("mount", entry.MountID).
 		Str("webstream", ws.Name).
 		Str("url", currentURL).
 		Msg("starting webstream playout")
 
-	// Start webstream pipeline
-	if err := d.manager.EnsurePipeline(ctx, entry.MountID, pipeline); err != nil {
+	broadcastMount.ClearBuffer()
+	lqMount.ClearBuffer()
+
+	hqHandler := func(r io.Reader) {
+		if err := broadcastMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ webstream broadcast feed ended")
+		}
+	}
+	lqHandler := func(r io.Reader) {
+		if err := lqMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ webstream broadcast feed ended")
+		}
+	}
+
+	// Build broadcast pipeline: webstream source -> decode -> tee -> HQ/LQ encoders -> fdsink
+	webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+	pipeline, err := d.buildWebstreamBroadcastPipeline(currentURL, mount, ws, mountBitrate, lqBitrate, webrtcPort)
+	if err != nil {
+		return fmt.Errorf("build webstream pipeline: %w", err)
+	}
+
+	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipeline, hqHandler, lqHandler); err != nil {
 		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start webstream pipeline")
 		return err
 	}
@@ -914,39 +953,14 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 	return nil
 }
 
-// buildWebstreamIcecastPipeline creates a GStreamer pipeline that relays a webstream to Icecast
-func (d *Director) buildWebstreamIcecastPipeline(sourceURL string, mount models.Mount, ws *models.Webstream) (string, error) {
-	// Parse Icecast URL
-	icecastURL, err := url.Parse(d.cfg.IcecastURL)
-	if err != nil {
-		return "", fmt.Errorf("parse icecast URL: %w", err)
-	}
-
-	host := icecastURL.Hostname()
-	port := icecastURL.Port()
-	if port == "" {
-		port = "8000"
-	}
-
-	// Determine mount point
-	mountPoint := mount.Name
-	if mountPoint == "" {
-		mountPoint = "stream"
-	}
-	if mountPoint[0] != '/' {
-		mountPoint = "/" + mountPoint
-	}
-
-	// Determine format
-	format := mediaengine.AudioFormat(mount.Format)
+// buildWebstreamBroadcastPipeline creates a GStreamer pipeline that relays a webstream
+// through the internal broadcast mount system (HQ on fd=3, LQ on fd=4).
+// Unlike file-based pipelines, no `identity sync=true` is needed since
+// webstreams are already real-time sources.
+func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount models.Mount, ws *models.Webstream, hqBitrate, lqBitrate int, webrtcRTPPort int) (string, error) {
+	format := mount.Format
 	if format == "" {
-		format = mediaengine.AudioFormatMP3
-	}
-
-	// Set defaults for encoding
-	bitrate := mount.Bitrate
-	if bitrate == 0 {
-		bitrate = 128
+		format = "mp3"
 	}
 	sampleRate := mount.SampleRate
 	if sampleRate == 0 {
@@ -956,31 +970,29 @@ func (d *Director) buildWebstreamIcecastPipeline(sourceURL string, mount models.
 	if channels == 0 {
 		channels = 2
 	}
-
-	// Build encoder configuration
-	encoderCfg := mediaengine.EncoderConfig{
-		OutputType:  mediaengine.OutputTypeIcecast,
-		OutputURL:   d.cfg.IcecastURL,
-		Username:    "source",
-		Password:    d.cfg.IcecastSourcePassword,
-		Mount:       mountPoint,
-		StreamName:  ws.Name,
-		Description: ws.Description,
-		Format:      format,
-		Bitrate:     bitrate,
-		SampleRate:  sampleRate,
-		Channels:    channels,
+	if hqBitrate == 0 {
+		hqBitrate = 128
+	}
+	if lqBitrate == 0 {
+		lqBitrate = 64
 	}
 
-	builder := mediaengine.NewEncoderBuilder(encoderCfg)
-	encoderPipeline, err := builder.Build()
-	if err != nil {
-		return "", fmt.Errorf("build encoder: %w", err)
+	// Build encoder elements based on format
+	var hqEncoder, lqEncoder string
+	switch format {
+	case "aac":
+		hqEncoder = fmt.Sprintf("faac bitrate=%d ! audio/mpeg,mpegversion=4", hqBitrate*1000)
+		lqEncoder = fmt.Sprintf("faac bitrate=%d ! audio/mpeg,mpegversion=4", lqBitrate*1000)
+	case "ogg", "vorbis":
+		hqEncoder = fmt.Sprintf("vorbisenc bitrate=%d ! oggmux", hqBitrate*1000)
+		lqEncoder = fmt.Sprintf("vorbisenc bitrate=%d ! oggmux", lqBitrate*1000)
+	default: // mp3
+		hqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", hqBitrate)
+		lqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", lqBitrate)
 	}
 
 	// Build source element
-	var sourceElement string
-	sourceElement = fmt.Sprintf("souphttpsrc location=%q is-live=true do-timestamp=true", sourceURL)
+	sourceElement := fmt.Sprintf("souphttpsrc location=%q is-live=true do-timestamp=true", sourceURL)
 	if ws.PassthroughMetadata {
 		sourceElement += " iradio-mode=true"
 	}
@@ -991,13 +1003,35 @@ func (d *Director) buildWebstreamIcecastPipeline(sourceURL string, mount models.
 		bufferElement = fmt.Sprintf(" ! queue max-size-time=%d000000", ws.BufferSizeMS)
 	}
 
-	// Build complete pipeline: webstream source -> buffer -> decode -> encoder -> icecast
-	pipeline := fmt.Sprintf("%s%s ! decodebin ! %s", sourceElement, bufferElement, encoderPipeline)
+	// Optional WebRTC branch
+	var webrtcBranch string
+	if d.webrtcEnabled && webrtcRTPPort > 0 {
+		webrtcBranch = fmt.Sprintf(
+			` t. ! queue ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=128000 ! rtpopuspay pt=111 ! udpsink host=127.0.0.1 port=%d`,
+			webrtcRTPPort,
+		)
+	}
+
+	// Build pipeline: souphttpsrc -> buffer -> decode -> audioconvert -> audioresample -> tee
+	//   tee.src_0 -> queue -> HQ encoder -> fdsink fd=3
+	//   tee.src_1 -> queue -> LQ encoder -> fdsink fd=4
+	//   tee.src_2 -> queue -> Opus encoder -> rtpopuspay -> udpsink (WebRTC, optional)
+	// NOTE: No `identity sync=true` needed — webstreams are live sources already at real-time speed.
+	pipeline := fmt.Sprintf(
+		`%s%s ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! tee name=t `+
+			`t. ! queue ! %s ! fdsink fd=3 `+
+			`t. ! queue ! %s ! fdsink fd=4%s`,
+		sourceElement, bufferElement, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
+	)
 
 	d.logger.Debug().
 		Str("pipeline", pipeline).
-		Str("icecast", fmt.Sprintf("%s:%s%s", host, port, mountPoint)).
-		Msg("built webstream icecast pipeline")
+		Str("webstream", ws.Name).
+		Str("url", sourceURL).
+		Int("hq_bitrate", hqBitrate).
+		Int("lq_bitrate", lqBitrate).
+		Bool("webrtc", d.webrtcEnabled && webrtcRTPPort > 0).
+		Msg("built webstream broadcast pipeline")
 
 	return pipeline, nil
 }
