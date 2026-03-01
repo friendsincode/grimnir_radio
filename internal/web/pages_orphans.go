@@ -15,6 +15,22 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// parsePageSize reads the per_page query param and clamps to allowed values.
+// Returns 0 for "all" (no pagination).
+func parsePageSize(r *http.Request) int {
+	raw := r.URL.Query().Get("per_page")
+	if raw == "all" {
+		return 0
+	}
+	n, _ := strconv.Atoi(raw)
+	switch n {
+	case 50, 100:
+		return n
+	default:
+		return 25
+	}
+}
+
 // OrphansPage renders the orphan media management page.
 func (h *Handler) OrphansPage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -24,7 +40,7 @@ func (h *Handler) OrphansPage(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
-	pageSize := 25
+	pageSize := parsePageSize(r)
 
 	// Get orphans
 	var orphans []models.OrphanMedia
@@ -47,7 +63,10 @@ func (h *Handler) OrphansPage(w http.ResponseWriter, r *http.Request) {
 	// Get stations for adopt dropdown
 	stations := h.LoadStations(r)
 
-	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
+	totalPages := 0
+	if pageSize > 0 {
+		totalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
+	}
 
 	h.Render(w, r, "pages/dashboard/settings/orphans", PageData{
 		Title:    "Orphan Media Manager",
@@ -102,9 +121,9 @@ func (h *Handler) OrphansScan(w http.ResponseWriter, r *http.Request) {
 			<li>Errors: %d</li>
 			<li>Duration: %s</li>
 		</ul>
-		<p class="mb-0 mt-2"><a href="/dashboard/settings/orphans" class="alert-link">Refresh to see results</a></p>
 	</div>`, result.TotalFiles, result.NewOrphans, result.AlreadyKnown, result.Errors, result.Duration)
 
+	w.Header().Set("HX-Trigger", "orphans-updated")
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
 }
@@ -200,14 +219,7 @@ func (h *Handler) OrphansBulkAdopt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orphanIDs := r.Form["orphan_ids"]
 	stationID := r.FormValue("station_id")
-
-	if len(orphanIDs) == 0 {
-		writeHTMXError(w, "No orphans selected")
-		return
-	}
-
 	if stationID == "" {
 		writeHTMXError(w, "Station ID is required")
 		return
@@ -215,6 +227,23 @@ func (h *Handler) OrphansBulkAdopt(w http.ResponseWriter, r *http.Request) {
 
 	if h.mediaService == nil {
 		writeHTMXError(w, "Media service not available")
+		return
+	}
+
+	// Support select_all=true to operate on all orphans
+	orphanIDs := r.Form["orphan_ids"]
+	if r.FormValue("select_all") == "true" {
+		allIDs, err := h.mediaService.GetAllOrphanIDs(ctx)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("failed to get all orphan IDs")
+			writeHTMXError(w, "Failed to retrieve orphan list")
+			return
+		}
+		orphanIDs = allIDs
+	}
+
+	if len(orphanIDs) == 0 {
+		writeHTMXError(w, "No orphans selected")
 		return
 	}
 
@@ -234,9 +263,9 @@ func (h *Handler) OrphansBulkAdopt(w http.ResponseWriter, r *http.Request) {
 	html := fmt.Sprintf(`<div class="alert alert-success">
 		<i class="bi bi-check-circle me-2"></i>
 		Adopted %d of %d orphans
-		<p class="mb-0 mt-2"><a href="/dashboard/settings/orphans" class="alert-link">Refresh to see results</a></p>
 	</div>`, adopted, len(orphanIDs))
 
+	w.Header().Set("HX-Trigger", "orphans-updated")
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
 }
@@ -250,16 +279,27 @@ func (h *Handler) OrphansBulkDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orphanIDs := r.Form["orphan_ids"]
 	deleteFiles := r.FormValue("delete_files") == "true"
-
-	if len(orphanIDs) == 0 {
-		writeHTMXError(w, "No orphans selected")
-		return
-	}
 
 	if h.mediaService == nil {
 		writeHTMXError(w, "Media service not available")
+		return
+	}
+
+	// Support select_all=true to operate on all orphans
+	orphanIDs := r.Form["orphan_ids"]
+	if r.FormValue("select_all") == "true" {
+		allIDs, err := h.mediaService.GetAllOrphanIDs(ctx)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("failed to get all orphan IDs")
+			writeHTMXError(w, "Failed to retrieve orphan list")
+			return
+		}
+		orphanIDs = allIDs
+	}
+
+	if len(orphanIDs) == 0 {
+		writeHTMXError(w, "No orphans selected")
 		return
 	}
 
@@ -284,9 +324,9 @@ func (h *Handler) OrphansBulkDelete(w http.ResponseWriter, r *http.Request) {
 	html := fmt.Sprintf(`<div class="alert alert-success">
 		<i class="bi bi-check-circle me-2"></i>
 		Deleted %d of %d %s
-		<p class="mb-0 mt-2"><a href="/dashboard/settings/orphans" class="alert-link">Refresh to see results</a></p>
 	</div>`, deleted, len(orphanIDs), action)
 
+	w.Header().Set("HX-Trigger", "orphans-updated")
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
 }

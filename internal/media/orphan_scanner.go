@@ -10,10 +10,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,11 +153,12 @@ func (s *OrphanScanner) ScanForOrphans(ctx context.Context) (*models.ScanResult,
 }
 
 // GetOrphans returns a paginated list of orphan media records.
+// Pass pageSize=0 to return all rows (no pagination).
 func (s *OrphanScanner) GetOrphans(ctx context.Context, page, pageSize int) ([]models.OrphanMedia, int64, error) {
 	if page < 1 {
 		page = 1
 	}
-	if pageSize < 1 || pageSize > 100 {
+	if pageSize < 0 {
 		pageSize = 25
 	}
 
@@ -166,17 +170,28 @@ func (s *OrphanScanner) GetOrphans(ctx context.Context, page, pageSize int) ([]m
 		return nil, 0, fmt.Errorf("count orphans: %w", err)
 	}
 
-	// Get page
-	offset := (page - 1) * pageSize
-	if err := s.db.WithContext(ctx).
-		Order("detected_at DESC").
-		Offset(offset).
-		Limit(pageSize).
-		Find(&orphans).Error; err != nil {
+	// Get page (pageSize == 0 means return all)
+	q := s.db.WithContext(ctx).Order("detected_at DESC")
+	if pageSize > 0 {
+		offset := (page - 1) * pageSize
+		q = q.Offset(offset).Limit(pageSize)
+	}
+	if err := q.Find(&orphans).Error; err != nil {
 		return nil, 0, fmt.Errorf("get orphans: %w", err)
 	}
 
 	return orphans, total, nil
+}
+
+// GetAllOrphanIDs returns all orphan IDs (for bulk select-all operations).
+func (s *OrphanScanner) GetAllOrphanIDs(ctx context.Context) ([]string, error) {
+	var ids []string
+	if err := s.db.WithContext(ctx).
+		Model(&models.OrphanMedia{}).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, fmt.Errorf("get all orphan IDs: %w", err)
+	}
+	return ids, nil
 }
 
 // GetAllOrphans returns all orphan records (for import matching).
@@ -470,9 +485,21 @@ func (s *OrphanScanner) createOrphanRecord(ctx context.Context, fullPath, relPat
 		DetectedAt:  time.Now(),
 	}
 
-	// Try to extract title from filename
-	baseName := filepath.Base(relPath)
-	orphan.Title = strings.TrimSuffix(baseName, filepath.Ext(baseName))
+	// Extract metadata from file tags via ffprobe
+	if meta, err := probeFileMetadata(ctx, fullPath); err == nil {
+		orphan.Title = meta.title
+		orphan.Artist = meta.artist
+		orphan.Album = meta.album
+		orphan.Duration = meta.duration
+	} else {
+		s.logger.Debug().Err(err).Str("path", relPath).Msg("ffprobe metadata extraction failed")
+	}
+
+	// Fall back to filename for title if tags didn't provide one
+	if orphan.Title == "" {
+		baseName := filepath.Base(relPath)
+		orphan.Title = strings.TrimSuffix(baseName, filepath.Ext(baseName))
+	}
 
 	return orphan, nil
 }
@@ -490,6 +517,67 @@ func computeFileHash(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// ffprobeOutput represents the JSON output from ffprobe.
+type ffprobeOutput struct {
+	Format struct {
+		Duration string            `json:"duration"`
+		Tags     map[string]string `json:"tags"`
+	} `json:"format"`
+}
+
+// probeMetadata holds extracted file metadata.
+type probeMetadata struct {
+	title    string
+	artist   string
+	album    string
+	duration time.Duration
+}
+
+// probeFileMetadata uses ffprobe to extract tags and duration from an audio file.
+func probeFileMetadata(ctx context.Context, filePath string) (*probeMetadata, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_format",
+		filePath,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ffprobe: %w", err)
+	}
+
+	var probe ffprobeOutput
+	if err := json.Unmarshal(output, &probe); err != nil {
+		return nil, fmt.Errorf("parse ffprobe output: %w", err)
+	}
+
+	meta := &probeMetadata{}
+
+	// Extract duration
+	if probe.Format.Duration != "" {
+		if secs, err := strconv.ParseFloat(probe.Format.Duration, 64); err == nil {
+			meta.duration = time.Duration(secs * float64(time.Second))
+		}
+	}
+
+	// Extract tags (ffprobe returns tags with varying case)
+	for k, v := range probe.Format.Tags {
+		switch strings.ToLower(k) {
+		case "title":
+			meta.title = v
+		case "artist":
+			meta.artist = v
+		case "album":
+			meta.album = v
+		}
+	}
+
+	return meta, nil
 }
 
 func isMediaFile(name string) bool {

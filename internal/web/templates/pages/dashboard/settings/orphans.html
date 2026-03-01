@@ -26,14 +26,24 @@
                 <i class="bi bi-arrow-left me-1"></i> Back to Migrations
             </a>
             <button type="button" class="btn btn-primary"
+                    id="scan-btn"
                     hx-post="/dashboard/settings/orphans/scan"
                     hx-target="#scan-result"
-                    hx-indicator="#scan-spinner">
-                <span id="scan-spinner" class="htmx-indicator spinner-border spinner-border-sm me-1"></span>
+                    hx-disabled-elt="this">
                 <i class="bi bi-search me-1"></i> Scan Now
             </button>
         </div>
     </div>
+
+    <!-- Scan Result Alert -->
+    <div id="scan-result" class="mb-4"></div>
+
+    <!-- Orphans Content (auto-refreshes on orphans-updated event) -->
+    <div id="orphans-content"
+         hx-get="/dashboard/settings/orphans?per_page={{ .Data.PageSize }}{{ if gt .Data.PageSize 0 }}&page={{ .Data.Page }}{{ end }}"
+         hx-trigger="orphans-updated from:body"
+         hx-select="#orphans-content"
+         hx-swap="outerHTML">
 
     <!-- Stats Cards -->
     <div class="row mb-4">
@@ -62,9 +72,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Scan Result Alert -->
-    <div id="scan-result" class="mb-4"></div>
 
     <!-- Info Alert -->
     {{ if eq .Data.Count 0 }}
@@ -129,6 +136,20 @@
         </div>
     </div>
 
+    <!-- Select All Banner -->
+    <div id="select-all-banner" class="alert alert-info d-none mb-4">
+        <i class="bi bi-check2-all me-2"></i>
+        All <span id="banner-page-count"></span> orphans on this page are selected.
+        <a href="#" class="alert-link" onclick="selectAllAcrossPages(); return false;">
+            Select all <strong><span id="banner-total-count">{{ .Data.Total }}</span></strong> orphans
+        </a>
+    </div>
+    <div id="select-all-confirmed" class="alert alert-success d-none mb-4">
+        <i class="bi bi-check2-all me-2"></i>
+        All <strong><span id="confirmed-total-count">{{ .Data.Total }}</span></strong> orphans are selected.
+        <a href="#" class="alert-link" onclick="clearSelectAll(); return false;">Clear selection</a>
+    </div>
+
     <!-- Bulk Result -->
     <div id="bulk-result" class="mb-4"></div>
 
@@ -154,7 +175,8 @@
                         <tr id="orphan-row-{{ .ID }}">
                             <td>
                                 <input type="checkbox" class="form-check-input orphan-checkbox"
-                                       name="orphan_ids" value="{{ .ID }}">
+                                       name="orphan_ids" value="{{ .ID }}"
+                                       onchange="onCheckboxChange()">
                             </td>
                             <td>
                                 <code class="small text-break" style="word-break: break-all;">{{ .FilePath }}</code>
@@ -212,79 +234,159 @@
                 </table>
             </div>
 
-            <!-- Pagination -->
-            {{ if gt .Data.TotalPages 1 }}
-            <nav class="mt-3">
-                <ul class="pagination pagination-sm justify-content-center mb-0">
-                    {{ if .Data.HasPrev }}
-                    <li class="page-item">
-                        <a class="page-link" href="/dashboard/settings/orphans?page={{ .Data.PrevPage }}">
-                            <i class="bi bi-chevron-left"></i> Previous
-                        </a>
-                    </li>
-                    {{ else }}
-                    <li class="page-item disabled">
-                        <span class="page-link"><i class="bi bi-chevron-left"></i> Previous</span>
-                    </li>
-                    {{ end }}
+            <!-- Pagination + Page Size -->
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <!-- Page Size Selector -->
+                <div class="d-flex align-items-center gap-2">
+                    <small class="text-muted">Show:</small>
+                    <select class="form-select form-select-sm" style="width: auto;"
+                            onchange="changePageSize(this.value)">
+                        <option value="25" {{ if eq .Data.PageSize 25 }}selected{{ end }}>25</option>
+                        <option value="50" {{ if eq .Data.PageSize 50 }}selected{{ end }}>50</option>
+                        <option value="100" {{ if eq .Data.PageSize 100 }}selected{{ end }}>100</option>
+                        <option value="all" {{ if eq .Data.PageSize 0 }}selected{{ end }}>All</option>
+                    </select>
+                    <small class="text-muted">per page</small>
+                </div>
 
-                    <li class="page-item disabled">
-                        <span class="page-link">Page {{ .Data.Page }} of {{ .Data.TotalPages }}</span>
-                    </li>
+                <!-- Pagination -->
+                {{ if gt .Data.TotalPages 1 }}
+                <nav>
+                    <ul class="pagination pagination-sm mb-0">
+                        {{ if .Data.HasPrev }}
+                        <li class="page-item">
+                            <a class="page-link" href="/dashboard/settings/orphans?page={{ .Data.PrevPage }}&per_page={{ .Data.PageSize }}">
+                                <i class="bi bi-chevron-left"></i> Previous
+                            </a>
+                        </li>
+                        {{ else }}
+                        <li class="page-item disabled">
+                            <span class="page-link"><i class="bi bi-chevron-left"></i> Previous</span>
+                        </li>
+                        {{ end }}
 
-                    {{ if .Data.HasNext }}
-                    <li class="page-item">
-                        <a class="page-link" href="/dashboard/settings/orphans?page={{ .Data.NextPage }}">
-                            Next <i class="bi bi-chevron-right"></i>
-                        </a>
-                    </li>
-                    {{ else }}
-                    <li class="page-item disabled">
-                        <span class="page-link">Next <i class="bi bi-chevron-right"></i></span>
-                    </li>
-                    {{ end }}
-                </ul>
-            </nav>
-            {{ end }}
+                        <li class="page-item disabled">
+                            <span class="page-link">Page {{ .Data.Page }} of {{ .Data.TotalPages }}</span>
+                        </li>
+
+                        {{ if .Data.HasNext }}
+                        <li class="page-item">
+                            <a class="page-link" href="/dashboard/settings/orphans?page={{ .Data.NextPage }}&per_page={{ .Data.PageSize }}">
+                                Next <i class="bi bi-chevron-right"></i>
+                            </a>
+                        </li>
+                        {{ else }}
+                        <li class="page-item disabled">
+                            <span class="page-link">Next <i class="bi bi-chevron-right"></i></span>
+                        </li>
+                        {{ end }}
+                    </ul>
+                </nav>
+                {{ else }}
+                <div></div>
+                {{ end }}
+            </div>
         </div>
     </div>
     {{ end }}
+
+    </div><!-- end #orphans-content -->
 </div>
 
 <script>
-function selectAllOrphans(select) {
-    document.querySelectorAll('.orphan-checkbox').forEach(cb => {
-        cb.checked = select;
+var _selectAllFlag = false;
+
+function selectAllOrphans(checked) {
+    document.querySelectorAll('.orphan-checkbox').forEach(function(cb) {
+        cb.checked = checked;
     });
+    _selectAllFlag = false;
+    updateSelectAllBanner(checked);
+}
+
+function onCheckboxChange() {
+    _selectAllFlag = false;
+    hideBanners();
+}
+
+function updateSelectAllBanner(allChecked) {
+    var banner = document.getElementById('select-all-banner');
+    var confirmed = document.getElementById('select-all-confirmed');
+    if (!banner) return;
+
+    confirmed.classList.add('d-none');
+
+    if (!allChecked) {
+        banner.classList.add('d-none');
+        return;
+    }
+
+    var visible = document.querySelectorAll('.orphan-checkbox').length;
+    var total = {{ .Data.Total }};
+
+    if (total > visible) {
+        document.getElementById('banner-page-count').textContent = visible;
+        document.getElementById('banner-total-count').textContent = total;
+        banner.classList.remove('d-none');
+    } else {
+        banner.classList.add('d-none');
+    }
+}
+
+function selectAllAcrossPages() {
+    _selectAllFlag = true;
+    var banner = document.getElementById('select-all-banner');
+    var confirmed = document.getElementById('select-all-confirmed');
+    banner.classList.add('d-none');
+    document.getElementById('confirmed-total-count').textContent = {{ .Data.Total }};
+    confirmed.classList.remove('d-none');
+}
+
+function clearSelectAll() {
+    _selectAllFlag = false;
+    selectAllOrphans(false);
+    hideBanners();
+}
+
+function hideBanners() {
+    var banner = document.getElementById('select-all-banner');
+    var confirmed = document.getElementById('select-all-confirmed');
+    if (banner) banner.classList.add('d-none');
+    if (confirmed) confirmed.classList.add('d-none');
 }
 
 function getSelectedOrphanIds() {
-    const ids = [];
-    document.querySelectorAll('.orphan-checkbox:checked').forEach(cb => {
+    var ids = [];
+    document.querySelectorAll('.orphan-checkbox:checked').forEach(function(cb) {
         ids.push(cb.value);
     });
     return ids;
 }
 
 function bulkAdopt() {
-    const ids = getSelectedOrphanIds();
-    if (ids.length === 0) {
+    var ids = getSelectedOrphanIds();
+    if (!_selectAllFlag && ids.length === 0) {
         alert('Please select at least one orphan');
         return;
     }
 
-    const stationId = document.getElementById('bulk-station').value;
+    var stationId = document.getElementById('bulk-station').value;
     if (!stationId) {
         alert('Please select a station');
         return;
     }
 
-    if (!confirm('Adopt ' + ids.length + ' selected orphan(s) to the chosen station?')) {
+    var count = _selectAllFlag ? {{ .Data.Total }} : ids.length;
+    if (!confirm('Adopt ' + count + ' selected orphan(s) to the chosen station?')) {
         return;
     }
 
-    const formData = new FormData();
-    ids.forEach(id => formData.append('orphan_ids', id));
+    var formData = new FormData();
+    if (_selectAllFlag) {
+        formData.append('select_all', 'true');
+    } else {
+        ids.forEach(function(id) { formData.append('orphan_ids', id); });
+    }
     formData.append('station_id', stationId);
 
     htmx.ajax('POST', '/dashboard/settings/orphans/bulk-adopt', {
@@ -292,22 +394,30 @@ function bulkAdopt() {
         swap: 'innerHTML',
         values: Object.fromEntries(formData)
     });
+
+    _selectAllFlag = false;
+    hideBanners();
 }
 
 function bulkDelete(deleteFiles) {
-    const ids = getSelectedOrphanIds();
-    if (ids.length === 0) {
+    var ids = getSelectedOrphanIds();
+    if (!_selectAllFlag && ids.length === 0) {
         alert('Please select at least one orphan');
         return;
     }
 
-    const action = deleteFiles ? 'delete ' + ids.length + ' file(s) from disk' : 'remove ' + ids.length + ' record(s)';
+    var count = _selectAllFlag ? {{ .Data.Total }} : ids.length;
+    var action = deleteFiles ? 'delete ' + count + ' file(s) from disk' : 'remove ' + count + ' record(s)';
     if (!confirm('Are you sure you want to ' + action + '?')) {
         return;
     }
 
-    const formData = new FormData();
-    ids.forEach(id => formData.append('orphan_ids', id));
+    var formData = new FormData();
+    if (_selectAllFlag) {
+        formData.append('select_all', 'true');
+    } else {
+        ids.forEach(function(id) { formData.append('orphan_ids', id); });
+    }
     if (deleteFiles) {
         formData.append('delete_files', 'true');
     }
@@ -317,11 +427,28 @@ function bulkDelete(deleteFiles) {
         swap: 'innerHTML',
         values: Object.fromEntries(formData)
     });
+
+    _selectAllFlag = false;
+    hideBanners();
 }
 
-// Refresh page when an orphan is updated
-document.body.addEventListener('orphan-updated', function() {
-    setTimeout(() => location.reload(), 1000);
+function changePageSize(value) {
+    var url = '/dashboard/settings/orphans?page=1';
+    if (value !== '25') {
+        url += '&per_page=' + value;
+    }
+    window.location.href = url;
+}
+
+// Show scanning indicator when scan starts
+document.body.addEventListener('htmx:beforeRequest', function(evt) {
+    if (evt.detail.elt && evt.detail.elt.id === 'scan-btn') {
+        document.getElementById('scan-result').innerHTML =
+            '<div class="alert alert-info">' +
+            '<span class="spinner-border spinner-border-sm me-2"></span>' +
+            '<strong>Scanning media directory...</strong> This may take a while for large libraries.' +
+            '</div>';
+    }
 });
 </script>
 {{end}}
