@@ -85,7 +85,7 @@
                         Generate a token and connect using your streaming software.
                     </p>
 
-                    {{if roleAtLeast .User "manager"}}
+                    {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}
                     <form hx-post="/dashboard/live/tokens" hx-target="#tokenResult" class="mb-4">
                         <div class="row g-2 justify-content-center">
                             <div class="col-auto">
@@ -124,7 +124,7 @@
                             title="Skip to next track">
                         <i class="bi bi-skip-forward-fill"></i>
                     </button>
-                    {{if roleAtLeast .User "manager"}}
+                    {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}
                     <button class="btn btn-lg btn-outline-danger transport-btn"
                             hx-post="/dashboard/playout/stop"
                             hx-confirm="Stop playout completely?"
@@ -168,7 +168,7 @@
                             {{if .Active}}
                             <span class="badge bg-success">Active</span>
                             {{end}}
-                            {{if roleAtLeast $.User "manager"}}
+                            {{if or (stationRoleAtLeast $.StationRole "manager") (roleAtLeast $.User "manager")}}
                             <button class="btn btn-sm btn-outline-danger ms-2"
                                     hx-delete="/dashboard/live/sessions/{{.ID}}"
                                     hx-confirm="Disconnect this session?"

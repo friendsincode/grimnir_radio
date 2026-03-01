@@ -110,6 +110,7 @@ type PageData struct {
 	CurrentPath string
 	CSRFToken   string
 	WSToken     string // Auth token for WebSocket connections (non-HttpOnly)
+	StationRole string // User's role in the current station (owner/admin/manager/dj/viewer)
 	Data        any
 	Version     string              // Current application version
 	UpdateInfo  *version.UpdateInfo // Available update info (nil if no update)
@@ -231,53 +232,54 @@ func (h *Handler) SetLiveService(svc LiveService) {
 
 func (h *Handler) loadTemplates() error {
 	funcMap := template.FuncMap{
-		"formatTime":        formatTime,
-		"formatRFC3339UTC":  formatRFC3339UTC,
-		"timeago":           timeago,
-		"formatDuration":    formatDuration,
-		"formatMs":          formatMs,
-		"formatBytes":       formatBytes,
-		"truncate":          truncate,
-		"lower":             strings.ToLower,
-		"upper":             strings.ToUpper,
-		"title":             strings.Title,
-		"contains":          strings.Contains,
-		"hasPrefix":         strings.HasPrefix,
-		"hasSuffix":         strings.HasSuffix,
-		"join":              strings.Join,
-		"split":             strings.Split,
-		"dict":              dict,
-		"list":              list,
-		"safeHTML":          safeHTML,
-		"safeJS":            safeJS,
-		"safeURL":           safeURL,
-		"add":               add,
-		"sub":               sub,
-		"mul":               mul,
-		"div":               div,
-		"mod":               mod,
-		"eq":                eq,
-		"ne":                ne,
-		"lt":                lt,
-		"le":                le,
-		"gt":                gt,
-		"ge":                ge,
-		"default":           defaultVal,
-		"coalesce":          coalesce,
-		"ternary":           ternary,
-		"jsonMarshal":       jsonMarshal,
-		"roleAtLeast":       roleAtLeast,
-		"isPlatformAdmin":   isPlatformAdmin,
-		"isActive":          isActive,
-		"iterate":           iterate,
-		"deref":             deref,
-		"string":            stringify,
-		"stationColor":      stationColor,
-		"sourceTypeName":    sourceTypeName,
-		"formatDurationMs":  formatDurationMs,
-		"formatDurationSec": formatDurationSec,
-		"sourceStationID":   sourceStationID,
-		"formatHourWindow":  formatHourWindow,
+		"formatTime":         formatTime,
+		"formatRFC3339UTC":   formatRFC3339UTC,
+		"timeago":            timeago,
+		"formatDuration":     formatDuration,
+		"formatMs":           formatMs,
+		"formatBytes":        formatBytes,
+		"truncate":           truncate,
+		"lower":              strings.ToLower,
+		"upper":              strings.ToUpper,
+		"title":              strings.Title,
+		"contains":           strings.Contains,
+		"hasPrefix":          strings.HasPrefix,
+		"hasSuffix":          strings.HasSuffix,
+		"join":               strings.Join,
+		"split":              strings.Split,
+		"dict":               dict,
+		"list":               list,
+		"safeHTML":           safeHTML,
+		"safeJS":             safeJS,
+		"safeURL":            safeURL,
+		"add":                add,
+		"sub":                sub,
+		"mul":                mul,
+		"div":                div,
+		"mod":                mod,
+		"eq":                 eq,
+		"ne":                 ne,
+		"lt":                 lt,
+		"le":                 le,
+		"gt":                 gt,
+		"ge":                 ge,
+		"default":            defaultVal,
+		"coalesce":           coalesce,
+		"ternary":            ternary,
+		"jsonMarshal":        jsonMarshal,
+		"roleAtLeast":        roleAtLeast,
+		"stationRoleAtLeast": stationRoleAtLeast,
+		"isPlatformAdmin":    isPlatformAdmin,
+		"isActive":           isActive,
+		"iterate":            iterate,
+		"deref":              deref,
+		"string":             stringify,
+		"stationColor":       stationColor,
+		"sourceTypeName":     sourceTypeName,
+		"formatDurationMs":   formatDurationMs,
+		"formatDurationSec":  formatDurationSec,
+		"sourceStationID":    sourceStationID,
+		"formatHourWindow":   formatHourWindow,
 	}
 
 	h.templates = make(map[string]*template.Template)
@@ -404,6 +406,13 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 	// Get selected station from context
 	if station, ok := r.Context().Value(ctxKeyStation).(*models.Station); ok {
 		data.Station = station
+
+		// Look up the user's station-level role
+		if data.User != nil {
+			if su := h.GetStationRole(data.User, station.ID); su != nil {
+				data.StationRole = string(su.Role)
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -886,6 +895,14 @@ func roleAtLeast(user *models.User, minRole string) bool {
 	userLevel := roleOrder[string(user.PlatformRole)]
 	minLevel := roleOrder[minRole]
 	return userLevel >= minLevel
+}
+
+// stationRoleAtLeast checks whether a station-level role meets the minimum.
+func stationRoleAtLeast(stationRole string, minRole string) bool {
+	order := map[string]int{
+		"viewer": 1, "dj": 2, "manager": 3, "admin": 4, "owner": 5,
+	}
+	return order[stationRole] >= order[minRole]
 }
 
 func isPlatformAdmin(user *models.User) bool {
