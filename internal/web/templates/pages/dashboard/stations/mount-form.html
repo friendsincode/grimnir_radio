@@ -91,8 +91,17 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Sample Rate (Hz)</label>
-                            <input type="number" class="form-control" name="sample_rate" min="8000" step="1000"
+                            <input type="text" inputmode="numeric" class="form-control" name="sample_rate"
+                                   list="sample-rates" pattern="[0-9]+"
                                    value="{{if gt $mount.SampleRate 0}}{{$mount.SampleRate}}{{else}}44100{{end}}">
+                            <datalist id="sample-rates">
+                                <option value="8000">
+                                <option value="11025">
+                                <option value="22050">
+                                <option value="44100">
+                                <option value="48000">
+                                <option value="96000">
+                            </datalist>
                         </div>
                     </div>
                 </div>
