@@ -536,6 +536,7 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 		ContentHash:   contentHash,
 		ShowInArchive: station.DefaultShowInArchive,
 		AllowDownload: station.DefaultAllowDownload,
+		AnalysisState: models.AnalysisPending,
 	}
 
 	if err := h.db.Create(&media).Error; err != nil {

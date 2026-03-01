@@ -224,15 +224,16 @@ func (s *OrphanScanner) AdoptOrphan(ctx context.Context, orphanID, stationID str
 
 	// Create media item from orphan
 	mediaItem := &models.MediaItem{
-		ID:          uuid.New().String(),
-		StationID:   stationID,
-		Title:       orphan.Title,
-		Artist:      orphan.Artist,
-		Album:       orphan.Album,
-		Duration:    orphan.Duration,
-		StorageKey:  orphan.FilePath,
-		Path:        orphan.FilePath,
-		ContentHash: orphan.ContentHash,
+		ID:            uuid.New().String(),
+		StationID:     stationID,
+		Title:         orphan.Title,
+		Artist:        orphan.Artist,
+		Album:         orphan.Album,
+		Duration:      orphan.Duration,
+		StorageKey:    orphan.FilePath,
+		Path:          orphan.FilePath,
+		ContentHash:   orphan.ContentHash,
+		AnalysisState: models.AnalysisPending,
 	}
 
 	// Set default title from filename if not set
@@ -283,6 +284,7 @@ func (s *OrphanScanner) AdoptOrphanForImport(ctx context.Context, orphan *models
 		ImportJobID:    &jobID,
 		ImportSource:   "libretime",
 		ImportSourceID: sourceID,
+		AnalysisState:  models.AnalysisPending,
 	}
 
 	// Set default title from filename if not set
@@ -411,16 +413,29 @@ func (s *OrphanScanner) BuildOrphanHashMap(ctx context.Context) (map[string]*mod
 // Helper functions
 
 func (s *OrphanScanner) getKnownMediaPaths(ctx context.Context) (map[string]struct{}, error) {
-	var paths []string
+	// Query both path and storage_key since imports use path while
+	// direct uploads may use storage_key. Either field matching means
+	// the file is known and not an orphan.
+	type pathRow struct {
+		Path       string
+		StorageKey string
+	}
+	var rows []pathRow
 	if err := s.db.WithContext(ctx).
 		Model(&models.MediaItem{}).
-		Pluck("storage_key", &paths).Error; err != nil {
+		Select("path, storage_key").
+		Find(&rows).Error; err != nil {
 		return nil, err
 	}
 
-	result := make(map[string]struct{}, len(paths))
-	for _, p := range paths {
-		result[p] = struct{}{}
+	result := make(map[string]struct{}, len(rows)*2)
+	for _, r := range rows {
+		if r.Path != "" {
+			result[r.Path] = struct{}{}
+		}
+		if r.StorageKey != "" {
+			result[r.StorageKey] = struct{}{}
+		}
 	}
 	return result, nil
 }

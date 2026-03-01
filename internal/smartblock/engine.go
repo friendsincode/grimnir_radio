@@ -339,12 +339,15 @@ type candidate struct {
 }
 
 func (e *Engine) fetchCandidates(ctx context.Context, def Definition, stationID string, recent []models.PlayHistory) ([]candidate, error) {
-	query := e.db.WithContext(ctx).Where("station_id = ?", stationID).Where("analysis_state = ?", models.AnalysisComplete)
+	// Accept tracks that are not failed — pending/complete/blank are all playable.
+	// Duration > 0 ensures we only pick tracks with known length for scheduling.
+	analysisFilter := "analysis_state != ? AND duration > 0"
+	query := e.db.WithContext(ctx).Where("station_id = ?", stationID).Where(analysisFilter, models.AnalysisFailed)
 	if definitionIncludesPublicArchive(def) {
 		query = e.db.WithContext(ctx).
 			Where("(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
 				stationID, true, true, true, true).
-			Where("analysis_state = ?", models.AnalysisComplete)
+			Where(analysisFilter, models.AnalysisFailed)
 	}
 
 	// Apply include filters via SQL when possible
