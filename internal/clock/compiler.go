@@ -47,9 +47,12 @@ func (p *Planner) Compile(stationID string, start time.Time, horizon time.Durati
 	}
 
 	var clockHours []models.ClockHour
+	// Order by window width ascending so narrower (more specific) clocks are
+	// matched before broader ones (e.g. a 6-12 clock beats a 0-24 fallback).
+	// Ties broken by start_hour then created_at for deterministic selection.
 	err := p.db.Where("station_id = ?", stationID).
 		Preload("Slots").
-		Order("created_at ASC").
+		Order("(end_hour - start_hour) ASC, start_hour ASC, created_at ASC").
 		Find(&clockHours).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
