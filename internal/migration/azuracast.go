@@ -1044,6 +1044,7 @@ func (a *AzuraCastImporter) createMediaItemFromAzMedia(azMedia AzuraCastAPIMedia
 		Artwork:       artwork,
 		ArtworkMime:   artworkMime,
 		ShowInArchive: true, // Explicitly set for imported media
+		AnalysisState: models.AnalysisComplete,
 	}
 
 	// Copy custom fields if any
@@ -1709,6 +1710,7 @@ func (a *AzuraCastImporter) importMedia(ctx context.Context, tempDir string, bac
 			ImportPath:    mediaFile.relPath,
 			Duration:      0,    // Will be analyzed later
 			ShowInArchive: true, // Explicitly set for imported media
+			AnalysisState: models.AnalysisPending,
 		}
 
 		// Save to database

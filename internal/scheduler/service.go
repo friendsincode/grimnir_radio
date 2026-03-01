@@ -625,7 +625,7 @@ func (s *Service) Upcoming(ctx context.Context, stationID string, from time.Time
 func (s *Service) pickRandomTrack(ctx context.Context, stationID, mountID string, plan clock.SlotPlan) error {
 	var item models.MediaItem
 	err := s.db.WithContext(ctx).
-		Where("station_id = ? AND analysis_state = ?", stationID, models.AnalysisComplete).
+		Where("station_id = ? AND analysis_state != ? AND duration > 0", stationID, models.AnalysisFailed).
 		Order("RANDOM()").
 		First(&item).Error
 	if err != nil {

@@ -1107,7 +1107,7 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 		var media models.MediaItem
 		err := d.db.WithContext(ctx).
 			Where("station_id = ?", entry.StationID).
-			Where("analysis_state = ?", models.AnalysisComplete).
+			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed).
 			Order("RANDOM()").
 			First(&media).Error
 		if err != nil {
@@ -1238,7 +1238,7 @@ func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEnt
 		var media models.MediaItem
 		err := d.db.WithContext(ctx).
 			Where("station_id = ?", entry.StationID).
-			Where("analysis_state = ?", models.AnalysisComplete).
+			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed).
 			Order("RANDOM()").
 			First(&media).Error
 		if err != nil {
@@ -1262,7 +1262,7 @@ func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEnt
 		var media models.MediaItem
 		err := d.db.WithContext(ctx).
 			Where("station_id = ?", entry.StationID).
-			Where("analysis_state = ?", models.AnalysisComplete).
+			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed).
 			Order("RANDOM()").
 			First(&media).Error
 		if err != nil {
@@ -2320,7 +2320,7 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 	var media models.MediaItem
 	err := d.db.
 		Where("station_id = ?", entry.StationID).
-		Where("analysis_state = ?", models.AnalysisComplete).
+		Where("analysis_state != ? AND duration > 0", models.AnalysisFailed).
 		Order("RANDOM()").
 		First(&media).Error
 	if err != nil {

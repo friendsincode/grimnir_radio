@@ -491,9 +491,17 @@ type MediaItem struct {
 	Waveform       []byte
 	Artwork        []byte        // Embedded album art (JPEG/PNG)
 	ArtworkMime    string        `gorm:"type:varchar(32)"` // MIME type of artwork
-	AnalysisState  AnalysisState `gorm:"type:varchar(32)"`
+	AnalysisState  AnalysisState `gorm:"type:varchar(32);default:'pending';not null"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+// BeforeCreate ensures AnalysisState is never blank on insert.
+func (m *MediaItem) BeforeCreate(tx *gorm.DB) error {
+	if m.AnalysisState == "" {
+		m.AnalysisState = AnalysisPending
+	}
+	return nil
 }
 
 // CuePointSet captures intro/outro markers and fades.

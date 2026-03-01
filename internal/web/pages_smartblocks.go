@@ -838,7 +838,7 @@ func toString(v any) string {
 func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []models.MediaItem {
 	var tracks []models.MediaItem
 	query := h.db.Where("station_id = ?", stationID).
-		Where("analysis_state = ?", models.AnalysisComplete)
+		Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
 
 	var (
 		yearMin         int
@@ -859,7 +859,7 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 			query = h.db.Where(
 				"(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
 				stationID, true, true, true, true,
-			).Where("analysis_state = ?", models.AnalysisComplete)
+			).Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
 		}
 
 		// Free text search across title/artist/album
