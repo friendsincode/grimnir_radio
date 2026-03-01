@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -119,6 +121,9 @@ func (h *Handler) ClockCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create clock", http.StatusInternalServerError)
 		return
 	}
+
+	// Trigger immediate schedule rebuild so the new clock takes effect now
+	h.refreshScheduleForStation(r.Context(), station.ID)
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/clocks/"+clock.ID)
@@ -251,6 +256,9 @@ func (h *Handler) ClockUpdate(w http.ResponseWriter, r *http.Request) {
 		h.db.Create(&slot)
 	}
 
+	// Trigger immediate schedule rebuild so clock changes take effect now
+	h.refreshScheduleForStation(r.Context(), station.ID)
+
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/clocks/"+id)
 		return
@@ -283,6 +291,9 @@ func (h *Handler) ClockDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to delete clock", http.StatusInternalServerError)
 		return
 	}
+
+	// Trigger immediate schedule rebuild so deletion takes effect now
+	h.refreshScheduleForStation(r.Context(), station.ID)
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/clocks")
@@ -461,4 +472,19 @@ func (h *Handler) materializeSmartBlock(stationID string, block models.SmartBloc
 	}
 
 	return tracks, totalMs
+}
+
+// refreshScheduleForStation triggers an immediate scheduler rebuild and
+// notifies the director that the schedule has changed.
+func (h *Handler) refreshScheduleForStation(ctx context.Context, stationID string) {
+	if h.scheduler != nil {
+		if err := h.scheduler.RefreshStation(ctx, stationID); err != nil {
+			h.logger.Warn().Err(err).Str("station_id", stationID).Msg("failed to refresh schedule after clock change")
+		}
+	}
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+			"station_id": stationID,
+		})
+	}
 }

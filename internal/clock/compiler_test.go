@@ -105,6 +105,86 @@ func TestCompileSelectsClockByHourWindow(t *testing.T) {
 	}
 }
 
+func TestCompileNarrowClockBeats24HourFallback(t *testing.T) {
+	db := newPlannerTestDB(t)
+	planner := NewPlanner(db, zerolog.Nop())
+
+	stationID := "station-narrow"
+	if err := db.Create(&models.Station{ID: stationID, Name: "Narrow", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+
+	// Create 24-hour fallback clock FIRST (broader window)
+	fallback := models.ClockHour{
+		ID:        "clock-fallback",
+		StationID: stationID,
+		Name:      "All Day Fallback",
+		StartHour: 0,
+		EndHour:   24,
+		Slots: []models.ClockSlot{
+			{
+				ID:          "slot-fallback",
+				ClockHourID: "clock-fallback",
+				Position:    0,
+				Offset:      0,
+				Type:        models.SlotTypePlaylist,
+				Payload:     map[string]any{"playlist_id": "fallback"},
+			},
+		},
+	}
+	if err := db.Create(&fallback).Error; err != nil {
+		t.Fatalf("create fallback clock: %v", err)
+	}
+
+	// Create narrow morning clock SECOND (should still win for hours 6-12)
+	morning := models.ClockHour{
+		ID:        "clock-morning-narrow",
+		StationID: stationID,
+		Name:      "Morning Show",
+		StartHour: 6,
+		EndHour:   12,
+		Slots: []models.ClockSlot{
+			{
+				ID:          "slot-morning-narrow",
+				ClockHourID: "clock-morning-narrow",
+				Position:    0,
+				Offset:      0,
+				Type:        models.SlotTypePlaylist,
+				Payload:     map[string]any{"playlist_id": "morning"},
+			},
+		},
+	}
+	if err := db.Create(&morning).Error; err != nil {
+		t.Fatalf("create morning clock: %v", err)
+	}
+
+	// Compile from 5:30 to 13:30
+	// Hour 5 plan (5:00) is before start (5:30), so filtered out.
+	// Expected: morning for 6-11, fallback for 12-13 = 8 plans
+	start := time.Date(2026, 2, 25, 5, 30, 0, 0, time.UTC)
+	plans, err := planner.Compile(stationID, start, 8*time.Hour)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if len(plans) != 8 {
+		t.Fatalf("plans len = %d, want 8", len(plans))
+	}
+
+	// Hours 6-11 → morning (narrower window wins over 24hr fallback)
+	for i := 0; i < 6; i++ {
+		if plans[i].SlotID != "slot-morning-narrow" {
+			t.Errorf("plan[%d] slot = %q, want slot-morning-narrow", i, plans[i].SlotID)
+		}
+	}
+	// Hours 12-13 → fallback (morning window ends at 12)
+	for i := 6; i < 8; i++ {
+		if plans[i].SlotID != "slot-fallback" {
+			t.Errorf("plan[%d] slot = %q, want slot-fallback", i, plans[i].SlotID)
+		}
+	}
+}
+
 func TestCompileSupportsOvernightClockWindow(t *testing.T) {
 	db := newPlannerTestDB(t)
 	planner := NewPlanner(db, zerolog.Nop())
