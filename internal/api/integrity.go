@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/auth"
+	"github.com/friendsincode/grimnir_radio/internal/db"
 	"github.com/friendsincode/grimnir_radio/internal/integrity"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -192,4 +193,18 @@ func (a *API) logIntegrityScanAudit(r *http.Request, total int, byType map[strin
 	if err := a.auditSvc.Log(r.Context(), entry); err != nil {
 		a.logger.Error().Err(err).Msg("failed to write integrity scan audit log")
 	}
+}
+
+func (a *API) handleRepairFilenames(w http.ResponseWriter, r *http.Request) {
+	updated, err := db.RepairOriginalFilenames(a.db)
+	if err != nil {
+		a.logger.Error().Err(err).Msg("filename repair failed")
+		writeError(w, http.StatusInternalServerError, "repair_failed")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"updated": updated,
+		"message": "original filenames repaired",
+	})
 }

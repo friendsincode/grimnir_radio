@@ -849,15 +849,21 @@ func (l *LibreTimeImporter) updateMediaProgress(progressCallback ProgressCallbac
 
 // createMediaItemFromLTFile creates a MediaItem from a LibreTime file.
 func (l *LibreTimeImporter) createMediaItemFromLTFile(ltFile LTFile, stationID, contentHash string) *models.MediaItem {
+	origFilename := filepath.Base(ltFile.Filepath)
+	if origFilename == "" || origFilename == "." {
+		origFilename = ltFile.Name
+	}
+
 	mediaItem := &models.MediaItem{
-		ID:          uuid.New().String(),
-		StationID:   stationID,
-		Title:       ltFile.Title,
-		Artist:      ltFile.Artist,
-		Album:       ltFile.Album,
-		Genre:       ltFile.Genre,
-		ImportPath:  ltFile.Filepath,
-		ContentHash: contentHash,
+		ID:               uuid.New().String(),
+		StationID:        stationID,
+		Title:            ltFile.Title,
+		Artist:           ltFile.Artist,
+		Album:            ltFile.Album,
+		Genre:            ltFile.Genre,
+		ImportPath:       ltFile.Filepath,
+		OriginalFilename: origFilename,
+		ContentHash:      contentHash,
 	}
 
 	if ltFile.Title == "" {
@@ -1532,14 +1538,19 @@ func (l *LibreTimeImporter) importMedia(ctx context.Context, ltDB *gorm.DB, opti
 
 	for i, ltFile := range ltFiles {
 		// Create Grimnir media item
+		origFilename := filepath.Base(ltFile.Filepath)
+		if origFilename == "" || origFilename == "." {
+			origFilename = ltFile.Name
+		}
 		mediaItem := &models.MediaItem{
-			ID:         uuid.New().String(),
-			StationID:  stationID,
-			Title:      ltFile.TrackTitle.String,
-			Artist:     ltFile.Artist.String,
-			Album:      ltFile.Album.String,
-			Genre:      ltFile.Genre.String,
-			ImportPath: ltFile.Filepath,
+			ID:               uuid.New().String(),
+			StationID:        stationID,
+			Title:            ltFile.TrackTitle.String,
+			Artist:           ltFile.Artist.String,
+			Album:            ltFile.Album.String,
+			Genre:            ltFile.Genre.String,
+			ImportPath:       ltFile.Filepath,
+			OriginalFilename: origFilename,
 		}
 
 		if ltFile.TrackTitle.String == "" {
@@ -2491,16 +2502,17 @@ func (l *LibreTimeImporter) CommitStagedImport(ctx context.Context, staged *mode
 
 			// Create media item with provenance
 			mediaItem := &models.MediaItem{
-				ID:             uuid.New().String(),
-				StationID:      stationID,
-				Title:          m.Title,
-				Artist:         m.Artist,
-				Album:          m.Album,
-				Genre:          m.Genre,
-				ImportPath:     m.FilePath,
-				ImportJobID:    &jobID,
-				ImportSource:   string(SourceTypeLibreTime),
-				ImportSourceID: m.SourceID,
+				ID:               uuid.New().String(),
+				StationID:        stationID,
+				Title:            m.Title,
+				Artist:           m.Artist,
+				Album:            m.Album,
+				Genre:            m.Genre,
+				ImportPath:       m.FilePath,
+				OriginalFilename: filepath.Base(m.FilePath),
+				ImportJobID:      &jobID,
+				ImportSource:     string(SourceTypeLibreTime),
+				ImportSourceID:   m.SourceID,
 			}
 
 			if m.DurationMs > 0 {

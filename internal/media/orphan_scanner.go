@@ -239,16 +239,18 @@ func (s *OrphanScanner) AdoptOrphan(ctx context.Context, orphanID, stationID str
 
 	// Create media item from orphan
 	mediaItem := &models.MediaItem{
-		ID:            uuid.New().String(),
-		StationID:     stationID,
-		Title:         orphan.Title,
-		Artist:        orphan.Artist,
-		Album:         orphan.Album,
-		Duration:      orphan.Duration,
-		StorageKey:    orphan.FilePath,
-		Path:          orphan.FilePath,
-		ContentHash:   orphan.ContentHash,
-		AnalysisState: models.AnalysisPending,
+		ID:               uuid.New().String(),
+		StationID:        stationID,
+		Title:            orphan.Title,
+		Artist:           orphan.Artist,
+		Album:            orphan.Album,
+		Duration:         orphan.Duration,
+		StorageKey:       orphan.FilePath,
+		Path:             orphan.FilePath,
+		ContentHash:      orphan.ContentHash,
+		OriginalFilename: filepath.Base(orphan.FilePath),
+		FileModifiedAt:   orphan.FileModifiedAt,
+		AnalysisState:    models.AnalysisPending,
 	}
 
 	// Set default title from filename if not set
@@ -287,19 +289,21 @@ func (s *OrphanScanner) AdoptOrphan(ctx context.Context, orphanID, stationID str
 func (s *OrphanScanner) AdoptOrphanForImport(ctx context.Context, orphan *models.OrphanMedia, stationID, jobID, sourceID string) (*models.MediaItem, error) {
 	// Create media item from orphan with import provenance
 	mediaItem := &models.MediaItem{
-		ID:             uuid.New().String(),
-		StationID:      stationID,
-		Title:          orphan.Title,
-		Artist:         orphan.Artist,
-		Album:          orphan.Album,
-		Duration:       orphan.Duration,
-		StorageKey:     orphan.FilePath,
-		Path:           orphan.FilePath,
-		ContentHash:    orphan.ContentHash,
-		ImportJobID:    &jobID,
-		ImportSource:   "libretime",
-		ImportSourceID: sourceID,
-		AnalysisState:  models.AnalysisPending,
+		ID:               uuid.New().String(),
+		StationID:        stationID,
+		Title:            orphan.Title,
+		Artist:           orphan.Artist,
+		Album:            orphan.Album,
+		Duration:         orphan.Duration,
+		StorageKey:       orphan.FilePath,
+		Path:             orphan.FilePath,
+		ContentHash:      orphan.ContentHash,
+		OriginalFilename: filepath.Base(orphan.FilePath),
+		FileModifiedAt:   orphan.FileModifiedAt,
+		ImportJobID:      &jobID,
+		ImportSource:     "libretime",
+		ImportSourceID:   sourceID,
+		AnalysisState:    models.AnalysisPending,
 	}
 
 	// Set default title from filename if not set
@@ -477,12 +481,14 @@ func (s *OrphanScanner) createOrphanRecord(ctx context.Context, fullPath, relPat
 		return nil, fmt.Errorf("compute hash: %w", err)
 	}
 
+	mtime := info.ModTime()
 	orphan := &models.OrphanMedia{
-		ID:          uuid.New().String(),
-		FilePath:    relPath,
-		ContentHash: hash,
-		FileSize:    info.Size(),
-		DetectedAt:  time.Now(),
+		ID:             uuid.New().String(),
+		FilePath:       relPath,
+		ContentHash:    hash,
+		FileSize:       info.Size(),
+		DetectedAt:     time.Now(),
+		FileModifiedAt: &mtime,
 	}
 
 	// Extract metadata from file tags via ffprobe

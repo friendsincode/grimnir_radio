@@ -14,11 +14,12 @@ import (
 // OrphanMedia represents a media file found on disk but not in the database.
 // This typically happens after a database reset when files remain on disk.
 type OrphanMedia struct {
-	ID          string    `gorm:"type:uuid;primaryKey" json:"id"`
-	FilePath    string    `gorm:"type:text;not null;uniqueIndex" json:"file_path"` // Relative path on disk
-	ContentHash string    `gorm:"type:varchar(64);index" json:"content_hash"`      // SHA-256 for matching
-	FileSize    int64     `gorm:"not null" json:"file_size"`
-	DetectedAt  time.Time `gorm:"not null" json:"detected_at"`
+	ID             string     `gorm:"type:uuid;primaryKey" json:"id"`
+	FilePath       string     `gorm:"type:text;not null;uniqueIndex" json:"file_path"` // Relative path on disk
+	ContentHash    string     `gorm:"type:varchar(64);index" json:"content_hash"`      // SHA-256 for matching
+	FileSize       int64      `gorm:"not null" json:"file_size"`
+	DetectedAt     time.Time  `gorm:"not null" json:"detected_at"`
+	FileModifiedAt *time.Time `json:"file_modified_at"`
 
 	// Extracted metadata (best effort from filename or ID3 tags)
 	Title    string        `gorm:"type:varchar(255)" json:"title,omitempty"`

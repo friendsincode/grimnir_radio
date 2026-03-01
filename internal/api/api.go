@@ -405,6 +405,7 @@ func (a *API) Routes(r chi.Router) {
 				r.Use(a.requirePlatformAdmin())
 				r.Get("/report", a.handleIntegrityReport)
 				r.Post("/repair", a.handleIntegrityRepair)
+				r.Post("/repair-filenames", a.handleRepairFilenames)
 			})
 
 			// Priority management routes
@@ -763,15 +764,16 @@ func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	item := models.MediaItem{
-		ID:            mediaID,
-		StationID:     stationID,
-		Title:         title,
-		Artist:        artist,
-		Album:         album,
-		Duration:      duration,
-		Path:          storedPath,
-		ContentHash:   contentHash,
-		AnalysisState: models.AnalysisPending,
+		ID:               mediaID,
+		StationID:        stationID,
+		Title:            title,
+		Artist:           artist,
+		Album:            album,
+		Duration:         duration,
+		Path:             storedPath,
+		ContentHash:      contentHash,
+		OriginalFilename: header.Filename,
+		AnalysisState:    models.AnalysisPending,
 	}
 	if strings.TrimSpace(claims.UserID) != "" {
 		item.CreatedBy = &claims.UserID

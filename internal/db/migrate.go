@@ -8,6 +8,7 @@ package db
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
@@ -111,6 +112,9 @@ func Migrate(database *gorm.DB) error {
 	if err := migrateWebstreamHealthMethod(database); err != nil {
 		return err
 	}
+	if err := backfillOriginalFilenames(database); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -167,6 +171,87 @@ EXECUTE FUNCTION prevent_station_schedule_overlap();
 	}
 
 	return nil
+}
+
+// backfillOriginalFilenames populates original_filename for existing records
+// that have an import_path or a recognisable path but no original_filename yet.
+func backfillOriginalFilenames(database *gorm.DB) error {
+	type row struct {
+		ID         string
+		ImportPath string
+		Path       string
+	}
+	var rows []row
+	if err := database.
+		Model(&models.MediaItem{}).
+		Select("id, import_path, path").
+		Where("(original_filename IS NULL OR original_filename = '') AND (import_path != '' OR path != '')").
+		Find(&rows).Error; err != nil {
+		return fmt.Errorf("backfill original filenames query: %w", err)
+	}
+
+	for _, r := range rows {
+		source := r.ImportPath
+		if source == "" {
+			source = r.Path
+		}
+		name := filepath.Base(source)
+		if name == "" || name == "." {
+			continue
+		}
+		database.Model(&models.MediaItem{}).
+			Where("id = ?", r.ID).
+			Update("original_filename", name)
+	}
+
+	return nil
+}
+
+// RepairOriginalFilenames is a more aggressive backfill that can be called
+// on-demand (e.g. from an admin endpoint) to recover original filenames.
+// It tries import_path first, then path, stripping the internal
+// "{uuid}.audio" naming convention when possible.
+func RepairOriginalFilenames(database *gorm.DB) (updated int64, err error) {
+	type row struct {
+		ID         string
+		ImportPath string
+		Path       string
+	}
+	var rows []row
+	if err := database.
+		Model(&models.MediaItem{}).
+		Select("id, import_path, path").
+		Where("original_filename IS NULL OR original_filename = ''").
+		Find(&rows).Error; err != nil {
+		return 0, fmt.Errorf("repair original filenames query: %w", err)
+	}
+
+	var count int64
+	for _, r := range rows {
+		name := ""
+		// Prefer import_path — it preserves the source system's filename.
+		if r.ImportPath != "" {
+			name = filepath.Base(r.ImportPath)
+		}
+		// Fall back to storage path, but skip internal "{uuid}.audio" names.
+		if name == "" && r.Path != "" {
+			base := filepath.Base(r.Path)
+			ext := filepath.Ext(base)
+			if ext != ".audio" {
+				name = base
+			}
+		}
+		if name == "" || name == "." {
+			continue
+		}
+		if err := database.Model(&models.MediaItem{}).
+			Where("id = ?", r.ID).
+			Update("original_filename", name).Error; err == nil {
+			count++
+		}
+	}
+
+	return count, nil
 }
 
 func normalizeLegacyPlatformRoles(database *gorm.DB) error {
