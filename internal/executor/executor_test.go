@@ -46,7 +46,7 @@ func TestIsValidTransition(t *testing.T) {
 		{"fading to playing", models.ExecutorStateFading, models.ExecutorStatePlaying, true},
 		{"fading to live", models.ExecutorStateFading, models.ExecutorStateLive, true},
 		{"fading to emergency", models.ExecutorStateFading, models.ExecutorStateEmergency, true},
-		{"fading to idle invalid", models.ExecutorStateFading, models.ExecutorStateIdle, false},
+		{"fading to idle", models.ExecutorStateFading, models.ExecutorStateIdle, true},
 		{"fading to preloading invalid", models.ExecutorStateFading, models.ExecutorStatePreloading, false},
 
 		// From Live
