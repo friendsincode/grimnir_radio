@@ -91,7 +91,7 @@
                     </a>
                 </li>
 
-                {{if roleAtLeast .User "manager"}}
+                {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}
                 <li class="nav-item">
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/smart-blocks"}}active bg-primary text-white{{end}}" href="/dashboard/smart-blocks" data-bs-toggle="tooltip" data-bs-placement="right" title="Smart Blocks">
                         <i class="bi bi-magic"></i>
@@ -132,7 +132,7 @@
                     </a>
                 </li>
 
-                {{if roleAtLeast .User "manager"}}
+                {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}
                 <li class="nav-item">
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/webstreams"}}active bg-primary text-white{{end}}" href="/dashboard/webstreams" data-bs-toggle="tooltip" data-bs-placement="right" title="Webstreams">
                         <i class="bi bi-globe"></i>

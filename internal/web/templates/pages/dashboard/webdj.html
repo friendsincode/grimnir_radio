@@ -509,7 +509,7 @@
 <script>
 (function() {
     const stationID = '{{.Station.ID}}';
-    const canManageIRT = {{if roleAtLeast .User "manager"}}true{{else}}false{{end}};
+    const canManageIRT = {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}true{{else}}false{{end}};
     const nowPlayingEl = document.getElementById('webdjIrtNowPlaying');
     const upcomingEl = document.getElementById('webdjIrtUpcoming');
     const refreshBtn = document.getElementById('webdjIrtRefreshBtn');

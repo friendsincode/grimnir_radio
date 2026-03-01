@@ -220,7 +220,7 @@
                     <a href="/dashboard/playlists/new" class="btn btn-outline-primary">
                         <i class="bi bi-plus-circle me-2"></i>New Playlist
                     </a>
-                    {{if roleAtLeast .User "manager"}}
+                    {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}
                     <a href="/dashboard/smart-blocks/new" class="btn btn-outline-primary">
                         <i class="bi bi-magic me-2"></i>New Smart Block
                     </a>

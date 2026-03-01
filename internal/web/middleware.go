@@ -239,7 +239,23 @@ func (h *Handler) RequireRole(minRole string) func(http.Handler) http.Handler {
 				return
 			}
 
-			if !roleAtLeast(user, minRole) {
+			// Platform admins always pass
+			if user.IsPlatformAdmin() {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check station-level role if a station is in context
+			allowed := roleAtLeast(user, minRole)
+			if !allowed {
+				if station := h.GetStation(r); station != nil {
+					if su := h.GetStationRole(user, station.ID); su != nil {
+						allowed = stationRoleAtLeast(string(su.Role), minRole)
+					}
+				}
+			}
+
+			if !allowed {
 				if r.Header.Get("HX-Request") == "true" {
 					w.WriteHeader(http.StatusForbidden)
 					w.Write([]byte("Access denied"))

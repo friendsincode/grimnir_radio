@@ -1679,12 +1679,38 @@ func (a *API) requireRoles(allowed ...models.RoleName) func(http.Handler) http.H
 				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
+
+			// Platform admin always passes
+			if claimsHasPlatformAdmin(claims) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check JWT claim roles first
 			for _, role := range claims.Roles {
 				if _, exists := allowedSet[role]; exists {
 					next.ServeHTTP(w, r)
 					return
 				}
 			}
+
+			// Fall back to DB station role lookup
+			stationID := chi.URLParam(r, "stationID")
+			if stationID == "" {
+				stationID = claims.StationID
+			}
+			if stationID != "" && claims.UserID != "" {
+				var su models.StationUser
+				if err := a.db.WithContext(r.Context()).
+					Where("user_id = ? AND station_id = ?", claims.UserID, stationID).
+					First(&su).Error; err == nil {
+					if _, exists := allowedSet[string(su.Role)]; exists {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+			}
+
 			writeError(w, http.StatusForbidden, "insufficient_role")
 		})
 	}
@@ -1723,6 +1749,7 @@ func (a *API) requireRolesOrPlatformAdmin(allowed ...models.RoleName) func(http.
 				return
 			}
 
+			// Check JWT claim roles (includes platform admin check)
 			for _, role := range claims.Roles {
 				if role == string(models.PlatformRoleAdmin) {
 					next.ServeHTTP(w, r)
@@ -1731,6 +1758,23 @@ func (a *API) requireRolesOrPlatformAdmin(allowed ...models.RoleName) func(http.
 				if _, exists := allowedSet[role]; exists {
 					next.ServeHTTP(w, r)
 					return
+				}
+			}
+
+			// Fall back to DB station role lookup
+			stationID := chi.URLParam(r, "stationID")
+			if stationID == "" {
+				stationID = claims.StationID
+			}
+			if stationID != "" && claims.UserID != "" {
+				var su models.StationUser
+				if err := a.db.WithContext(r.Context()).
+					Where("user_id = ? AND station_id = ?", claims.UserID, stationID).
+					First(&su).Error; err == nil {
+					if _, exists := allowedSet[string(su.Role)]; exists {
+						next.ServeHTTP(w, r)
+						return
+					}
 				}
 			}
 

@@ -175,7 +175,7 @@
             <i class="bi bi-shield-check me-1"></i>Validate
             <span class="badge bg-danger validation-badge d-none" id="validationBadge">0</span>
         </button>
-        {{if roleAtLeast .User "manager"}}
+        {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}
         <div class="btn-group btn-group-sm">
             <button type="button" class="btn btn-outline-info dropdown-toggle" data-bs-toggle="dropdown" title="Templates & History">
                 <i class="bi bi-collection me-1"></i>Templates
@@ -292,7 +292,7 @@
                 </div>
                 <div>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    {{if roleAtLeast .User "manager"}}
+                    {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}
                     <button type="button" class="btn btn-outline-primary" id="editEventBtn" title="Edit this event">
                         <i class="bi bi-pencil me-1"></i>Edit
                     </button>
@@ -1250,9 +1250,9 @@ document.addEventListener('DOMContentLoaded', function() {
         navLinks: true, // Enable drill-down: month->week->day
         navLinkDayClick: 'timeGridDay', // Click day number goes to day view
         navLinkWeekClick: 'timeGridWeek', // Click week number goes to week view
-        editable: {{if roleAtLeast .User "manager"}}true{{else}}false{{end}},
+        editable: {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}true{{else}}false{{end}},
         eventResizableFromStart: true,
-        selectable: {{if roleAtLeast .User "manager"}}true{{else}}false{{end}},
+        selectable: {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}true{{else}}false{{end}},
         selectMirror: true,
         unselectAuto: false,
         longPressDelay: 500,
@@ -3371,7 +3371,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const validationModal = new bootstrap.Modal(document.getElementById('validationModal'));
     const stationID = '{{.Data.StationID}}';
-    const canManageIRT = {{if roleAtLeast .User "manager"}}true{{else}}false{{end}};
+    const canManageIRT = {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}true{{else}}false{{end}};
     let irtRefreshTimer = null;
     let pendingEditEntryId = new URLSearchParams(window.location.search).get('edit_entry');
 
