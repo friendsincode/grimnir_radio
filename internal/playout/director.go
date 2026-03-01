@@ -30,6 +30,12 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// StateResetter resets the executor state for a station to idle.
+// Defined as an interface to avoid circular imports with the executor package.
+type StateResetter interface {
+	SetState(ctx context.Context, stationID string, newState models.ExecutorStateEnum) error
+}
+
 type playoutState struct {
 	MediaID   string
 	EntryID   string
@@ -89,10 +95,11 @@ type Director struct {
 	manager       *Manager
 	bus           *events.Bus
 	webstreamSvc  *webstream.Service
-	broadcast     *broadcast.Server
-	smartblockEng *smartblock.Engine
-	mediaRoot     string
-	logger        zerolog.Logger
+	broadcast      *broadcast.Server
+	smartblockEng  *smartblock.Engine
+	stateResetter  StateResetter
+	mediaRoot      string
+	logger         zerolog.Logger
 
 	// WebRTC RTP output configuration
 	webrtcEnabled bool
@@ -119,8 +126,8 @@ type Director struct {
 }
 
 // NewDirector creates a playout director.
-func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.Bus, webstreamSvc *webstream.Service, broadcastSrv *broadcast.Server, logger zerolog.Logger) *Director {
-	return &Director{
+func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.Bus, webstreamSvc *webstream.Service, broadcastSrv *broadcast.Server, logger zerolog.Logger, opts ...DirectorOption) *Director {
+	d := &Director{
 		db:            db,
 		cfg:           cfg,
 		manager:       manager,
@@ -139,6 +146,21 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
 		xfadeCfgCache: make(map[string]cachedCrossfadeConfig),
 		scheduleCache: cachedScheduleSnapshot{dirty: true},
+	}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
+}
+
+// DirectorOption configures optional Director dependencies.
+type DirectorOption func(*Director)
+
+// WithStateResetter sets the executor state resetter used to reset station
+// state to idle on emergency stop and reload.
+func WithStateResetter(sr StateResetter) DirectorOption {
+	return func(d *Director) {
+		d.stateResetter = sr
 	}
 }
 
@@ -2575,6 +2597,13 @@ func (d *Director) StopStation(ctx context.Context, stationID string) (int, erro
 		}
 	}
 
+	// Reset executor state to idle so the station can recover
+	if d.stateResetter != nil {
+		if err := d.stateResetter.SetState(ctx, stationID, models.ExecutorStateIdle); err != nil {
+			d.logger.Warn().Err(err).Str("station_id", stationID).Msg("failed to reset executor state on stop")
+		}
+	}
+
 	d.logger.Info().
 		Str("station_id", stationID).
 		Int("mounts_stopped", stopped).
@@ -2656,6 +2685,13 @@ func (d *Director) ReloadStation(ctx context.Context, stationID string) (int, er
 			delete(d.active, mount.ID)
 			d.clearPersistedMountState(ctx, mount.ID)
 			reloaded++
+		}
+	}
+
+	// Reset executor state to idle so the director tick can rebuild playout
+	if d.stateResetter != nil {
+		if err := d.stateResetter.SetState(ctx, stationID, models.ExecutorStateIdle); err != nil {
+			d.logger.Warn().Err(err).Str("station_id", stationID).Msg("failed to reset executor state on reload")
 		}
 	}
 

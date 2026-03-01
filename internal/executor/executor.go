@@ -366,6 +366,7 @@ func (e *Executor) isValidTransition(from, to models.ExecutorStateEnum) bool {
 			models.ExecutorStateEmergency,
 		},
 		models.ExecutorStateFading: {
+			models.ExecutorStateIdle,
 			models.ExecutorStatePlaying,
 			models.ExecutorStateLive,
 			models.ExecutorStateEmergency,

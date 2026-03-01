@@ -329,12 +329,13 @@ func (s *Server) initDependencies() error {
 	}
 
 	s.playout = playout.NewManager(s.cfg, s.logger)
-	s.director = playout.NewDirector(database, s.cfg, s.playout, s.bus, webstreamService, broadcastSrv, s.logger)
-	s.listenerAnalyticsSvc = analytics.NewListenerAnalyticsService(database, s.director, s.logger)
 
-	// Priority and executor services (needed by live service)
+	// Priority and executor services (needed by live service and director)
 	priorityService := priority.NewService(database, s.bus, s.logger)
 	executorStateMgr := executor.NewStateManager(database, s.logger)
+
+	s.director = playout.NewDirector(database, s.cfg, s.playout, s.bus, webstreamService, broadcastSrv, s.logger, playout.WithStateResetter(executorStateMgr))
+	s.listenerAnalyticsSvc = analytics.NewListenerAnalyticsService(database, s.director, s.logger)
 
 	// Live service depends on priority service
 	liveService := live.NewService(database, priorityService, s.bus, s.logger)
