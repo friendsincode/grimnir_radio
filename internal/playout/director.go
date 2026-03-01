@@ -94,11 +94,11 @@ type Director struct {
 	manager       *Manager
 	bus           *events.Bus
 	webstreamSvc  *webstream.Service
-	broadcast      *broadcast.Server
-	smartblockEng  *smartblock.Engine
-	stateResetter  StateResetter
-	mediaRoot      string
-	logger         zerolog.Logger
+	broadcast     *broadcast.Server
+	smartblockEng *smartblock.Engine
+	stateResetter StateResetter
+	mediaRoot     string
+	logger        zerolog.Logger
 
 	// WebRTC RTP output configuration
 	webrtcEnabled bool
