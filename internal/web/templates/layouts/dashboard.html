@@ -742,11 +742,18 @@ window.grimnirAttachCSRF = grimnirAttachCSRF;
         return div.innerHTML;
     }
 
+    let notificationPollTimer = null;
+
     async function loadNotifications() {
         try {
             const response = await fetch('/api/v1/notifications?unread_only=false&limit=10', {
                 headers: { 'Authorization': 'Bearer ' + (window.GRIMNIR_WS_TOKEN || '') }
             });
+            if (response.status === 401 || response.status === 403) {
+                // Stop polling when session is expired
+                if (notificationPollTimer) clearInterval(notificationPollTimer);
+                return;
+            }
             if (!response.ok) throw new Error('Failed to load');
             const data = await response.json();
             notifications = data.notifications || [];
@@ -800,7 +807,7 @@ window.grimnirAttachCSRF = grimnirAttachCSRF;
     dropdown.addEventListener('show.bs.dropdown', loadNotifications);
 
     // Periodically check for new notifications (every 60s)
-    setInterval(loadNotifications, 60000);
+    notificationPollTimer = setInterval(loadNotifications, 60000);
 })();
 </script>
 

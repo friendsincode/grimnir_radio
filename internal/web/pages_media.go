@@ -322,9 +322,9 @@ func (h *Handler) MediaList(w http.ResponseWriter, r *http.Request) {
 	// Use Session clones to avoid Count mutating query state
 	dbQuery.Session(&gorm.Session{}).Count(&total)
 
-	// Sorting
+	// Sorting — omit large blobs from list queries
 	orderClause := sortBy + " " + strings.ToUpper(sortOrder)
-	dbQuery.Session(&gorm.Session{}).Order(orderClause).
+	dbQuery.Session(&gorm.Session{}).Omit("artwork", "waveform").Order(orderClause).
 		Offset((page - 1) * perPage).
 		Limit(perPage).
 		Find(&media)
@@ -376,7 +376,7 @@ func (h *Handler) MediaTablePartial(w http.ResponseWriter, r *http.Request) {
 		dbQuery = applyLooseMediaSearch(dbQuery, query)
 	}
 
-	dbQuery.Order("created_at DESC").Limit(50).Find(&media)
+	dbQuery.Omit("artwork", "waveform").Order("created_at DESC").Limit(50).Find(&media)
 
 	h.RenderPartial(w, r, "partials/media-table", media)
 }
@@ -398,7 +398,7 @@ func (h *Handler) MediaGridPartial(w http.ResponseWriter, r *http.Request) {
 		dbQuery = applyLooseMediaSearch(dbQuery, query)
 	}
 
-	dbQuery.Order("created_at DESC").Limit(50).Find(&media)
+	dbQuery.Omit("artwork", "waveform").Order("created_at DESC").Limit(50).Find(&media)
 
 	h.RenderPartial(w, r, "partials/media-grid", media)
 }
@@ -528,15 +528,16 @@ func (h *Handler) MediaUpload(w http.ResponseWriter, r *http.Request) {
 		createdBy = &user.ID
 	}
 	media := models.MediaItem{
-		ID:            mediaID,
-		StationID:     station.ID,
-		CreatedBy:     createdBy,
-		Title:         strings.TrimSuffix(header.Filename, ext),
-		Path:          relPath,
-		ContentHash:   contentHash,
-		ShowInArchive: station.DefaultShowInArchive,
-		AllowDownload: station.DefaultAllowDownload,
-		AnalysisState: models.AnalysisPending,
+		ID:               mediaID,
+		StationID:        station.ID,
+		CreatedBy:        createdBy,
+		Title:            strings.TrimSuffix(header.Filename, ext),
+		Path:             relPath,
+		ContentHash:      contentHash,
+		OriginalFilename: header.Filename,
+		ShowInArchive:    station.DefaultShowInArchive,
+		AllowDownload:    station.DefaultAllowDownload,
+		AnalysisState:    models.AnalysisPending,
 	}
 
 	if err := h.db.Create(&media).Error; err != nil {
