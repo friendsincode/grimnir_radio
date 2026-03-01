@@ -444,18 +444,20 @@ type EncoderPreset struct {
 
 // MediaItem is an audio asset with analysis metadata.
 type MediaItem struct {
-	ID          string   `gorm:"type:uuid;primaryKey"`
-	StationID   string   `gorm:"type:uuid;index"`
-	Station     *Station `gorm:"foreignKey:StationID"` // Belongs to station (for cross-station queries)
-	CreatedBy   *string  `gorm:"type:uuid;index"`      // User who uploaded/created this item (nullable for imports/system)
-	Title       string   `gorm:"index"`
-	Artist      string   `gorm:"index"`
-	Album       string   `gorm:"index"`
-	Duration    time.Duration
-	Path        string
-	StorageKey  string
-	ContentHash string `gorm:"type:varchar(64);index"` // SHA-256 hash for deduplication across stations
-	ImportPath  string // Original path from import (LibreTime/AzuraCast)
+	ID               string   `gorm:"type:uuid;primaryKey"`
+	StationID        string   `gorm:"type:uuid;index"`
+	Station          *Station `gorm:"foreignKey:StationID"` // Belongs to station (for cross-station queries)
+	CreatedBy        *string  `gorm:"type:uuid;index"`      // User who uploaded/created this item (nullable for imports/system)
+	Title            string   `gorm:"index"`
+	Artist           string   `gorm:"index"`
+	Album            string   `gorm:"index"`
+	Duration         time.Duration
+	Path             string
+	StorageKey       string
+	ContentHash      string     `gorm:"type:varchar(64);index"` // SHA-256 hash for deduplication across stations
+	ImportPath       string     // Original path from import (LibreTime/AzuraCast)
+	OriginalFilename string     `gorm:"type:varchar(255)"` // Original filename at upload/import
+	FileModifiedAt   *time.Time // File modification time from source
 
 	// Import provenance (nullable for manually created items)
 	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this

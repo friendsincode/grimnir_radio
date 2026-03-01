@@ -20,21 +20,21 @@ import (
 // Manifest types (duplicated from cmd/mediascan to avoid import dependency).
 
 type backfillManifest struct {
-	Version    int                `json:"version"`
-	SourceType string             `json:"source_type"`
-	ScannedAt  time.Time          `json:"scanned_at"`
-	RootDirs   []string           `json:"root_dirs"`
+	Version    int                 `json:"version"`
+	SourceType string              `json:"source_type"`
+	ScannedAt  time.Time           `json:"scanned_at"`
+	RootDirs   []string            `json:"root_dirs"`
 	Files      []backfillFileEntry `json:"files"`
 }
 
 type backfillFileEntry struct {
-	Path         string                 `json:"path"`
-	RelativePath string                 `json:"relative_path"`
-	Filename     string                 `json:"filename"`
-	Size         int64                  `json:"size"`
-	ModifiedAt   time.Time              `json:"modified_at"`
-	ContentHash  string                 `json:"content_hash"`
-	Metadata     *backfillFileMetadata  `json:"metadata,omitempty"`
+	Path         string                `json:"path"`
+	RelativePath string                `json:"relative_path"`
+	Filename     string                `json:"filename"`
+	Size         int64                 `json:"size"`
+	ModifiedAt   time.Time             `json:"modified_at"`
+	ContentHash  string                `json:"content_hash"`
+	Metadata     *backfillFileMetadata `json:"metadata,omitempty"`
 }
 
 type backfillFileMetadata struct {
