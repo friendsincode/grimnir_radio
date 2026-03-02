@@ -652,7 +652,18 @@ func sourceTypeName(sourceType string) string {
 	}
 }
 
-func formatDurationMs(ms int) string {
+func formatDurationMs(v any) string {
+	var ms int64
+	switch n := v.(type) {
+	case int:
+		ms = int64(n)
+	case int64:
+		ms = n
+	case float64:
+		ms = int64(n)
+	default:
+		return "0:00"
+	}
 	if ms <= 0 {
 		return "0:00"
 	}

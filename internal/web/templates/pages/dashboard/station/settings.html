@@ -103,6 +103,38 @@
 
                     <hr class="my-4">
 
+                    <h6 class="mb-3"><i class="bi bi-record-circle me-2"></i>Recording</h6>
+                    <div class="form-text mb-3">
+                        Configure recording defaults and storage quotas for this station.
+                    </div>
+
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="recordingAutoRecord" name="recording_auto_record"
+                               {{if .Data.Station.RecordingAutoRecord}}checked{{end}}>
+                        <label class="form-check-label" for="recordingAutoRecord">Auto-record when DJ goes live</label>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="recordingDefaultFormat" class="form-label">Default Format</label>
+                        <select class="form-select" id="recordingDefaultFormat" name="recording_default_format">
+                            <option value="flac" {{if eq .Data.Station.RecordingDefaultFormat "flac"}}selected{{end}}>FLAC (lossless)</option>
+                            <option value="opus" {{if eq .Data.Station.RecordingDefaultFormat "opus"}}selected{{end}}>Opus (compressed)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Recording Quota</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="recordingQuotaGB" name="recording_quota_gb"
+                                   min="0" step="1"
+                                   value="{{if gt .Data.Station.RecordingQuotaBytes 0}}{{div .Data.Station.RecordingQuotaBytes 1073741824}}{{else}}0{{end}}">
+                            <span class="input-group-text">GB</span>
+                        </div>
+                        <div class="form-text">Set to 0 to disable recording quota. Current usage: {{formatBytes .Data.Station.RecordingStorageUsed}}</div>
+                    </div>
+
+                    <hr class="my-4">
+
                     <h6 class="mb-3"><i class="bi bi-archive me-2"></i>Public Archive Defaults</h6>
                     <div class="form-text mb-3">These settings apply as defaults when new media is uploaded.</div>
 

@@ -41,6 +41,24 @@ func (h *Handler) LiveDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Check for active recording
+	var activeRecording *models.Recording
+	var activeRec models.Recording
+	if err := h.db.First(&activeRec, "station_id = ? AND status = ?", station.ID, models.RecordingStatusActive).Error; err == nil {
+		activeRecording = &activeRec
+	}
+
+	// Quota info
+	quotaBytes := station.RecordingQuotaBytes
+	usedBytes := station.RecordingStorageUsed
+	var quotaPercent float64
+	if quotaBytes > 0 {
+		quotaPercent = float64(usedBytes) / float64(quotaBytes) * 100
+		if quotaPercent > 100 {
+			quotaPercent = 100
+		}
+	}
+
 	h.Render(w, r, "pages/dashboard/live/dashboard", PageData{
 		Title:    "Live DJ",
 		Stations: h.LoadStations(r),
@@ -53,6 +71,11 @@ func (h *Handler) LiveDashboard(w http.ResponseWriter, r *http.Request) {
 			"HarborPort":        h.harborPort,
 			"HarborMountPrefix": h.harborMountPrefix,
 			"HarborSSL":         h.harborSSL,
+			"ActiveRecording":   activeRecording,
+			"QuotaBytes":        quotaBytes,
+			"UsedBytes":         usedBytes,
+			"QuotaPercent":      quotaPercent,
+			"QuotaEnabled":      quotaBytes > 0,
 		},
 	})
 }

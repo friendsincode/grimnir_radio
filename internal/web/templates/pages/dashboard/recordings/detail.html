@@ -1,0 +1,154 @@
+{{define "pages/dashboard/recordings/detail"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/recordings">Recordings</a></li>
+        <li class="breadcrumb-item active">{{.Data.Recording.Title}}</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$rec := .Data.Recording}}
+<div class="row g-4">
+    <!-- Recording Info -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-record-circle me-2"></i>{{if $rec.Title}}{{$rec.Title}}{{else}}Untitled Recording{{end}}</h5>
+                <span class="badge {{if eq $rec.Status "active"}}bg-danger{{else if eq $rec.Status "complete"}}bg-success{{else if eq $rec.Status "failed"}}bg-danger{{else}}bg-warning{{end}}">
+                    {{$rec.Status}}
+                </span>
+            </div>
+            <div class="card-body">
+                {{if $rec.Description}}
+                <p class="text-body-secondary">{{$rec.Description}}</p>
+                {{end}}
+
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <small class="text-body-secondary d-block">Started</small>
+                        <strong>{{formatTime $rec.StartedAt}}</strong>
+                    </div>
+                    {{if $rec.StoppedAt}}
+                    <div class="col-md-3">
+                        <small class="text-body-secondary d-block">Stopped</small>
+                        <strong>{{formatTime $rec.StoppedAt}}</strong>
+                    </div>
+                    {{end}}
+                    <div class="col-md-3">
+                        <small class="text-body-secondary d-block">Duration</small>
+                        <strong>{{if $rec.DurationMs}}{{formatDurationMs $rec.DurationMs}}{{else}}-{{end}}</strong>
+                    </div>
+                    <div class="col-md-3">
+                        <small class="text-body-secondary d-block">Size</small>
+                        <strong>{{if $rec.SizeBytes}}{{formatBytes $rec.SizeBytes}}{{else}}-{{end}}</strong>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <small class="text-body-secondary d-block">Format</small>
+                        <span class="badge bg-secondary">{{$rec.Format}}</span>
+                    </div>
+                    <div class="col-md-4">
+                        <small class="text-body-secondary d-block">Sample Rate</small>
+                        {{$rec.SampleRate}} Hz
+                    </div>
+                    <div class="col-md-4">
+                        <small class="text-body-secondary d-block">Channels</small>
+                        {{$rec.Channels}}
+                    </div>
+                </div>
+
+                {{if $rec.Path}}
+                <hr>
+                <small class="text-body-secondary">Path: <code>{{$rec.Path}}</code></small>
+                {{end}}
+            </div>
+            <div class="card-footer">
+                {{if eq $rec.Status "active"}}
+                <form method="POST" action="/dashboard/recordings/{{$rec.ID}}/stop" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-stop-circle me-1"></i>Stop Recording
+                    </button>
+                </form>
+                {{end}}
+                {{if ne $rec.Status "active"}}
+                <form method="POST" action="/dashboard/recordings/{{$rec.ID}}/delete" class="d-inline"
+                      onsubmit="return confirm('Delete this recording permanently?')">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button type="submit" class="btn btn-outline-danger">
+                        <i class="bi bi-trash me-1"></i>Delete
+                    </button>
+                </form>
+                {{end}}
+                <a href="/dashboard/recordings" class="btn btn-outline-secondary ms-2">
+                    <i class="bi bi-arrow-left me-1"></i>Back to Recordings
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chapters -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bookmark me-2"></i>Chapters ({{len $rec.Chapters}})</h5>
+            </div>
+            <div class="card-body p-0">
+                {{if $rec.Chapters}}
+                <div class="list-group list-group-flush">
+                    {{range $rec.Chapters}}
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>{{if .Title}}{{.Title}}{{else}}Chapter {{.Position}}{{end}}</strong>
+                                {{if .Artist}}
+                                <br><small class="text-body-secondary">{{.Artist}}</small>
+                                {{end}}
+                                {{if .Album}}
+                                <br><small class="text-body-secondary">{{.Album}}</small>
+                                {{end}}
+                            </div>
+                            <span class="badge bg-secondary">{{formatDurationMs .OffsetMs}}</span>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+                {{else}}
+                <div class="text-center py-4 text-body-secondary">
+                    <i class="bi bi-bookmark fs-3 d-block mb-2"></i>
+                    <small>No chapters recorded. Chapters are added automatically from track metadata during recording.</small>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Visibility -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-eye me-2"></i>Visibility</h5>
+            </div>
+            <div class="card-body">
+                <select class="form-select"
+                        hx-post="/dashboard/recordings/{{$rec.ID}}/visibility"
+                        hx-include="[name='csrf_token']"
+                        name="visibility">
+                    <option value="default" {{if eq $rec.Visibility "default"}}selected{{end}}>Default</option>
+                    <option value="public" {{if eq $rec.Visibility "public"}}selected{{end}}>Public (archive)</option>
+                    <option value="private" {{if eq $rec.Visibility "private"}}selected{{end}}>Private</option>
+                </select>
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

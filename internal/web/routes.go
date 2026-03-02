@@ -275,6 +275,16 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/requests", h.DJRequests)
 				})
 
+				// Recordings
+				r.Route("/recordings", func(r chi.Router) {
+					r.Get("/", h.RecordingsList)
+					r.Get("/{id}", h.RecordingDetail)
+					r.Post("/start", h.RecordingStart)
+					r.Post("/{id}/stop", h.RecordingStop)
+					r.Post("/{id}/delete", h.RecordingDelete)
+					r.Post("/{id}/visibility", h.RecordingUpdateVisibility)
+				})
+
 				// Live DJ
 				r.Route("/live", func(r chi.Router) {
 					r.Get("/", h.LiveDashboard)

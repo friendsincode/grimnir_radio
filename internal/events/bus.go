@@ -44,6 +44,13 @@ const (
 	EventMediaDeleted      EventType = "cache.media_deleted"
 	EventAnalysisComplete  EventType = "cache.analysis_complete"
 
+	// Recording events
+	EventRecordingStarted   EventType = "recording.started"
+	EventRecordingStopped   EventType = "recording.stopped"
+	EventRecordingAutoStart EventType = "recording.auto_start"
+	EventRecordingFailed    EventType = "recording.failed"
+	EventRecordingChapter   EventType = "recording.chapter"
+
 	// Show transition events
 	EventShowStart EventType = "show.start"
 	EventShowEnd   EventType = "show.end"
