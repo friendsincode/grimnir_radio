@@ -21,6 +21,7 @@ import (
 	"syscall"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
@@ -418,6 +419,65 @@ func (h *Handler) AdminUserUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/dashboard/admin/users", http.StatusSeeOther)
+}
+
+// AdminUserResetPassword allows a platform admin to reset another user's password.
+func (h *Handler) AdminUserResetPassword(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil || !user.IsPlatformAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	var targetUser models.User
+	if err := h.db.First(&targetUser, "id = ?", id).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	newPassword := r.FormValue("new_password")
+	confirmPassword := r.FormValue("confirm_password")
+
+	if len(newPassword) < 8 {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`<div class="alert alert-danger">Password must be at least 8 characters</div>`))
+		return
+	}
+
+	if newPassword != confirmPassword {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`<div class="alert alert-danger">Passwords do not match</div>`))
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to hash password")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`<div class="alert alert-danger">Failed to reset password</div>`))
+		return
+	}
+
+	if err := h.db.Model(&targetUser).Update("password", string(hashedPassword)).Error; err != nil {
+		h.logger.Error().Err(err).Msg("failed to update user password")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`<div class="alert alert-danger">Failed to reset password</div>`))
+		return
+	}
+
+	h.logger.Info().
+		Str("target_user_id", targetUser.ID).
+		Str("target_email", targetUser.Email).
+		Str("admin_id", user.ID).
+		Msg("password reset by admin")
+
+	w.Write([]byte(`<div class="alert alert-success">Password has been reset successfully</div>`))
 }
 
 // AdminUserDelete handles user deletion from platform admin

@@ -59,6 +59,33 @@
                 </form>
             </div>
         </div>
+
+        <!-- Reset Password -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-key me-2"></i>Reset Password</h5>
+            </div>
+            <div class="card-body">
+                <div id="resetPasswordResult"></div>
+                <form hx-post="/dashboard/admin/users/{{.Data.TargetUser.ID}}/reset-password"
+                      hx-target="#resetPasswordResult" hx-swap="innerHTML">
+                    <div class="mb-3">
+                        <label for="new_password" class="form-label">New Password</label>
+                        <input type="password" class="form-control" id="new_password" name="new_password"
+                               minlength="8" required>
+                        <div class="form-text">Minimum 8 characters.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="confirm_password" class="form-label">Confirm Password</label>
+                        <input type="password" class="form-control" id="confirm_password" name="confirm_password"
+                               minlength="8" required>
+                    </div>
+                    <button type="submit" class="btn btn-warning">
+                        <i class="bi bi-key me-1"></i>Reset Password
+                    </button>
+                </form>
+            </div>
+        </div>
     </div>
 </div>
 {{end}}
