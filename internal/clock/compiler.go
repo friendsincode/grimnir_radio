@@ -88,6 +88,10 @@ func (p *Planner) CompileForClock(clockID string, start time.Time, horizon time.
 }
 
 func buildPlans(clockHour models.ClockHour, start time.Time, horizon time.Duration) []SlotPlan {
+	return buildPlansWithSpan(clockHour, start, horizon, clockSpan(clockHour))
+}
+
+func buildPlansWithSpan(clockHour models.ClockHour, start time.Time, horizon time.Duration, webstreamSpan time.Duration) []SlotPlan {
 	slots := make([]models.ClockSlot, len(clockHour.Slots))
 	copy(slots, clockHour.Slots)
 	sort.Slice(slots, func(i, j int) bool {
@@ -107,11 +111,10 @@ func buildPlans(clockHour models.ClockHour, start time.Time, horizon time.Durati
 
 			duration := slotPayloadDuration(slot.Payload)
 			if duration <= 0 {
-				// Webstreams are continuous; default to the clock
-				// template's full span so the schedule entry covers
-				// the entire block (e.g. a 2-hour clock → 2-hour entry).
+				// Webstreams are continuous; use the provided span
+				// so the schedule entry covers the clock window.
 				if slot.Type == models.SlotTypeWebstream {
-					duration = clockSpan(clockHour)
+					duration = webstreamSpan
 				} else {
 					duration = time.Minute
 				}
@@ -141,13 +144,27 @@ func buildPlansForStation(clockHours []models.ClockHour, start time.Time, horizo
 	end := start.Add(horizon)
 	plans := make([]SlotPlan, 0, len(clockHours)*int(horizon/time.Hour+1))
 
+	// webstreamEnd tracks the latest end time of any webstream plan so
+	// we can skip generating duplicate webstream entries for subsequent
+	// hours that fall within the same clock window.
+	var webstreamEnd time.Time
+
 	for cursor.Before(end) {
 		clockHour := selectClockHour(clockHours, cursor, loc)
 		if clockHour != nil && len(clockHour.Slots) > 0 {
-			hourPlans := buildPlans(*clockHour, cursor, time.Hour)
+			remaining := remainingInWindow(*clockHour, cursor, loc)
+			hourPlans := buildPlansWithSpan(*clockHour, cursor, time.Hour, remaining)
 			for _, plan := range hourPlans {
 				if plan.StartsAt.Before(start) || !plan.StartsAt.Before(end) {
 					continue
+				}
+				// Skip webstream plans whose start is already covered
+				// by a previously generated webstream entry.
+				if plan.SlotType == string(models.SlotTypeWebstream) && !webstreamEnd.IsZero() && plan.StartsAt.Before(webstreamEnd) {
+					continue
+				}
+				if plan.SlotType == string(models.SlotTypeWebstream) && plan.EndsAt.After(webstreamEnd) {
+					webstreamEnd = plan.EndsAt
 				}
 				plans = append(plans, plan)
 			}
@@ -189,6 +206,21 @@ func normalizeClockWindow(startHour, endHour int) (int, int) {
 		endHour = 24
 	}
 	return startHour, endHour
+}
+
+// remainingInWindow calculates how much time is left from instant until
+// the clock template's EndHour boundary. This ensures entries started
+// mid-window don't extend past the window's end.
+func remainingInWindow(ch models.ClockHour, instant time.Time, loc *time.Location) time.Duration {
+	local := instant.In(loc)
+	_, endHour := normalizeClockWindow(ch.StartHour, ch.EndHour)
+	// Build the end-of-window time on the same day.
+	endTime := time.Date(local.Year(), local.Month(), local.Day(), endHour, 0, 0, 0, loc)
+	if !endTime.After(local) {
+		// Overnight wrap or already past: add a day.
+		endTime = endTime.AddDate(0, 0, 1)
+	}
+	return endTime.Sub(instant)
 }
 
 // clockSpan returns the duration of a clock template based on its
