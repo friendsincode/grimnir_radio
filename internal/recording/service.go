@@ -23,10 +23,10 @@ import (
 
 // Service manages recordings: start, stop, quota, chapters, cleanup.
 type Service struct {
-	db          *gorm.DB
-	meClient    *meclient.Client
-	mediaRoot   string
-	logger      zerolog.Logger
+	db        *gorm.DB
+	meClient  *meclient.Client
+	mediaRoot string
+	logger    zerolog.Logger
 }
 
 // NewService creates a new recording service.
