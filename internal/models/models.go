@@ -224,6 +224,10 @@ type StationPermissions struct {
 	CanGoLive bool `json:"can_go_live"`
 	CanKickDJ bool `json:"can_kick_dj"`
 
+	// Recording
+	CanRecord           bool `json:"can_record"`            // DJ+: start/stop recordings
+	CanManageRecordings bool `json:"can_manage_recordings"` // Manager+: delete, change visibility
+
 	// Admin
 	CanManageUsers    bool `json:"can_manage_users"`
 	CanManageSettings bool `json:"can_manage_settings"`
@@ -267,6 +271,8 @@ func DefaultPermissionsForRole(role StationRole) StationPermissions {
 			CanManageClocks:      true,
 			CanGoLive:            true,
 			CanKickDJ:            true,
+			CanRecord:            true,
+			CanManageRecordings:  true,
 			CanManageUsers:       role == StationRoleOwner || role == StationRoleAdmin,
 			CanManageSettings:    role == StationRoleOwner || role == StationRoleAdmin,
 			CanViewAnalytics:     true,
@@ -283,6 +289,8 @@ func DefaultPermissionsForRole(role StationRole) StationPermissions {
 			CanManageClocks:      true,
 			CanGoLive:            true,
 			CanKickDJ:            false,
+			CanRecord:            true,
+			CanManageRecordings:  true,
 			CanManageUsers:       false,
 			CanManageSettings:    false,
 			CanViewAnalytics:     true,
@@ -299,6 +307,8 @@ func DefaultPermissionsForRole(role StationRole) StationPermissions {
 			CanManageClocks:      false,
 			CanGoLive:            true,
 			CanKickDJ:            false,
+			CanRecord:            true,
+			CanManageRecordings:  false,
 			CanManageUsers:       false,
 			CanManageSettings:    false,
 			CanViewAnalytics:     false,
@@ -320,8 +330,13 @@ type StationUser struct {
 	Permissions StationPermissions `gorm:"type:jsonb"`                // Custom permissions (overrides role defaults)
 	InvitedBy   *string            `gorm:"type:uuid"`                 // Who invited this user (nil if not invited)
 	InvitedAt   *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+
+	// Recording quotas (per-DJ)
+	RecordingQuotaBytes  int64 `gorm:"not null;default:0"` // 0 = use station default, -1 = unlimited
+	RecordingStorageUsed int64 `gorm:"not null;default:0"` // DJ's personal usage in bytes
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // GetEffectivePermissions returns the user's effective permissions for this station.
@@ -389,6 +404,13 @@ type Station struct {
 	// When enabled, transitions between items will overlap and fade.
 	CrossfadeEnabled    bool `gorm:"not null;default:false"`
 	CrossfadeDurationMs int  `gorm:"not null;default:0"` // 0 means "disabled"
+
+	// Recording
+	RecordingQuotaBytes    int64  `gorm:"not null;default:0"`                         // 0 = disabled, -1 = unlimited
+	RecordingQuotaMode     string `gorm:"type:varchar(8);not null;default:'storage'"` // "storage" or "hours"
+	RecordingStorageUsed   int64  `gorm:"not null;default:0"`                         // Current usage in bytes
+	RecordingAutoRecord    bool   `gorm:"not null;default:false"`                     // Auto-record when DJ connects
+	RecordingDefaultFormat string `gorm:"type:varchar(8);not null;default:'flac'"`    // "flac" or "opus"
 
 	// Branding - imported from source systems (AzuraCast/LibreTime)
 	Logo         []byte            `gorm:"type:bytea"` // Station logo (JPEG/PNG)

@@ -93,6 +93,10 @@ func Migrate(database *gorm.DB) error {
 		&migration.Job{},
 		&models.StagedImport{},
 
+		// Recording (Phase 9-Recording)
+		&models.Recording{},
+		&models.RecordingChapter{},
+
 		// Orphan media tracking
 		&models.OrphanMedia{},
 
