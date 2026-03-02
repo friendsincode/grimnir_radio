@@ -313,6 +313,14 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, hqHan
 	return nil
 }
 
+// Done returns a channel that is closed when the pipeline process exits.
+// Returns nil if no pipeline has been started.
+func (p *Pipeline) Done() <-chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.done
+}
+
 // Stop terminates the running pipeline.
 func (p *Pipeline) Stop() error {
 	p.mu.Lock()

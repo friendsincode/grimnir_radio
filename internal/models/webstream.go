@@ -79,6 +79,11 @@ func (ws *Webstream) GetPrimaryURL() string {
 
 // GetCurrentURL returns the currently active URL.
 func (ws *Webstream) GetCurrentURL() string {
+	// Validate CurrentIndex is in bounds; reset if stale (e.g. URLs edited)
+	if ws.CurrentIndex >= len(ws.URLs) {
+		ws.CurrentIndex = 0
+		ws.CurrentURL = ws.GetPrimaryURL()
+	}
 	if ws.CurrentURL != "" {
 		return ws.CurrentURL
 	}
@@ -91,7 +96,13 @@ func (ws *Webstream) GetNextFailoverURL() string {
 		return ""
 	}
 
-	nextIndex := ws.CurrentIndex + 1
+	// Guard against stale index after URL list edits
+	idx := ws.CurrentIndex
+	if idx >= len(ws.URLs) {
+		idx = 0
+	}
+
+	nextIndex := idx + 1
 	if nextIndex >= len(ws.URLs) {
 		// Wrap around to primary if auto-recover enabled
 		if ws.AutoRecoverEnabled {
@@ -104,21 +115,30 @@ func (ws *Webstream) GetNextFailoverURL() string {
 }
 
 // FailoverToNext advances to the next URL in the failover chain.
+// Uses index-based advancement to avoid duplicate-URL ambiguity.
 func (ws *Webstream) FailoverToNext() bool {
-	next := ws.GetNextFailoverURL()
-	if next == "" {
+	if !ws.FailoverEnabled || len(ws.URLs) <= 1 {
 		return false
 	}
 
-	for i, url := range ws.URLs {
-		if url == next {
-			ws.CurrentURL = url
-			ws.CurrentIndex = i
-			return true
+	// Guard against stale index
+	idx := ws.CurrentIndex
+	if idx >= len(ws.URLs) {
+		idx = 0
+	}
+
+	nextIndex := idx + 1
+	if nextIndex >= len(ws.URLs) {
+		if ws.AutoRecoverEnabled {
+			nextIndex = 0
+		} else {
+			return false
 		}
 	}
 
-	return false
+	ws.CurrentIndex = nextIndex
+	ws.CurrentURL = ws.URLs[nextIndex]
+	return true
 }
 
 // ResetToPrimary resets the webstream to use the primary URL.
