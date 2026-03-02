@@ -916,6 +916,19 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 				eraRangeSet = true
 			}
 		}
+		// Added date range filter (on created_at / upload timestamp)
+		if adr, ok := rules["addedDateRange"].(map[string]any); ok {
+			if after, _ := adr["after"].(string); after != "" {
+				if t, err := time.Parse("2006-01-02", after); err == nil {
+					query = query.Where("created_at >= ?", t)
+				}
+			}
+			if before, _ := adr["before"].(string); before != "" {
+				if t, err := time.Parse("2006-01-02", before); err == nil {
+					query = query.Where("created_at < ?", t.AddDate(0, 0, 1))
+				}
+			}
+		}
 	}
 
 	query.Order("RANDOM()").Find(&tracks)
@@ -1729,6 +1742,13 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 	yearMax := parseInt(r.FormValue("filter_year_max"), 0)
 	if yearMin > 0 || yearMax > 0 {
 		rules["yearRange"] = map[string]int{"min": yearMin, "max": yearMax}
+	}
+
+	// Added date range (filters on MediaItem.CreatedAt)
+	addedAfter := r.FormValue("filter_added_after")
+	addedBefore := r.FormValue("filter_added_before")
+	if addedAfter != "" || addedBefore != "" {
+		rules["addedDateRange"] = map[string]string{"after": addedAfter, "before": addedBefore}
 	}
 
 	// Separation rules
