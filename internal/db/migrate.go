@@ -137,7 +137,36 @@ func migrateWebstreamHealthMethod(database *gorm.DB) error {
 // applyContentHashUniqueIndex adds a partial unique index on (station_id, content_hash)
 // to prevent race-condition duplicates on concurrent uploads. The index only applies
 // when content_hash is non-empty, so un-analyzed files are not affected.
+// Existing duplicates are cleaned up first by keeping the oldest row per group.
 func applyContentHashUniqueIndex(database *gorm.DB) error {
+	// Remove duplicate rows (keep oldest per station_id+content_hash group)
+	// before creating the unique index.
+	if database.Dialector.Name() == "postgres" {
+		database.Exec(`
+			DELETE FROM media_items
+			WHERE id IN (
+				SELECT id FROM (
+					SELECT id, ROW_NUMBER() OVER (
+						PARTITION BY station_id, content_hash
+						ORDER BY created_at ASC
+					) AS rn
+					FROM media_items
+					WHERE content_hash != ''
+				) ranked
+				WHERE rn > 1
+			)`)
+	} else {
+		// SQLite fallback
+		database.Exec(`
+			DELETE FROM media_items
+			WHERE content_hash != ''
+			AND id NOT IN (
+				SELECT MIN(id) FROM media_items
+				WHERE content_hash != ''
+				GROUP BY station_id, content_hash
+			)`)
+	}
+
 	return database.Exec(
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_items_station_content_hash
 		 ON media_items (station_id, content_hash)
