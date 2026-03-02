@@ -1738,12 +1738,13 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 		separationUnits := make(map[string]string)
 		separationValues := make(map[string]int) // raw user-entered values (not converted)
 		for _, field := range []string{"artist", "album", "title", "label"} {
-			raw := parseInt(r.FormValue("sep_"+field), 0)
+			rawStr := r.FormValue("sep_" + field)
 			unit := strings.TrimSpace(r.FormValue("sep_" + field + "_unit"))
-			if sep := parseSeparationMinutes(r.FormValue("sep_"+field), unit); sep > 0 {
+			if rawStr != "" {
+				sep := parseSeparationMinutes(rawStr, unit)
 				separation[field] = sep
 				separationUnits[field] = unit
-				separationValues[field] = raw
+				separationValues[field] = parseInt(rawStr, 0)
 			}
 		}
 		if len(separation) > 0 {
