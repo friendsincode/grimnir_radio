@@ -1849,6 +1849,104 @@ func TestPublicDetailRoutes(t *testing.T) {
 	})
 }
 
+// TestArchiveShowFilter tests the playlist/smart block "Show" filter on /archive.
+func TestArchiveShowFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+
+	baseURL, _, _, client, db := setupRouteTestWithDB(t)
+
+	stationID := "test-station-1"
+	// Make station public so archive is visible
+	db.Model(&models.Station{}).Where("id = ?", stationID).Updates(map[string]any{
+		"public": true, "approved": true,
+	})
+
+	// Create archive media
+	db.Create(&models.MediaItem{ID: "af-m1", StationID: stationID, Title: "Playlist Track", Artist: "Artist1", ShowInArchive: true})
+	db.Create(&models.MediaItem{ID: "af-m2", StationID: stationID, Title: "Rock Track", Artist: "Artist2", Genre: "Rock", ShowInArchive: true})
+	db.Create(&models.MediaItem{ID: "af-m3", StationID: stationID, Title: "Unfiltered Track", Artist: "Artist3", ShowInArchive: true})
+
+	// Create playlist containing only af-m1
+	db.Create(&models.Playlist{ID: "af-pl1", StationID: stationID, Name: "Test Show Playlist"})
+	db.Create(&models.PlaylistItem{ID: "af-pi1", PlaylistID: "af-pl1", MediaID: "af-m1", Position: 0})
+
+	// Create smart block matching Rock genre
+	db.Create(&models.SmartBlock{
+		ID: "af-sb1", StationID: stationID, Name: "Rock Smart Block",
+		Rules: map[string]any{"genre": "Rock"}, Sequence: map[string]any{"mode": "random"},
+	})
+
+	t.Run("archive page shows Show dropdown", func(t *testing.T) {
+		resp, err := client.Get(baseURL + "/archive")
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		body := readBody(t, resp)
+		if resp.StatusCode != 200 {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		if !strings.Contains(body, "All Shows") {
+			t.Error("expected Show dropdown with 'All Shows'")
+		}
+		if !strings.Contains(body, "Test Show Playlist") {
+			t.Error("expected playlist name in dropdown")
+		}
+		if !strings.Contains(body, "Rock Smart Block") {
+			t.Error("expected smart block name in dropdown")
+		}
+	})
+
+	t.Run("playlist filter returns correct media", func(t *testing.T) {
+		resp, err := client.Get(baseURL + "/archive?show=playlist:af-pl1")
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		body := readBody(t, resp)
+		if resp.StatusCode != 200 {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		if !strings.Contains(body, "Playlist Track") {
+			t.Error("expected 'Playlist Track' in filtered results")
+		}
+		if strings.Contains(body, "Rock Track") {
+			t.Error("unexpected 'Rock Track' in playlist-filtered results")
+		}
+		if strings.Contains(body, "Unfiltered Track") {
+			t.Error("unexpected 'Unfiltered Track' in playlist-filtered results")
+		}
+	})
+
+	t.Run("smart block filter returns correct media", func(t *testing.T) {
+		resp, err := client.Get(baseURL + "/archive?show=smartblock:af-sb1")
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		body := readBody(t, resp)
+		if resp.StatusCode != 200 {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		if !strings.Contains(body, "Rock Track") {
+			t.Error("expected 'Rock Track' in smart block filtered results")
+		}
+		if strings.Contains(body, "Playlist Track") {
+			t.Error("unexpected 'Playlist Track' in smart block filtered results")
+		}
+	})
+
+	t.Run("show filter with clear button", func(t *testing.T) {
+		resp, err := client.Get(baseURL + "/archive?show=playlist:af-pl1")
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		body := readBody(t, resp)
+		if !strings.Contains(body, "Clear") {
+			t.Error("expected Clear button when show filter is active")
+		}
+	})
+}
+
 // TestAdminRoutes tests platform admin routes including all GET pages and mutations.
 func TestAdminRoutes(t *testing.T) {
 	if testing.Short() {
