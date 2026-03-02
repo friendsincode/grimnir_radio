@@ -107,6 +107,9 @@ func Migrate(database *gorm.DB) error {
 		return err
 	}
 
+	if err := applyContentHashUniqueIndex(database); err != nil {
+		return err
+	}
 	if err := applyPostgresScheduleOverlapGuard(database); err != nil {
 		return err
 	}
@@ -128,6 +131,17 @@ func Migrate(database *gorm.DB) error {
 func migrateWebstreamHealthMethod(database *gorm.DB) error {
 	return database.Exec(
 		"UPDATE webstreams SET health_check_method = 'GET' WHERE health_check_method = 'HEAD'",
+	).Error
+}
+
+// applyContentHashUniqueIndex adds a partial unique index on (station_id, content_hash)
+// to prevent race-condition duplicates on concurrent uploads. The index only applies
+// when content_hash is non-empty, so un-analyzed files are not affected.
+func applyContentHashUniqueIndex(database *gorm.DB) error {
+	return database.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_items_station_content_hash
+		 ON media_items (station_id, content_hash)
+		 WHERE content_hash != ''`,
 	).Error
 }
 

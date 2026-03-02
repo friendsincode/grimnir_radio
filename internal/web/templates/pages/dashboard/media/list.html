@@ -267,10 +267,13 @@
                 {{else}}
                 <tr>
                     <td colspan="10" class="text-center py-5 text-body-secondary">
-                        {{if $.Data.Query}}
-                        No results found for "{{$.Data.Query}}"
+                        <i class="bi bi-music-note-beamed fs-1 mb-3 d-block"></i>
+                        {{if or $.Data.Query $.Data.Genre $.Data.Artist}}
+                        <p class="mb-1">No results found{{if $.Data.Query}} for "<strong>{{$.Data.Query}}</strong>"{{end}}</p>
+                        <p class="small">Try broadening your search or <a href="/dashboard/media">clear all filters</a></p>
                         {{else}}
-                        No media items. <a href="/dashboard/media/upload">Upload your first track</a>
+                        <p class="mb-1">Your media library is empty</p>
+                        <p class="small"><a href="/dashboard/media/upload">Upload your first track</a> to get started</p>
                         {{end}}
                     </td>
                 </tr>
@@ -305,7 +308,7 @@
                 <div class="card-body p-2">
                     <h6 class="card-title mb-1 text-truncate" title="{{.Title}}">{{.Title}}</h6>
                     <p class="card-text small text-body-secondary text-truncate mb-1">
-                        {{if .Artist}}{{.Artist}}{{else}}Unknown Artist{{end}}
+                        {{if .Artist}}{{.Artist}}{{else}}<em>Unknown Artist</em>{{end}}
                     </p>
                     <div class="d-flex justify-content-between align-items-center">
                         {{if .Genre}}<span class="badge bg-secondary small">{{.Genre}}</span>{{else}}<span></span>{{end}}
@@ -317,7 +320,13 @@
         {{else}}
         <div class="col-12 text-center py-5 text-body-secondary">
             <i class="bi bi-music-note-beamed fs-1 mb-3 d-block"></i>
-            {{if $.Data.Query}}No results found{{else}}No media items{{end}}
+            {{if or $.Data.Query $.Data.Genre $.Data.Artist}}
+            <p class="mb-1">No results found{{if $.Data.Query}} for "<strong>{{$.Data.Query}}</strong>"{{end}}</p>
+            <p class="small">Try broadening your search or <a href="/dashboard/media">clear all filters</a></p>
+            {{else}}
+            <p class="mb-1">Your media library is empty</p>
+            <p class="small"><a href="/dashboard/media/upload">Upload your first track</a> to get started</p>
+            {{end}}
         </div>
         {{end}}
         </div>

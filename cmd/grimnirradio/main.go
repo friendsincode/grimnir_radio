@@ -83,7 +83,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logger.Info().Msg("Grimnir Radio starting")
+	logger.Info().Str("version", version.Version).Msg("Grimnir Radio starting")
 
 	// Initialize OpenTelemetry tracing
 	tracerProvider, err := telemetry.InitTracer(context.Background(), telemetry.TracerConfig{

@@ -520,6 +520,44 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error().Err(err).Str("search", searchQuery).Msg("archive search query failed")
 	}
 
+	// Query public recordings (complete + public visibility from public stations)
+	var recordings []models.Recording
+	if len(publicStationIDs) > 0 {
+		recQuery := h.db.Model(&models.Recording{}).
+			Where("station_id IN ? AND status = ? AND visibility = ?",
+				publicStationIDs, models.RecordingStatusComplete, models.RecordingVisibilityPublic)
+
+		if stationID != "" {
+			isPublic := false
+			for _, id := range publicStationIDs {
+				if id == stationID {
+					isPublic = true
+					break
+				}
+			}
+			if isPublic {
+				recQuery = recQuery.Where("station_id = ?", stationID)
+			}
+		}
+
+		if searchQuery != "" {
+			searchPattern := "%" + strings.ToLower(searchQuery) + "%"
+			recQuery = recQuery.Where("LOWER(title) LIKE ?", searchPattern)
+		}
+
+		// Duration filter for recordings (duration_ms is in milliseconds)
+		switch duration {
+		case "short":
+			recQuery = recQuery.Where("duration_ms < ?", 3*60*1000)
+		case "medium":
+			recQuery = recQuery.Where("duration_ms >= ? AND duration_ms <= ?", 3*60*1000, 6*60*1000)
+		case "long":
+			recQuery = recQuery.Where("duration_ms > ?", 6*60*1000)
+		}
+
+		recQuery.Order("created_at DESC").Limit(perPage).Find(&recordings)
+	}
+
 	// Build pagination query string preserving all filters
 	var paginationParams []string
 	if searchQuery != "" {
@@ -546,6 +584,7 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		Title: "Archive",
 		Data: map[string]any{
 			"Media":        media,
+			"Recordings":   recordings,
 			"Total":        total,
 			"Page":         page,
 			"PerPage":      perPage,
