@@ -107,7 +107,14 @@ func buildPlans(clockHour models.ClockHour, start time.Time, horizon time.Durati
 
 			duration := slotPayloadDuration(slot.Payload)
 			if duration <= 0 {
-				duration = time.Minute
+				// Webstreams are continuous; default to the clock
+				// template's full span so the schedule entry covers
+				// the entire block (e.g. a 2-hour clock → 2-hour entry).
+				if slot.Type == models.SlotTypeWebstream {
+					duration = clockSpan(clockHour)
+				} else {
+					duration = time.Minute
+				}
 			}
 
 			plan := SlotPlan{
@@ -182,6 +189,16 @@ func normalizeClockWindow(startHour, endHour int) (int, int) {
 		endHour = 24
 	}
 	return startHour, endHour
+}
+
+// clockSpan returns the duration of a clock template based on its
+// StartHour/EndHour. Falls back to 1 hour if the span is invalid.
+func clockSpan(ch models.ClockHour) time.Duration {
+	hours := ch.EndHour - ch.StartHour
+	if hours <= 0 {
+		hours += 24 // overnight wrap
+	}
+	return time.Duration(hours) * time.Hour
 }
 
 func slotPayloadDuration(payload map[string]any) time.Duration {
