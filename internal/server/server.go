@@ -604,6 +604,7 @@ func (s *Server) startBackgroundWorkers() {
 					return
 				case <-ticker.C:
 					db.UpdateConnectionMetrics(s.db)
+					telemetry.UpdateStationMetrics(s.db)
 				}
 			}
 		}()

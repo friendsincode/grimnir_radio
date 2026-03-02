@@ -298,6 +298,62 @@ var (
 	)
 )
 
+// Station-level metrics (populated from DB queries)
+var (
+	StationsTotal = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "grimnir_stations_total",
+			Help: "Total number of stations",
+		},
+	)
+
+	StationsActive = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "grimnir_stations_active",
+			Help: "Number of stations with active playout",
+		},
+	)
+
+	UptimeSeconds = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "grimnir_uptime_seconds",
+			Help: "Server uptime in seconds",
+		},
+	)
+
+	MediaItemsTotal = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_media_items_total",
+			Help: "Total number of media items per station",
+		},
+		[]string{"station_id"},
+	)
+
+	MediaLibraryDurationHours = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_media_library_duration_hours",
+			Help: "Total media library duration in hours per station",
+		},
+		[]string{"station_id"},
+	)
+
+	NowPlayingInfo = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_now_playing",
+			Help: "Currently playing track info (value=1 when playing, labels carry metadata)",
+		},
+		[]string{"station_id", "title", "artist"},
+	)
+
+	PlayHistoryTotal = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_play_history_24h_total",
+			Help: "Number of tracks played in the last 24 hours per station",
+		},
+		[]string{"station_id"},
+	)
+)
+
 // Leader election metrics
 var (
 	LeaderElectionStatus = promauto.NewGaugeVec(
