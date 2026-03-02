@@ -1,0 +1,308 @@
+{{define "pages/dashboard/media/duplicates"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/media">Media Library</a></li>
+        <li class="breadcrumb-item active">Find Duplicates</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-files me-2"></i>Find Duplicates</h4>
+    <div class="d-flex gap-2">
+        <a href="/dashboard/media" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back to Library
+        </a>
+    </div>
+</div>
+
+{{if $data.Notice}}
+<div class="alert alert-success alert-dismissible fade show">
+    {{$data.Notice}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{{end}}
+{{if $data.Error}}
+<div class="alert alert-danger alert-dismissible fade show">
+    {{$data.Error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{{end}}
+
+<!-- Summary -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-wrap gap-3 align-items-center justify-content-between">
+            <div class="text-body-secondary small">
+                <strong>{{$data.HashGroupCount}}</strong> exact file duplicate group(s),
+                <strong>{{$data.MetaGroupCount}}</strong> metadata duplicate group(s).
+                {{if gt $data.MissingHashCount 0}}
+                <span class="text-warning ms-2"><i class="bi bi-exclamation-triangle me-1"></i>{{$data.MissingHashCount}} item(s) missing content hash.</span>
+                {{end}}
+            </div>
+            {{if gt $data.MissingHashCount 0}}
+            <form method="post" action="/dashboard/media/duplicates/hash-backfill">
+                <button type="submit" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-shield-check me-1"></i>Backfill Missing Hashes
+                </button>
+            </form>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="hash-tab" data-bs-toggle="tab" data-bs-target="#hash-pane"
+                type="button" role="tab">
+            <i class="bi bi-fingerprint me-1"></i>Exact File Match
+            <span class="badge bg-secondary ms-1">{{$data.HashGroupCount}}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="meta-tab" data-bs-toggle="tab" data-bs-target="#meta-pane"
+                type="button" role="tab">
+            <i class="bi bi-person-lines-fill me-1"></i>Same Artist + Title
+            <span class="badge bg-secondary ms-1">{{$data.MetaGroupCount}}</span>
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- Hash Duplicates Tab -->
+    <div class="tab-pane fade show active" id="hash-pane" role="tabpanel">
+        {{if gt $data.HashGroupCount 0}}
+        <form method="post" action="/dashboard/media/duplicates/purge"
+              onsubmit="return confirm('Delete selected duplicate files? References (playlists, schedules) will be removed. This cannot be undone.')">
+            <div class="card mb-3">
+                <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="form-check-input" id="selectAllHash">
+                        <label class="form-check-label" for="selectAllHash">Select all listed duplicates</label>
+                    </div>
+                    <button type="submit" class="btn btn-danger btn-sm">
+                        <i class="bi bi-trash me-1"></i>Delete Selected
+                    </button>
+                </div>
+            </div>
+
+            {{range $group := $data.HashGroups}}
+            <div class="card mb-4 border-warning-subtle">
+                <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <i class="bi bi-fingerprint me-1"></i>
+                        <code class="small text-break">{{$group.Key}}</code>
+                        <small class="text-body-secondary ms-2">({{$group.Count}} files)</small>
+                    </div>
+                    <small class="text-body-secondary">Oldest file kept by default.</small>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;"></th>
+                                <th>Title / Artist</th>
+                                <th>Duration</th>
+                                <th>Added</th>
+                                <th>Used In</th>
+                                <th>Play</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range $idx, $item := $group.Items}}
+                            <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input hash-dup-cb" name="ids"
+                                           value="{{$item.ID}}" {{if gt $idx 0}}checked{{end}}>
+                                </td>
+                                <td>
+                                    <a href="/dashboard/media/{{$item.ID}}" class="fw-semibold text-decoration-none text-truncate d-block" style="max-width:280px;" title="{{$item.Title}}">{{$item.Title}}</a>
+                                    <small class="text-body-secondary">{{if $item.Artist}}{{$item.Artist}}{{else}}<em>Unknown artist</em>{{end}}</small>
+                                </td>
+                                <td><small>{{formatDuration $item.Duration}}</small></td>
+                                <td><small class="text-body-secondary">{{formatTime $item.CreatedAt}}</small></td>
+                                <td>
+                                    {{if or $item.Playlists $item.ScheduleEntries $item.ClockSlots}}
+                                    <div class="d-flex flex-wrap gap-1">
+                                        {{range $item.Playlists}}
+                                        <a href="/dashboard/playlists/{{.PlaylistID}}" class="badge bg-info text-decoration-none" title="Playlist: {{.PlaylistName}}">
+                                            <i class="bi bi-list-ul me-1"></i>{{.PlaylistName}}
+                                        </a>
+                                        {{end}}
+                                        {{range $item.ScheduleEntries}}
+                                        <span class="badge bg-primary" title="Scheduled: {{formatTime .StartsAt}}">
+                                            <i class="bi bi-calendar-event me-1"></i>{{formatTime .StartsAt}}
+                                        </span>
+                                        {{end}}
+                                        {{range $item.ClockSlots}}
+                                        <span class="badge bg-secondary" title="Clock: {{.ClockName}} pos {{.Position}}">
+                                            <i class="bi bi-clock me-1"></i>{{.ClockName}}
+                                        </span>
+                                        {{end}}
+                                    </div>
+                                    {{else}}
+                                    <small class="text-body-secondary">Not used</small>
+                                    {{end}}
+                                </td>
+                                <td>
+                                    <audio controls preload="none" style="width:180px; height:28px;">
+                                        <source src="/dashboard/media/{{$item.ID}}/stream">
+                                    </audio>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {{end}}
+        </form>
+        {{else}}
+        <div class="card">
+            <div class="card-body text-center text-body-secondary py-5">
+                <i class="bi bi-check-circle fs-1 d-block mb-3"></i>
+                No exact file duplicates found in this station.
+            </div>
+        </div>
+        {{end}}
+    </div>
+
+    <!-- Metadata Duplicates Tab -->
+    <div class="tab-pane fade" id="meta-pane" role="tabpanel">
+        {{if gt $data.MetaGroupCount 0}}
+        <form method="post" action="/dashboard/media/duplicates/purge"
+              onsubmit="return confirm('Delete selected duplicate files? References (playlists, schedules) will be removed. This cannot be undone.')">
+            <div class="card mb-3">
+                <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="form-check-input" id="selectAllMeta">
+                        <label class="form-check-label" for="selectAllMeta">Select all listed duplicates</label>
+                    </div>
+                    <button type="submit" class="btn btn-danger btn-sm">
+                        <i class="bi bi-trash me-1"></i>Delete Selected
+                    </button>
+                </div>
+            </div>
+
+            {{range $group := $data.MetaGroups}}
+            <div class="card mb-4 border-info-subtle">
+                <div class="card-header bg-info-subtle d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <i class="bi bi-person-lines-fill me-1"></i>
+                        <strong>{{$group.Key}}</strong>
+                        <small class="text-body-secondary ms-2">({{$group.Count}} files)</small>
+                    </div>
+                    <small class="text-body-secondary">These files share the same artist and title but may be different recordings.</small>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;"></th>
+                                <th>Title / Artist</th>
+                                <th>Duration</th>
+                                <th>Hash</th>
+                                <th>Added</th>
+                                <th>Used In</th>
+                                <th>Play</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range $idx, $item := $group.Items}}
+                            <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input meta-dup-cb" name="ids"
+                                           value="{{$item.ID}}" {{if gt $idx 0}}checked{{end}}>
+                                </td>
+                                <td>
+                                    <a href="/dashboard/media/{{$item.ID}}" class="fw-semibold text-decoration-none text-truncate d-block" style="max-width:280px;" title="{{$item.Title}}">{{$item.Title}}</a>
+                                    <small class="text-body-secondary">{{if $item.Artist}}{{$item.Artist}}{{else}}<em>Unknown artist</em>{{end}}{{if $item.Album}} &bull; {{$item.Album}}{{end}}</small>
+                                </td>
+                                <td><small>{{formatDuration $item.Duration}}</small></td>
+                                <td>
+                                    {{if $item.ContentHash}}
+                                    <code class="small text-truncate d-inline-block" style="max-width:100px;" title="{{$item.ContentHash}}">{{$item.ContentHash}}</code>
+                                    {{else}}
+                                    <small class="text-body-secondary">-</small>
+                                    {{end}}
+                                </td>
+                                <td><small class="text-body-secondary">{{formatTime $item.CreatedAt}}</small></td>
+                                <td>
+                                    {{if or $item.Playlists $item.ScheduleEntries $item.ClockSlots}}
+                                    <div class="d-flex flex-wrap gap-1">
+                                        {{range $item.Playlists}}
+                                        <a href="/dashboard/playlists/{{.PlaylistID}}" class="badge bg-info text-decoration-none" title="Playlist: {{.PlaylistName}}">
+                                            <i class="bi bi-list-ul me-1"></i>{{.PlaylistName}}
+                                        </a>
+                                        {{end}}
+                                        {{range $item.ScheduleEntries}}
+                                        <span class="badge bg-primary" title="Scheduled: {{formatTime .StartsAt}}">
+                                            <i class="bi bi-calendar-event me-1"></i>{{formatTime .StartsAt}}
+                                        </span>
+                                        {{end}}
+                                        {{range $item.ClockSlots}}
+                                        <span class="badge bg-secondary" title="Clock: {{.ClockName}} pos {{.Position}}">
+                                            <i class="bi bi-clock me-1"></i>{{.ClockName}}
+                                        </span>
+                                        {{end}}
+                                    </div>
+                                    {{else}}
+                                    <small class="text-body-secondary">Not used</small>
+                                    {{end}}
+                                </td>
+                                <td>
+                                    <audio controls preload="none" style="width:180px; height:28px;">
+                                        <source src="/dashboard/media/{{$item.ID}}/stream">
+                                    </audio>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {{end}}
+        </form>
+        {{else}}
+        <div class="card">
+            <div class="card-body text-center text-body-secondary py-5">
+                <i class="bi bi-check-circle fs-1 d-block mb-3"></i>
+                No metadata duplicates found in this station.
+            </div>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+// Select-all for hash duplicates
+const selectAllHash = document.getElementById('selectAllHash');
+if (selectAllHash) {
+    selectAllHash.addEventListener('change', () => {
+        document.querySelectorAll('.hash-dup-cb').forEach(cb => {
+            cb.checked = selectAllHash.checked;
+        });
+    });
+}
+
+// Select-all for metadata duplicates
+const selectAllMeta = document.getElementById('selectAllMeta');
+if (selectAllMeta) {
+    selectAllMeta.addEventListener('change', () => {
+        document.querySelectorAll('.meta-dup-cb').forEach(cb => {
+            cb.checked = selectAllMeta.checked;
+        });
+    });
+}
+</script>
+{{end}}

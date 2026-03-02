@@ -52,12 +52,15 @@ func applyLooseMediaSearch(db *gorm.DB, query string) *gorm.DB {
 	pattern := "%" + strings.ToLower(q) + "%"
 	norm := "%" + normalizeSearchText(q) + "%"
 
+	// Search across title, artist, album, genre, and original filename.
+	// Both plain LOWER() LIKE and punctuation-normalized variants are
+	// checked so that e.g. "dont" matches "Don't".
 	where := fmt.Sprintf(
-		`LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ?`,
+		`LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ? OR LOWER(genre) LIKE ? OR LOWER(original_filename) LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ?`,
 		normalizedSQLExpr("title"),
 		normalizedSQLExpr("artist"),
 		normalizedSQLExpr("album"),
 	)
 
-	return db.Where(where, pattern, pattern, pattern, norm, norm, norm)
+	return db.Where(where, pattern, pattern, pattern, pattern, pattern, norm, norm, norm)
 }

@@ -238,6 +238,34 @@
                         {{end}}
                     </tbody>
                 </table>
+                {{if .Data.HarborSSL}}
+                <div class="alert alert-info small mb-3">
+                    <i class="bi bi-shield-lock me-1"></i>
+                    <strong>Can't connect with SSL?</strong>
+                    Some older software (BUTT &lt; 1.0, hardware encoders) does not support SSL/TLS.
+                    If your server has the non-SSL harbor port enabled (typically port 8000), you can use these
+                    alternative settings:
+                    <table class="table table-sm table-borderless mt-2 mb-0">
+                        <tr>
+                            <td class="text-body-secondary" style="width: 100px;">Host</td>
+                            <td><code>{{.Data.HarborHost}}</code></td>
+                        </tr>
+                        <tr>
+                            <td class="text-body-secondary">Port</td>
+                            <td><code>8000</code></td>
+                        </tr>
+                        <tr>
+                            <td class="text-body-secondary">SSL/TLS</td>
+                            <td><span class="badge bg-secondary">Off</span></td>
+                        </tr>
+                        <tr>
+                            <td class="text-body-secondary">Mount</td>
+                            <td><code data-guide-fill="mount-nosslalt">/</code> + mount name (e.g. <code>/live</code>)</td>
+                        </tr>
+                    </table>
+                    <small class="text-body-secondary">All other settings (username, password) remain the same. Ask your station admin if the non-SSL port is available.</small>
+                </div>
+                {{end}}
                 <div class="accordion" id="softwareGuides">
                     <div class="accordion-item">
                         <h2 class="accordion-header">
@@ -259,6 +287,15 @@
                                     <li>Under Settings &rarr; Audio, ensure <strong>Update song name from file</strong> is checked to send metadata</li>
                                     <li>Click Save, then click the Play button to connect</li>
                                 </ol>
+                                {{if .Data.HarborSSL}}
+                                <hr class="my-2">
+                                <p class="mb-1"><strong>Non-SSL alternative</strong> (if your BUTT version does not support TLS):</p>
+                                <ul class="mb-0">
+                                    <li>Use port <strong>8000</strong> instead of <strong>{{.Data.HarborPort}}</strong></li>
+                                    <li>Leave <strong>Use SSL/TLS</strong> unchecked</li>
+                                    <li>All other settings remain the same</li>
+                                </ul>
+                                {{end}}
                             </div>
                         </div>
                     </div>
@@ -281,6 +318,15 @@
                                     {{if .Data.HarborSSL}}<li>Check <strong>Enable SSL</strong></li>{{end}}
                                     <li>Click OK, then enable broadcasting</li>
                                 </ol>
+                                {{if .Data.HarborSSL}}
+                                <hr class="my-2">
+                                <p class="mb-1"><strong>Non-SSL alternative</strong> (if SSL connection fails):</p>
+                                <ul class="mb-0">
+                                    <li>Use port <strong>8000</strong> instead of <strong>{{.Data.HarborPort}}</strong></li>
+                                    <li>Uncheck <strong>Enable SSL</strong></li>
+                                    <li>All other settings remain the same</li>
+                                </ul>
+                                {{end}}
                             </div>
                         </div>
                     </div>

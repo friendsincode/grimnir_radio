@@ -1,0 +1,268 @@
+{{define "partials/media-library-results"}}
+<!-- Results header -->
+<div class="card-header d-flex justify-content-between align-items-center">
+    <span>{{.Total}} items</span>
+    <div class="btn-group btn-group-sm" id="viewToggle">
+        <button class="btn btn-outline-secondary active" data-view="table" title="Table view">
+            <i class="bi bi-list-ul"></i>
+        </button>
+        <button class="btn btn-outline-secondary" data-view="grid" title="Grid view">
+            <i class="bi bi-grid"></i>
+        </button>
+    </div>
+</div>
+
+<!-- Table View -->
+<div id="tableView" class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th style="width: 40px;">
+                    <input type="checkbox" class="form-check-input" id="selectAll"
+                           onchange="toggleSelectAll(this)" title="Select all">
+                </th>
+                <th style="width: 40px;"></th>
+                <th style="width: 50px;"></th>
+                <th class="sortable-header" data-sort="title" style="cursor: pointer;">
+                    Title
+                    {{if eq .SortBy "title"}}<i class="bi bi-chevron-{{if eq .SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                </th>
+                <th class="sortable-header" data-sort="artist" style="cursor: pointer;">
+                    Artist
+                    {{if eq .SortBy "artist"}}<i class="bi bi-chevron-{{if eq .SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                </th>
+                <th class="sortable-header" data-sort="album" style="cursor: pointer;">
+                    Album
+                    {{if eq .SortBy "album"}}<i class="bi bi-chevron-{{if eq .SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                </th>
+                <th class="sortable-header" data-sort="genre" style="cursor: pointer;">
+                    Genre
+                    {{if eq .SortBy "genre"}}<i class="bi bi-chevron-{{if eq .SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                </th>
+                <th class="sortable-header" data-sort="duration" style="cursor: pointer;">
+                    Duration
+                    {{if eq .SortBy "duration"}}<i class="bi bi-chevron-{{if eq .SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                </th>
+                <th class="sortable-header" data-sort="created_at" style="cursor: pointer;">
+                    Added
+                    {{if eq .SortBy "created_at"}}<i class="bi bi-chevron-{{if eq .SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                </th>
+                <th style="width: 100px;"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Media}}
+            <tr>
+                <td onclick="event.stopPropagation()">
+                    <input type="checkbox" class="form-check-input media-checkbox"
+                           value="{{.ID}}" onchange="updateSelection()">
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary rounded-circle"
+                            onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)"
+                            title="Preview">
+                        <i class="bi bi-play-fill"></i>
+                    </button>
+                </td>
+                <td class="text-center" onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+                    {{if len .Artwork}}
+                    <img src="/dashboard/media/{{.ID}}/artwork" alt="" class="rounded" style="width: 40px; height: 40px; object-fit: cover;">
+                    {{else}}
+                    <div class="bg-secondary rounded d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                        <i class="bi bi-music-note text-white"></i>
+                    </div>
+                    {{end}}
+                </td>
+                <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+                    <strong>{{.Title}}</strong>
+                    {{if .Explicit}}
+                    <span class="badge bg-warning text-dark" title="Explicit content">E</span>
+                    {{end}}
+                </td>
+                <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{if .Artist}}{{.Artist}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{if .Album}}{{.Album}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+                    {{if .Genre}}
+                    <span class="badge bg-secondary">{{.Genre}}</span>
+                    {{else}}
+                    <span class="text-body-secondary">-</span>
+                    {{end}}
+                </td>
+                <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{formatDuration .Duration}}</td>
+                <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+                    <small class="text-body-secondary">{{formatTime .CreatedAt}}</small>
+                </td>
+                <td class="actions text-end">
+                    <div class="btn-group btn-group-sm">
+                        <a href="/dashboard/media/{{.ID}}/edit" class="btn btn-outline-secondary"
+                           onclick="event.stopPropagation()" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        <button class="btn btn-outline-danger"
+                                onclick="event.stopPropagation()"
+                                hx-delete="/dashboard/media/{{.ID}}"
+                                hx-confirm="Delete this track?"
+                                title="Delete">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {{else}}
+            <tr>
+                <td colspan="10" class="text-center py-5 text-body-secondary">
+                    {{if $.Query}}
+                    No results found for "{{$.Query}}"
+                    {{else}}
+                    No media items. <a href="/dashboard/media/upload">Upload your first track</a>
+                    {{end}}
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<!-- Grid View (hidden by default) -->
+<div id="gridView" class="card-body d-none">
+    <div class="row g-3">
+    {{range .Media}}
+    <div class="col-6 col-md-4 col-lg-3">
+        <div class="card h-100 media-card" onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">
+            <div class="position-relative">
+                {{if len .Artwork}}
+                <img src="/dashboard/media/{{.ID}}/artwork" class="card-img-top" alt="" style="height: 140px; object-fit: cover;">
+                {{else}}
+                <div class="card-img-top bg-secondary d-flex align-items-center justify-content-center" style="height: 140px;">
+                    <i class="bi bi-music-note fs-1 text-white"></i>
+                </div>
+                {{end}}
+                <button class="btn btn-sm btn-light position-absolute bottom-0 end-0 m-2 rounded-circle"
+                        onclick="event.stopPropagation(); previewTrack('/dashboard/media/{{.ID}}/stream', this)"
+                        title="Preview">
+                    <i class="bi bi-play-fill"></i>
+                </button>
+                {{if .Explicit}}
+                <span class="badge bg-warning text-dark position-absolute top-0 end-0 m-2">E</span>
+                {{end}}
+            </div>
+            <div class="card-body p-2">
+                <h6 class="card-title mb-1 text-truncate" title="{{.Title}}">{{.Title}}</h6>
+                <p class="card-text small text-body-secondary text-truncate mb-1">
+                    {{if .Artist}}{{.Artist}}{{else}}Unknown Artist{{end}}
+                </p>
+                <div class="d-flex justify-content-between align-items-center">
+                    {{if .Genre}}<span class="badge bg-secondary small">{{.Genre}}</span>{{else}}<span></span>{{end}}
+                    <small class="text-body-secondary">{{formatDuration .Duration}}</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{else}}
+    <div class="col-12 text-center py-5 text-body-secondary">
+        <i class="bi bi-music-note-beamed fs-1 mb-3 d-block"></i>
+        {{if $.Query}}No results found{{else}}No media items{{end}}
+    </div>
+    {{end}}
+    </div>
+</div>
+
+{{if gt .TotalPages 1}}
+<div class="card-footer">
+    <nav>
+        <ul class="pagination pagination-sm mb-0 justify-content-center">
+            {{if gt .Page 1}}
+            <li class="page-item">
+                <a class="page-link" href="?page={{sub .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}"
+                   hx-get="/dashboard/media?page={{sub .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}"
+                   hx-target="#mediaResults" hx-swap="innerHTML" hx-push-url="true">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+            </li>
+            {{else}}
+            <li class="page-item disabled"><span class="page-link"><i class="bi bi-chevron-left"></i></span></li>
+            {{end}}
+
+            {{range .PageNumbers}}
+            {{if eq . 0}}
+            <li class="page-item disabled"><span class="page-link">...</span></li>
+            {{else}}
+            <li class="page-item {{if eq . $.Page}}active{{end}}">
+                <a class="page-link" href="?page={{.}}&q={{$.Query}}&genre={{$.Genre}}&artist={{$.Artist}}&sort={{$.SortBy}}&order={{$.SortOrder}}&per_page={{$.PerPage}}"
+                   hx-get="/dashboard/media?page={{.}}&q={{$.Query}}&genre={{$.Genre}}&artist={{$.Artist}}&sort={{$.SortBy}}&order={{$.SortOrder}}&per_page={{$.PerPage}}"
+                   hx-target="#mediaResults" hx-swap="innerHTML" hx-push-url="true">
+                    {{.}}
+                </a>
+            </li>
+            {{end}}
+            {{end}}
+
+            {{if lt .Page .TotalPages}}
+            <li class="page-item">
+                <a class="page-link" href="?page={{add .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}"
+                   hx-get="/dashboard/media?page={{add .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}"
+                   hx-target="#mediaResults" hx-swap="innerHTML" hx-push-url="true">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+            {{else}}
+            <li class="page-item disabled"><span class="page-link"><i class="bi bi-chevron-right"></i></span></li>
+            {{end}}
+        </ul>
+    </nav>
+</div>
+{{end}}
+
+<script>
+// Re-init view toggle and sortable headers after HTMX swap
+(function() {
+    const viewToggle = document.getElementById('viewToggle');
+    const tableView = document.getElementById('tableView');
+    const gridView = document.getElementById('gridView');
+    const savedView = localStorage.getItem('mediaLibraryView') || 'table';
+    if (savedView === 'grid' && tableView && gridView) {
+        tableView.classList.add('d-none');
+        gridView.classList.remove('d-none');
+        viewToggle.querySelector('[data-view="table"]')?.classList.remove('active');
+        viewToggle.querySelector('[data-view="grid"]')?.classList.add('active');
+    }
+
+    viewToggle?.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const view = btn.dataset.view;
+            if (view === 'grid') {
+                tableView?.classList.add('d-none');
+                gridView?.classList.remove('d-none');
+                viewToggle.querySelector('[data-view="table"]')?.classList.remove('active');
+                viewToggle.querySelector('[data-view="grid"]')?.classList.add('active');
+            } else {
+                tableView?.classList.remove('d-none');
+                gridView?.classList.add('d-none');
+                viewToggle.querySelector('[data-view="table"]')?.classList.add('active');
+                viewToggle.querySelector('[data-view="grid"]')?.classList.remove('active');
+            }
+            localStorage.setItem('mediaLibraryView', view);
+        });
+    });
+
+    document.querySelectorAll('#mediaResults .sortable-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const sort = header.dataset.sort;
+            const url = new URL(window.location.href);
+            const currentSort = url.searchParams.get('sort') || 'created_at';
+            const currentOrder = url.searchParams.get('order') || 'desc';
+            url.searchParams.set('sort', sort);
+            url.searchParams.set('order', sort === currentSort && currentOrder === 'desc' ? 'asc' : 'desc');
+            url.searchParams.set('page', '1');
+            // Update form fields to match
+            const form = document.getElementById('mediaFilterForm');
+            if (form) {
+                form.querySelector('[name="sort"]').value = url.searchParams.get('sort');
+                form.querySelector('[name="order"]').value = url.searchParams.get('order');
+            }
+            htmx.ajax('GET', '/dashboard/media' + url.search, {target: '#mediaResults', swap: 'innerHTML', pushUrl: true});
+        });
+    });
+})();
+</script>
+{{end}}

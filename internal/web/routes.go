@@ -162,6 +162,9 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Post("/bulk", h.MediaBulk)
 					r.Get("/genres", h.MediaGenres)
 					r.Post("/genres/reassign", h.MediaGenreReassign)
+					r.Get("/duplicates", h.MediaDuplicates)
+					r.Post("/duplicates/purge", h.MediaPurgeDuplicates)
+					r.With(h.RequireStationPermission("edit_metadata")).Post("/duplicates/hash-backfill", h.MediaBackfillHashes)
 					r.With(h.RequireStationPermission("edit_metadata")).Post("/reanalyze-durations", h.MediaReanalyzeDurations)
 					r.With(h.RequireStationPermission("edit_metadata")).Get("/reanalyze-durations/status", h.MediaReanalyzeDurationsStatus)
 					r.With(h.RequireStationPermission("edit_metadata")).Get("/reanalyze-durations/current-status", h.MediaReanalyzeDurationsCurrentStatus)
@@ -178,6 +181,7 @@ func (h *Handler) Routes(r chi.Router) {
 					// HTMX partials
 					r.Get("/table", h.MediaTablePartial)
 					r.Get("/grid", h.MediaGridPartial)
+					r.Get("/search.json", h.MediaSearchJSON)
 				})
 
 				// Playlists
