@@ -74,6 +74,13 @@ func (m *Manager) EnsurePipelineWithDualOutputAndInput(ctx context.Context, moun
 	return pipeline.StartWithDualOutputAndInput(ctx, launch, hqHandler, lqHandler)
 }
 
+// GetPipeline returns the pipeline for a mount, or nil if none exists.
+func (m *Manager) GetPipeline(mountID string) *Pipeline {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pipelines[mountID]
+}
+
 // StopPipeline stops the pipeline for a mount.
 func (m *Manager) StopPipeline(mountID string) error {
 	m.mu.Lock()

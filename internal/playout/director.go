@@ -122,6 +122,10 @@ type Director struct {
 
 	scheduleMu    sync.Mutex
 	scheduleCache cachedScheduleSnapshot
+
+	// ICY metadata pollers, keyed by mount ID
+	icyPollerMu sync.Mutex
+	icyPollers  map[string]*webstream.ICYPoller
 }
 
 // NewDirector creates a playout director.
@@ -145,6 +149,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
 		xfadeCfgCache: make(map[string]cachedCrossfadeConfig),
 		scheduleCache: cachedScheduleSnapshot{dirty: true},
+		icyPollers:    make(map[string]*webstream.ICYPoller),
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -920,6 +925,21 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		return err
 	}
 
+	// Launch ICY metadata poller if passthrough is enabled
+	if ws.PassthroughMetadata && !ws.OverrideMetadata {
+		poller := webstream.NewICYPoller(ws.ID, entry.StationID, entry.MountID, currentURL, d.bus, d.logger)
+		d.icyPollerMu.Lock()
+		if old, ok := d.icyPollers[entry.MountID]; ok {
+			old.Stop()
+		}
+		d.icyPollers[entry.MountID] = poller
+		d.icyPollerMu.Unlock()
+		go poller.Start(ctx)
+	}
+
+	// Watch for pipeline crashes and attempt reconnection
+	go d.watchWebstreamPipeline(ctx, entry, ws)
+
 	// Build metadata payload
 	payload := map[string]any{
 		"webstream_id":   ws.ID,
@@ -951,6 +971,178 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 	d.scheduleStop(ctx, entry.StationID, entry.MountID, entry.EndsAt)
 
 	return nil
+}
+
+// watchWebstreamPipeline monitors a webstream pipeline for crashes and attempts
+// reconnection with exponential backoff using the webstream's ReconnectDelayMS
+// and MaxReconnectAttempts settings.
+func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.ScheduleEntry, ws *models.Webstream) {
+	pipeline := d.manager.GetPipeline(entry.MountID)
+	if pipeline == nil {
+		return
+	}
+
+	doneCh := pipeline.Done()
+	if doneCh == nil {
+		return
+	}
+
+	baseDelay := time.Duration(ws.ReconnectDelayMS) * time.Millisecond
+	if baseDelay <= 0 {
+		baseDelay = 1000 * time.Millisecond
+	}
+	maxAttempts := ws.MaxReconnectAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 5
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-doneCh:
+			// Pipeline exited — check if we should reconnect
+		}
+
+		// Check if entry has ended or been superseded
+		d.mu.Lock()
+		state, ok := d.active[entry.MountID]
+		d.mu.Unlock()
+		if !ok || state.EntryID != entry.ID || time.Now().After(state.Ends) {
+			return // Entry ended or replaced
+		}
+
+		d.logger.Warn().
+			Str("mount", entry.MountID).
+			Str("webstream", ws.Name).
+			Msg("webstream pipeline crashed, attempting reconnection")
+
+		reconnected := false
+		delay := baseDelay
+
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+
+			// Re-check that entry is still active
+			d.mu.Lock()
+			state, ok = d.active[entry.MountID]
+			d.mu.Unlock()
+			if !ok || state.EntryID != entry.ID || time.Now().After(state.Ends) {
+				return
+			}
+
+			// Reload webstream to get current URL (may have failed over)
+			currentURL := ws.GetCurrentURL()
+			d.logger.Info().
+				Str("mount", entry.MountID).
+				Str("url", currentURL).
+				Int("attempt", attempt).
+				Int("max_attempts", maxAttempts).
+				Msg("reconnecting webstream pipeline")
+
+			// Get mount config for rebuilding pipeline
+			var mount models.Mount
+			if err := d.db.WithContext(ctx).First(&mount, "id = ?", entry.MountID).Error; err != nil {
+				mount.Format = "mp3"
+				mount.Bitrate = 128
+				mount.SampleRate = 44100
+				mount.Channels = 2
+				mount.Name = "stream"
+			}
+
+			mountBitrate := mount.Bitrate
+			if mountBitrate == 0 {
+				mountBitrate = 128
+			}
+			lqBitrate := 64
+			webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+
+			pipelineStr, err := d.buildWebstreamBroadcastPipeline(currentURL, mount, ws, mountBitrate, lqBitrate, webrtcPort)
+			if err != nil {
+				d.logger.Error().Err(err).Int("attempt", attempt).Msg("failed to build reconnect pipeline")
+				delay *= 2
+				continue
+			}
+
+			broadcastMount := d.broadcast.GetMount(mount.Name)
+			lqMountName := mount.Name + "-lq"
+			lqMount := d.broadcast.GetMount(lqMountName)
+
+			if broadcastMount != nil {
+				broadcastMount.ClearBuffer()
+			}
+			if lqMount != nil {
+				lqMount.ClearBuffer()
+			}
+
+			hqHandler := func(r io.Reader) {
+				if broadcastMount != nil {
+					_ = broadcastMount.FeedFrom(r)
+				}
+			}
+			lqHandler := func(r io.Reader) {
+				if lqMount != nil {
+					_ = lqMount.FeedFrom(r)
+				}
+			}
+
+			if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipelineStr, hqHandler, lqHandler); err != nil {
+				d.logger.Warn().Err(err).Int("attempt", attempt).Msg("reconnect attempt failed")
+				delay *= 2
+				continue
+			}
+
+			d.logger.Info().
+				Str("mount", entry.MountID).
+				Str("url", currentURL).
+				Int("attempt", attempt).
+				Msg("webstream pipeline reconnected successfully")
+
+			reconnected = true
+			break
+		}
+
+		if !reconnected {
+			d.logger.Error().
+				Str("mount", entry.MountID).
+				Str("webstream", ws.Name).
+				Int("max_attempts", maxAttempts).
+				Msg("all reconnect attempts failed")
+
+			d.bus.Publish(events.EventHealth, events.Payload{
+				"station_id": entry.StationID,
+				"mount_id":   entry.MountID,
+				"entry_id":   entry.ID,
+				"event":      "webstream_reconnect_failed",
+				"status":     "error",
+			})
+			return
+		}
+
+		// Re-enter watch loop with the new pipeline
+		pipeline = d.manager.GetPipeline(entry.MountID)
+		if pipeline == nil {
+			return
+		}
+		doneCh = pipeline.Done()
+		if doneCh == nil {
+			return
+		}
+	}
+}
+
+// stopICYPoller stops and removes the ICY metadata poller for a mount.
+func (d *Director) stopICYPoller(mountID string) {
+	d.icyPollerMu.Lock()
+	if poller, ok := d.icyPollers[mountID]; ok {
+		poller.Stop()
+		delete(d.icyPollers, mountID)
+	}
+	d.icyPollerMu.Unlock()
 }
 
 // buildWebstreamBroadcastPipeline creates a GStreamer pipeline that relays a webstream
@@ -2440,6 +2632,7 @@ func (d *Director) scheduleStop(ctx context.Context, stationID, mountID string, 
 		delete(d.active, mountID)
 		d.mu.Unlock()
 		d.clearPersistedMountState(context.Background(), mountID)
+		d.stopICYPoller(mountID)
 
 		// In crossfade mode we keep a persistent encoder pipeline per-mount so transitions can overlap.
 		// We only stop the pipeline when explicitly requested (emergency stop/skip/etc.).
@@ -2607,7 +2800,8 @@ func (d *Director) StopStation(ctx context.Context, stationID string) (int, erro
 		}
 		d.xfadeMu.Unlock()
 
-		// Stop pipeline for this mount
+		// Stop pipeline and ICY poller for this mount
+		d.stopICYPoller(mount.ID)
 		if err := d.manager.StopPipeline(mount.ID); err != nil {
 			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline")
 			continue
@@ -2677,6 +2871,7 @@ func (d *Director) SkipStation(ctx context.Context, stationID string) (int, erro
 			continue
 		}
 
+		d.stopICYPoller(mount.ID)
 		if err := d.manager.StopPipeline(mount.ID); err != nil {
 			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline for skip")
 		}
@@ -2712,6 +2907,7 @@ func (d *Director) ReloadStation(ctx context.Context, stationID string) (int, er
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, mount := range mounts {
+		d.stopICYPoller(mount.ID)
 		if err := d.manager.StopPipeline(mount.ID); err != nil {
 			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline during reload")
 		}
@@ -2758,7 +2954,8 @@ func (d *Director) InjectLiveSource(ctx context.Context, stationID, mountID stri
 	d.xfadeMu.Unlock()
 
 	d.logger.Info().Msg("InjectLiveSource: stopping existing pipeline")
-	// Stop any existing pipeline to start fresh.
+	// Stop any existing pipeline and ICY poller to start fresh.
+	d.stopICYPoller(mount.ID)
 	_ = d.manager.StopPipeline(mount.ID)
 	d.logger.Info().Msg("InjectLiveSource: pipeline stopped, building PCM encoder")
 

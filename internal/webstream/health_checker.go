@@ -27,6 +27,11 @@ type HealthChecker struct {
 	logger           zerolog.Logger
 	stopCh           chan struct{}
 	consecutiveFails int
+
+	// failoverEligibleAt is the earliest time a failover may fire.
+	// Set when consecutive failures reach the threshold; actual failover
+	// is deferred until this time passes (honoring FailoverGraceMs).
+	failoverEligibleAt time.Time
 }
 
 // NewHealthChecker creates a new health checker for a webstream.
@@ -121,8 +126,9 @@ func (hc *HealthChecker) performHealthCheck(ws *models.Webstream) {
 func (hc *HealthChecker) handleSuccessfulCheck(ws *models.Webstream) {
 	wasUnhealthy := ws.HealthStatus == "unhealthy" || ws.HealthStatus == "degraded"
 
-	// Reset consecutive fail counter
+	// Reset consecutive fail counter and grace period
 	hc.consecutiveFails = 0
+	hc.failoverEligibleAt = time.Time{}
 
 	// Mark as healthy
 	ws.MarkHealthy()
@@ -204,9 +210,37 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 		return
 	}
 
-	// Trigger failover after multiple failures
+	// Trigger failover after multiple failures, respecting grace period
 	failoverThreshold := 3 // Configurable threshold
 	if hc.consecutiveFails >= failoverThreshold {
+		// Apply FailoverGraceMs: on first threshold breach set the
+		// eligible-at time; only actually failover once that time passes.
+		if hc.failoverEligibleAt.IsZero() {
+			grace := time.Duration(ws.FailoverGraceMs) * time.Millisecond
+			hc.failoverEligibleAt = time.Now().Add(grace)
+			hc.logger.Info().
+				Int("grace_ms", ws.FailoverGraceMs).
+				Time("eligible_at", hc.failoverEligibleAt).
+				Msg("failover threshold reached, grace period started")
+		}
+
+		if time.Now().Before(hc.failoverEligibleAt) {
+			// Still within grace period — mark unhealthy but don't failover yet
+			ws.MarkUnhealthy()
+			if saveErr := hc.db.Save(ws).Error; saveErr != nil {
+				hc.logger.Error().Err(saveErr).Msg("failed to update health status")
+			}
+			telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(0)
+			hc.bus.Publish(events.EventWebstreamHealth, events.Payload{
+				"webstream_id": ws.ID,
+				"station_id":   ws.StationID,
+				"status":       ws.HealthStatus,
+				"url":          ws.GetCurrentURL(),
+			})
+			return
+		}
+
+		hc.failoverEligibleAt = time.Time{} // Reset for next cycle
 		hc.triggerFailover(ws)
 	} else {
 		// Update status but don't failover yet
