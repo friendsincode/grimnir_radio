@@ -36,6 +36,7 @@ type Service struct {
 	liveInputMgr    *LiveInputManager
 	webstreamMgr    *WebstreamManager
 	analyzer        *Analyzer
+	recordingMgr    *RecordingManager
 
 	mu       sync.RWMutex
 	stations map[string]*StationEngine // station_id -> engine
@@ -89,6 +90,7 @@ func New(cfg *Config, logger zerolog.Logger) *Service {
 		liveInputMgr:    liveInputMgr,
 		webstreamMgr:    webstreamMgr,
 		analyzer:        NewAnalyzer(logger),
+		recordingMgr:    NewRecordingManager(cfg, logger),
 		stations:        make(map[string]*StationEngine),
 		graphs:          make(map[string]*dsp.Graph),
 		uptime:          time.Now(),
@@ -782,25 +784,70 @@ func getSourceID(source *pb.SourceConfig) string {
 }
 
 // StartRecording begins recording audio output to a file.
-// TODO(phase3): Implement tee pipeline in RecordingManager.
 func (s *Service) StartRecording(ctx context.Context, req *pb.StartRecordingRequest) (*pb.StartRecordingResponse, error) {
 	s.logger.Info().
 		Str("station_id", req.StationId).
 		Str("recording_id", req.RecordingId).
 		Str("output_path", req.OutputPath).
 		Str("codec", req.Codec).
-		Msg("StartRecording called (not yet implemented)")
+		Msg("StartRecording")
 
-	return nil, status.Errorf(codes.Unimplemented, "StartRecording not yet implemented")
+	if req.RecordingId == "" || req.StationId == "" || req.OutputPath == "" {
+		return &pb.StartRecordingResponse{
+			Success: false,
+			Error:   "recording_id, station_id, and output_path are required",
+		}, nil
+	}
+
+	rec := &ActiveRecording{
+		RecordingID: req.RecordingId,
+		StationID:   req.StationId,
+		MountID:     req.MountId,
+		OutputPath:  req.OutputPath,
+		Codec:       req.Codec,
+		SampleRate:  req.SampleRate,
+		Channels:    req.Channels,
+		Bitrate:     req.Bitrate,
+	}
+
+	if err := s.recordingMgr.StartRecording(ctx, rec); err != nil {
+		s.logger.Error().Err(err).Str("recording_id", req.RecordingId).Msg("failed to start recording")
+		return &pb.StartRecordingResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	return &pb.StartRecordingResponse{Success: true}, nil
 }
 
 // StopRecording stops an active recording and finalizes the file.
-// TODO(phase3): Implement teardown in RecordingManager.
 func (s *Service) StopRecording(ctx context.Context, req *pb.StopRecordingRequest) (*pb.StopRecordingResponse, error) {
 	s.logger.Info().
 		Str("station_id", req.StationId).
 		Str("recording_id", req.RecordingId).
-		Msg("StopRecording called (not yet implemented)")
+		Msg("StopRecording")
 
-	return nil, status.Errorf(codes.Unimplemented, "StopRecording not yet implemented")
+	if req.RecordingId == "" {
+		return &pb.StopRecordingResponse{
+			Success: false,
+			Error:   "recording_id is required",
+		}, nil
+	}
+
+	sizeBytes, durationMs, err := s.recordingMgr.StopRecording(req.RecordingId)
+	if err != nil {
+		s.logger.Error().Err(err).Str("recording_id", req.RecordingId).Msg("failed to stop recording")
+		return &pb.StopRecordingResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	return &pb.StopRecordingResponse{
+		Success:       true,
+		RecordingId:   req.RecordingId,
+		FileSizeBytes: sizeBytes,
+		DurationMs:    durationMs,
+	}, nil
 }
