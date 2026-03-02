@@ -246,12 +246,26 @@
                                     </select>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label small text-uppercase text-muted">Added After</label>
-                                    <input type="date" class="form-control form-control-sm filter-field" name="filter_added_after">
+                                    <label class="form-label small text-uppercase text-muted">Newer Than</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control form-control-sm filter-field" name="filter_newer_than" min="0" placeholder="e.g. 7">
+                                        <select class="form-select form-select-sm" name="filter_newer_than_unit" style="max-width:90px">
+                                            <option value="days">days</option>
+                                            <option value="weeks">weeks</option>
+                                            <option value="months">months</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label small text-uppercase text-muted">Added Before</label>
-                                    <input type="date" class="form-control form-control-sm filter-field" name="filter_added_before">
+                                    <label class="form-label small text-uppercase text-muted">Older Than</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control form-control-sm filter-field" name="filter_older_than" min="0" placeholder="e.g. 30">
+                                        <select class="form-select form-select-sm" name="filter_older_than_unit" style="max-width:90px">
+                                            <option value="days">days</option>
+                                            <option value="weeks">weeks</option>
+                                            <option value="months">months</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div class="col-12">
                                     <div class="form-check">
@@ -1190,8 +1204,18 @@
             if (existingRules.yearRange.max) document.querySelector('[name="filter_year_max"]').value = existingRules.yearRange.max;
         }
         if (existingRules.addedDateRange) {
-            if (existingRules.addedDateRange.after) document.querySelector('[name="filter_added_after"]').value = existingRules.addedDateRange.after;
-            if (existingRules.addedDateRange.before) document.querySelector('[name="filter_added_before"]').value = existingRules.addedDateRange.before;
+            if (existingRules.addedDateRange.newerThan) {
+                document.querySelector('[name="filter_newer_than"]').value = existingRules.addedDateRange.newerThan;
+            }
+            if (existingRules.addedDateRange.newerThanUnit) {
+                document.querySelector('[name="filter_newer_than_unit"]').value = existingRules.addedDateRange.newerThanUnit;
+            }
+            if (existingRules.addedDateRange.olderThan) {
+                document.querySelector('[name="filter_older_than"]').value = existingRules.addedDateRange.olderThan;
+            }
+            if (existingRules.addedDateRange.olderThanUnit) {
+                document.querySelector('[name="filter_older_than_unit"]').value = existingRules.addedDateRange.olderThanUnit;
+            }
         }
         if (existingRules.excludeExplicit) document.getElementById('excludeExplicit').checked = true;
         updateFilterCount();

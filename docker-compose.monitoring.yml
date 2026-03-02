@@ -1,0 +1,53 @@
+# Monitoring overlay — opt-in Prometheus + Grafana stack.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+# Or add to your ./grimnir wrapper:
+#   COMPOSE_FILE="docker-compose.yml:docker-compose.monitoring.yml" docker compose "$@"
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: grimnir-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - grimnir-network
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grimnir-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      # Anonymous access so the admin can view without login
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      # Disable user signup
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+    networks:
+      - grimnir-network
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
