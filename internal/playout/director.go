@@ -123,9 +123,9 @@ type Director struct {
 	scheduleMu    sync.Mutex
 	scheduleCache cachedScheduleSnapshot
 
-	// ICY metadata pollers, keyed by mount ID
+	// Metadata pollers (ICY or HLS), keyed by mount ID
 	icyPollerMu sync.Mutex
-	icyPollers  map[string]*webstream.ICYPoller
+	icyPollers  map[string]webstream.MetadataPoller
 }
 
 // NewDirector creates a playout director.
@@ -149,7 +149,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
 		xfadeCfgCache: make(map[string]cachedCrossfadeConfig),
 		scheduleCache: cachedScheduleSnapshot{dirty: true},
-		icyPollers:    make(map[string]*webstream.ICYPoller),
+		icyPollers:    make(map[string]webstream.MetadataPoller),
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -925,9 +925,15 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		return err
 	}
 
-	// Launch ICY metadata poller if passthrough is enabled
+	// Launch metadata poller if passthrough is enabled
 	if ws.PassthroughMetadata && !ws.OverrideMetadata {
-		poller := webstream.NewICYPoller(ws.ID, entry.StationID, entry.MountID, currentURL, d.bus, d.db, d.logger)
+		var poller webstream.MetadataPoller
+		switch webstream.DetectStreamType(currentURL) {
+		case webstream.StreamTypeHLS:
+			poller = webstream.NewHLSPoller(ws.ID, entry.StationID, entry.MountID, currentURL, d.bus, d.db, d.logger)
+		default:
+			poller = webstream.NewICYPoller(ws.ID, entry.StationID, entry.MountID, currentURL, d.bus, d.db, d.logger)
+		}
 		d.icyPollerMu.Lock()
 		if old, ok := d.icyPollers[entry.MountID]; ok {
 			old.Stop()
