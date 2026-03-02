@@ -1,0 +1,181 @@
+{{define "pages/dashboard/recordings/list"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item active">Recordings</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+<div class="row g-4">
+    <!-- Quota & Status -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-hdd me-2"></i>Storage Quota</h5>
+            </div>
+            <div class="card-body">
+                {{if .Data.QuotaEnabled}}
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <small class="text-body-secondary">Used</small>
+                        <small class="text-body-secondary">{{formatBytes .Data.UsedBytes}} / {{formatBytes .Data.QuotaBytes}}</small>
+                    </div>
+                    <div class="progress" style="height: 8px;">
+                        <div class="progress-bar {{if gt .Data.QuotaPercent 90.0}}bg-danger{{else if gt .Data.QuotaPercent 75.0}}bg-warning{{else}}bg-success{{end}}"
+                             style="width: {{printf "%.0f" .Data.QuotaPercent}}%"></div>
+                    </div>
+                </div>
+                {{else}}
+                <p class="text-body-secondary mb-0">No quota limit configured.</p>
+                {{end}}
+                <div class="mt-3">
+                    <small class="text-body-secondary">
+                        Default format: <strong>{{if .Data.DefaultFormat}}{{.Data.DefaultFormat}}{{else}}FLAC{{end}}</strong>
+                    </small>
+                    <br>
+                    <small class="text-body-secondary">
+                        Auto-record:
+                        {{if .Data.AutoRecord}}
+                        <span class="badge bg-success">Enabled</span>
+                        {{else}}
+                        <span class="badge bg-secondary">Disabled</span>
+                        {{end}}
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        {{if .Data.ActiveRecording}}
+        <div class="card mt-3 border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0"><i class="bi bi-record-circle me-2"></i>Recording Active</h5>
+            </div>
+            <div class="card-body">
+                <h6>{{.Data.ActiveRecording.Title}}</h6>
+                <p class="text-body-secondary mb-2">
+                    Started: {{formatTime .Data.ActiveRecording.StartedAt}}<br>
+                    Format: {{.Data.ActiveRecording.Format}}
+                </p>
+                <form method="POST" action="/dashboard/recordings/{{.Data.ActiveRecording.ID}}/stop">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn btn-danger w-100">
+                        <i class="bi bi-stop-circle me-1"></i>Stop Recording
+                    </button>
+                </form>
+            </div>
+        </div>
+        {{else}}
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-record-circle me-2"></i>New Recording</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="/dashboard/recordings/start">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input type="text" name="title" class="form-control" placeholder="Recording title (optional)">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Format</label>
+                        <select name="format" class="form-select">
+                            <option value="flac" {{if eq .Data.DefaultFormat "flac"}}selected{{end}}>FLAC (lossless)</option>
+                            <option value="opus" {{if eq .Data.DefaultFormat "opus"}}selected{{end}}>Opus (compressed)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-danger w-100">
+                        <i class="bi bi-record-circle me-1"></i>Start Recording
+                    </button>
+                </form>
+            </div>
+        </div>
+        {{end}}
+    </div>
+
+    <!-- Recordings Table -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-collection me-2"></i>Recordings ({{.Data.Total}})</h5>
+            </div>
+            <div class="card-body p-0">
+                {{if .Data.Recordings}}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Date</th>
+                                <th>Duration</th>
+                                <th>Size</th>
+                                <th>Format</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Data.Recordings}}
+                            <tr>
+                                <td>
+                                    <a href="/dashboard/recordings/{{.ID}}">{{if .Title}}{{.Title}}{{else}}Untitled{{end}}</a>
+                                </td>
+                                <td class="text-body-secondary">{{formatTime .StartedAt}}</td>
+                                <td>{{if .DurationMs}}{{formatDurationMs .DurationMs}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                                <td>{{if .SizeBytes}}{{formatBytes .SizeBytes}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
+                                <td><span class="badge bg-secondary">{{.Format}}</span></td>
+                                <td>
+                                    {{if eq .Status "active"}}
+                                    <span class="badge bg-danger"><i class="bi bi-record-circle me-1"></i>Recording</span>
+                                    {{else if eq .Status "complete"}}
+                                    <span class="badge bg-success">Complete</span>
+                                    {{else if eq .Status "finalizing"}}
+                                    <span class="badge bg-warning">Finalizing</span>
+                                    {{else if eq .Status "failed"}}
+                                    <span class="badge bg-danger">Failed</span>
+                                    {{end}}
+                                </td>
+                                <td>
+                                    {{if eq .Status "active"}}
+                                    <form method="POST" action="/dashboard/recordings/{{.ID}}/stop" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Stop">
+                                            <i class="bi bi-stop-circle"></i>
+                                        </button>
+                                    </form>
+                                    {{else}}
+                                    <a href="/dashboard/recordings/{{.ID}}" class="btn btn-sm btn-outline-primary" title="Details">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    {{if ne .Status "active"}}
+                                    <form method="POST" action="/dashboard/recordings/{{.ID}}/delete" class="d-inline"
+                                          onsubmit="return confirm('Delete this recording?')">
+                                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                    {{end}}
+                                    {{end}}
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <div class="text-center py-5 text-body-secondary">
+                    <i class="bi bi-record-circle fs-1 d-block mb-2"></i>
+                    <p>No recordings yet. Start one using the panel on the left.</p>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

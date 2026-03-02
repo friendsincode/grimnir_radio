@@ -132,6 +132,13 @@
                     </a>
                 </li>
 
+                <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/recordings"}}active bg-primary text-white{{end}}" href="/dashboard/recordings" data-bs-toggle="tooltip" data-bs-placement="right" title="Recordings">
+                        <i class="bi bi-record-circle"></i>
+                        <span class="sidebar-text ms-2">Recordings</span>
+                    </a>
+                </li>
+
                 {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}
                 <li class="nav-item">
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/webstreams"}}active bg-primary text-white{{end}}" href="/dashboard/webstreams" data-bs-toggle="tooltip" data-bs-placement="right" title="Webstreams">

@@ -68,6 +68,7 @@ type API struct {
 	migrationHandler     *MigrationHandler
 	webdjAPI             *WebDJAPI
 	webdjWS              *WebDJWebSocket
+	recordingAPI         *RecordingAPI
 	broadcast            *broadcast.Server
 	bus                  *events.Bus
 	logBuffer            *logbuffer.Buffer
@@ -147,6 +148,11 @@ func (a *API) SetWebDJAPI(api *WebDJAPI) {
 // SetWebDJWebSocket sets the WebDJ WebSocket handler.
 func (a *API) SetWebDJWebSocket(ws *WebDJWebSocket) {
 	a.webdjWS = ws
+}
+
+// SetRecordingAPI sets the recording API handler.
+func (a *API) SetRecordingAPI(api *RecordingAPI) {
+	a.recordingAPI = api
 }
 
 type mountRequest struct {
@@ -426,6 +432,11 @@ func (a *API) Routes(r chi.Router) {
 
 			// DJ self-service
 			a.AddDJSelfServiceRoutes(pr)
+
+			// Recordings
+			if a.recordingAPI != nil {
+				a.recordingAPI.RegisterRoutes(pr)
+			}
 
 			// Notifications
 			if a.notificationAPI != nil {

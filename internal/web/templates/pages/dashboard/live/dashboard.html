@@ -111,6 +111,47 @@
             </div>
         </div>
 
+        <!-- Recording Controls -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-record-circle me-2"></i>Recording</h5>
+                {{if .Data.ActiveRecording}}
+                <span class="badge bg-danger"><i class="bi bi-record-fill me-1"></i>REC</span>
+                {{end}}
+            </div>
+            <div class="card-body">
+                {{if .Data.ActiveRecording}}
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div>
+                        <strong>{{.Data.ActiveRecording.Title}}</strong>
+                        <br><small class="text-body-secondary">Started {{formatTime .Data.ActiveRecording.StartedAt}}</small>
+                        <br><small class="text-body-secondary">Elapsed: <span id="recDuration">--:--:--</span></small>
+                    </div>
+                    <form method="POST" action="/dashboard/recordings/{{.Data.ActiveRecording.ID}}/stop">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-stop-fill me-1"></i>Stop
+                        </button>
+                    </form>
+                </div>
+                {{if .Data.QuotaEnabled}}
+                <div class="progress" style="height: 6px;">
+                    <div class="progress-bar {{if gt .Data.QuotaPercent 90.0}}bg-danger{{else if gt .Data.QuotaPercent 70.0}}bg-warning{{else}}bg-info{{end}}"
+                         style="width: {{printf "%.0f" .Data.QuotaPercent}}%"></div>
+                </div>
+                <small class="text-body-secondary">{{formatBytes .Data.UsedBytes}} of {{formatBytes .Data.QuotaBytes}}</small>
+                {{end}}
+                {{else}}
+                <form method="POST" action="/dashboard/recordings/start" class="text-center">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button type="submit" class="btn btn-outline-danger btn-lg">
+                        <i class="bi bi-record-circle me-2"></i>Start Recording
+                    </button>
+                </form>
+                {{end}}
+            </div>
+        </div>
+
         <!-- Transport Controls -->
         <div class="card mt-4">
             <div class="card-header">
@@ -354,6 +395,22 @@
 
 {{define "scripts"}}
 <script>
+{{if .Data.ActiveRecording}}
+// Update recording duration timer
+const recStartedAt = new Date('{{.Data.ActiveRecording.StartedAt}}');
+function updateRecDuration() {
+    const now = new Date();
+    const diff = Math.floor((now - recStartedAt) / 1000);
+    const hours = Math.floor(diff / 3600);
+    const mins = Math.floor((diff % 3600) / 60);
+    const secs = diff % 60;
+    const el = document.getElementById('recDuration');
+    if (el) el.textContent =
+        `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+updateRecDuration();
+setInterval(updateRecDuration, 1000);
+{{end}}
 {{if .Data.UserSession}}
 // Update session duration timer
 const connectedAt = new Date('{{.Data.UserSession.ConnectedAt}}');

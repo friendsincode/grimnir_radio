@@ -42,6 +42,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/notifications"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
+	"github.com/friendsincode/grimnir_radio/internal/recording"
 	"github.com/friendsincode/grimnir_radio/internal/schedule"
 	"github.com/friendsincode/grimnir_radio/internal/scheduler"
 	schedulerstate "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
@@ -82,6 +83,7 @@ type Server struct {
 	webrtcMgr            *webrtcStationManager
 	listenerAnalyticsSvc *analytics.ListenerAnalyticsService
 	storageMonitor       *storage.Monitor
+	recordingTracker     *recording.MetadataTracker
 	harbor               *harbor.Server
 
 	bgCancel context.CancelFunc
@@ -434,6 +436,12 @@ func (s *Server) initDependencies() error {
 	webdjWS := api.NewWebDJWebSocket(webdjSvc, s.logger)
 	s.api.SetWebDJWebSocket(webdjWS)
 
+	// Recording service + metadata tracker
+	recordingSvc := recording.NewService(database, meClient, s.cfg.MediaRoot, s.logger)
+	recordingAPI := api.NewRecordingAPI(s.api, recordingSvc)
+	s.api.SetRecordingAPI(recordingAPI)
+	s.recordingTracker = recording.NewMetadataTracker(database, recordingSvc, s.bus, s.logger)
+
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
 		Enabled:      s.cfg.WebRTCEnabled,
@@ -628,6 +636,11 @@ func (s *Server) startBackgroundWorkers() {
 			defer s.bgWG.Done()
 			s.storageMonitor.Start(ctx)
 		}()
+	}
+
+	// Start recording metadata tracker (auto-chapters from now-playing events)
+	if s.recordingTracker != nil {
+		s.recordingTracker.Start(ctx)
 	}
 
 	// Start webhook service

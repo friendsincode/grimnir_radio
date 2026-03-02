@@ -100,6 +100,20 @@ func (h *Handler) StationSettingsUpdate(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Recording
+	station.RecordingAutoRecord = r.FormValue("recording_auto_record") == "on"
+	if f := r.FormValue("recording_default_format"); f == "opus" {
+		station.RecordingDefaultFormat = "opus"
+	} else {
+		station.RecordingDefaultFormat = "flac"
+	}
+	if raw := r.FormValue("recording_quota_gb"); raw != "" {
+		gb, err := strconv.ParseInt(raw, 10, 64)
+		if err == nil && gb >= 0 {
+			station.RecordingQuotaBytes = gb * 1073741824 // GB → bytes
+		}
+	}
+
 	// Crossfade defaults
 	station.CrossfadeEnabled = r.FormValue("crossfade_enabled") == "on"
 	if raw := r.FormValue("crossfade_duration_ms"); raw != "" {
