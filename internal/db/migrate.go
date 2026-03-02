@@ -149,35 +149,10 @@ func applyContentHashUniqueIndex(database *gorm.DB) error {
 		return nil
 	}
 
-	// Index creation failed (likely due to existing duplicates). Clean them up.
-	// Use a dedicated session to ensure the DELETE is not rolled back.
-	if database.Dialector.Name() == "postgres" {
-		if delErr := database.Session(&gorm.Session{}).Exec(`
-			DELETE FROM media_items
-			WHERE id IN (
-				SELECT id FROM (
-					SELECT id, ROW_NUMBER() OVER (
-						PARTITION BY station_id, content_hash
-						ORDER BY created_at ASC
-					) AS rn
-					FROM media_items
-					WHERE content_hash <> ''
-				) ranked
-				WHERE rn > 1
-			)`).Error; delErr != nil {
-			return fmt.Errorf("dedup media items: %w", delErr)
-		}
-	} else {
-		if delErr := database.Session(&gorm.Session{}).Exec(`
-			DELETE FROM media_items
-			WHERE content_hash <> ''
-			AND id NOT IN (
-				SELECT MIN(id) FROM media_items
-				WHERE content_hash <> ''
-				GROUP BY station_id, content_hash
-			)`).Error; delErr != nil {
-			return fmt.Errorf("dedup media items: %w", delErr)
-		}
+	// Index creation failed (likely due to existing duplicates). Clean them up
+	// by remapping FK references to the survivor (oldest row), then deleting dupes.
+	if delErr := deduplicateMediaItems(database); delErr != nil {
+		return fmt.Errorf("dedup media items: %w", delErr)
 	}
 
 	// Retry index creation after cleanup.
@@ -186,6 +161,72 @@ func applyContentHashUniqueIndex(database *gorm.DB) error {
 		 ON media_items (station_id, content_hash)
 		 WHERE content_hash <> ''`,
 	).Error
+}
+
+// deduplicateMediaItems removes duplicate media items (same station_id + content_hash),
+// keeping the oldest row per group and remapping all FK references before deletion.
+func deduplicateMediaItems(database *gorm.DB) error {
+	// Build a map of duplicate_id → survivor_id.
+	type dupRow struct {
+		DupeID     string
+		SurvivorID string
+	}
+
+	var dupes []dupRow
+	if database.Dialector.Name() == "postgres" {
+		database.Raw(`
+			SELECT d.id AS dupe_id, s.survivor_id
+			FROM media_items d
+			JOIN (
+				SELECT station_id, content_hash, MIN(created_at) AS min_created
+				FROM media_items
+				WHERE content_hash <> ''
+				GROUP BY station_id, content_hash
+				HAVING COUNT(*) > 1
+			) g ON d.station_id = g.station_id AND d.content_hash = g.content_hash
+			JOIN (
+				SELECT DISTINCT ON (station_id, content_hash) id AS survivor_id, station_id, content_hash
+				FROM media_items
+				WHERE content_hash <> ''
+				ORDER BY station_id, content_hash, created_at ASC
+			) s ON d.station_id = s.station_id AND d.content_hash = s.content_hash
+			WHERE d.id <> s.survivor_id`).Scan(&dupes)
+	} else {
+		database.Raw(`
+			SELECT d.id AS dupe_id, s.survivor_id
+			FROM media_items d
+			JOIN (
+				SELECT station_id, content_hash, MIN(id) AS survivor_id
+				FROM media_items
+				WHERE content_hash <> ''
+				GROUP BY station_id, content_hash
+				HAVING COUNT(*) > 1
+			) s ON d.station_id = s.station_id AND d.content_hash = s.content_hash
+			WHERE d.id <> s.survivor_id`).Scan(&dupes)
+	}
+
+	if len(dupes) == 0 {
+		return nil
+	}
+
+	// Remap references and delete in a transaction.
+	return database.Transaction(func(tx *gorm.DB) error {
+		for _, d := range dupes {
+			// Remap playlist_items
+			tx.Exec("UPDATE playlist_items SET media_id = ? WHERE media_id = ?", d.SurvivorID, d.DupeID)
+			// Clear play_histories
+			tx.Exec("UPDATE play_histories SET media_id = '' WHERE media_id = ?", d.DupeID)
+			// Clear schedule_entries
+			tx.Exec("DELETE FROM schedule_entries WHERE source_type = 'media' AND source_id = ?", d.DupeID)
+			// Clear mount_playout_states
+			tx.Exec("UPDATE mount_playout_states SET media_id = '' WHERE media_id = ?", d.DupeID)
+			// Delete the duplicate
+			if err := tx.Exec("DELETE FROM media_items WHERE id = ?", d.DupeID).Error; err != nil {
+				return fmt.Errorf("delete dupe %s: %w", d.DupeID, err)
+			}
+		}
+		return nil
+	})
 }
 
 func applyPostgresScheduleOverlapGuard(database *gorm.DB) error {
