@@ -80,6 +80,7 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Get("/profile", h.ProfilePage)
 			r.Put("/profile", h.ProfileUpdate)
 			r.Post("/profile/password", h.ProfileUpdatePassword)
+			r.Post("/profile/logout-all-devices", h.ProfileLogoutAllDevices)
 
 			// API Keys management
 			r.Get("/profile/api-keys", h.APIKeysSection)

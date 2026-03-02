@@ -84,6 +84,25 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Reject suspended users
+		if user.Suspended {
+			h.ClearAuthToken(w)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if token was issued before a "log out all devices" event
+		if user.TokenValidAfter != nil {
+			if iat, ok := claims["iat"].(float64); ok {
+				issuedAt := time.Unix(int64(iat), 0)
+				if issuedAt.Before(*user.TokenValidAfter) {
+					h.ClearAuthToken(w)
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+		}
+
 		// Inject user and token into context
 		ctx := context.WithValue(r.Context(), ctxKeyUser, &user)
 		ctx = context.WithValue(ctx, ctxKeyToken, tokenStr)
@@ -500,6 +519,22 @@ func (h *Handler) SetAuthToken(w http.ResponseWriter, token string, maxAge int) 
 		SameSite: http.SameSiteLaxMode,
 		Secure:   isSecureCookieEnv(),
 	})
+}
+
+// issueNewToken creates and sets a fresh JWT for the user (keeps current browser logged in).
+func (h *Handler) issueNewToken(w http.ResponseWriter, user *models.User) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"roles":   []string{string(user.PlatformRole)},
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
+		"iat":     time.Now().Unix(),
+		"sub":     user.ID,
+	})
+	tokenStr, err := token.SignedString(h.jwtSecret)
+	if err != nil {
+		return
+	}
+	h.SetAuthToken(w, tokenStr, 86400)
 }
 
 // ClearAuthToken removes the authentication cookie.
