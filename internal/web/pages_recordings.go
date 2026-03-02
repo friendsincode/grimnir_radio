@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/recording"
 )
 
 // RecordingsList renders the recordings management page.
@@ -114,7 +114,7 @@ func (h *Handler) RecordingDetail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// RecordingStart handles starting a recording.
+// RecordingStart handles starting a recording via the recording service.
 func (h *Handler) RecordingStart(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
 	if station == nil {
@@ -140,33 +140,20 @@ func (h *Handler) RecordingStart(w http.ResponseWriter, r *http.Request) {
 		title = fmt.Sprintf("Recording %s", time.Now().Format("2006-01-02 15:04"))
 	}
 
-	if format == "" {
-		format = station.RecordingDefaultFormat
-	}
-	if format == "" {
-		format = models.RecordingFormatFLAC
-	}
-
-	if station.RecordingQuotaBytes > 0 && station.RecordingStorageUsed >= station.RecordingQuotaBytes {
+	if h.recordingSvc == nil {
+		h.logger.Error().Msg("recording service not available")
 		http.Redirect(w, r, "/dashboard/recordings", http.StatusSeeOther)
 		return
 	}
 
-	recording := models.Recording{
-		ID:         uuid.NewString(),
-		StationID:  station.ID,
-		MountID:    mountID,
-		UserID:     user.ID,
-		Title:      title,
-		Format:     format,
-		Status:     models.RecordingStatusActive,
-		SampleRate: 44100,
-		Channels:   2,
-		StartedAt:  time.Now(),
-	}
-
-	if err := h.db.Create(&recording).Error; err != nil {
-		h.logger.Error().Err(err).Msg("failed to create recording")
+	if _, err := h.recordingSvc.StartRecording(r.Context(), recording.StartRequest{
+		StationID: station.ID,
+		MountID:   mountID,
+		UserID:    user.ID,
+		Title:     title,
+		Format:    format,
+	}); err != nil {
+		h.logger.Error().Err(err).Msg("failed to start recording")
 		http.Redirect(w, r, "/dashboard/recordings", http.StatusSeeOther)
 		return
 	}
@@ -174,7 +161,7 @@ func (h *Handler) RecordingStart(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/recordings", http.StatusSeeOther)
 }
 
-// RecordingStop handles stopping a recording.
+// RecordingStop handles stopping a recording via the recording service.
 func (h *Handler) RecordingStop(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
 	if station == nil {
@@ -183,20 +170,19 @@ func (h *Handler) RecordingStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	recordingID := chi.URLParam(r, "id")
-	var recording models.Recording
-	if err := h.db.First(&recording, "id = ? AND station_id = ?", recordingID, station.ID).Error; err != nil {
+
+	// Verify the recording belongs to this station before stopping.
+	var rec models.Recording
+	if err := h.db.First(&rec, "id = ? AND station_id = ?", recordingID, station.ID).Error; err != nil {
 		http.Redirect(w, r, "/dashboard/recordings", http.StatusSeeOther)
 		return
 	}
 
-	now := time.Now()
-	durationMs := now.Sub(recording.StartedAt).Milliseconds()
-
-	h.db.Model(&recording).Updates(map[string]any{
-		"status":      models.RecordingStatusComplete,
-		"stopped_at":  &now,
-		"duration_ms": durationMs,
-	})
+	if h.recordingSvc != nil {
+		if _, err := h.recordingSvc.StopRecording(r.Context(), recordingID); err != nil {
+			h.logger.Error().Err(err).Str("recording_id", recordingID).Msg("failed to stop recording")
+		}
+	}
 
 	http.Redirect(w, r, "/dashboard/recordings", http.StatusSeeOther)
 }

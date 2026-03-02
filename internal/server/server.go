@@ -84,6 +84,7 @@ type Server struct {
 	listenerAnalyticsSvc *analytics.ListenerAnalyticsService
 	storageMonitor       *storage.Monitor
 	recordingTracker     *recording.MetadataTracker
+	autoRecordHandler    *recording.AutoRecordHandler
 	harbor               *harbor.Server
 
 	bgCancel context.CancelFunc
@@ -441,6 +442,7 @@ func (s *Server) initDependencies() error {
 	recordingAPI := api.NewRecordingAPI(s.api, recordingSvc)
 	s.api.SetRecordingAPI(recordingAPI)
 	s.recordingTracker = recording.NewMetadataTracker(database, recordingSvc, s.bus, s.logger)
+	s.autoRecordHandler = recording.NewAutoRecordHandler(recordingSvc, s.bus, s.logger)
 
 	// Web UI handler with WebRTC ICE server config for client
 	webrtcCfg := web.WebRTCConfig{
@@ -493,6 +495,9 @@ func (s *Server) initDependencies() error {
 
 	// Set live service on web handler for token generation and session management
 	webHandler.SetLiveService(&liveServiceAdapter{svc: liveService})
+
+	// Set recording service on web handler for start/stop recordings
+	webHandler.SetRecordingService(recordingSvc)
 
 	return nil
 }
@@ -642,6 +647,11 @@ func (s *Server) startBackgroundWorkers() {
 	// Start recording metadata tracker (auto-chapters from now-playing events)
 	if s.recordingTracker != nil {
 		s.recordingTracker.Start(ctx)
+	}
+
+	// Start auto-record handler (starts recording when DJ connects to auto-record stations)
+	if s.autoRecordHandler != nil {
+		s.autoRecordHandler.Start(ctx)
 	}
 
 	// Start webhook service

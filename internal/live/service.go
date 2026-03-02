@@ -240,6 +240,25 @@ func (s *Service) HandleConnect(ctx context.Context, req ConnectRequest) (*model
 		"preempted":  result.Preempted,
 	})
 
+	// Auto-record: if the station has auto-record enabled, publish an event
+	// so the recording service can start a recording for this session.
+	var station models.Station
+	if err := s.db.WithContext(ctx).Select("id, recording_auto_record").First(&station, "id = ?", session.StationID).Error; err == nil {
+		if station.RecordingAutoRecord {
+			s.bus.Publish(events.EventRecordingAutoStart, events.Payload{
+				"station_id": session.StationID,
+				"mount_id":   session.MountID,
+				"user_id":    session.UserID,
+				"session_id": session.ID,
+				"username":   session.Username,
+			})
+			s.logger.Info().
+				Str("station_id", session.StationID).
+				Str("session_id", session.ID).
+				Msg("auto-record triggered for DJ connect")
+		}
+	}
+
 	return &session, nil
 }
 

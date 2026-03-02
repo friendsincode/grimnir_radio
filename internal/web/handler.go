@@ -27,6 +27,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
+	"github.com/friendsincode/grimnir_radio/internal/recording"
 	"github.com/friendsincode/grimnir_radio/internal/smartblock"
 	"github.com/friendsincode/grimnir_radio/internal/version"
 )
@@ -80,6 +81,7 @@ type Handler struct {
 	scheduler        SchedulerService              // Scheduler service for schedule refresh
 	webstreamSvc     WebstreamService              // Webstream service for failover/reset
 	liveSvc          LiveService                   // Live service for token/session management
+	recordingSvc     *recording.Service            // Recording service for start/stop recordings
 	maxUploadBytes   int64                         // Optional global upload limit override (bytes)
 
 	// WebRTC ICE server config (passed to client)
@@ -224,6 +226,11 @@ func (h *Handler) SetWebstreamService(svc WebstreamService) {
 // SetLiveService sets the live service for the web handler.
 func (h *Handler) SetLiveService(svc LiveService) {
 	h.liveSvc = svc
+}
+
+// SetRecordingService sets the recording service for the web handler.
+func (h *Handler) SetRecordingService(svc *recording.Service) {
+	h.recordingSvc = svc
 }
 
 func (h *Handler) loadTemplates() error {
