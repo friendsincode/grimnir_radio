@@ -182,13 +182,27 @@ func (p *ICYPoller) parseICYMetadata(ctx context.Context, url string) (title, ar
 		return "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
+	// Extract fallback metadata from HTTP response headers (icy-name, icy-description).
+	// Many streams (e.g. NPR) put useful info here but leave StreamTitle empty.
+	icyName := resp.Header.Get("Icy-Name")
+	if icyName == "" {
+		icyName = resp.Header.Get("icy-name")
+	}
+	icyDescription := resp.Header.Get("Icy-Description")
+	if icyDescription == "" {
+		icyDescription = resp.Header.Get("icy-description")
+	}
+
 	// Get icy-metaint from response headers
 	metaIntStr := resp.Header.Get("Icy-Metaint")
 	if metaIntStr == "" {
-		// Some servers use lowercase
 		metaIntStr = resp.Header.Get("icy-metaint")
 	}
 	if metaIntStr == "" {
+		// No inline metadata support — use header metadata as fallback
+		if icyName != "" {
+			return icyName, "", nil
+		}
 		return "", "", fmt.Errorf("server does not support ICY metadata (no icy-metaint header)")
 	}
 
@@ -213,7 +227,11 @@ func (p *ICYPoller) parseICYMetadata(ctx context.Context, url string) (title, ar
 
 	metaLen := int(lenBuf[0]) * 16
 	if metaLen == 0 {
-		return "", "", nil // No metadata in this block
+		// No inline metadata — fall back to HTTP headers
+		if icyName != "" {
+			return icyName, "", nil
+		}
+		return "", "", nil
 	}
 
 	// Read the metadata block
@@ -225,6 +243,11 @@ func (p *ICYPoller) parseICYMetadata(ctx context.Context, url string) (title, ar
 	// Parse: StreamTitle='Artist - Title';StreamUrl='...';
 	meta := strings.TrimRight(string(metaBuf), "\x00")
 	title, artist = parseStreamTitle(meta)
+
+	// If StreamTitle was empty, fall back to icy-name header
+	if title == "" && artist == "" && icyName != "" {
+		title = icyName
+	}
 
 	return title, artist, nil
 }
