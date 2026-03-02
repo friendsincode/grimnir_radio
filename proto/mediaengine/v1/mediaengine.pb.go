@@ -2525,6 +2525,288 @@ func (x *GenerateWaveformResponse) GetRmsRight() []float32 {
 	return nil
 }
 
+// StartRecordingRequest begins recording audio output to a file.
+type StartRecordingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StationId     string                 `protobuf:"bytes,1,opt,name=station_id,json=stationId,proto3" json:"station_id,omitempty"`
+	MountId       string                 `protobuf:"bytes,2,opt,name=mount_id,json=mountId,proto3" json:"mount_id,omitempty"`
+	RecordingId   string                 `protobuf:"bytes,3,opt,name=recording_id,json=recordingId,proto3" json:"recording_id,omitempty"`
+	OutputPath    string                 `protobuf:"bytes,4,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"` // Absolute path where recording should be written
+	Codec         string                 `protobuf:"bytes,5,opt,name=codec,proto3" json:"codec,omitempty"`                             // "flac" or "opus"
+	SampleRate    int32                  `protobuf:"varint,6,opt,name=sample_rate,json=sampleRate,proto3" json:"sample_rate,omitempty"`
+	Channels      int32                  `protobuf:"varint,7,opt,name=channels,proto3" json:"channels,omitempty"`
+	Bitrate       int32                  `protobuf:"varint,8,opt,name=bitrate,proto3" json:"bitrate,omitempty"` // For opus only (kbps)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartRecordingRequest) Reset() {
+	*x = StartRecordingRequest{}
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartRecordingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartRecordingRequest) ProtoMessage() {}
+
+func (x *StartRecordingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartRecordingRequest.ProtoReflect.Descriptor instead.
+func (*StartRecordingRequest) Descriptor() ([]byte, []int) {
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *StartRecordingRequest) GetStationId() string {
+	if x != nil {
+		return x.StationId
+	}
+	return ""
+}
+
+func (x *StartRecordingRequest) GetMountId() string {
+	if x != nil {
+		return x.MountId
+	}
+	return ""
+}
+
+func (x *StartRecordingRequest) GetRecordingId() string {
+	if x != nil {
+		return x.RecordingId
+	}
+	return ""
+}
+
+func (x *StartRecordingRequest) GetOutputPath() string {
+	if x != nil {
+		return x.OutputPath
+	}
+	return ""
+}
+
+func (x *StartRecordingRequest) GetCodec() string {
+	if x != nil {
+		return x.Codec
+	}
+	return ""
+}
+
+func (x *StartRecordingRequest) GetSampleRate() int32 {
+	if x != nil {
+		return x.SampleRate
+	}
+	return 0
+}
+
+func (x *StartRecordingRequest) GetChannels() int32 {
+	if x != nil {
+		return x.Channels
+	}
+	return 0
+}
+
+func (x *StartRecordingRequest) GetBitrate() int32 {
+	if x != nil {
+		return x.Bitrate
+	}
+	return 0
+}
+
+type StartRecordingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartRecordingResponse) Reset() {
+	*x = StartRecordingResponse{}
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartRecordingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartRecordingResponse) ProtoMessage() {}
+
+func (x *StartRecordingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartRecordingResponse.ProtoReflect.Descriptor instead.
+func (*StartRecordingResponse) Descriptor() ([]byte, []int) {
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *StartRecordingResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *StartRecordingResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// StopRecordingRequest stops an active recording.
+type StopRecordingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StationId     string                 `protobuf:"bytes,1,opt,name=station_id,json=stationId,proto3" json:"station_id,omitempty"`
+	RecordingId   string                 `protobuf:"bytes,2,opt,name=recording_id,json=recordingId,proto3" json:"recording_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopRecordingRequest) Reset() {
+	*x = StopRecordingRequest{}
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopRecordingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopRecordingRequest) ProtoMessage() {}
+
+func (x *StopRecordingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopRecordingRequest.ProtoReflect.Descriptor instead.
+func (*StopRecordingRequest) Descriptor() ([]byte, []int) {
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *StopRecordingRequest) GetStationId() string {
+	if x != nil {
+		return x.StationId
+	}
+	return ""
+}
+
+func (x *StopRecordingRequest) GetRecordingId() string {
+	if x != nil {
+		return x.RecordingId
+	}
+	return ""
+}
+
+type StopRecordingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	RecordingId   string                 `protobuf:"bytes,2,opt,name=recording_id,json=recordingId,proto3" json:"recording_id,omitempty"`
+	FileSizeBytes int64                  `protobuf:"varint,3,opt,name=file_size_bytes,json=fileSizeBytes,proto3" json:"file_size_bytes,omitempty"`
+	DurationMs    int64                  `protobuf:"varint,4,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	Error         string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopRecordingResponse) Reset() {
+	*x = StopRecordingResponse{}
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopRecordingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopRecordingResponse) ProtoMessage() {}
+
+func (x *StopRecordingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopRecordingResponse.ProtoReflect.Descriptor instead.
+func (*StopRecordingResponse) Descriptor() ([]byte, []int) {
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *StopRecordingResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *StopRecordingResponse) GetRecordingId() string {
+	if x != nil {
+		return x.RecordingId
+	}
+	return ""
+}
+
+func (x *StopRecordingResponse) GetFileSizeBytes() int64 {
+	if x != nil {
+		return x.FileSizeBytes
+	}
+	return 0
+}
+
+func (x *StopRecordingResponse) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *StopRecordingResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 // DSPNode represents a processing element
 type DSPNode struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2537,7 +2819,7 @@ type DSPNode struct {
 
 func (x *DSPNode) Reset() {
 	*x = DSPNode{}
-	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[28]
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2549,7 +2831,7 @@ func (x *DSPNode) String() string {
 func (*DSPNode) ProtoMessage() {}
 
 func (x *DSPNode) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[28]
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2562,7 +2844,7 @@ func (x *DSPNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DSPNode.ProtoReflect.Descriptor instead.
 func (*DSPNode) Descriptor() ([]byte, []int) {
-	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{28}
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *DSPNode) GetId() string {
@@ -2599,7 +2881,7 @@ type DSPConnection struct {
 
 func (x *DSPConnection) Reset() {
 	*x = DSPConnection{}
-	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[29]
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2611,7 +2893,7 @@ func (x *DSPConnection) String() string {
 func (*DSPConnection) ProtoMessage() {}
 
 func (x *DSPConnection) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[29]
+	mi := &file_proto_mediaengine_v1_mediaengine_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2624,7 +2906,7 @@ func (x *DSPConnection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DSPConnection.ProtoReflect.Descriptor instead.
 func (*DSPConnection) Descriptor() ([]byte, []int) {
-	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{29}
+	return file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *DSPConnection) GetFromNode() string {
@@ -2870,7 +3152,33 @@ const file_proto_mediaengine_v1_mediaengine_proto_rawDesc = "" +
 	"\n" +
 	"peak_right\x18\x06 \x03(\x02R\tpeakRight\x12\x19\n" +
 	"\brms_left\x18\a \x03(\x02R\armsLeft\x12\x1b\n" +
-	"\trms_right\x18\b \x03(\x02R\brmsRight\"\xbf\x01\n" +
+	"\trms_right\x18\b \x03(\x02R\brmsRight\"\x82\x02\n" +
+	"\x15StartRecordingRequest\x12\x1d\n" +
+	"\n" +
+	"station_id\x18\x01 \x01(\tR\tstationId\x12\x19\n" +
+	"\bmount_id\x18\x02 \x01(\tR\amountId\x12!\n" +
+	"\frecording_id\x18\x03 \x01(\tR\vrecordingId\x12\x1f\n" +
+	"\voutput_path\x18\x04 \x01(\tR\n" +
+	"outputPath\x12\x14\n" +
+	"\x05codec\x18\x05 \x01(\tR\x05codec\x12\x1f\n" +
+	"\vsample_rate\x18\x06 \x01(\x05R\n" +
+	"sampleRate\x12\x1a\n" +
+	"\bchannels\x18\a \x01(\x05R\bchannels\x12\x18\n" +
+	"\abitrate\x18\b \x01(\x05R\abitrate\"H\n" +
+	"\x16StartRecordingResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"X\n" +
+	"\x14StopRecordingRequest\x12\x1d\n" +
+	"\n" +
+	"station_id\x18\x01 \x01(\tR\tstationId\x12!\n" +
+	"\frecording_id\x18\x02 \x01(\tR\vrecordingId\"\xb3\x01\n" +
+	"\x15StopRecordingResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12!\n" +
+	"\frecording_id\x18\x02 \x01(\tR\vrecordingId\x12&\n" +
+	"\x0ffile_size_bytes\x18\x03 \x01(\x03R\rfileSizeBytes\x12\x1f\n" +
+	"\vduration_ms\x18\x04 \x01(\x03R\n" +
+	"durationMs\x12\x14\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\"\xbf\x01\n" +
 	"\aDSPNode\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x18.mediaengine.v1.NodeTypeR\x04type\x12;\n" +
@@ -2930,7 +3238,7 @@ const file_proto_mediaengine_v1_mediaengine_proto_rawDesc = "" +
 	"\x15NODE_TYPE_LEVEL_METER\x10\n" +
 	"\x12\x11\n" +
 	"\rNODE_TYPE_MIX\x10\v\x12\x12\n" +
-	"\x0eNODE_TYPE_DUCK\x10\f2\xa3\a\n" +
+	"\x0eNODE_TYPE_DUCK\x10\f2\xe2\b\n" +
 	"\vMediaEngine\x12P\n" +
 	"\tLoadGraph\x12 .mediaengine.v1.LoadGraphRequest\x1a!.mediaengine.v1.LoadGraphResponse\x12A\n" +
 	"\x04Play\x12\x1b.mediaengine.v1.PlayRequest\x1a\x1c.mediaengine.v1.PlayResponse\x12A\n" +
@@ -2942,7 +3250,9 @@ const file_proto_mediaengine_v1_mediaengine_proto_rawDesc = "" +
 	"\tGetStatus\x12\x1d.mediaengine.v1.StatusRequest\x1a\x1e.mediaengine.v1.StatusResponse\x12Y\n" +
 	"\fAnalyzeMedia\x12#.mediaengine.v1.AnalyzeMediaRequest\x1a$.mediaengine.v1.AnalyzeMediaResponse\x12_\n" +
 	"\x0eExtractArtwork\x12%.mediaengine.v1.ExtractArtworkRequest\x1a&.mediaengine.v1.ExtractArtworkResponse\x12e\n" +
-	"\x10GenerateWaveform\x12'.mediaengine.v1.GenerateWaveformRequest\x1a(.mediaengine.v1.GenerateWaveformResponseBKZIgithub.com/friendsincode/grimnir_radio/proto/mediaengine/v1;mediaenginev1b\x06proto3"
+	"\x10GenerateWaveform\x12'.mediaengine.v1.GenerateWaveformRequest\x1a(.mediaengine.v1.GenerateWaveformResponse\x12_\n" +
+	"\x0eStartRecording\x12%.mediaengine.v1.StartRecordingRequest\x1a&.mediaengine.v1.StartRecordingResponse\x12\\\n" +
+	"\rStopRecording\x12$.mediaengine.v1.StopRecordingRequest\x1a%.mediaengine.v1.StopRecordingResponseBKZIgithub.com/friendsincode/grimnir_radio/proto/mediaengine/v1;mediaenginev1b\x06proto3"
 
 var (
 	file_proto_mediaengine_v1_mediaengine_proto_rawDescOnce sync.Once
@@ -2957,7 +3267,7 @@ func file_proto_mediaengine_v1_mediaengine_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_mediaengine_v1_mediaengine_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_proto_mediaengine_v1_mediaengine_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_proto_mediaengine_v1_mediaengine_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_proto_mediaengine_v1_mediaengine_proto_goTypes = []any{
 	(WaveformType)(0),                // 0: mediaengine.v1.WaveformType
 	(SourceType)(0),                  // 1: mediaengine.v1.SourceType
@@ -2993,13 +3303,17 @@ var file_proto_mediaengine_v1_mediaengine_proto_goTypes = []any{
 	(*ExtractArtworkResponse)(nil),   // 31: mediaengine.v1.ExtractArtworkResponse
 	(*GenerateWaveformRequest)(nil),  // 32: mediaengine.v1.GenerateWaveformRequest
 	(*GenerateWaveformResponse)(nil), // 33: mediaengine.v1.GenerateWaveformResponse
-	(*DSPNode)(nil),                  // 34: mediaengine.v1.DSPNode
-	(*DSPConnection)(nil),            // 35: mediaengine.v1.DSPConnection
-	nil,                              // 36: mediaengine.v1.StatusResponse.MetadataEntry
-	nil,                              // 37: mediaengine.v1.SourceConfig.MetadataEntry
-	nil,                              // 38: mediaengine.v1.MediaMetadata.ExtraTagsEntry
-	nil,                              // 39: mediaengine.v1.DSPNode.ParamsEntry
-	(*timestamppb.Timestamp)(nil),    // 40: google.protobuf.Timestamp
+	(*StartRecordingRequest)(nil),    // 34: mediaengine.v1.StartRecordingRequest
+	(*StartRecordingResponse)(nil),   // 35: mediaengine.v1.StartRecordingResponse
+	(*StopRecordingRequest)(nil),     // 36: mediaengine.v1.StopRecordingRequest
+	(*StopRecordingResponse)(nil),    // 37: mediaengine.v1.StopRecordingResponse
+	(*DSPNode)(nil),                  // 38: mediaengine.v1.DSPNode
+	(*DSPConnection)(nil),            // 39: mediaengine.v1.DSPConnection
+	nil,                              // 40: mediaengine.v1.StatusResponse.MetadataEntry
+	nil,                              // 41: mediaengine.v1.SourceConfig.MetadataEntry
+	nil,                              // 42: mediaengine.v1.MediaMetadata.ExtraTagsEntry
+	nil,                              // 43: mediaengine.v1.DSPNode.ParamsEntry
+	(*timestamppb.Timestamp)(nil),    // 44: google.protobuf.Timestamp
 }
 var file_proto_mediaengine_v1_mediaengine_proto_depIdxs = []int32{
 	26, // 0: mediaengine.v1.LoadGraphRequest.graph:type_name -> mediaengine.v1.DSPGraph
@@ -3012,20 +3326,20 @@ var file_proto_mediaengine_v1_mediaengine_proto_depIdxs = []int32{
 	22, // 7: mediaengine.v1.InsertEmergencyRequest.source:type_name -> mediaengine.v1.SourceConfig
 	2,  // 8: mediaengine.v1.RouteLiveRequest.input_type:type_name -> mediaengine.v1.LiveInputType
 	25, // 9: mediaengine.v1.RouteLiveRequest.input:type_name -> mediaengine.v1.LiveInputConfig
-	40, // 10: mediaengine.v1.TelemetryData.timestamp:type_name -> google.protobuf.Timestamp
+	44, // 10: mediaengine.v1.TelemetryData.timestamp:type_name -> google.protobuf.Timestamp
 	3,  // 11: mediaengine.v1.TelemetryData.state:type_name -> mediaengine.v1.PlaybackState
 	3,  // 12: mediaengine.v1.StatusResponse.state:type_name -> mediaengine.v1.PlaybackState
-	36, // 13: mediaengine.v1.StatusResponse.metadata:type_name -> mediaengine.v1.StatusResponse.MetadataEntry
+	40, // 13: mediaengine.v1.StatusResponse.metadata:type_name -> mediaengine.v1.StatusResponse.MetadataEntry
 	1,  // 14: mediaengine.v1.SourceConfig.type:type_name -> mediaengine.v1.SourceType
-	37, // 15: mediaengine.v1.SourceConfig.metadata:type_name -> mediaengine.v1.SourceConfig.MetadataEntry
+	41, // 15: mediaengine.v1.SourceConfig.metadata:type_name -> mediaengine.v1.SourceConfig.MetadataEntry
 	4,  // 16: mediaengine.v1.FadeConfig.curve:type_name -> mediaengine.v1.FadeCurve
-	34, // 17: mediaengine.v1.DSPGraph.nodes:type_name -> mediaengine.v1.DSPNode
-	35, // 18: mediaengine.v1.DSPGraph.connections:type_name -> mediaengine.v1.DSPConnection
+	38, // 17: mediaengine.v1.DSPGraph.nodes:type_name -> mediaengine.v1.DSPNode
+	39, // 18: mediaengine.v1.DSPGraph.connections:type_name -> mediaengine.v1.DSPConnection
 	29, // 19: mediaengine.v1.AnalyzeMediaResponse.metadata:type_name -> mediaengine.v1.MediaMetadata
-	38, // 20: mediaengine.v1.MediaMetadata.extra_tags:type_name -> mediaengine.v1.MediaMetadata.ExtraTagsEntry
+	42, // 20: mediaengine.v1.MediaMetadata.extra_tags:type_name -> mediaengine.v1.MediaMetadata.ExtraTagsEntry
 	0,  // 21: mediaengine.v1.GenerateWaveformRequest.type:type_name -> mediaengine.v1.WaveformType
 	5,  // 22: mediaengine.v1.DSPNode.type:type_name -> mediaengine.v1.NodeType
-	39, // 23: mediaengine.v1.DSPNode.params:type_name -> mediaengine.v1.DSPNode.ParamsEntry
+	43, // 23: mediaengine.v1.DSPNode.params:type_name -> mediaengine.v1.DSPNode.ParamsEntry
 	6,  // 24: mediaengine.v1.MediaEngine.LoadGraph:input_type -> mediaengine.v1.LoadGraphRequest
 	8,  // 25: mediaengine.v1.MediaEngine.Play:input_type -> mediaengine.v1.PlayRequest
 	10, // 26: mediaengine.v1.MediaEngine.Stop:input_type -> mediaengine.v1.StopRequest
@@ -3037,19 +3351,23 @@ var file_proto_mediaengine_v1_mediaengine_proto_depIdxs = []int32{
 	27, // 32: mediaengine.v1.MediaEngine.AnalyzeMedia:input_type -> mediaengine.v1.AnalyzeMediaRequest
 	30, // 33: mediaengine.v1.MediaEngine.ExtractArtwork:input_type -> mediaengine.v1.ExtractArtworkRequest
 	32, // 34: mediaengine.v1.MediaEngine.GenerateWaveform:input_type -> mediaengine.v1.GenerateWaveformRequest
-	7,  // 35: mediaengine.v1.MediaEngine.LoadGraph:output_type -> mediaengine.v1.LoadGraphResponse
-	9,  // 36: mediaengine.v1.MediaEngine.Play:output_type -> mediaengine.v1.PlayResponse
-	11, // 37: mediaengine.v1.MediaEngine.Stop:output_type -> mediaengine.v1.StopResponse
-	13, // 38: mediaengine.v1.MediaEngine.Fade:output_type -> mediaengine.v1.FadeResponse
-	15, // 39: mediaengine.v1.MediaEngine.InsertEmergency:output_type -> mediaengine.v1.InsertEmergencyResponse
-	17, // 40: mediaengine.v1.MediaEngine.RouteLive:output_type -> mediaengine.v1.RouteLiveResponse
-	19, // 41: mediaengine.v1.MediaEngine.StreamTelemetry:output_type -> mediaengine.v1.TelemetryData
-	21, // 42: mediaengine.v1.MediaEngine.GetStatus:output_type -> mediaengine.v1.StatusResponse
-	28, // 43: mediaengine.v1.MediaEngine.AnalyzeMedia:output_type -> mediaengine.v1.AnalyzeMediaResponse
-	31, // 44: mediaengine.v1.MediaEngine.ExtractArtwork:output_type -> mediaengine.v1.ExtractArtworkResponse
-	33, // 45: mediaengine.v1.MediaEngine.GenerateWaveform:output_type -> mediaengine.v1.GenerateWaveformResponse
-	35, // [35:46] is the sub-list for method output_type
-	24, // [24:35] is the sub-list for method input_type
+	34, // 35: mediaengine.v1.MediaEngine.StartRecording:input_type -> mediaengine.v1.StartRecordingRequest
+	36, // 36: mediaengine.v1.MediaEngine.StopRecording:input_type -> mediaengine.v1.StopRecordingRequest
+	7,  // 37: mediaengine.v1.MediaEngine.LoadGraph:output_type -> mediaengine.v1.LoadGraphResponse
+	9,  // 38: mediaengine.v1.MediaEngine.Play:output_type -> mediaengine.v1.PlayResponse
+	11, // 39: mediaengine.v1.MediaEngine.Stop:output_type -> mediaengine.v1.StopResponse
+	13, // 40: mediaengine.v1.MediaEngine.Fade:output_type -> mediaengine.v1.FadeResponse
+	15, // 41: mediaengine.v1.MediaEngine.InsertEmergency:output_type -> mediaengine.v1.InsertEmergencyResponse
+	17, // 42: mediaengine.v1.MediaEngine.RouteLive:output_type -> mediaengine.v1.RouteLiveResponse
+	19, // 43: mediaengine.v1.MediaEngine.StreamTelemetry:output_type -> mediaengine.v1.TelemetryData
+	21, // 44: mediaengine.v1.MediaEngine.GetStatus:output_type -> mediaengine.v1.StatusResponse
+	28, // 45: mediaengine.v1.MediaEngine.AnalyzeMedia:output_type -> mediaengine.v1.AnalyzeMediaResponse
+	31, // 46: mediaengine.v1.MediaEngine.ExtractArtwork:output_type -> mediaengine.v1.ExtractArtworkResponse
+	33, // 47: mediaengine.v1.MediaEngine.GenerateWaveform:output_type -> mediaengine.v1.GenerateWaveformResponse
+	35, // 48: mediaengine.v1.MediaEngine.StartRecording:output_type -> mediaengine.v1.StartRecordingResponse
+	37, // 49: mediaengine.v1.MediaEngine.StopRecording:output_type -> mediaengine.v1.StopRecordingResponse
+	37, // [37:50] is the sub-list for method output_type
+	24, // [24:37] is the sub-list for method input_type
 	24, // [24:24] is the sub-list for extension type_name
 	24, // [24:24] is the sub-list for extension extendee
 	0,  // [0:24] is the sub-list for field type_name
@@ -3066,7 +3384,7 @@ func file_proto_mediaengine_v1_mediaengine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_mediaengine_v1_mediaengine_proto_rawDesc), len(file_proto_mediaengine_v1_mediaengine_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   34,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
