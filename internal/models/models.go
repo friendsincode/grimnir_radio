@@ -126,6 +126,7 @@ type User struct {
 	SuspendedReason    string                `gorm:"type:text"`
 	CalendarColorTheme string                `gorm:"type:varchar(32);default:'default'"`  // Calendar color theme preset
 	Theme              string                `gorm:"type:varchar(32);default:'daw-dark'"` // Dashboard UI theme
+	TokenValidAfter    *time.Time            `gorm:"index"`                               // JWTs issued before this time are rejected
 	Stations           []StationUser         `gorm:"foreignKey:UserID"`
 	PlatformGroups     []PlatformGroupMember `gorm:"foreignKey:UserID"`
 	CreatedAt          time.Time

@@ -175,6 +175,29 @@
             </div>
         </div>
 
+        <!-- Session Security -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-shield-lock me-2"></i>Session Security</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-body-secondary mb-3">
+                    Log out of all other browsers and devices. Your current session will remain active.
+                </p>
+                <div id="logoutAllResult"></div>
+                <form method="POST" action="/dashboard/profile/logout-all-devices"
+                      hx-post="/dashboard/profile/logout-all-devices"
+                      hx-target="#logoutAllResult"
+                      hx-swap="innerHTML">
+                    <input type="hidden" name="grimnir_csrf" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn btn-outline-danger"
+                            onclick="return confirm('This will log you out of all other browsers and devices. Continue?')">
+                        <i class="bi bi-box-arrow-right me-1"></i>Log Out All Other Devices
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <!-- API Keys -->
         <div class="card mb-4">
             <div class="card-header">

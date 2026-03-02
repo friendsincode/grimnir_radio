@@ -544,16 +544,55 @@ func (h *Handler) ProfileUpdatePassword(w http.ResponseWriter, r *http.Request) 
 
 	user.Password = string(hashedPassword)
 
+	// Invalidate all existing sessions (tokens issued before now are rejected)
+	now := time.Now()
+	user.TokenValidAfter = &now
+
 	if err := h.db.Save(user).Error; err != nil {
 		h.logger.Error().Err(err).Msg("failed to update user password")
 		h.renderPasswordError(w, r, "Failed to update password")
 		return
 	}
 
+	// Issue a fresh token so this browser stays logged in
+	h.issueNewToken(w, user)
+
 	// Handle HTMX
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Trigger", "passwordUpdated")
-		w.Write([]byte(`<div class="alert alert-success">Password updated successfully</div>`))
+		w.Write([]byte(`<div class="alert alert-success">Password updated — all other sessions have been logged out</div>`))
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/profile", http.StatusSeeOther)
+}
+
+// ProfileLogoutAllDevices invalidates all existing sessions for the user.
+func (h *Handler) ProfileLogoutAllDevices(w http.ResponseWriter, r *http.Request) {
+	user := h.GetUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	now := time.Now()
+	user.TokenValidAfter = &now
+	if err := h.db.Model(user).Update("token_valid_after", now).Error; err != nil {
+		h.logger.Error().Err(err).Msg("failed to invalidate sessions")
+		if r.Header.Get("HX-Request") == "true" {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`<div class="alert alert-danger">Failed to log out other devices</div>`))
+			return
+		}
+		http.Redirect(w, r, "/dashboard/profile", http.StatusSeeOther)
+		return
+	}
+
+	// Issue a fresh token so this browser stays logged in
+	h.issueNewToken(w, user)
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Write([]byte(`<div class="alert alert-success">All other devices have been logged out</div>`))
 		return
 	}
 
