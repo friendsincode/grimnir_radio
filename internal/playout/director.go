@@ -927,7 +927,7 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 
 	// Launch ICY metadata poller if passthrough is enabled
 	if ws.PassthroughMetadata && !ws.OverrideMetadata {
-		poller := webstream.NewICYPoller(ws.ID, entry.StationID, entry.MountID, currentURL, d.bus, d.logger)
+		poller := webstream.NewICYPoller(ws.ID, entry.StationID, entry.MountID, currentURL, d.bus, d.db, d.logger)
 		d.icyPollerMu.Lock()
 		if old, ok := d.icyPollers[entry.MountID]; ok {
 			old.Stop()

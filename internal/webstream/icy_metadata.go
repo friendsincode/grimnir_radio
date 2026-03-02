@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/rs/zerolog"
+	"gorm.io/gorm"
 )
 
 const (
@@ -35,6 +37,7 @@ type ICYPoller struct {
 	mountID      string
 	url          string
 	bus          *events.Bus
+	db           *gorm.DB
 	logger       zerolog.Logger
 	pollInterval time.Duration
 
@@ -46,13 +49,14 @@ type ICYPoller struct {
 }
 
 // NewICYPoller creates a poller that extracts ICY metadata from a stream URL.
-func NewICYPoller(webstreamID, stationID, mountID, url string, bus *events.Bus, logger zerolog.Logger) *ICYPoller {
+func NewICYPoller(webstreamID, stationID, mountID, url string, bus *events.Bus, db *gorm.DB, logger zerolog.Logger) *ICYPoller {
 	return &ICYPoller{
 		webstreamID:  webstreamID,
 		stationID:    stationID,
 		mountID:      mountID,
 		url:          url,
 		bus:          bus,
+		db:           db,
 		logger:       logger.With().Str("component", "icy_poller").Str("webstream_id", webstreamID).Logger(),
 		pollInterval: defaultICYPollInterval,
 	}
@@ -108,6 +112,29 @@ func (p *ICYPoller) poll(ctx context.Context) {
 	p.lastArtist = artist
 
 	p.logger.Info().Str("title", title).Str("artist", artist).Msg("ICY metadata changed")
+
+	// Update the most recent PlayHistory row so the now-playing API returns
+	// the current stream metadata instead of the initial webstream name.
+	if p.db != nil {
+		var history models.PlayHistory
+		err := p.db.
+			Where("station_id = ?", p.stationID).
+			Order("started_at DESC").
+			First(&history).Error
+		if err == nil {
+			history.Artist = artist
+			history.Title = title
+			if history.Metadata == nil {
+				history.Metadata = make(map[string]any)
+			}
+			history.Metadata["icy_metadata"] = true
+			history.Metadata["stream_title"] = title
+			history.Metadata["stream_artist"] = artist
+			if saveErr := p.db.Save(&history).Error; saveErr != nil {
+				p.logger.Warn().Err(saveErr).Msg("failed to update play history with ICY metadata")
+			}
+		}
+	}
 
 	p.bus.Publish(events.EventNowPlaying, events.Payload{
 		"station_id":    p.stationID,
