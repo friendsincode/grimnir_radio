@@ -552,6 +552,11 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 	remaining := make([]candidate, len(candidates))
 	copy(remaining, candidates)
 
+	tolerance := def.Duration.Tolerance
+	if tolerance <= 0 {
+		tolerance = 2000 // default 2-second tolerance
+	}
+
 	quotaState := newQuotaState(def.Quotas)
 	var result GenerateResult
 	var cursor int64
@@ -575,6 +580,13 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 		}
 
 		durMS := dur.Milliseconds()
+
+		// If adding this track would overshoot the target beyond tolerance,
+		// stop here — the current fill is close enough.
+		if cursor+durMS > targetMS+tolerance && cursor > 0 {
+			break
+		}
+
 		item := SequenceItem{
 			MediaID:    sel.Item.ID,
 			StartsAtMS: cursor,
