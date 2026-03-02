@@ -40,6 +40,12 @@ service MediaEngine {
 
   // GenerateWaveform generates peak/RMS waveform data for visualization
   rpc GenerateWaveform(GenerateWaveformRequest) returns (GenerateWaveformResponse);
+
+  // StartRecording begins recording audio output to a file
+  rpc StartRecording(StartRecordingRequest) returns (StartRecordingResponse);
+
+  // StopRecording stops an active recording and finalizes the file
+  rpc StopRecording(StopRecordingRequest) returns (StopRecordingResponse);
 }
 
 // LoadGraphRequest contains DSP graph configuration
@@ -309,6 +315,37 @@ message GenerateWaveformResponse {
   repeated float peak_right = 6; // Right channel peak values (0.0-1.0)
   repeated float rms_left = 7;   // Left channel RMS values (0.0-1.0)
   repeated float rms_right = 8;  // Right channel RMS values (0.0-1.0)
+}
+
+// StartRecordingRequest begins recording audio output to a file.
+message StartRecordingRequest {
+  string station_id = 1;
+  string mount_id = 2;
+  string recording_id = 3;
+  string output_path = 4;  // Absolute path where recording should be written
+  string codec = 5;        // "flac" or "opus"
+  int32 sample_rate = 6;
+  int32 channels = 7;
+  int32 bitrate = 8;       // For opus only (kbps)
+}
+
+message StartRecordingResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// StopRecordingRequest stops an active recording.
+message StopRecordingRequest {
+  string station_id = 1;
+  string recording_id = 2;
+}
+
+message StopRecordingResponse {
+  bool success = 1;
+  string recording_id = 2;
+  int64 file_size_bytes = 3;
+  int64 duration_ms = 4;
+  string error = 5;
 }
 
 // Enums

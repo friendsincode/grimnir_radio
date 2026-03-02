@@ -30,6 +30,8 @@ const (
 	MediaEngine_AnalyzeMedia_FullMethodName     = "/mediaengine.v1.MediaEngine/AnalyzeMedia"
 	MediaEngine_ExtractArtwork_FullMethodName   = "/mediaengine.v1.MediaEngine/ExtractArtwork"
 	MediaEngine_GenerateWaveform_FullMethodName = "/mediaengine.v1.MediaEngine/GenerateWaveform"
+	MediaEngine_StartRecording_FullMethodName   = "/mediaengine.v1.MediaEngine/StartRecording"
+	MediaEngine_StopRecording_FullMethodName    = "/mediaengine.v1.MediaEngine/StopRecording"
 )
 
 // MediaEngineClient is the client API for MediaEngine service.
@@ -60,6 +62,10 @@ type MediaEngineClient interface {
 	ExtractArtwork(ctx context.Context, in *ExtractArtworkRequest, opts ...grpc.CallOption) (*ExtractArtworkResponse, error)
 	// GenerateWaveform generates peak/RMS waveform data for visualization
 	GenerateWaveform(ctx context.Context, in *GenerateWaveformRequest, opts ...grpc.CallOption) (*GenerateWaveformResponse, error)
+	// StartRecording begins recording audio output to a file
+	StartRecording(ctx context.Context, in *StartRecordingRequest, opts ...grpc.CallOption) (*StartRecordingResponse, error)
+	// StopRecording stops an active recording and finalizes the file
+	StopRecording(ctx context.Context, in *StopRecordingRequest, opts ...grpc.CallOption) (*StopRecordingResponse, error)
 }
 
 type mediaEngineClient struct {
@@ -189,6 +195,26 @@ func (c *mediaEngineClient) GenerateWaveform(ctx context.Context, in *GenerateWa
 	return out, nil
 }
 
+func (c *mediaEngineClient) StartRecording(ctx context.Context, in *StartRecordingRequest, opts ...grpc.CallOption) (*StartRecordingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartRecordingResponse)
+	err := c.cc.Invoke(ctx, MediaEngine_StartRecording_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mediaEngineClient) StopRecording(ctx context.Context, in *StopRecordingRequest, opts ...grpc.CallOption) (*StopRecordingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StopRecordingResponse)
+	err := c.cc.Invoke(ctx, MediaEngine_StopRecording_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MediaEngineServer is the server API for MediaEngine service.
 // All implementations must embed UnimplementedMediaEngineServer
 // for forward compatibility.
@@ -217,6 +243,10 @@ type MediaEngineServer interface {
 	ExtractArtwork(context.Context, *ExtractArtworkRequest) (*ExtractArtworkResponse, error)
 	// GenerateWaveform generates peak/RMS waveform data for visualization
 	GenerateWaveform(context.Context, *GenerateWaveformRequest) (*GenerateWaveformResponse, error)
+	// StartRecording begins recording audio output to a file
+	StartRecording(context.Context, *StartRecordingRequest) (*StartRecordingResponse, error)
+	// StopRecording stops an active recording and finalizes the file
+	StopRecording(context.Context, *StopRecordingRequest) (*StopRecordingResponse, error)
 	mustEmbedUnimplementedMediaEngineServer()
 }
 
@@ -259,6 +289,12 @@ func (UnimplementedMediaEngineServer) ExtractArtwork(context.Context, *ExtractAr
 }
 func (UnimplementedMediaEngineServer) GenerateWaveform(context.Context, *GenerateWaveformRequest) (*GenerateWaveformResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateWaveform not implemented")
+}
+func (UnimplementedMediaEngineServer) StartRecording(context.Context, *StartRecordingRequest) (*StartRecordingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartRecording not implemented")
+}
+func (UnimplementedMediaEngineServer) StopRecording(context.Context, *StopRecordingRequest) (*StopRecordingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StopRecording not implemented")
 }
 func (UnimplementedMediaEngineServer) mustEmbedUnimplementedMediaEngineServer() {}
 func (UnimplementedMediaEngineServer) testEmbeddedByValue()                     {}
@@ -472,6 +508,42 @@ func _MediaEngine_GenerateWaveform_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MediaEngine_StartRecording_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartRecordingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MediaEngineServer).StartRecording(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MediaEngine_StartRecording_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MediaEngineServer).StartRecording(ctx, req.(*StartRecordingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MediaEngine_StopRecording_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopRecordingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MediaEngineServer).StopRecording(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MediaEngine_StopRecording_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MediaEngineServer).StopRecording(ctx, req.(*StopRecordingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MediaEngine_ServiceDesc is the grpc.ServiceDesc for MediaEngine service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -518,6 +590,14 @@ var MediaEngine_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GenerateWaveform",
 			Handler:    _MediaEngine_GenerateWaveform_Handler,
+		},
+		{
+			MethodName: "StartRecording",
+			Handler:    _MediaEngine_StartRecording_Handler,
+		},
+		{
+			MethodName: "StopRecording",
+			Handler:    _MediaEngine_StopRecording_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

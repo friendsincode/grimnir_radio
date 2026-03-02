@@ -517,3 +517,84 @@ func (c *Client) Retry(ctx context.Context, operation func() error) error {
 
 	return fmt.Errorf("operation failed after %d retries: %w", maxRetries, lastErr)
 }
+
+// StartRecordingRequest contains parameters for starting a recording.
+type StartRecordingRequest struct {
+	StationID   string
+	MountID     string
+	RecordingID string
+	OutputPath  string // Absolute path
+	Codec       string // "flac" or "opus"
+	SampleRate  int32
+	Channels    int32
+	Bitrate     int32 // For opus only (kbps)
+}
+
+// StopRecordingResult contains the result of stopping a recording.
+type StopRecordingResult struct {
+	RecordingID   string
+	FileSizeBytes int64
+	DurationMs    int64
+}
+
+// StartRecording begins recording audio output to a file.
+func (c *Client) StartRecording(ctx context.Context, req *StartRecordingRequest) error {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return fmt.Errorf("not connected to media engine")
+	}
+
+	pbReq := &pb.StartRecordingRequest{
+		StationId:   req.StationID,
+		MountId:     req.MountID,
+		RecordingId: req.RecordingID,
+		OutputPath:  req.OutputPath,
+		Codec:       req.Codec,
+		SampleRate:  req.SampleRate,
+		Channels:    req.Channels,
+		Bitrate:     req.Bitrate,
+	}
+
+	resp, err := client.StartRecording(ctx, pbReq)
+	if err != nil {
+		return fmt.Errorf("failed to start recording: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("start recording failed: %s", resp.Error)
+	}
+
+	return nil
+}
+
+// StopRecording stops an active recording and returns file info.
+func (c *Client) StopRecording(ctx context.Context, stationID, recordingID string) (*StopRecordingResult, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("not connected to media engine")
+	}
+
+	resp, err := client.StopRecording(ctx, &pb.StopRecordingRequest{
+		StationId:   stationID,
+		RecordingId: recordingID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to stop recording: %w", err)
+	}
+
+	if !resp.Success {
+		return nil, fmt.Errorf("stop recording failed: %s", resp.Error)
+	}
+
+	return &StopRecordingResult{
+		RecordingID:   resp.RecordingId,
+		FileSizeBytes: resp.FileSizeBytes,
+		DurationMs:    resp.DurationMs,
+	}, nil
+}

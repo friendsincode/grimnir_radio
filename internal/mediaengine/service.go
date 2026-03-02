@@ -780,3 +780,27 @@ func getSourceID(source *pb.SourceConfig) string {
 	}
 	return source.SourceId
 }
+
+// StartRecording begins recording audio output to a file.
+// TODO(phase3): Implement tee pipeline in RecordingManager.
+func (s *Service) StartRecording(ctx context.Context, req *pb.StartRecordingRequest) (*pb.StartRecordingResponse, error) {
+	s.logger.Info().
+		Str("station_id", req.StationId).
+		Str("recording_id", req.RecordingId).
+		Str("output_path", req.OutputPath).
+		Str("codec", req.Codec).
+		Msg("StartRecording called (not yet implemented)")
+
+	return nil, status.Errorf(codes.Unimplemented, "StartRecording not yet implemented")
+}
+
+// StopRecording stops an active recording and finalizes the file.
+// TODO(phase3): Implement teardown in RecordingManager.
+func (s *Service) StopRecording(ctx context.Context, req *pb.StopRecordingRequest) (*pb.StopRecordingResponse, error) {
+	s.logger.Info().
+		Str("station_id", req.StationId).
+		Str("recording_id", req.RecordingId).
+		Msg("StopRecording called (not yet implemented)")
+
+	return nil, status.Errorf(codes.Unimplemented, "StopRecording not yet implemented")
+}
