@@ -35,6 +35,28 @@
                         </select>
                     </div>
                     {{end}}
+                    {{if or .Data.Playlists .Data.SmartBlocks}}
+                    <div class="col-md-3">
+                        <label class="form-label small text-body-secondary">Show</label>
+                        <select class="form-select form-select-sm" name="show">
+                            <option value="">All Shows</option>
+                            {{if .Data.Playlists}}
+                            <optgroup label="Playlists">
+                                {{range .Data.Playlists}}
+                                <option value="playlist:{{.ID}}" {{if eq (printf "playlist:%s" .ID) $.Data.Show}}selected{{end}}>{{.Name}}</option>
+                                {{end}}
+                            </optgroup>
+                            {{end}}
+                            {{if .Data.SmartBlocks}}
+                            <optgroup label="Smart Blocks">
+                                {{range .Data.SmartBlocks}}
+                                <option value="smartblock:{{.ID}}" {{if eq (printf "smartblock:%s" .ID) $.Data.Show}}selected{{end}}>{{.Name}}</option>
+                                {{end}}
+                            </optgroup>
+                            {{end}}
+                        </select>
+                    </div>
+                    {{end}}
                 </div>
 
                 <!-- Filter Row 2 -->
@@ -62,7 +84,7 @@
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-funnel me-1"></i>Apply Filters
                         </button>
-                        {{if or .Data.Query .Data.StationID .Data.Duration .Data.Sort}}
+                        {{if or .Data.Query .Data.StationID .Data.Duration .Data.Sort .Data.Show}}
                         <a href="/archive" class="btn btn-outline-secondary ms-2">
                             <i class="bi bi-x-circle me-1"></i>Clear
                         </a>
@@ -122,7 +144,7 @@
         <div class="col-12">
             <div class="alert alert-info">
                 <i class="bi bi-info-circle me-2"></i>
-                {{if or .Data.Query .Data.StationID .Data.Duration .Data.Sort}}
+                {{if or .Data.Query .Data.StationID .Data.Duration .Data.Sort .Data.Show}}
                 No results found. Try adjusting your filters.
                 {{else}}
                 No media available in the archive.

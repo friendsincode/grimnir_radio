@@ -384,6 +384,14 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		publicStationIDs = append(publicStationIDs, s.ID)
 	}
 
+	// Load playlists and smart blocks for show filter
+	var playlists []models.Playlist
+	var smartBlocks []models.SmartBlock
+	if len(publicStationIDs) > 0 {
+		h.db.Where("station_id IN ?", publicStationIDs).Order("name").Find(&playlists)
+		h.db.Where("station_id IN ?", publicStationIDs).Order("name").Find(&smartBlocks)
+	}
+
 	// Base query for archive media
 	baseQuery := h.db.Model(&models.MediaItem{}).Where("show_in_archive = ?", true)
 	if len(publicStationIDs) > 0 {
@@ -403,6 +411,7 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	sortBy := r.URL.Query().Get("sort")
 	duration := r.URL.Query().Get("duration")
 	searchQuery := r.URL.Query().Get("q")
+	showFilter := r.URL.Query().Get("show")
 
 	// Station filter
 	if stationID != "" {
@@ -415,6 +424,54 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 		}
 		if isPublic {
 			query = query.Where("station_id = ?", stationID)
+			// Narrow playlists/smart blocks to selected station
+			var stationPlaylists []models.Playlist
+			var stationSmartBlocks []models.SmartBlock
+			for _, pl := range playlists {
+				if pl.StationID == stationID {
+					stationPlaylists = append(stationPlaylists, pl)
+				}
+			}
+			for _, sb := range smartBlocks {
+				if sb.StationID == stationID {
+					stationSmartBlocks = append(stationSmartBlocks, sb)
+				}
+			}
+			playlists = stationPlaylists
+			smartBlocks = stationSmartBlocks
+		}
+	}
+
+	// Show filter (playlist or smart block)
+	if strings.HasPrefix(showFilter, "playlist:") {
+		pid := strings.TrimPrefix(showFilter, "playlist:")
+		query = query.Where("EXISTS (SELECT 1 FROM playlist_items pi WHERE pi.media_id = media_items.id AND pi.playlist_id = ?)", pid)
+	} else if strings.HasPrefix(showFilter, "smartblock:") {
+		sbID := strings.TrimPrefix(showFilter, "smartblock:")
+		var sb models.SmartBlock
+		if err := h.db.First(&sb, "id = ?", sbID).Error; err == nil {
+			rules := sb.Rules
+			if ts, ok := rules["text_search"].(string); ok && ts != "" {
+				p := "%" + strings.ToLower(ts) + "%"
+				query = query.Where("LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?", p, p, p)
+			}
+			if artist, ok := rules["artist"].(string); ok && artist != "" {
+				query = query.Where("LOWER(artist) LIKE ?", "%"+strings.ToLower(artist)+"%")
+			}
+			if genre, ok := rules["genre"].(string); ok && genre != "" {
+				query = query.Where("genre = ?", genre)
+			}
+			if sps, ok := rules["sourcePlaylists"].([]any); ok && len(sps) > 0 {
+				var ids []string
+				for _, v := range sps {
+					if s, ok := v.(string); ok {
+						ids = append(ids, s)
+					}
+				}
+				if len(ids) > 0 {
+					query = query.Where("EXISTS (SELECT 1 FROM playlist_items pi WHERE pi.media_id = media_items.id AND pi.playlist_id IN ?)", ids)
+				}
+			}
 		}
 	}
 
@@ -477,6 +534,9 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	if sortBy != "" {
 		paginationParams = append(paginationParams, "sort="+sortBy)
 	}
+	if showFilter != "" {
+		paginationParams = append(paginationParams, "show="+showFilter)
+	}
 	filterParams := ""
 	if len(paginationParams) > 0 {
 		filterParams = "&" + strings.Join(paginationParams, "&")
@@ -494,6 +554,9 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 			"StationID":    stationID,
 			"Sort":         sortBy,
 			"Duration":     duration,
+			"Show":         showFilter,
+			"Playlists":    playlists,
+			"SmartBlocks":  smartBlocks,
 			"FilterParams": filterParams,
 		},
 	})
