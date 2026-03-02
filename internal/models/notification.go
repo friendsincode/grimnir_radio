@@ -18,6 +18,7 @@ const (
 	NotificationTypeNewAssignment     NotificationType = "new_assignment"     // Assigned to cover a show
 	NotificationTypeSchedulePublished NotificationType = "schedule_published" // New schedule available
 	NotificationTypeShowCancelled     NotificationType = "show_cancelled"     // Show was cancelled
+	NotificationTypeStorageWarning    NotificationType = "storage_warning"    // Disk usage threshold exceeded
 )
 
 // NotificationChannel defines the delivery channel.

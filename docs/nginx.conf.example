@@ -157,3 +157,64 @@ server {
 # It will also modify the HTTP block to redirect to HTTPS.
 # No manual SSL configuration needed!
 # =============================================================================
+
+# =============================================================================
+# NON-SSL HARBOR INGEST (Port 8000)
+# =============================================================================
+#
+# OPTIONAL: A plain-TCP Icecast ingest port for DJ software that does not
+# support SSL/TLS connections (e.g. older versions of BUTT, some Mixxx
+# builds, SAM Broadcaster, or hardware encoders).
+#
+# How it works:
+#   - DJs connect to radio.example.com:8000 without SSL
+#   - Nginx proxies the raw Icecast stream to the harbor backend
+#   - The main HTTPS server block (port 443) continues to serve the SSL
+#     harbor ingest for modern software that supports TLS
+#
+# When to use each:
+#   - Port 443 (SSL via /harbor/ path): Modern software with TLS support
+#     (BUTT 1.0+, Mixxx 2.3+, OBS with SSL). Recommended for security.
+#   - Port 8000 (non-SSL, below): Older software, hardware encoders, or
+#     any client that cannot connect over SSL/TLS.
+#
+# To enable, uncomment the server block below and:
+#   1. Open port 8000 in your firewall: ufw allow 8000/tcp
+#   2. Set these environment variables for Grimnir:
+#        GRIMNIR_HARBOR_HOST=radio.example.com
+#        GRIMNIR_HARBOR_PUBLIC_PORT=8000
+#        GRIMNIR_HARBOR_MOUNT_PREFIX=     (empty — no /harbor prefix needed)
+#   3. Reload nginx: nginx -t && systemctl reload nginx
+#
+# SECURITY NOTE: Traffic on this port is unencrypted. The DJ password
+# (token) is sent in the clear. Only use this on trusted networks or
+# when SSL is genuinely unsupported by the client software.
+#
+# =============================================================================
+
+# server {
+#     listen 8000;
+#     listen [::]:8000;
+#
+#     # >>> CHANGE THIS to your domain <<<
+#     server_name radio.example.com;
+#
+#     # All paths on this port go straight to harbor (no /harbor prefix)
+#     location / {
+#         proxy_pass http://harbor;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#
+#         # CRITICAL: do not buffer source uploads; forward bytes immediately
+#         proxy_request_buffering off;
+#         proxy_buffering off;
+#         proxy_cache off;
+#         chunked_transfer_encoding on;
+#         proxy_set_header Transfer-Encoding chunked;
+#
+#         proxy_read_timeout 86400;
+#         proxy_send_timeout 86400;
+#     }
+# }

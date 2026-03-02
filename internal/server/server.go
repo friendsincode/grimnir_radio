@@ -46,6 +46,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/scheduler"
 	schedulerstate "github.com/friendsincode/grimnir_radio/internal/scheduler/state"
 	"github.com/friendsincode/grimnir_radio/internal/smartblock"
+	"github.com/friendsincode/grimnir_radio/internal/storage"
 	"github.com/friendsincode/grimnir_radio/internal/syndication"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/friendsincode/grimnir_radio/internal/underwriting"
@@ -80,6 +81,7 @@ type Server struct {
 	webhookSvc           *webhooks.Service
 	webrtcMgr            *webrtcStationManager
 	listenerAnalyticsSvc *analytics.ListenerAnalyticsService
+	storageMonitor       *storage.Monitor
 	harbor               *harbor.Server
 
 	bgCancel context.CancelFunc
@@ -361,6 +363,12 @@ func (s *Server) initDependencies() error {
 	notifCfg := notifications.ConfigFromEnv()
 	s.notificationSvc = notifications.NewService(database, s.bus, notifCfg, s.logger)
 
+	// Storage monitor for disk-usage alerts to platform admins
+	s.storageMonitor = storage.NewMonitor(database, storage.MonitorConfig{
+		MediaRoot:     s.cfg.MediaRoot,
+		CheckInterval: 30 * time.Minute,
+	}, s.logger)
+
 	// Webhook service for show transition notifications
 	s.webhookSvc = webhooks.NewService(database, s.bus, s.logger)
 
@@ -525,6 +533,7 @@ func (s *Server) startBackgroundWorkers() {
 		s.webhookSvc == nil &&
 		s.webrtcMgr == nil &&
 		s.listenerAnalyticsSvc == nil &&
+		s.storageMonitor == nil &&
 		s.cache == nil &&
 		s.webHandler == nil {
 		return
@@ -609,6 +618,15 @@ func (s *Server) startBackgroundWorkers() {
 		go func() {
 			defer s.bgWG.Done()
 			s.notificationSvc.Start(ctx)
+		}()
+	}
+
+	// Start storage monitor for disk-usage alerts
+	if s.storageMonitor != nil {
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			s.storageMonitor.Start(ctx)
 		}()
 	}
 

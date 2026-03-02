@@ -118,6 +118,74 @@
             </div>
         </div>
 
+        <!-- Usage Graph -->
+        {{$usage := .Data.Usage}}
+        {{if or $usage.Playlists $usage.ScheduleEntries $usage.ClockSlots}}
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Where This Track Is Used</h5>
+            </div>
+            <div class="card-body">
+                {{if $usage.Playlists}}
+                <h6 class="text-body-secondary mb-2">Playlists</h6>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    {{range $usage.Playlists}}
+                    <a href="/dashboard/playlists/{{.PlaylistID}}" class="badge bg-info text-decoration-none fs-6">
+                        <i class="bi bi-list-ul me-1"></i>{{.PlaylistName}}
+                    </a>
+                    {{end}}
+                </div>
+                {{end}}
+                {{if $usage.ScheduleEntries}}
+                <h6 class="text-body-secondary mb-2">Upcoming Schedule Entries</h6>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    {{range $usage.ScheduleEntries}}
+                    <span class="badge bg-primary fs-6">
+                        <i class="bi bi-calendar-event me-1"></i>{{formatTime .StartsAt}}
+                    </span>
+                    {{end}}
+                </div>
+                {{end}}
+                {{if $usage.ClockSlots}}
+                <h6 class="text-body-secondary mb-2">Clock Templates</h6>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    {{range $usage.ClockSlots}}
+                    <span class="badge bg-secondary fs-6">
+                        <i class="bi bi-clock me-1"></i>{{.ClockName}} (pos {{.Position}})
+                    </span>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
+        <!-- Duplicate Warning -->
+        {{if .Data.HashDuplicates}}
+        <div class="card mt-4 border-warning">
+            <div class="card-header bg-warning-subtle">
+                <h5 class="mb-0"><i class="bi bi-files me-2"></i>Duplicate Files Detected</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-body-secondary mb-2">The following items in this station have the exact same file content:</p>
+                <div class="list-group list-group-flush">
+                    {{range .Data.HashDuplicates}}
+                    <a href="/dashboard/media/{{.ID}}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{.Title}}</strong>
+                            {{if .Artist}}<small class="text-body-secondary ms-2">by {{.Artist}}</small>{{end}}
+                        </div>
+                        <small class="text-body-secondary">{{formatDuration .Duration}}</small>
+                    </a>
+                    {{end}}
+                </div>
+                <a href="/dashboard/media/duplicates" class="btn btn-outline-warning btn-sm mt-3">
+                    <i class="bi bi-files me-1"></i>Go to Duplicate Finder
+                </a>
+            </div>
+        </div>
+        {{end}}
+
         <!-- Play History -->
         <div class="card mt-4">
             <div class="card-header">

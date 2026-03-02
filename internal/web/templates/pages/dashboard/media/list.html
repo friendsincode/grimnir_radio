@@ -15,6 +15,9 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-music-note-list me-2"></i>Media Library</h4>
     <div class="d-flex gap-2">
+        <a href="/dashboard/media/duplicates" class="btn btn-outline-secondary">
+            <i class="bi bi-files me-2"></i>Find Duplicates
+        </a>
         <a href="/dashboard/media/genres" class="btn btn-outline-secondary">
             <i class="bi bi-tags me-2"></i>Manage Genres
         </a>
@@ -37,46 +40,72 @@
      hx-swap="innerHTML"
      class="mb-3"></div>
 
-<!-- Filters -->
+<!-- Search & Filters -->
 <div class="card mb-4">
     <div class="card-body">
-        <form method="GET" action="/dashboard/media" class="row g-3 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label">Search</label>
-                <input type="text" class="form-control" name="q"
-                       placeholder="Title, artist, album..."
-                       value="{{.Data.Query}}">
+        <form id="mediaFilterForm" method="GET" action="/dashboard/media"
+              hx-get="/dashboard/media" hx-target="#mediaResults" hx-swap="innerHTML"
+              hx-push-url="true" hx-trigger="submit">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Search</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" name="q" id="mediaSearchInput"
+                               placeholder="Title, artist, album, genre, filename..."
+                               value="{{.Data.Query}}"
+                               hx-get="/dashboard/media" hx-target="#mediaResults" hx-swap="innerHTML"
+                               hx-trigger="input changed delay:300ms, search"
+                               hx-push-url="true" hx-include="#mediaFilterForm">
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Genre</label>
+                    <select class="form-select" name="genre"
+                            hx-get="/dashboard/media" hx-target="#mediaResults" hx-swap="innerHTML"
+                            hx-trigger="change" hx-push-url="true" hx-include="#mediaFilterForm">
+                        <option value="">All Genres</option>
+                        {{range .Data.Genres}}
+                        <option value="{{.}}" {{if eq . $.Data.Genre}}selected{{end}}>{{.}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Artist</label>
+                    <select class="form-select" name="artist"
+                            hx-get="/dashboard/media" hx-target="#mediaResults" hx-swap="innerHTML"
+                            hx-trigger="change" hx-push-url="true" hx-include="#mediaFilterForm">
+                        <option value="">All Artists</option>
+                        {{range .Data.Artists}}
+                        <option value="{{.}}" {{if eq . $.Data.Artist}}selected{{end}}>{{.}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Sort By</label>
+                    <select class="form-select" name="sort"
+                            hx-get="/dashboard/media" hx-target="#mediaResults" hx-swap="innerHTML"
+                            hx-trigger="change" hx-push-url="true" hx-include="#mediaFilterForm">
+                        <option value="created_at" {{if eq .Data.SortBy "created_at"}}selected{{end}}>Date Added</option>
+                        <option value="title" {{if eq .Data.SortBy "title"}}selected{{end}}>Title</option>
+                        <option value="artist" {{if eq .Data.SortBy "artist"}}selected{{end}}>Artist</option>
+                        <option value="album" {{if eq .Data.SortBy "album"}}selected{{end}}>Album</option>
+                        <option value="genre" {{if eq .Data.SortBy "genre"}}selected{{end}}>Genre</option>
+                        <option value="duration" {{if eq .Data.SortBy "duration"}}selected{{end}}>Duration</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Order</label>
+                    <select class="form-select" name="order"
+                            hx-get="/dashboard/media" hx-target="#mediaResults" hx-swap="innerHTML"
+                            hx-trigger="change" hx-push-url="true" hx-include="#mediaFilterForm">
+                        <option value="desc" {{if eq .Data.SortOrder "desc"}}selected{{end}}>Descending</option>
+                        <option value="asc" {{if eq .Data.SortOrder "asc"}}selected{{end}}>Ascending</option>
+                    </select>
+                </div>
             </div>
-            <div class="col-md-2">
-                <label class="form-label">Genre</label>
-                <select class="form-select" name="genre">
-                    <option value="">All Genres</option>
-                    {{range .Data.Genres}}
-                    <option value="{{.}}" {{if eq . $.Data.Genre}}selected{{end}}>{{.}}</option>
-                    {{end}}
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Sort By</label>
-                <select class="form-select" name="sort">
-                    <option value="created_at" {{if eq .Data.SortBy "created_at"}}selected{{end}}>Date Added</option>
-                    <option value="title" {{if eq .Data.SortBy "title"}}selected{{end}}>Title</option>
-                    <option value="artist" {{if eq .Data.SortBy "artist"}}selected{{end}}>Artist</option>
-                    <option value="duration" {{if eq .Data.SortBy "duration"}}selected{{end}}>Duration</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Order</label>
-                <select class="form-select" name="order">
-                    <option value="desc" {{if eq .Data.SortOrder "desc"}}selected{{end}}>Newest First</option>
-                    <option value="asc" {{if eq .Data.SortOrder "asc"}}selected{{end}}>Oldest First</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <button type="submit" class="btn btn-outline-primary w-100">
-                    <i class="bi bi-funnel me-1"></i>Filter
-                </button>
-            </div>
+            <!-- Hidden per_page field to preserve page size -->
+            <input type="hidden" name="per_page" value="{{.Data.PerPage}}">
         </form>
     </div>
 </div>
@@ -125,8 +154,8 @@
     </div>
 </div>
 
-<!-- Results -->
-<div class="card">
+<!-- Results (HTMX target for partial swaps) -->
+<div class="card" id="mediaResults">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>{{.Data.Total}} items</span>
         <div class="btn-group btn-group-sm" id="viewToggle">
@@ -158,8 +187,14 @@
                         Artist
                         {{if eq .Data.SortBy "artist"}}<i class="bi bi-chevron-{{if eq .Data.SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
                     </th>
-                    <th>Album</th>
-                    <th>Genre</th>
+                    <th class="sortable-header" data-sort="album" style="cursor: pointer;">
+                        Album
+                        {{if eq .Data.SortBy "album"}}<i class="bi bi-chevron-{{if eq .Data.SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                    </th>
+                    <th class="sortable-header" data-sort="genre" style="cursor: pointer;">
+                        Genre
+                        {{if eq .Data.SortBy "genre"}}<i class="bi bi-chevron-{{if eq .Data.SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
+                    </th>
                     <th class="sortable-header" data-sort="duration" style="cursor: pointer;">
                         Duration
                         {{if eq .Data.SortBy "duration"}}<i class="bi bi-chevron-{{if eq .Data.SortOrder "asc"}}up{{else}}down{{end}} ms-1"></i>{{end}}
@@ -232,8 +267,8 @@
                 {{else}}
                 <tr>
                     <td colspan="10" class="text-center py-5 text-body-secondary">
-                        {{if .Data.Query}}
-                        No results found for "{{.Data.Query}}"
+                        {{if $.Data.Query}}
+                        No results found for "{{$.Data.Query}}"
                         {{else}}
                         No media items. <a href="/dashboard/media/upload">Upload your first track</a>
                         {{end}}
@@ -282,7 +317,7 @@
         {{else}}
         <div class="col-12 text-center py-5 text-body-secondary">
             <i class="bi bi-music-note-beamed fs-1 mb-3 d-block"></i>
-            {{if .Data.Query}}No results found{{else}}No media items{{end}}
+            {{if $.Data.Query}}No results found{{else}}No media items{{end}}
         </div>
         {{end}}
         </div>
@@ -294,22 +329,34 @@
             <ul class="pagination pagination-sm mb-0 justify-content-center">
                 {{if gt .Data.Page 1}}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{sub .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}">
+                    <a class="page-link" href="?page={{sub .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&artist={{.Data.Artist}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}&per_page={{.Data.PerPage}}">
                         <i class="bi bi-chevron-left"></i>
                     </a>
                 </li>
+                {{else}}
+                <li class="page-item disabled"><span class="page-link"><i class="bi bi-chevron-left"></i></span></li>
                 {{end}}
 
-                <li class="page-item active">
-                    <span class="page-link">{{.Data.Page}} / {{.Data.TotalPages}}</span>
+                {{range .Data.PageNumbers}}
+                {{if eq . 0}}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+                {{else}}
+                <li class="page-item {{if eq . $.Data.Page}}active{{end}}">
+                    <a class="page-link" href="?page={{.}}&q={{$.Data.Query}}&genre={{$.Data.Genre}}&artist={{$.Data.Artist}}&sort={{$.Data.SortBy}}&order={{$.Data.SortOrder}}&per_page={{$.Data.PerPage}}">
+                        {{.}}
+                    </a>
                 </li>
+                {{end}}
+                {{end}}
 
                 {{if lt .Data.Page .Data.TotalPages}}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{add .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}">
+                    <a class="page-link" href="?page={{add .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&artist={{.Data.Artist}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}&per_page={{.Data.PerPage}}">
                         <i class="bi bi-chevron-right"></i>
                     </a>
                 </li>
+                {{else}}
+                <li class="page-item disabled"><span class="page-link"><i class="bi bi-chevron-right"></i></span></li>
                 {{end}}
             </ul>
         </nav>
@@ -339,8 +386,10 @@ function updateSelection() {
         bar.classList.add('d-none');
     }
 
-    selectAll.checked = selected.length === total && total > 0;
-    selectAll.indeterminate = selected.length > 0 && selected.length < total;
+    if (selectAll) {
+        selectAll.checked = selected.length === total && total > 0;
+        selectAll.indeterminate = selected.length > 0 && selected.length < total;
+    }
 }
 
 function toggleSelectAll(checkbox) {
@@ -352,7 +401,8 @@ function toggleSelectAll(checkbox) {
 
 function clearSelection() {
     document.querySelectorAll('.media-checkbox').forEach(cb => cb.checked = false);
-    document.getElementById('selectAll').checked = false;
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) selectAll.checked = false;
     updateSelection();
 }
 
