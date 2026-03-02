@@ -484,15 +484,16 @@ func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
 		return query
 	case "added_date":
 		if m, ok := value.(map[string]any); ok {
-			if after, _ := m["after"].(string); after != "" {
-				if t, err := time.Parse("2006-01-02", after); err == nil {
-					query = cond("created_at >= ?", t)
-				}
+			now := time.Now()
+			if newerThan := anyToInt(m["newerThan"]); newerThan > 0 {
+				unit, _ := m["newerThanUnit"].(string)
+				cutoff := subtractDur(now, newerThan, unit)
+				query = cond("created_at >= ?", cutoff)
 			}
-			if before, _ := m["before"].(string); before != "" {
-				if t, err := time.Parse("2006-01-02", before); err == nil {
-					query = cond("created_at < ?", t.AddDate(0, 0, 1))
-				}
+			if olderThan := anyToInt(m["olderThan"]); olderThan > 0 {
+				unit, _ := m["olderThanUnit"].(string)
+				cutoff := subtractDur(now, olderThan, unit)
+				query = cond("created_at < ?", cutoff)
 			}
 		}
 		return query
@@ -967,13 +968,18 @@ func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool 
 	case "added_date":
 		match = true
 		if m, ok := rule.Value.(map[string]any); ok {
-			if after, _ := m["after"].(string); after != "" {
-				if t, err := time.Parse("2006-01-02", after); err == nil && item.CreatedAt.Before(t) {
+			now := time.Now()
+			if newerThan := anyToInt(m["newerThan"]); newerThan > 0 {
+				unit, _ := m["newerThanUnit"].(string)
+				cutoff := subtractDur(now, newerThan, unit)
+				if item.CreatedAt.Before(cutoff) {
 					match = false
 				}
 			}
-			if before, _ := m["before"].(string); before != "" {
-				if t, err := time.Parse("2006-01-02", before); err == nil && !item.CreatedAt.Before(t.AddDate(0, 0, 1)) {
+			if olderThan := anyToInt(m["olderThan"]); olderThan > 0 {
+				unit, _ := m["olderThanUnit"].(string)
+				cutoff := subtractDur(now, olderThan, unit)
+				if !item.CreatedAt.Before(cutoff) {
 					match = false
 				}
 			}
@@ -1028,4 +1034,30 @@ func toStringSlice(value interface{}) ([]string, bool) {
 		return out, true
 	}
 	return nil, false
+}
+
+// anyToInt extracts an int from a JSON-decoded value (float64, int, or string).
+func anyToInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case string:
+		i, _ := strconv.Atoi(n)
+		return i
+	}
+	return 0
+}
+
+// subtractDur subtracts n units from t. Supported units: "days" (default), "weeks", "months".
+func subtractDur(t time.Time, n int, unit string) time.Time {
+	switch unit {
+	case "weeks":
+		return t.AddDate(0, 0, -7*n)
+	case "months":
+		return t.AddDate(0, -n, 0)
+	default:
+		return t.AddDate(0, 0, -n)
+	}
 }

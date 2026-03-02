@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Grimnir Radio Control Plane (HTTP API + /metrics on port 8080)
+  - job_name: 'grimnir-radio'
+    static_configs:
+      - targets:
+          - 'grimnir:8080'
+        labels:
+          service: 'grimnir-radio'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Grimnir Media Engine (metrics on port 9092)
+  - job_name: 'grimnir-media-engine'
+    static_configs:
+      - targets:
+          - 'mediaengine:9092'
+        labels:
+          service: 'grimnir-media-engine'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+          - 'localhost:9090'

@@ -916,17 +916,18 @@ func (h *Handler) fetchMusicTracks(stationID string, rules map[string]any) []mod
 				eraRangeSet = true
 			}
 		}
-		// Added date range filter (on created_at / upload timestamp)
+		// Added date range filter — relative durations on created_at
 		if adr, ok := rules["addedDateRange"].(map[string]any); ok {
-			if after, _ := adr["after"].(string); after != "" {
-				if t, err := time.Parse("2006-01-02", after); err == nil {
-					query = query.Where("created_at >= ?", t)
-				}
+			now := time.Now()
+			if newerThan := toIntFromAny(adr["newerThan"]); newerThan > 0 {
+				unit, _ := adr["newerThanUnit"].(string)
+				cutoff := subtractDuration(now, newerThan, unit)
+				query = query.Where("created_at >= ?", cutoff)
 			}
-			if before, _ := adr["before"].(string); before != "" {
-				if t, err := time.Parse("2006-01-02", before); err == nil {
-					query = query.Where("created_at < ?", t.AddDate(0, 0, 1))
-				}
+			if olderThan := toIntFromAny(adr["olderThan"]); olderThan > 0 {
+				unit, _ := adr["olderThanUnit"].(string)
+				cutoff := subtractDuration(now, olderThan, unit)
+				query = query.Where("created_at < ?", cutoff)
 			}
 		}
 	}
@@ -1744,11 +1745,34 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 		rules["yearRange"] = map[string]int{"min": yearMin, "max": yearMax}
 	}
 
-	// Added date range (filters on MediaItem.CreatedAt)
-	addedAfter := r.FormValue("filter_added_after")
-	addedBefore := r.FormValue("filter_added_before")
-	if addedAfter != "" || addedBefore != "" {
-		rules["addedDateRange"] = map[string]string{"after": addedAfter, "before": addedBefore}
+	// Added date range — relative durations (e.g. "newer than 7 days", "older than 30 days")
+	newerThanStr := r.FormValue("filter_newer_than")
+	newerThanUnit := r.FormValue("filter_newer_than_unit")
+	olderThanStr := r.FormValue("filter_older_than")
+	olderThanUnit := r.FormValue("filter_older_than_unit")
+	if newerThanStr != "" || olderThanStr != "" {
+		adr := map[string]any{}
+		if newerThanStr != "" {
+			if v, err := strconv.Atoi(newerThanStr); err == nil && v > 0 {
+				adr["newerThan"] = v
+				if newerThanUnit == "" {
+					newerThanUnit = "days"
+				}
+				adr["newerThanUnit"] = newerThanUnit
+			}
+		}
+		if olderThanStr != "" {
+			if v, err := strconv.Atoi(olderThanStr); err == nil && v > 0 {
+				adr["olderThan"] = v
+				if olderThanUnit == "" {
+					olderThanUnit = "days"
+				}
+				adr["olderThanUnit"] = olderThanUnit
+			}
+		}
+		if len(adr) > 0 {
+			rules["addedDateRange"] = adr
+		}
 	}
 
 	// Separation rules
@@ -2055,4 +2079,30 @@ func removeSmartBlockFallbackRef(rules map[string]any, targetID string) bool {
 	}
 
 	return changed
+}
+
+// toIntFromAny extracts an int from a JSON-decoded value (float64 or json.Number).
+func toIntFromAny(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case string:
+		i, _ := strconv.Atoi(n)
+		return i
+	}
+	return 0
+}
+
+// subtractDuration subtracts n units from t. Supported units: "days" (default), "weeks", "months".
+func subtractDuration(t time.Time, n int, unit string) time.Time {
+	switch unit {
+	case "weeks":
+		return t.AddDate(0, 0, -7*n)
+	case "months":
+		return t.AddDate(0, -n, 0)
+	default: // "days"
+		return t.AddDate(0, 0, -n)
+	}
 }
