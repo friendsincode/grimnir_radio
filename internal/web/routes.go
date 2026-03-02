@@ -410,6 +410,7 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Post("/users/bulk", h.AdminUsersBulk)
 				r.Get("/users/{id}/edit", h.AdminUserEdit)
 				r.Post("/users/{id}", h.AdminUserUpdate)
+				r.Post("/users/{id}/reset-password", h.AdminUserResetPassword)
 				r.Delete("/users/{id}", h.AdminUserDelete)
 
 				// Platform media library
