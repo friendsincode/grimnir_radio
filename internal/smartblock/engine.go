@@ -243,6 +243,9 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 	if year, ok := rules["yearRange"]; ok && !hasField("year") {
 		def.Include = append(def.Include, FilterRule{Field: "year", Value: year})
 	}
+	if adr, ok := rules["addedDateRange"]; ok && !hasField("added_date") {
+		def.Include = append(def.Include, FilterRule{Field: "added_date", Value: adr})
+	}
 	// Source playlists: legacy UI stores playlist IDs as a list. This must be enforced in SQL.
 	if v, ok := rules["sourcePlaylists"]; ok && !hasField("source_playlists") {
 		def.Include = append(def.Include, FilterRule{Field: "source_playlists", Value: v})
@@ -477,6 +480,20 @@ func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
 		}
 		if rangeVals[1] != 0 {
 			query = cond("year <= ?", int(rangeVals[1]))
+		}
+		return query
+	case "added_date":
+		if m, ok := value.(map[string]any); ok {
+			if after, _ := m["after"].(string); after != "" {
+				if t, err := time.Parse("2006-01-02", after); err == nil {
+					query = cond("created_at >= ?", t)
+				}
+			}
+			if before, _ := m["before"].(string); before != "" {
+				if t, err := time.Parse("2006-01-02", before); err == nil {
+					query = cond("created_at < ?", t.AddDate(0, 0, 1))
+				}
+			}
 		}
 		return query
 	case "explicit":
@@ -946,6 +963,20 @@ func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool 
 		}
 		if rangeVals[1] != 0 && yearFloat > rangeVals[1] {
 			match = false
+		}
+	case "added_date":
+		match = true
+		if m, ok := rule.Value.(map[string]any); ok {
+			if after, _ := m["after"].(string); after != "" {
+				if t, err := time.Parse("2006-01-02", after); err == nil && item.CreatedAt.Before(t) {
+					match = false
+				}
+			}
+			if before, _ := m["before"].(string); before != "" {
+				if t, err := time.Parse("2006-01-02", before); err == nil && !item.CreatedAt.Before(t.AddDate(0, 0, 1)) {
+					match = false
+				}
+			}
 		}
 	case "tag":
 		match = false

@@ -229,6 +229,14 @@
                                     </div>
                                 </div>
                                 <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Year Range</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control filter-field" name="filter_year_min" placeholder="Min" min="1900" max="2099">
+                                        <span class="input-group-text">-</span>
+                                        <input type="number" class="form-control filter-field" name="filter_year_max" placeholder="Max" min="1900" max="2099">
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
                                     <label class="form-label small text-uppercase text-muted">Language</label>
                                     <select class="form-select filter-field" name="filter_language">
                                         <option value="">Any</option>
@@ -236,6 +244,14 @@
                                         <option value="es">Spanish</option>
                                         <option value="instrumental">Instrumental</option>
                                     </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Added After</label>
+                                    <input type="date" class="form-control form-control-sm filter-field" name="filter_added_after">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Added Before</label>
+                                    <input type="date" class="form-control form-control-sm filter-field" name="filter_added_before">
                                 </div>
                                 <div class="col-12">
                                     <div class="form-check">
@@ -1159,6 +1175,7 @@
         updateSourceCount();
 
         // Restore filters
+        if (existingRules.text_search) document.querySelector('[name="filter_text_search"]').value = existingRules.text_search;
         if (existingRules.genre) document.querySelector('[name="filter_genre"]').value = existingRules.genre;
         if (existingRules.artist) document.querySelector('[name="filter_artist"]').value = existingRules.artist;
         if (existingRules.mood) document.querySelector('[name="filter_mood"]').value = existingRules.mood;
@@ -1167,6 +1184,14 @@
         if (existingRules.bpmRange) {
             if (existingRules.bpmRange.min) document.querySelector('[name="filter_bpm_min"]').value = existingRules.bpmRange.min;
             if (existingRules.bpmRange.max) document.querySelector('[name="filter_bpm_max"]').value = existingRules.bpmRange.max;
+        }
+        if (existingRules.yearRange) {
+            if (existingRules.yearRange.min) document.querySelector('[name="filter_year_min"]').value = existingRules.yearRange.min;
+            if (existingRules.yearRange.max) document.querySelector('[name="filter_year_max"]').value = existingRules.yearRange.max;
+        }
+        if (existingRules.addedDateRange) {
+            if (existingRules.addedDateRange.after) document.querySelector('[name="filter_added_after"]').value = existingRules.addedDateRange.after;
+            if (existingRules.addedDateRange.before) document.querySelector('[name="filter_added_before"]').value = existingRules.addedDateRange.before;
         }
         if (existingRules.excludeExplicit) document.getElementById('excludeExplicit').checked = true;
         updateFilterCount();
