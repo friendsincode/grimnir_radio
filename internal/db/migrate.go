@@ -139,10 +139,20 @@ func migrateWebstreamHealthMethod(database *gorm.DB) error {
 // when content_hash is non-empty, so un-analyzed files are not affected.
 // Existing duplicates are cleaned up first by keeping the oldest row per group.
 func applyContentHashUniqueIndex(database *gorm.DB) error {
-	// Remove duplicate rows (keep oldest per station_id+content_hash group)
-	// before creating the unique index.
+	// First, try creating the index. If it succeeds, no cleanup needed.
+	err := database.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_items_station_content_hash
+		 ON media_items (station_id, content_hash)
+		 WHERE content_hash <> ''`,
+	).Error
+	if err == nil {
+		return nil
+	}
+
+	// Index creation failed (likely due to existing duplicates). Clean them up.
+	// Use a dedicated session to ensure the DELETE is not rolled back.
 	if database.Dialector.Name() == "postgres" {
-		database.Exec(`
+		if delErr := database.Session(&gorm.Session{}).Exec(`
 			DELETE FROM media_items
 			WHERE id IN (
 				SELECT id FROM (
@@ -151,26 +161,30 @@ func applyContentHashUniqueIndex(database *gorm.DB) error {
 						ORDER BY created_at ASC
 					) AS rn
 					FROM media_items
-					WHERE content_hash != ''
+					WHERE content_hash <> ''
 				) ranked
 				WHERE rn > 1
-			)`)
+			)`).Error; delErr != nil {
+			return fmt.Errorf("dedup media items: %w", delErr)
+		}
 	} else {
-		// SQLite fallback
-		database.Exec(`
+		if delErr := database.Session(&gorm.Session{}).Exec(`
 			DELETE FROM media_items
-			WHERE content_hash != ''
+			WHERE content_hash <> ''
 			AND id NOT IN (
 				SELECT MIN(id) FROM media_items
-				WHERE content_hash != ''
+				WHERE content_hash <> ''
 				GROUP BY station_id, content_hash
-			)`)
+			)`).Error; delErr != nil {
+			return fmt.Errorf("dedup media items: %w", delErr)
+		}
 	}
 
+	// Retry index creation after cleanup.
 	return database.Exec(
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_items_station_content_hash
 		 ON media_items (station_id, content_hash)
-		 WHERE content_hash != ''`,
+		 WHERE content_hash <> ''`,
 	).Error
 }
 
