@@ -15,6 +15,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/webdj"
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
 
@@ -23,14 +24,16 @@ type WebDJAPI struct {
 	db          *gorm.DB
 	webdjSvc    *webdj.Service
 	waveformSvc *webdj.WaveformService
+	logger      zerolog.Logger
 }
 
 // NewWebDJAPI creates a new WebDJ API handler.
-func NewWebDJAPI(db *gorm.DB, webdjSvc *webdj.Service, waveformSvc *webdj.WaveformService) *WebDJAPI {
+func NewWebDJAPI(db *gorm.DB, webdjSvc *webdj.Service, waveformSvc *webdj.WaveformService, logger zerolog.Logger) *WebDJAPI {
 	return &WebDJAPI{
 		db:          db,
 		webdjSvc:    webdjSvc,
 		waveformSvc: waveformSvc,
+		logger:      logger.With().Str("component", "webdj-api").Logger(),
 	}
 }
 
@@ -141,6 +144,10 @@ func (a *WebDJAPI) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		Username:  user.Email,
 	})
 	if err != nil {
+		a.logger.Error().Err(err).
+			Str("station_id", req.StationID).
+			Str("user_id", claims.UserID).
+			Msg("failed to start webdj session")
 		writeError(w, http.StatusInternalServerError, "session_start_failed")
 		return
 	}
