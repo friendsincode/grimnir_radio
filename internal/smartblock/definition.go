@@ -18,6 +18,18 @@ type Definition struct {
 	Sequence   SequencePolicy  `json:"sequence"`
 	Duration   DurationPolicy  `json:"duration"`
 	Fallbacks  []FallbackRule  `json:"fallbacks"`
+	Bumpers    BumperConfig    `json:"bumpers"`
+}
+
+// BumperConfig controls tail-fill with short tracks after the main sequence.
+type BumperConfig struct {
+	Enabled              bool   `json:"enabled"`
+	SourceType           string `json:"source_type"` // "playlist", "genre", "artist", "label", "title"
+	PlaylistID           string `json:"playlist_id"`
+	Genre                string `json:"genre"`
+	Query                string `json:"query"`
+	IncludePublicArchive bool   `json:"include_public_archive"`
+	MaxPerGap            int    `json:"max_per_gap"`
 }
 
 // FilterRule applies a comparison against media metadata.
