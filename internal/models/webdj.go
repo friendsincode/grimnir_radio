@@ -15,7 +15,7 @@ import (
 // WebDJSession represents an active WebDJ console session.
 type WebDJSession struct {
 	ID              string     `gorm:"type:uuid;primaryKey"`
-	LiveSessionID   string     `gorm:"type:uuid;index"` // Links to existing LiveSession
+	LiveSessionID   *string    `gorm:"type:uuid;index"` // Links to existing LiveSession (nullable)
 	StationID       string     `gorm:"type:uuid;index"`
 	UserID          string     `gorm:"type:uuid;index"`
 	DeckAState      DeckState  `gorm:"type:jsonb;serializer:json"`

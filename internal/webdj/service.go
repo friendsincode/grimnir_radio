@@ -160,7 +160,7 @@ func (s *Service) StartSession(ctx context.Context, req StartSessionRequest) (*m
 
 	// Store the live token in metadata if generated
 	if liveToken != "" {
-		session.LiveSessionID = liveToken
+		session.LiveSessionID = &liveToken
 	}
 
 	if err := s.db.WithContext(ctx).Create(session).Error; err != nil {
