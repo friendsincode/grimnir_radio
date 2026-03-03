@@ -432,7 +432,7 @@ func (s *Server) initDependencies() error {
 	// WebDJ Console
 	webdjSvc := webdj.NewService(database, liveService, mediaService, meClient, s.bus, s.logger)
 	waveformSvc := webdj.NewWaveformService(database, mediaService, meClient, s.cfg.MediaRoot, s.logger)
-	webdjAPI := api.NewWebDJAPI(database, webdjSvc, waveformSvc)
+	webdjAPI := api.NewWebDJAPI(database, webdjSvc, waveformSvc, s.logger)
 	s.api.SetWebDJAPI(webdjAPI)
 	webdjWS := api.NewWebDJWebSocket(webdjSvc, s.logger)
 	s.api.SetWebDJWebSocket(webdjWS)
