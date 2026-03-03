@@ -223,7 +223,8 @@ function webdjConsole() {
             }
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/api/v1/webdj/sessions/${this.sessionId}/ws`;
+            const token = this.getAuthToken();
+            const wsUrl = `${protocol}//${window.location.host}/api/v1/webdj/sessions/${this.sessionId}/ws?token=${encodeURIComponent(token)}`;
 
             this.ws = new WebSocket(wsUrl);
 

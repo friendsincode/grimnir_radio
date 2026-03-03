@@ -87,3 +87,31 @@ func TestMiddlewareWithJWT_AcceptsQueryTokenForEventsWebSocketUpgrade(t *testing
 		t.Fatalf("expected 200 for websocket query token auth, got %d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestMiddlewareWithJWT_AcceptsQueryTokenForWebDJWebSocket(t *testing.T) {
+	secret := []byte("test-secret")
+	token, err := Issue(secret, Claims{
+		UserID: "u1",
+		Roles:  []string{"platform_admin"},
+	}, time.Hour)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := ClaimsFromContext(r.Context())
+		if !ok || claims == nil {
+			t.Fatalf("expected claims in context")
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/webdj/sessions/abc-123/ws?token="+token, nil)
+	req.Header.Set("Upgrade", "websocket")
+	rr := httptest.NewRecorder()
+
+	MiddlewareWithJWT(nil, secret)(next).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for webdj websocket query token auth, got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
