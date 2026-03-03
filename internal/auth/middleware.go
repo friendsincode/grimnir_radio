@@ -73,10 +73,13 @@ func extractToken(r *http.Request) string {
 	}
 
 	// Browser WebSocket clients cannot set arbitrary Authorization headers.
-	// Allow query-token auth only for the events WebSocket upgrade endpoint.
-	if isWebSocketUpgrade(r) && path.Clean(r.URL.Path) == "/api/v1/events" {
-		if token := strings.TrimSpace(r.URL.Query().Get("token")); token != "" {
-			return token
+	// Allow query-token auth for WebSocket upgrade endpoints.
+	if isWebSocketUpgrade(r) {
+		cleanPath := path.Clean(r.URL.Path)
+		if cleanPath == "/api/v1/events" || strings.HasSuffix(cleanPath, "/ws") {
+			if token := strings.TrimSpace(r.URL.Query().Get("token")); token != "" {
+				return token
+			}
 		}
 	}
 	return ""
