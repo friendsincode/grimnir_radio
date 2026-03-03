@@ -205,6 +205,7 @@ func TestAuthenticatedRoutes(t *testing.T) {
 		{"analytics", "/dashboard/analytics", "Analytics"},
 		{"users list", "/dashboard/users", "User"},
 		{"settings", "/dashboard/settings", "Settings"},
+		{"webdj console", "/dashboard/webdj/", "WebDJ Console"},
 	}
 
 	for _, tc := range dashboardRoutes {
@@ -488,6 +489,204 @@ func TestLoginFlow(t *testing.T) {
 			url = info.URL
 		}
 		t.Errorf("expected redirect to dashboard, got %s", url)
+	}
+}
+
+// TestWebDJConsole verifies the WebDJ console page loads, Alpine.js initializes,
+// and key UI elements are present and interactive.
+func TestWebDJConsole(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e tests in short mode")
+	}
+	if os.Getenv("CI") != "" || os.Getenv("SKIP_BROWSER_TESTS") != "" {
+		t.Skip("skipping browser tests in CI environment")
+	}
+
+	headless := os.Getenv("E2E_HEADLESS") != "false"
+
+	db := setupTestDB(t)
+	station := setupTestFixtures(t, db)
+	createTestUser(t, db, "admin@test.com", "password123", models.PlatformRoleAdmin)
+	seedTestMedia(t, db, station.ID)
+
+	handler := createTestHandler(t, db)
+
+	r := chi.NewRouter()
+	handler.Routes(r)
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	l := launcher.New().Headless(headless)
+	browserURL, err := l.Launch()
+	if err != nil {
+		t.Skipf("skipping browser test: failed to launch browser: %v", err)
+	}
+
+	browser := rod.New().ControlURL(browserURL)
+	if err := browser.Connect(); err != nil {
+		t.Skipf("skipping browser test: failed to connect to browser: %v", err)
+	}
+	defer browser.MustClose()
+
+	// Login
+	page := browser.MustPage(server.URL + "/login")
+	defer page.MustClose()
+
+	if err := page.WaitLoad(); err != nil {
+		t.Skipf("skipping browser test: page load failed: %v", err)
+	}
+	page.MustElement("input[name=email]").MustInput("admin@test.com")
+	page.MustElement("input[name=password]").MustInput("password123")
+	page.MustElement("button[type=submit]").MustClick()
+
+	time.Sleep(1500 * time.Millisecond)
+	page.WaitLoad()
+
+	info, _ := page.Info()
+	if strings.Contains(info.URL, "/login") {
+		t.Skipf("login did not complete, still on: %s", info.URL)
+	}
+
+	// Navigate to WebDJ console
+	if err := page.Navigate(server.URL + "/dashboard/webdj/"); err != nil {
+		t.Fatalf("navigation to webdj failed: %v", err)
+	}
+	if err := page.WaitLoad(); err != nil {
+		t.Fatalf("webdj page load failed: %v", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	t.Run("page_renders", func(t *testing.T) {
+		html, err := page.HTML()
+		if err != nil {
+			t.Fatalf("failed to get HTML: %v", err)
+		}
+		if !strings.Contains(html, "WebDJ Console") {
+			t.Errorf("expected page to contain 'WebDJ Console'")
+		}
+	})
+
+	t.Run("alpine_initializes", func(t *testing.T) {
+		// The x-data="webdjConsole()" attribute should be present; when Alpine
+		// processes it the session start screen (x-show="!sessionId") is visible.
+		el, err := page.Element("#webdj-app")
+		if err != nil {
+			t.Fatalf("webdj-app element not found: %v", err)
+		}
+		xData, err := el.Attribute("x-data")
+		if err != nil || xData == nil {
+			t.Fatalf("x-data attribute not found on #webdj-app")
+		}
+		if !strings.Contains(*xData, "webdjConsole") {
+			t.Errorf("expected x-data to contain 'webdjConsole', got %q", *xData)
+		}
+
+		// Session start screen should be visible (Start Session button)
+		html, _ := page.HTML()
+		if !strings.Contains(html, "Start Session") && !strings.Contains(html, "Resume Session") {
+			t.Errorf("expected session start screen to be visible")
+		}
+	})
+
+	t.Run("deck_elements_present", func(t *testing.T) {
+		html, _ := page.HTML()
+		if !strings.Contains(html, "DECK A") {
+			t.Errorf("expected DECK A badge in DOM")
+		}
+		if !strings.Contains(html, "DECK B") {
+			t.Errorf("expected DECK B badge in DOM")
+		}
+	})
+
+	t.Run("start_session_clickable", func(t *testing.T) {
+		// Find the Start Session button
+		btn, err := page.ElementR("button", "Start Session")
+		if err != nil {
+			t.Skipf("start session button not found: %v", err)
+			return
+		}
+
+		// Set up dialog handler to auto-dismiss alert() from startSession() error path.
+		// The API returns 503 (webdjAPI nil) or auth token is missing, triggering alert().
+		wait, handle := page.MustHandleDialog()
+		go func() {
+			wait()
+			handle(false, "")
+		}()
+
+		btn.MustClick()
+
+		// Wait for Alpine to process the click and the alert to be dismissed
+		time.Sleep(1 * time.Second)
+
+		// Page should still be functional (not crashed)
+		_, err = page.HTML()
+		if err != nil {
+			t.Errorf("page became unresponsive after clicking start session: %v", err)
+		}
+	})
+
+	t.Run("library_panel_present", func(t *testing.T) {
+		html, _ := page.HTML()
+		if !strings.Contains(html, "Library") {
+			t.Errorf("expected Library panel in DOM")
+		}
+		if !strings.Contains(html, `placeholder="Search..."`) {
+			t.Errorf("expected search input with placeholder in DOM")
+		}
+	})
+
+	t.Run("mixer_controls_present", func(t *testing.T) {
+		// Check for crossfader range input
+		_, err := page.Element("input.crossfader")
+		if err != nil {
+			t.Errorf("expected crossfader range input in DOM: %v", err)
+		}
+	})
+}
+
+// seedTestMedia creates sample media items in the database for library search testing.
+func seedTestMedia(t *testing.T, db *gorm.DB, stationID string) {
+	t.Helper()
+	media := []models.MediaItem{
+		{
+			ID:            "media-test-1",
+			StationID:     stationID,
+			Title:         "Test Track Alpha",
+			Artist:        "DJ Test",
+			Album:         "Test Album",
+			Genre:         "Electronic",
+			Duration:      3 * time.Minute,
+			Path:          stationID + "/aa/bb/test1.mp3",
+			AnalysisState: models.AnalysisComplete,
+		},
+		{
+			ID:            "media-test-2",
+			StationID:     stationID,
+			Title:         "Test Track Beta",
+			Artist:        "MC Demo",
+			Album:         "Demo Beats",
+			Genre:         "Hip Hop",
+			Duration:      4 * time.Minute,
+			Path:          stationID + "/cc/dd/test2.mp3",
+			AnalysisState: models.AnalysisComplete,
+		},
+		{
+			ID:            "media-test-3",
+			StationID:     stationID,
+			Title:         "Ambient Waves",
+			Artist:        "DJ Test",
+			Album:         "Chill Sessions",
+			Genre:         "Ambient",
+			Duration:      5 * time.Minute,
+			Path:          stationID + "/ee/ff/test3.mp3",
+			AnalysisState: models.AnalysisComplete,
+		},
+	}
+	for _, m := range media {
+		if err := db.Create(&m).Error; err != nil {
+			t.Fatalf("failed to create test media item %s: %v", m.ID, err)
+		}
 	}
 }
 
