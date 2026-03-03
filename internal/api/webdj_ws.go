@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
@@ -71,6 +72,20 @@ func (h *WebDJWebSocket) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 	if !session.Active {
 		http.Error(w, "session not active", http.StatusBadRequest)
 		return
+	}
+
+	// Reverse proxies (Cloudflare, nginx) may strip or rewrite the Connection
+	// and Upgrade headers while still proxying WebSocket frames. If we see
+	// Sec-WebSocket-Key (sent by all browsers, not stripped by proxies) but
+	// the Connection header is missing "Upgrade", fix it so nhooyr/websocket
+	// accepts the connection.
+	if r.Header.Get("Sec-WebSocket-Key") != "" {
+		if !strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade") {
+			r.Header.Set("Connection", "Upgrade")
+		}
+		if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			r.Header.Set("Upgrade", "websocket")
+		}
 	}
 
 	// Accept WebSocket connection
