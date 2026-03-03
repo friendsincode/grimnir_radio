@@ -117,6 +117,11 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 			continue
 		}
 
+		// Tail-fill with bumper tracks if enabled and sequence is underfilled.
+		if def.Bumpers.Enabled && result.TotalMS < target {
+			e.tailFillBumpers(ctx, &result, def.Bumpers, req.StationID, target)
+		}
+
 		if level > 0 {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("constraint_relaxed:%d", level))
 			e.logger.Info().
@@ -288,6 +293,34 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 		separationEnabled = true
 	}
 
+	// Bumper config from legacy rules.
+	if bumpers, ok := rules["bumpers"].(map[string]any); ok {
+		if enabled, ok := bumpers["enabled"].(bool); ok && enabled {
+			def.Bumpers.Enabled = true
+		}
+		if st, ok := bumpers["sourceType"].(string); ok {
+			def.Bumpers.SourceType = st
+		}
+		if pid, ok := bumpers["playlistID"].(string); ok {
+			def.Bumpers.PlaylistID = pid
+		}
+		if genre, ok := bumpers["genre"].(string); ok {
+			def.Bumpers.Genre = genre
+		}
+		if query, ok := bumpers["query"].(string); ok {
+			def.Bumpers.Query = strings.TrimSpace(query)
+		}
+		if includeArchive, ok := bumpers["includePublicArchive"].(bool); ok && includeArchive {
+			def.Bumpers.IncludePublicArchive = true
+		}
+		if maxPerGap, ok := bumpers["maxPerGap"]; ok {
+			def.Bumpers.MaxPerGap = toInt(maxPerGap)
+		}
+		if def.Bumpers.MaxPerGap < 1 {
+			def.Bumpers.MaxPerGap = 8
+		}
+	}
+
 	if !separationEnabled {
 		def.Separation = SeparationRules{}
 	} else if sep, ok := rules["separation"].(map[string]any); ok {
@@ -306,6 +339,114 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 	}
 
 	return def
+}
+
+// tailFillBumpers appends short tracks from a bumper source to fill remaining time.
+func (e *Engine) tailFillBumpers(ctx context.Context, result *GenerateResult, cfg BumperConfig, stationID string, targetMS int64) {
+	bumpers, err := e.fetchBumperCandidates(ctx, cfg, stationID)
+	if err != nil || len(bumpers) == 0 {
+		return
+	}
+
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	lastID := ""
+	prevID := ""
+	added := 0
+
+	for added < cfg.MaxPerGap && result.TotalMS < targetMS {
+		remaining := targetMS - result.TotalMS
+		if remaining <= 0 {
+			break
+		}
+
+		// Find the best-fitting bumper for the remaining gap.
+		bestIdx := -1
+		var bestDur int64 = -1
+		for i, b := range bumpers {
+			dur := b.Duration.Milliseconds()
+			if dur <= 0 || dur > remaining {
+				continue
+			}
+			// Avoid immediate repeat.
+			if b.ID == lastID && len(bumpers) > 1 {
+				continue
+			}
+			// Avoid ABAB ping-pong.
+			if b.ID == prevID && lastID != "" && prevID != "" && len(bumpers) > 2 {
+				continue
+			}
+			if dur > bestDur {
+				bestDur = dur
+				bestIdx = i
+			}
+		}
+		if bestIdx == -1 {
+			break
+		}
+
+		chosen := bumpers[bestIdx]
+		result.Items = append(result.Items, SequenceItem{
+			MediaID:    chosen.ID,
+			StartsAtMS: result.TotalMS,
+			EndsAtMS:   result.TotalMS + bestDur,
+			IntroEnd:   chosen.CuePoints.IntroEnd,
+			OutroIn:    chosen.CuePoints.OutroIn,
+			Energy:     deriveEnergy(chosen),
+		})
+		result.TotalMS += bestDur
+		prevID = lastID
+		lastID = chosen.ID
+		added++
+
+		// Shuffle remaining bumpers for variety.
+		rng.Shuffle(len(bumpers), func(i, j int) { bumpers[i], bumpers[j] = bumpers[j], bumpers[i] })
+	}
+}
+
+// fetchBumperCandidates loads media items matching the bumper source config.
+func (e *Engine) fetchBumperCandidates(ctx context.Context, cfg BumperConfig, stationID string) ([]models.MediaItem, error) {
+	query := e.db.WithContext(ctx).Where("station_id = ?", stationID).
+		Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
+	if cfg.IncludePublicArchive {
+		query = e.db.WithContext(ctx).
+			Where("(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
+				stationID, true, true, true, true).
+			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
+	}
+
+	var tracks []models.MediaItem
+	switch cfg.SourceType {
+	case "playlist":
+		if cfg.PlaylistID == "" {
+			return nil, nil
+		}
+		query = query.Where("id IN (SELECT media_id FROM playlist_items WHERE playlist_id = ?)", cfg.PlaylistID)
+	case "genre":
+		if cfg.Genre == "" {
+			return nil, nil
+		}
+		query = query.Where("genre = ?", cfg.Genre)
+	case "artist":
+		if cfg.Query == "" {
+			return nil, nil
+		}
+		query = query.Where(normalizedSQLExprSB("artist")+" LIKE ?", "%"+normalizeMatchText(cfg.Query)+"%")
+	case "label":
+		if cfg.Query == "" {
+			return nil, nil
+		}
+		query = query.Where("LOWER(label) LIKE ?", "%"+strings.ToLower(cfg.Query)+"%")
+	default: // "title"
+		if cfg.Query == "" {
+			return nil, nil
+		}
+		query = query.Where("LOWER(title) LIKE ?", "%"+strings.ToLower(cfg.Query)+"%")
+	}
+
+	if err := query.Find(&tracks).Error; err != nil {
+		return nil, err
+	}
+	return tracks, nil
 }
 
 func (e *Engine) recentPlays(ctx context.Context, stationID string, windows map[string]time.Duration) ([]models.PlayHistory, error) {
