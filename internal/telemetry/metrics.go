@@ -352,6 +352,14 @@ var (
 		},
 		[]string{"station_id"},
 	)
+
+	ListenersCurrentTotal = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_listeners_current",
+			Help: "Current number of listeners per station",
+		},
+		[]string{"station_id"},
+	)
 )
 
 // Leader election metrics

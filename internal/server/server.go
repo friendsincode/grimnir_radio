@@ -610,6 +610,20 @@ func (s *Server) startBackgroundWorkers() {
 				case <-ticker.C:
 					db.UpdateConnectionMetrics(s.db)
 					telemetry.UpdateStationMetrics(s.db)
+
+					// Update listener count metrics per station
+					if s.director != nil {
+						var stations []struct{ ID string }
+						if err := s.db.Table("stations").Select("id").Scan(&stations).Error; err == nil {
+							counts := make(map[string]int, len(stations))
+							for _, st := range stations {
+								if c, err := s.director.ListenerCount(ctx, st.ID); err == nil {
+									counts[st.ID] = c
+								}
+							}
+							telemetry.UpdateListenerMetrics(counts)
+						}
+					}
 				}
 			}
 		}()

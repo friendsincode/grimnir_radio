@@ -20,6 +20,9 @@
 {{$perPage := index $data "PerPage"}}
 {{$fromValue := index $data "FromValue"}}
 {{$toValue := index $data "ToValue"}}
+{{$sourceFilter := index $data "SourceFilter"}}
+{{$uniqueTracks := index $data "UniqueTracks"}}
+{{$uniqueArtists := index $data "UniqueArtists"}}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i>Play History</h4>
     <a href="/dashboard/analytics" class="btn btn-outline-secondary">
@@ -27,24 +30,74 @@
     </a>
 </div>
 
+<!-- Summary Stats -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-primary">{{$total}}</div>
+                <small class="text-body-secondary">Total Plays</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-success">{{$uniqueTracks}}</div>
+                <small class="text-body-secondary">Unique Tracks</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-info">{{$uniqueArtists}}</div>
+                <small class="text-body-secondary">Unique Artists</small>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Date Filter -->
 <div class="card mb-4">
     <div class="card-body">
         <form method="GET" class="row g-3 align-items-end">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <label class="form-label">From Date</label>
-                <input type="date" class="form-control" name="from" value="{{$fromValue}}">
+                <input type="date" class="form-control" name="from" id="historyFrom" value="{{$fromValue}}">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <label class="form-label">To Date</label>
-                <input type="date" class="form-control" name="to" value="{{$toValue}}">
+                <input type="date" class="form-control" name="to" id="historyTo" value="{{$toValue}}">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
+                <label class="form-label">Source</label>
+                <select class="form-select" name="source">
+                    <option value="">All Sources</option>
+                    <option value="automation"{{if eq $sourceFilter "automation"}} selected{{end}}>Automation</option>
+                    <option value="live"{{if eq $sourceFilter "live"}} selected{{end}}>Live</option>
+                    <option value="playlist"{{if eq $sourceFilter "playlist"}} selected{{end}}>Playlist</option>
+                    <option value="smart_block"{{if eq $sourceFilter "smart_block"}} selected{{end}}>Smart Block</option>
+                    <option value="webstream"{{if eq $sourceFilter "webstream"}} selected{{end}}>Webstream</option>
+                </select>
+            </div>
+            <div class="col-md-3">
                 <button type="submit" class="btn btn-primary w-100">
                     <i class="bi bi-filter me-1"></i>Filter
                 </button>
             </div>
         </form>
+        <div class="mt-3 d-flex gap-2 flex-wrap align-items-center">
+            <span class="text-body-secondary small me-1">Quick:</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDatePreset(0)">Today</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDatePreset(7)">Last 7 days</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDatePreset(30)">Last 30 days</button>
+            <div class="ms-auto">
+                <a href="/dashboard/analytics/history/export.csv?from={{$fromValue}}&to={{$toValue}}&source={{$sourceFilter}}" class="btn btn-sm btn-outline-success">
+                    <i class="bi bi-download me-1"></i>Export CSV
+                </a>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -99,7 +152,7 @@
             <ul class="pagination justify-content-center mb-0">
                 {{if gt $page 1}}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{sub $page 1}}{{if $fromValue}}&from={{$fromValue}}{{end}}{{if $toValue}}&to={{$toValue}}{{end}}">Previous</a>
+                    <a class="page-link" href="?page={{sub $page 1}}{{if $fromValue}}&from={{$fromValue}}{{end}}{{if $toValue}}&to={{$toValue}}{{end}}{{if $sourceFilter}}&source={{$sourceFilter}}{{end}}">Previous</a>
                 </li>
                 {{end}}
                 <li class="page-item active">
@@ -107,7 +160,7 @@
                 </li>
                 {{if lt (mul $page $perPage) $total}}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{add $page 1}}{{if $fromValue}}&from={{$fromValue}}{{end}}{{if $toValue}}&to={{$toValue}}{{end}}">Next</a>
+                    <a class="page-link" href="?page={{add $page 1}}{{if $fromValue}}&from={{$fromValue}}{{end}}{{if $toValue}}&to={{$toValue}}{{end}}{{if $sourceFilter}}&source={{$sourceFilter}}{{end}}">Next</a>
                 </li>
                 {{end}}
             </ul>
@@ -122,4 +175,22 @@
     </div>
     {{end}}
 </div>
+
+<script>
+function setDatePreset(days) {
+    var now = new Date();
+    var to = now.toISOString().split('T')[0];
+    var from;
+    if (days === 0) {
+        from = to;
+    } else {
+        var d = new Date(now);
+        d.setDate(d.getDate() - days);
+        from = d.toISOString().split('T')[0];
+    }
+    document.getElementById('historyFrom').value = from;
+    document.getElementById('historyTo').value = to;
+    document.getElementById('historyFrom').closest('form').submit();
+}
+</script>
 {{end}}
