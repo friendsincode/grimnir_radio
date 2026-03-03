@@ -106,6 +106,7 @@ func TestMiddlewareWithJWT_AcceptsQueryTokenForWebDJWebSocket(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	// With Upgrade header (direct connection)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/webdj/sessions/abc-123/ws?token="+token, nil)
 	req.Header.Set("Upgrade", "websocket")
 	rr := httptest.NewRecorder()
@@ -113,5 +114,14 @@ func TestMiddlewareWithJWT_AcceptsQueryTokenForWebDJWebSocket(t *testing.T) {
 	MiddlewareWithJWT(nil, secret)(next).ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200 for webdj websocket query token auth, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Without Upgrade header (proxied WebSocket — proxy strips Upgrade)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/webdj/sessions/abc-123/ws?token="+token, nil)
+	rr2 := httptest.NewRecorder()
+
+	MiddlewareWithJWT(nil, secret)(next).ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for proxied webdj websocket query token auth, got %d body=%s", rr2.Code, rr2.Body.String())
 	}
 }
