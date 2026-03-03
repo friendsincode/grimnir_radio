@@ -80,13 +80,16 @@ type CuePoint struct {
 
 // MixerState represents the state of the mixer controls.
 type MixerState struct {
-	Crossfader   float64 `json:"crossfader"`    // 0.0 = A, 0.5 = center, 1.0 = B
-	MasterVolume float64 `json:"master_volume"` // 0.0 to 1.0
-	CueSplit     bool    `json:"cue_split"`     // Monitor cue split mode
-	CueMixLevel  float64 `json:"cue_mix_level"` // Monitor cue mix level
-	MicActive    bool    `json:"mic_active"`
-	MicVolume    float64 `json:"mic_volume"`
-	TalkoverDuck float64 `json:"talkover_duck"` // How much to duck when mic active
+	Crossfader    float64 `json:"crossfader"`      // 0.0 = A, 0.5 = center, 1.0 = B
+	MasterVolume  float64 `json:"master_volume"`   // 0.0 to 1.0
+	CueSplit      bool    `json:"cue_split"`       // Monitor cue split mode
+	CueMixLevel   float64 `json:"cue_mix_level"`   // Monitor cue mix level (0.0 = all cue, 1.0 = all master)
+	HeadphoneCueA bool    `json:"headphone_cue_a"` // Headphone cue for deck A
+	HeadphoneCueB bool    `json:"headphone_cue_b"` // Headphone cue for deck B
+	HeadphoneVol  float64 `json:"headphone_vol"`   // Headphone volume (0.0 to 1.0)
+	MicActive     bool    `json:"mic_active"`
+	MicVolume     float64 `json:"mic_volume"`
+	TalkoverDuck  float64 `json:"talkover_duck"` // How much to duck when mic active
 }
 
 // Value implements driver.Valuer for MixerState.
@@ -97,7 +100,7 @@ func (m MixerState) Value() (driver.Value, error) {
 // Scan implements sql.Scanner for MixerState.
 func (m *MixerState) Scan(value interface{}) error {
 	if value == nil {
-		*m = MixerState{Crossfader: 0.5, MasterVolume: 1.0, MicVolume: 1.0, TalkoverDuck: 0.7}
+		*m = MixerState{Crossfader: 0.5, MasterVolume: 1.0, HeadphoneVol: 1.0, MicVolume: 1.0, TalkoverDuck: 0.7}
 		return nil
 	}
 	bytes, ok := value.([]byte)
@@ -169,6 +172,7 @@ func NewMixerState() MixerState {
 	return MixerState{
 		Crossfader:   0.5,
 		MasterVolume: 1.0,
+		HeadphoneVol: 1.0,
 		MicVolume:    1.0,
 		TalkoverDuck: 0.7,
 	}
