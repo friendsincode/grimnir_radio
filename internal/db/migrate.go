@@ -214,12 +214,12 @@ func deduplicateMediaItems(database *gorm.DB) error {
 		for _, d := range dupes {
 			// Remap playlist_items
 			tx.Exec("UPDATE playlist_items SET media_id = ? WHERE media_id = ?", d.SurvivorID, d.DupeID)
-			// Clear play_histories
-			tx.Exec("UPDATE play_histories SET media_id = '' WHERE media_id = ?", d.DupeID)
+			// Remap play_histories
+			tx.Exec("UPDATE play_histories SET media_id = ? WHERE media_id = ?", d.SurvivorID, d.DupeID)
 			// Clear schedule_entries
 			tx.Exec("DELETE FROM schedule_entries WHERE source_type = 'media' AND source_id = ?", d.DupeID)
-			// Clear mount_playout_states
-			tx.Exec("UPDATE mount_playout_states SET media_id = '' WHERE media_id = ?", d.DupeID)
+			// Remap mount_playout_states
+			tx.Exec("UPDATE mount_playout_states SET media_id = ? WHERE media_id = ?", d.SurvivorID, d.DupeID)
 			// Delete the duplicate
 			if err := tx.Exec("DELETE FROM media_items WHERE id = ?", d.DupeID).Error; err != nil {
 				return fmt.Errorf("delete dupe %s: %w", d.DupeID, err)
