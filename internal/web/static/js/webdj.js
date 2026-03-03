@@ -51,7 +51,12 @@ function webdjConsole() {
         // Mixer state
         mixer: {
             crossfader: 0.5,
-            masterVolume: 1.0
+            masterVolume: 1.0,
+            cueSplit: false,
+            cueMixLevel: 0.5,
+            headphoneCueA: false,
+            headphoneCueB: false,
+            headphoneVol: 1.0
         },
 
         // Live broadcast state
@@ -117,20 +122,12 @@ function webdjConsole() {
             try {
                 this.loading = true;
 
-                // Debug: Log current state
-                console.log('[WebDJ] Current state:', {
-                    sessionId: this.sessionId,
-                    stationId: this.stationId,
-                    loading: this.loading
-                });
-
                 const stationId = this.getStationId();
                 const authToken = this.getAuthToken();
 
                 console.log('[WebDJ] Starting session with:', {
                     stationId: stationId || '(empty)',
-                    hasAuthToken: !!authToken,
-                    authTokenLength: authToken ? authToken.length : 0
+                    hasAuthToken: !!authToken
                 });
 
                 if (!stationId) {
@@ -142,13 +139,10 @@ function webdjConsole() {
 
                 if (!authToken) {
                     console.error('[WebDJ] No auth token available');
-                    console.log('[WebDJ] window.GRIMNIR_WS_TOKEN:', typeof window.GRIMNIR_WS_TOKEN, window.GRIMNIR_WS_TOKEN ? '(set)' : '(not set)');
                     alert('Authentication required. Please refresh the page.');
                     this.loading = false;
                     return;
                 }
-
-                console.log('[WebDJ] Making API request to /api/v1/webdj/sessions');
 
                 const response = await fetch('/api/v1/webdj/sessions', {
                     method: 'POST',
@@ -160,8 +154,6 @@ function webdjConsole() {
                         station_id: stationId
                     })
                 });
-
-                console.log('[WebDJ] Response status:', response.status);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -176,7 +168,6 @@ function webdjConsole() {
                 this.sessionId = data.id;
 
                 // Connect WebSocket
-                console.log('[WebDJ] Connecting WebSocket...');
                 this.connect();
 
                 // Update UI
@@ -184,8 +175,6 @@ function webdjConsole() {
 
                 // Load state from response
                 this.loadState(data);
-
-                console.log('[WebDJ] Session started successfully');
 
             } catch (error) {
                 console.error('[WebDJ] Exception in startSession:', error);
@@ -318,32 +307,52 @@ function webdjConsole() {
                     break;
 
                 case 'deck_volume':
-                    this.getDeck(msg.deck).volume = msg.data.volume;
+                    this.getDeck(msg.deck).volume = Number(msg.data.volume);
                     break;
 
-                case 'deck_eq':
+                case 'deck_eq': {
                     const deck = this.getDeck(msg.deck);
-                    deck.eqHigh = msg.data.high;
-                    deck.eqMid = msg.data.mid;
-                    deck.eqLow = msg.data.low;
+                    deck.eqHigh = Number(msg.data.high);
+                    deck.eqMid = Number(msg.data.mid);
+                    deck.eqLow = Number(msg.data.low);
                     break;
+                }
 
                 case 'deck_pitch':
-                    this.getDeck(msg.deck).pitch = msg.data.pitch;
+                    this.getDeck(msg.deck).pitch = Number(msg.data.pitch);
                     break;
 
                 case 'cue_set':
                 case 'cue_deleted':
-                    // Reload full deck state
                     this.refreshDeckState(msg.deck);
                     break;
 
                 case 'mixer_crossfader':
-                    this.mixer.crossfader = msg.data.position;
+                    this.mixer.crossfader = Number(msg.data.position);
                     break;
 
                 case 'mixer_master_volume':
-                    this.mixer.masterVolume = msg.data.volume;
+                    this.mixer.masterVolume = Number(msg.data.volume);
+                    break;
+
+                case 'mixer_cue_split':
+                    this.mixer.cueSplit = !!msg.data.enabled;
+                    break;
+
+                case 'mixer_cue_mix_level':
+                    this.mixer.cueMixLevel = Number(msg.data.level);
+                    break;
+
+                case 'mixer_headphone_cue':
+                    if (msg.data.deck === 'a') {
+                        this.mixer.headphoneCueA = !!msg.data.enabled;
+                    } else if (msg.data.deck === 'b') {
+                        this.mixer.headphoneCueB = !!msg.data.enabled;
+                    }
+                    break;
+
+                case 'mixer_headphone_volume':
+                    this.mixer.headphoneVol = Number(msg.data.volume);
                     break;
 
                 case 'live_started':
@@ -378,8 +387,7 @@ function webdjConsole() {
                 this.loadDeckState('b', data.deck_b_state);
             }
             if (data.mixer_state) {
-                this.mixer.crossfader = data.mixer_state.crossfader;
-                this.mixer.masterVolume = data.mixer_state.master_volume;
+                this.loadMixerState(data.mixer_state);
             }
         },
 
@@ -391,9 +399,18 @@ function webdjConsole() {
                 this.loadDeckState('b', data.deck_b);
             }
             if (data.mixer) {
-                this.mixer.crossfader = data.mixer.crossfader;
-                this.mixer.masterVolume = data.mixer.master_volume;
+                this.loadMixerState(data.mixer);
             }
+        },
+
+        loadMixerState(state) {
+            this.mixer.crossfader = Number(state.crossfader) || 0.5;
+            this.mixer.masterVolume = Number(state.master_volume) ?? 1.0;
+            this.mixer.cueSplit = !!state.cue_split;
+            this.mixer.cueMixLevel = Number(state.cue_mix_level) || 0;
+            this.mixer.headphoneCueA = !!state.headphone_cue_a;
+            this.mixer.headphoneCueB = !!state.headphone_cue_b;
+            this.mixer.headphoneVol = Number(state.headphone_vol) ?? 1.0;
         },
 
         loadDeckState(deckId, state) {
@@ -405,12 +422,12 @@ function webdjConsole() {
             deck.positionMs = state.position_ms || 0;
             deck.state = state.state || 'idle';
             deck.bpm = state.bpm || null;
-            deck.pitch = state.pitch || 0;
-            deck.volume = state.volume ?? 1.0;
+            deck.pitch = Number(state.pitch) || 0;
+            deck.volume = Number(state.volume) ?? 1.0;
             deck.hotCues = state.hot_cues || [];
-            deck.eqHigh = state.eq_high || 0;
-            deck.eqMid = state.eq_mid || 0;
-            deck.eqLow = state.eq_low || 0;
+            deck.eqHigh = Number(state.eq_high) || 0;
+            deck.eqMid = Number(state.eq_mid) || 0;
+            deck.eqLow = Number(state.eq_low) || 0;
 
             // Load waveform if track is loaded
             if (deck.mediaId) {
@@ -572,6 +589,35 @@ function webdjConsole() {
             });
         },
 
+        // Monitor/headphone controls
+        setCueSplit(enabled) {
+            this.send({
+                action: 'cue_split',
+                data: { enabled: enabled }
+            });
+        },
+
+        setCueMixLevel(level) {
+            this.send({
+                action: 'cue_mix_level',
+                data: { level: parseFloat(level) }
+            });
+        },
+
+        setHeadphoneCue(deck, enabled) {
+            this.send({
+                action: 'headphone_cue',
+                data: { deck: deck, enabled: enabled }
+            });
+        },
+
+        setHeadphoneVolume(volume) {
+            this.send({
+                action: 'headphone_volume',
+                data: { volume: parseFloat(volume) }
+            });
+        },
+
         // Live broadcast controls
         async toggleLive() {
             if (this.isLive) {
@@ -666,7 +712,6 @@ function webdjConsole() {
         },
 
         loadToDeck(deckId) {
-            // Open library modal or highlight library
             document.querySelector('.library-search')?.focus();
         },
 
@@ -703,7 +748,6 @@ function webdjConsole() {
 
             ctx.clearRect(0, 0, width, height);
 
-            // Draw waveform
             const peaks = data.peak_left || [];
             if (peaks.length === 0) return;
 
@@ -739,7 +783,6 @@ function webdjConsole() {
             }
 
             this.positionTimer = setInterval(() => {
-                // Update position for playing decks
                 if (this.deckA.state === 'playing' && this.deckA.durationMs > 0) {
                     this.deckA.positionMs = Math.min(
                         this.deckA.positionMs + 100,
@@ -786,7 +829,6 @@ function webdjConsole() {
         },
 
         getAuthToken() {
-            // Get token from window global set by dashboard layout
             return window.GRIMNIR_WS_TOKEN || '';
         },
 
@@ -795,7 +837,6 @@ function webdjConsole() {
         },
 
         async refreshDeckState(deckId) {
-            // Fetch current session state to refresh deck
             try {
                 const response = await fetch(`/api/v1/webdj/sessions/${this.sessionId}`, {
                     headers: {

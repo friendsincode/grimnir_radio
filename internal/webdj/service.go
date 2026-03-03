@@ -991,6 +991,128 @@ func (s *Service) SetMasterVolume(ctx context.Context, sessionID string, volume 
 	return nil
 }
 
+// SetCueSplit toggles the cue split mode on the mixer.
+func (s *Service) SetCueSplit(ctx context.Context, sessionID string, enabled bool) error {
+	session, err := s.getActiveSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+
+	session.MixerState.CueSplit = enabled
+
+	if err := s.updateMixerState(ctx, sessionID, session.MixerState); err != nil {
+		return err
+	}
+
+	s.broadcastUpdate(sessionID, &StateUpdate{
+		Type:      "mixer_cue_split",
+		SessionID: sessionID,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"enabled": enabled,
+		},
+	})
+
+	return nil
+}
+
+// SetCueMixLevel sets the cue/master mix level for headphone monitoring.
+func (s *Service) SetCueMixLevel(ctx context.Context, sessionID string, level float64) error {
+	session, err := s.getActiveSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+
+	if level < 0 {
+		level = 0
+	}
+	if level > 1 {
+		level = 1
+	}
+
+	session.MixerState.CueMixLevel = level
+
+	if err := s.updateMixerState(ctx, sessionID, session.MixerState); err != nil {
+		return err
+	}
+
+	s.broadcastUpdate(sessionID, &StateUpdate{
+		Type:      "mixer_cue_mix_level",
+		SessionID: sessionID,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"level": level,
+		},
+	})
+
+	return nil
+}
+
+// SetHeadphoneCue toggles headphone cue for a specific deck.
+func (s *Service) SetHeadphoneCue(ctx context.Context, sessionID string, deck string, enabled bool) error {
+	session, err := s.getActiveSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+
+	switch deck {
+	case "a":
+		session.MixerState.HeadphoneCueA = enabled
+	case "b":
+		session.MixerState.HeadphoneCueB = enabled
+	default:
+		return ErrInvalidDeck
+	}
+
+	if err := s.updateMixerState(ctx, sessionID, session.MixerState); err != nil {
+		return err
+	}
+
+	s.broadcastUpdate(sessionID, &StateUpdate{
+		Type:      "mixer_headphone_cue",
+		SessionID: sessionID,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"deck":    deck,
+			"enabled": enabled,
+		},
+	})
+
+	return nil
+}
+
+// SetHeadphoneVolume sets the headphone output volume.
+func (s *Service) SetHeadphoneVolume(ctx context.Context, sessionID string, volume float64) error {
+	session, err := s.getActiveSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+
+	if volume < 0 {
+		volume = 0
+	}
+	if volume > 1 {
+		volume = 1
+	}
+
+	session.MixerState.HeadphoneVol = volume
+
+	if err := s.updateMixerState(ctx, sessionID, session.MixerState); err != nil {
+		return err
+	}
+
+	s.broadcastUpdate(sessionID, &StateUpdate{
+		Type:      "mixer_headphone_volume",
+		SessionID: sessionID,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"volume": volume,
+		},
+	})
+
+	return nil
+}
+
 // Subscribe creates a channel for receiving state updates.
 func (s *Service) Subscribe(sessionID string) (<-chan *StateUpdate, func(), error) {
 	s.mu.Lock()

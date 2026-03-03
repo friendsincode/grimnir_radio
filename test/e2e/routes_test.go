@@ -631,14 +631,14 @@ func TestWebDJConsole(t *testing.T) {
 		if !strings.Contains(html, "Library") {
 			t.Errorf("expected Library panel in DOM")
 		}
-		if !strings.Contains(html, `placeholder="Search..."`) {
+		if !strings.Contains(html, `placeholder="Search`) {
 			t.Errorf("expected search input with placeholder in DOM")
 		}
 	})
 
 	t.Run("mixer_controls_present", func(t *testing.T) {
 		// Check for crossfader range input
-		_, err := page.Element("input.crossfader")
+		_, err := page.Element("input.dj-crossfader")
 		if err != nil {
 			t.Errorf("expected crossfader range input in DOM: %v", err)
 		}

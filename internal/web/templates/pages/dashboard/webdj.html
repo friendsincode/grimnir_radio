@@ -15,10 +15,11 @@
 {{end}}
 
 {{define "main"}}
-<!-- Station ID for JavaScript -->
 <div id="webdj-app" x-data="webdjConsole()" x-init="init()" data-station-id="{{.Station.ID}}">
-    <div class="card mb-3">
-        <div class="card-header d-flex justify-content-between align-items-center">
+
+    <!-- Now Playing IRT Panel -->
+    <div class="card mb-3 dj-card">
+        <div class="card-header d-flex justify-content-between align-items-center dj-card-header">
             <h6 class="mb-0"><i class="bi bi-broadcast me-2"></i>Now Playing (IRT)</h6>
             <button class="btn btn-sm btn-outline-secondary" id="webdjIrtRefreshBtn"><i class="bi bi-arrow-clockwise"></i></button>
         </div>
@@ -31,9 +32,11 @@
     <!-- Session Start Screen -->
     <div x-show="!sessionId" class="row justify-content-center">
         <div class="col-lg-6">
-            <div class="card">
+            <div class="card dj-card">
                 <div class="card-body text-center py-5">
-                    <i class="bi bi-disc display-1 text-primary mb-4"></i>
+                    <div class="dj-start-icon mb-4">
+                        <i class="bi bi-disc"></i>
+                    </div>
                     <h2 class="mb-3">WebDJ Console</h2>
                     <p class="text-body-secondary mb-4">
                         Start a WebDJ session to mix tracks in your browser.
@@ -44,7 +47,7 @@
                         You have an active session. Click below to reconnect.
                     </div>
                     {{end}}
-                    <button @click="startSession()" class="btn btn-primary btn-lg">
+                    <button @click="startSession()" class="btn btn-primary btn-lg dj-start-btn">
                         <i class="bi bi-play-circle me-2"></i>
                         {{if .Data.HasSession}}Resume Session{{else}}Start Session{{end}}
                     </button>
@@ -55,356 +58,401 @@
 
     <!-- Main DJ Console -->
     <div x-show="sessionId" x-cloak>
-        <!-- Decks Row -->
-        <div class="row g-3 mb-3">
-            <!-- Deck A -->
-            <div class="col-lg-6">
-                <div class="card deck-card" :class="{'deck-active': deckA.state === 'playing'}">
-                    <div class="card-header d-flex justify-content-between align-items-center py-2">
-                        <span class="badge bg-primary">DECK A</span>
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="small text-body-secondary" x-text="deckA.state"></span>
-                            <span class="badge" :class="{'bg-success': deckA.state === 'playing', 'bg-warning': deckA.state === 'paused', 'bg-secondary': deckA.state === 'idle'}">
-                                <i class="bi" :class="{'bi-play-fill': deckA.state === 'playing', 'bi-pause-fill': deckA.state === 'paused', 'bi-stop-fill': deckA.state !== 'playing' && deckA.state !== 'paused'}"></i>
-                            </span>
+
+        <!-- ============================================================ -->
+        <!-- BROADCAST HEADER BAR                                         -->
+        <!-- ============================================================ -->
+        <div class="dj-broadcast-bar mb-3" :class="{'dj-on-air': isLive}">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="dj-live-dot" :class="{'active': isLive}"></span>
+                        <span class="fw-bold text-uppercase" :class="{'text-danger': isLive}" x-text="isLive ? 'ON AIR' : 'OFF AIR'"></span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2" x-show="!isLive">
+                        <select class="form-select form-select-sm dj-select" x-model="selectedMount">
+                            <option value="">Select mount...</option>
+                            {{range .Data.Mounts}}
+                            <option value="{{.ID}}">{{.Name}}</option>
+                            {{end}}
+                        </select>
+                        <select class="form-select form-select-sm dj-select" style="width: 110px;" x-model="inputType">
+                            <option value="webrtc">WebRTC</option>
+                            <option value="icecast">Icecast</option>
+                            <option value="rtp">RTP</option>
+                        </select>
+                    </div>
+                    <div x-show="isLive" class="d-flex align-items-center gap-2">
+                        <span class="text-body-secondary small">Broadcasting to:</span>
+                        <span class="badge bg-danger" x-text="liveMountName"></span>
+                    </div>
+                </div>
+                <button class="btn btn-sm px-4"
+                        :class="isLive ? 'btn-danger' : 'btn-success'"
+                        @click="toggleLive()"
+                        :disabled="!isLive && !selectedMount">
+                    <i class="bi bi-broadcast me-1"></i>
+                    <span x-text="isLive ? 'Go Off Air' : 'Go Live'"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- DUAL DECK + MIXER AREA                                       -->
+        <!-- ============================================================ -->
+        <div class="dj-console mb-3">
+            <div class="row g-0">
+
+                <!-- ==================== DECK A ==================== -->
+                <div class="col-lg-5 dj-deck dj-deck-a" :class="{'dj-deck-playing': deckA.state === 'playing'}">
+
+                    <!-- Deck Header -->
+                    <div class="dj-deck-header">
+                        <span class="dj-deck-label dj-deck-label-a">A</span>
+                        <div class="dj-deck-status">
+                            <span class="badge dj-state-badge" :class="{
+                                'bg-success': deckA.state === 'playing',
+                                'bg-warning text-dark': deckA.state === 'paused' || deckA.state === 'cued',
+                                'bg-secondary': deckA.state === 'idle' || deckA.state === 'loading'
+                            }" x-text="deckA.state.toUpperCase()"></span>
                         </div>
                     </div>
-                    <div class="card-body p-2">
-                        <!-- Track Info -->
-                        <div class="d-flex align-items-start mb-2">
-                            <div class="deck-artwork me-2" @click="loadToDeck('a')">
-                                <img :src="deckA.mediaId ? '/dashboard/webdj/media/' + deckA.mediaId + '/artwork' : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22><rect fill=%22%231a1a2e%22 width=%22200%22 height=%22200%22/></svg>'"
-                                     alt="Artwork" class="rounded">
+
+                    <!-- Waveform -->
+                    <div class="dj-waveform" @click="seekDeck('a', $event)">
+                        <canvas id="waveform-a" width="500" height="80"></canvas>
+                        <div class="dj-waveform-played" :style="'width: ' + (deckA.durationMs > 0 ? (deckA.positionMs / deckA.durationMs * 100) : 0) + '%'"></div>
+                        <div class="dj-waveform-cursor" :style="'left: ' + (deckA.durationMs > 0 ? (deckA.positionMs / deckA.durationMs * 100) : 0) + '%'"></div>
+                    </div>
+
+                    <!-- Track Info -->
+                    <div class="dj-track-info">
+                        <div class="dj-track-title" x-text="deckA.title || 'No Track Loaded'"></div>
+                        <div class="dj-track-artist" x-text="deckA.artist || '---'"></div>
+                        <div class="dj-track-time">
+                            <span class="dj-time-current" x-text="formatMs(deckA.positionMs)">0:00</span>
+                            <span class="dj-time-sep">/</span>
+                            <span class="dj-time-total" x-text="formatMs(deckA.durationMs)">0:00</span>
+                            <span class="dj-bpm-badge" x-show="deckA.bpm" x-text="Number(deckA.bpm || 0).toFixed(1) + ' BPM'"></span>
+                        </div>
+                    </div>
+
+                    <!-- Transport -->
+                    <div class="dj-transport">
+                        <button class="dj-btn dj-btn-transport" @click="seekDeck('a', null, 0)" title="Return to start">
+                            <i class="bi bi-skip-start-fill"></i>
+                        </button>
+                        <button class="dj-btn dj-btn-play" :class="{'dj-btn-active': deckA.state === 'playing'}"
+                                @click="togglePlay('a')" :disabled="!deckA.mediaId">
+                            <i class="bi" :class="deckA.state === 'playing' ? 'bi-pause-fill' : 'bi-play-fill'"></i>
+                        </button>
+                        <button class="dj-btn dj-btn-transport" @click="stopDeck('a')" :disabled="!deckA.mediaId" title="Stop / Cue">
+                            <i class="bi bi-stop-fill"></i>
+                        </button>
+                        <button class="dj-btn dj-btn-eject" @click="ejectDeck('a')" :disabled="!deckA.mediaId" title="Eject">
+                            <i class="bi bi-eject-fill"></i>
+                        </button>
+                    </div>
+
+                    <!-- Hot Cues -->
+                    <div class="dj-hotcues">
+                        <template x-for="i in 8" :key="i">
+                            <button class="dj-btn dj-btn-cue"
+                                    :class="getCueClass('a', i)"
+                                    @click="handleCue('a', i)"
+                                    @contextmenu.prevent="deleteCue('a', i)">
+                                <span x-text="i"></span>
+                            </button>
+                        </template>
+                    </div>
+
+                    <!-- Pitch Slider -->
+                    <div class="dj-pitch-section">
+                        <label class="dj-knob-label">PITCH <span x-text="Number(deckA.pitch || 0).toFixed(1) + '%'"></span></label>
+                        <input type="range" class="dj-range dj-pitch-range" min="-8" max="8" step="0.1"
+                               x-model.number="deckA.pitch" @input="setPitch('a', $event.target.value)">
+                    </div>
+                </div>
+
+                <!-- ==================== CENTER MIXER ==================== -->
+                <div class="col-lg-2 dj-mixer">
+                    <div class="dj-mixer-inner">
+
+                        <!-- Master Volume -->
+                        <div class="dj-mixer-section">
+                            <label class="dj-knob-label">MASTER</label>
+                            <div class="dj-fader-wrap">
+                                <input type="range" class="dj-range dj-fader" min="0" max="1" step="0.01" orient="vertical"
+                                       x-model.number="mixer.masterVolume" @input="setMasterVolume($event.target.value)">
                             </div>
-                            <div class="flex-grow-1 overflow-hidden">
-                                <div class="fw-bold text-truncate" x-text="deckA.title || 'No Track Loaded'"></div>
-                                <div class="small text-body-secondary text-truncate" x-text="deckA.artist || '-'"></div>
-                                <div class="small">
-                                    <span x-text="formatMs(deckA.positionMs)">0:00</span>
-                                    <span class="text-body-secondary">/</span>
-                                    <span class="text-body-secondary" x-text="formatMs(deckA.durationMs)">0:00</span>
-                                    <span class="ms-2 badge bg-secondary" x-show="deckA.bpm" x-text="deckA.bpm?.toFixed(1) + ' BPM'"></span>
+                            <span class="dj-fader-value" x-text="Math.round(Number(mixer.masterVolume) * 100)"></span>
+                        </div>
+
+                        <div class="dj-mixer-divider"></div>
+
+                        <!-- EQ Section: Deck A | Deck B -->
+                        <div class="dj-eq-section">
+                            <div class="dj-eq-column">
+                                <label class="dj-knob-label">EQ A</label>
+                                <div class="dj-eq-group">
+                                    <div class="dj-eq-knob-wrap">
+                                        <span class="dj-eq-label">HI</span>
+                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                               x-model.number="deckA.eqHigh" @input="setEQ('a')">
+                                    </div>
+                                    <div class="dj-eq-knob-wrap">
+                                        <span class="dj-eq-label">MID</span>
+                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                               x-model.number="deckA.eqMid" @input="setEQ('a')">
+                                    </div>
+                                    <div class="dj-eq-knob-wrap">
+                                        <span class="dj-eq-label">LO</span>
+                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                               x-model.number="deckA.eqLow" @input="setEQ('a')">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="dj-eq-column">
+                                <label class="dj-knob-label">EQ B</label>
+                                <div class="dj-eq-group">
+                                    <div class="dj-eq-knob-wrap">
+                                        <span class="dj-eq-label">HI</span>
+                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                               x-model.number="deckB.eqHigh" @input="setEQ('b')">
+                                    </div>
+                                    <div class="dj-eq-knob-wrap">
+                                        <span class="dj-eq-label">MID</span>
+                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                               x-model.number="deckB.eqMid" @input="setEQ('b')">
+                                    </div>
+                                    <div class="dj-eq-knob-wrap">
+                                        <span class="dj-eq-label">LO</span>
+                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                               x-model.number="deckB.eqLow" @input="setEQ('b')">
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Waveform -->
-                        <div class="waveform-container mb-2" @click="seekDeck('a', $event)">
-                            <canvas id="waveform-a" width="400" height="60"></canvas>
-                            <div class="waveform-position" :style="'left: ' + (deckA.positionMs / deckA.durationMs * 100) + '%'"></div>
+                        <div class="dj-mixer-divider"></div>
+
+                        <!-- Channel Volume Faders -->
+                        <div class="dj-channel-faders">
+                            <div class="dj-channel-fader-wrap">
+                                <label class="dj-knob-label">VOL A</label>
+                                <input type="range" class="dj-range dj-fader" min="0" max="1" step="0.01" orient="vertical"
+                                       x-model.number="deckA.volume" @input="setVolume('a', $event.target.value)">
+                                <span class="dj-fader-value" x-text="Math.round(Number(deckA.volume) * 100)"></span>
+                            </div>
+                            <div class="dj-channel-fader-wrap">
+                                <label class="dj-knob-label">VOL B</label>
+                                <input type="range" class="dj-range dj-fader" min="0" max="1" step="0.01" orient="vertical"
+                                       x-model.number="deckB.volume" @input="setVolume('b', $event.target.value)">
+                                <span class="dj-fader-value" x-text="Math.round(Number(deckB.volume) * 100)"></span>
+                            </div>
                         </div>
 
-                        <!-- Transport Controls -->
-                        <div class="d-flex justify-content-center gap-1 mb-2">
-                            <button class="btn btn-sm btn-outline-secondary" @click="seekDeck('a', null, 0)" title="Go to start">
-                                <i class="bi bi-skip-start-fill"></i>
-                            </button>
-                            <button class="btn btn-sm" :class="deckA.state === 'playing' ? 'btn-warning' : 'btn-success'"
-                                    @click="togglePlay('a')" :disabled="!deckA.mediaId">
-                                <i class="bi" :class="deckA.state === 'playing' ? 'bi-pause-fill' : 'bi-play-fill'"></i>
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" @click="stopDeck('a')" :disabled="!deckA.mediaId" title="Cue">
-                                <i class="bi bi-stop-fill"></i>
-                            </button>
-                            <button class="btn btn-sm btn-outline-danger" @click="ejectDeck('a')" :disabled="!deckA.mediaId" title="Eject">
-                                <i class="bi bi-eject-fill"></i>
-                            </button>
-                        </div>
+                        <div class="dj-mixer-divider"></div>
 
-                        <!-- Hot Cues -->
-                        <div class="d-flex justify-content-center gap-1 mb-2">
-                            <template x-for="i in 8" :key="i">
-                                <button class="btn btn-sm hotcue-btn"
-                                        :class="getCueClass('a', i)"
-                                        @click="handleCue('a', i)"
-                                        @contextmenu.prevent="deleteCue('a', i)">
-                                    <span x-text="i"></span>
-                                </button>
+                        <!-- Crossfader -->
+                        <div class="dj-crossfader-section">
+                            <div class="dj-crossfader-labels">
+                                <span class="dj-deck-label-a">A</span>
+                                <label class="dj-knob-label">CROSSFADER</label>
+                                <span class="dj-deck-label-b">B</span>
+                            </div>
+                            <input type="range" class="dj-range dj-crossfader" min="0" max="1" step="0.01"
+                                   x-model.number="mixer.crossfader" @input="setCrossfader($event.target.value)">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==================== DECK B ==================== -->
+                <div class="col-lg-5 dj-deck dj-deck-b" :class="{'dj-deck-playing': deckB.state === 'playing'}">
+
+                    <!-- Deck Header -->
+                    <div class="dj-deck-header">
+                        <span class="dj-deck-label dj-deck-label-b">B</span>
+                        <div class="dj-deck-status">
+                            <span class="badge dj-state-badge" :class="{
+                                'bg-success': deckB.state === 'playing',
+                                'bg-warning text-dark': deckB.state === 'paused' || deckB.state === 'cued',
+                                'bg-secondary': deckB.state === 'idle' || deckB.state === 'loading'
+                            }" x-text="deckB.state.toUpperCase()"></span>
+                        </div>
+                    </div>
+
+                    <!-- Waveform -->
+                    <div class="dj-waveform" @click="seekDeck('b', $event)">
+                        <canvas id="waveform-b" width="500" height="80"></canvas>
+                        <div class="dj-waveform-played dj-waveform-played-b" :style="'width: ' + (deckB.durationMs > 0 ? (deckB.positionMs / deckB.durationMs * 100) : 0) + '%'"></div>
+                        <div class="dj-waveform-cursor dj-waveform-cursor-b" :style="'left: ' + (deckB.durationMs > 0 ? (deckB.positionMs / deckB.durationMs * 100) : 0) + '%'"></div>
+                    </div>
+
+                    <!-- Track Info -->
+                    <div class="dj-track-info">
+                        <div class="dj-track-title" x-text="deckB.title || 'No Track Loaded'"></div>
+                        <div class="dj-track-artist" x-text="deckB.artist || '---'"></div>
+                        <div class="dj-track-time">
+                            <span class="dj-time-current" x-text="formatMs(deckB.positionMs)">0:00</span>
+                            <span class="dj-time-sep">/</span>
+                            <span class="dj-time-total" x-text="formatMs(deckB.durationMs)">0:00</span>
+                            <span class="dj-bpm-badge" x-show="deckB.bpm" x-text="Number(deckB.bpm || 0).toFixed(1) + ' BPM'"></span>
+                        </div>
+                    </div>
+
+                    <!-- Transport -->
+                    <div class="dj-transport">
+                        <button class="dj-btn dj-btn-transport" @click="seekDeck('b', null, 0)" title="Return to start">
+                            <i class="bi bi-skip-start-fill"></i>
+                        </button>
+                        <button class="dj-btn dj-btn-play" :class="{'dj-btn-active': deckB.state === 'playing'}"
+                                @click="togglePlay('b')" :disabled="!deckB.mediaId">
+                            <i class="bi" :class="deckB.state === 'playing' ? 'bi-pause-fill' : 'bi-play-fill'"></i>
+                        </button>
+                        <button class="dj-btn dj-btn-transport" @click="stopDeck('b')" :disabled="!deckB.mediaId" title="Stop / Cue">
+                            <i class="bi bi-stop-fill"></i>
+                        </button>
+                        <button class="dj-btn dj-btn-eject" @click="ejectDeck('b')" :disabled="!deckB.mediaId" title="Eject">
+                            <i class="bi bi-eject-fill"></i>
+                        </button>
+                    </div>
+
+                    <!-- Hot Cues -->
+                    <div class="dj-hotcues">
+                        <template x-for="i in 8" :key="i">
+                            <button class="dj-btn dj-btn-cue"
+                                    :class="getCueClass('b', i)"
+                                    @click="handleCue('b', i)"
+                                    @contextmenu.prevent="deleteCue('b', i)">
+                                <span x-text="i"></span>
+                            </button>
+                        </template>
+                    </div>
+
+                    <!-- Pitch Slider -->
+                    <div class="dj-pitch-section">
+                        <label class="dj-knob-label">PITCH <span x-text="Number(deckB.pitch || 0).toFixed(1) + '%'"></span></label>
+                        <input type="range" class="dj-range dj-pitch-range" min="-8" max="8" step="0.1"
+                               x-model.number="deckB.pitch" @input="setPitch('b', $event.target.value)">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- MONITOR / HEADPHONE SECTION                                  -->
+        <!-- ============================================================ -->
+        <div class="dj-monitor-bar mb-3">
+            <div class="d-flex align-items-center justify-content-center flex-wrap gap-3">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-headphones dj-monitor-icon"></i>
+                    <span class="dj-knob-label">MONITOR</span>
+                </div>
+
+                <!-- CUE A / CUE B buttons -->
+                <div class="d-flex align-items-center gap-1">
+                    <button class="dj-btn dj-btn-cue-select"
+                            :class="{'dj-btn-cue-active-a': mixer.headphoneCueA}"
+                            @click="mixer.headphoneCueA = !mixer.headphoneCueA; setHeadphoneCue('a', mixer.headphoneCueA)">
+                        CUE A
+                    </button>
+                    <button class="dj-btn dj-btn-cue-select"
+                            :class="{'dj-btn-cue-active-b': mixer.headphoneCueB}"
+                            @click="mixer.headphoneCueB = !mixer.headphoneCueB; setHeadphoneCue('b', mixer.headphoneCueB)">
+                        CUE B
+                    </button>
+                </div>
+
+                <div class="dj-monitor-sep"></div>
+
+                <!-- Cue/Mix slider -->
+                <div class="d-flex align-items-center gap-2">
+                    <span class="dj-monitor-label">CUE</span>
+                    <input type="range" class="dj-range dj-monitor-range" min="0" max="1" step="0.01"
+                           x-model.number="mixer.cueMixLevel" @input="setCueMixLevel($event.target.value)">
+                    <span class="dj-monitor-label">MIX</span>
+                </div>
+
+                <div class="dj-monitor-sep"></div>
+
+                <!-- Split toggle -->
+                <button class="dj-btn dj-btn-split" :class="{'dj-btn-split-active': mixer.cueSplit}"
+                        @click="mixer.cueSplit = !mixer.cueSplit; setCueSplit(mixer.cueSplit)">
+                    <i class="bi bi-layout-split me-1"></i>SPLIT
+                </button>
+
+                <div class="dj-monitor-sep"></div>
+
+                <!-- Headphone volume -->
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-volume-up"></i>
+                    <input type="range" class="dj-range dj-monitor-range" min="0" max="1" step="0.01"
+                           x-model.number="mixer.headphoneVol" @input="setHeadphoneVolume($event.target.value)">
+                    <span class="dj-fader-value" x-text="Math.round(Number(mixer.headphoneVol) * 100)"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- MEDIA LIBRARY                                                -->
+        <!-- ============================================================ -->
+        <div class="card dj-card">
+            <div class="card-header dj-card-header d-flex justify-content-between align-items-center py-2">
+                <h6 class="mb-0"><i class="bi bi-collection me-2"></i>Library</h6>
+                <div class="d-flex gap-2">
+                    <input type="text" class="form-control form-control-sm library-search dj-input" style="width: 200px;"
+                           placeholder="Search tracks..." x-model="searchQuery" @input.debounce.300ms="searchLibrary()">
+                    <select class="form-select form-select-sm dj-select" style="width: 150px;" x-model="selectedPlaylist" @change="searchLibrary()">
+                        <option value="">All Tracks</option>
+                        {{range .Data.Playlists}}
+                        <option value="{{.ID}}">{{.Name}}</option>
+                        {{end}}
+                    </select>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                    <table class="table table-hover table-sm mb-0 dj-library-table">
+                        <thead class="sticky-top">
+                            <tr>
+                                <th style="width: 40px;"></th>
+                                <th>Title</th>
+                                <th>Artist</th>
+                                <th>Duration</th>
+                                <th>BPM</th>
+                                <th style="width: 90px;">Load</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="track in libraryTracks" :key="track.id">
+                                <tr class="dj-library-row" draggable="true"
+                                    @dragstart="startDrag($event, track)"
+                                    @dblclick="loadTrack('a', track.id)">
+                                    <td>
+                                        <img :src="'/dashboard/webdj/media/' + track.id + '/artwork'"
+                                             class="rounded" style="width: 32px; height: 32px; object-fit: cover;">
+                                    </td>
+                                    <td x-text="track.title"></td>
+                                    <td class="text-body-secondary" x-text="track.artist"></td>
+                                    <td x-text="formatMs(track.duration_ms)"></td>
+                                    <td x-text="track.bpm ? Number(track.bpm).toFixed(1) : '-'"></td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="dj-btn dj-btn-load dj-btn-load-a" @click="loadTrack('a', track.id)" title="Load to Deck A">A</button>
+                                            <button class="dj-btn dj-btn-load dj-btn-load-b" @click="loadTrack('b', track.id)" title="Load to Deck B">B</button>
+                                        </div>
+                                    </td>
+                                </tr>
                             </template>
-                        </div>
-
-                        <!-- Volume & Pitch -->
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <label class="form-label small mb-1">Volume</label>
-                                <input type="range" class="form-range" min="0" max="1" step="0.01"
-                                       x-model="deckA.volume" @input="setVolume('a', $event.target.value)">
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label small mb-1">Pitch <span x-text="deckA.pitch?.toFixed(1) + '%'"></span></label>
-                                <input type="range" class="form-range" min="-8" max="8" step="0.1"
-                                       x-model="deckA.pitch" @input="setPitch('a', $event.target.value)">
-                            </div>
-                        </div>
-
-                        <!-- EQ -->
-                        <div class="row g-2 mt-1">
-                            <div class="col-4">
-                                <label class="form-label small mb-1 text-center d-block">HI</label>
-                                <input type="range" class="form-range eq-slider" min="-12" max="12" step="0.5"
-                                       x-model="deckA.eqHigh" @input="setEQ('a')" orient="vertical">
-                            </div>
-                            <div class="col-4">
-                                <label class="form-label small mb-1 text-center d-block">MID</label>
-                                <input type="range" class="form-range eq-slider" min="-12" max="12" step="0.5"
-                                       x-model="deckA.eqMid" @input="setEQ('a')" orient="vertical">
-                            </div>
-                            <div class="col-4">
-                                <label class="form-label small mb-1 text-center d-block">LO</label>
-                                <input type="range" class="form-range eq-slider" min="-12" max="12" step="0.5"
-                                       x-model="deckA.eqLow" @input="setEQ('a')" orient="vertical">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Deck B -->
-            <div class="col-lg-6">
-                <div class="card deck-card" :class="{'deck-active': deckB.state === 'playing'}">
-                    <div class="card-header d-flex justify-content-between align-items-center py-2">
-                        <span class="badge bg-danger">DECK B</span>
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="small text-body-secondary" x-text="deckB.state"></span>
-                            <span class="badge" :class="{'bg-success': deckB.state === 'playing', 'bg-warning': deckB.state === 'paused', 'bg-secondary': deckB.state === 'idle'}">
-                                <i class="bi" :class="{'bi-play-fill': deckB.state === 'playing', 'bi-pause-fill': deckB.state === 'paused', 'bi-stop-fill': deckB.state !== 'playing' && deckB.state !== 'paused'}"></i>
-                            </span>
-                        </div>
-                    </div>
-                    <div class="card-body p-2">
-                        <!-- Track Info -->
-                        <div class="d-flex align-items-start mb-2">
-                            <div class="deck-artwork me-2" @click="loadToDeck('b')">
-                                <img :src="deckB.mediaId ? '/dashboard/webdj/media/' + deckB.mediaId + '/artwork' : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22><rect fill=%22%231a1a2e%22 width=%22200%22 height=%22200%22/></svg>'"
-                                     alt="Artwork" class="rounded">
-                            </div>
-                            <div class="flex-grow-1 overflow-hidden">
-                                <div class="fw-bold text-truncate" x-text="deckB.title || 'No Track Loaded'"></div>
-                                <div class="small text-body-secondary text-truncate" x-text="deckB.artist || '-'"></div>
-                                <div class="small">
-                                    <span x-text="formatMs(deckB.positionMs)">0:00</span>
-                                    <span class="text-body-secondary">/</span>
-                                    <span class="text-body-secondary" x-text="formatMs(deckB.durationMs)">0:00</span>
-                                    <span class="ms-2 badge bg-secondary" x-show="deckB.bpm" x-text="deckB.bpm?.toFixed(1) + ' BPM'"></span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Waveform -->
-                        <div class="waveform-container mb-2" @click="seekDeck('b', $event)">
-                            <canvas id="waveform-b" width="400" height="60"></canvas>
-                            <div class="waveform-position" :style="'left: ' + (deckB.positionMs / deckB.durationMs * 100) + '%'"></div>
-                        </div>
-
-                        <!-- Transport Controls -->
-                        <div class="d-flex justify-content-center gap-1 mb-2">
-                            <button class="btn btn-sm btn-outline-secondary" @click="seekDeck('b', null, 0)" title="Go to start">
-                                <i class="bi bi-skip-start-fill"></i>
-                            </button>
-                            <button class="btn btn-sm" :class="deckB.state === 'playing' ? 'btn-warning' : 'btn-success'"
-                                    @click="togglePlay('b')" :disabled="!deckB.mediaId">
-                                <i class="bi" :class="deckB.state === 'playing' ? 'bi-pause-fill' : 'bi-play-fill'"></i>
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" @click="stopDeck('b')" :disabled="!deckB.mediaId" title="Cue">
-                                <i class="bi bi-stop-fill"></i>
-                            </button>
-                            <button class="btn btn-sm btn-outline-danger" @click="ejectDeck('b')" :disabled="!deckB.mediaId" title="Eject">
-                                <i class="bi bi-eject-fill"></i>
-                            </button>
-                        </div>
-
-                        <!-- Hot Cues -->
-                        <div class="d-flex justify-content-center gap-1 mb-2">
-                            <template x-for="i in 8" :key="i">
-                                <button class="btn btn-sm hotcue-btn"
-                                        :class="getCueClass('b', i)"
-                                        @click="handleCue('b', i)"
-                                        @contextmenu.prevent="deleteCue('b', i)">
-                                    <span x-text="i"></span>
-                                </button>
-                            </template>
-                        </div>
-
-                        <!-- Volume & Pitch -->
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <label class="form-label small mb-1">Volume</label>
-                                <input type="range" class="form-range" min="0" max="1" step="0.01"
-                                       x-model="deckB.volume" @input="setVolume('b', $event.target.value)">
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label small mb-1">Pitch <span x-text="deckB.pitch?.toFixed(1) + '%'"></span></label>
-                                <input type="range" class="form-range" min="-8" max="8" step="0.1"
-                                       x-model="deckB.pitch" @input="setPitch('b', $event.target.value)">
-                            </div>
-                        </div>
-
-                        <!-- EQ -->
-                        <div class="row g-2 mt-1">
-                            <div class="col-4">
-                                <label class="form-label small mb-1 text-center d-block">HI</label>
-                                <input type="range" class="form-range eq-slider" min="-12" max="12" step="0.5"
-                                       x-model="deckB.eqHigh" @input="setEQ('b')" orient="vertical">
-                            </div>
-                            <div class="col-4">
-                                <label class="form-label small mb-1 text-center d-block">MID</label>
-                                <input type="range" class="form-range eq-slider" min="-12" max="12" step="0.5"
-                                       x-model="deckB.eqMid" @input="setEQ('b')" orient="vertical">
-                            </div>
-                            <div class="col-4">
-                                <label class="form-label small mb-1 text-center d-block">LO</label>
-                                <input type="range" class="form-range eq-slider" min="-12" max="12" step="0.5"
-                                       x-model="deckB.eqLow" @input="setEQ('b')" orient="vertical">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Mixer Row -->
-        <div class="row g-3 mb-3">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body py-2 px-3">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <span class="badge bg-primary">A</span>
-                            <div class="flex-grow-1 mx-3">
-                                <label class="form-label small mb-0 text-center d-block">Crossfader</label>
-                                <input type="range" class="form-range crossfader" min="0" max="1" step="0.01"
-                                       x-model="mixer.crossfader" @input="setCrossfader($event.target.value)">
-                            </div>
-                            <span class="badge bg-danger">B</span>
-                            <div class="ms-4 d-flex align-items-center gap-2">
-                                <label class="form-label small mb-0">Master</label>
-                                <input type="range" class="form-range" style="width: 100px;" min="0" max="1" step="0.01"
-                                       x-model="mixer.masterVolume" @input="setMasterVolume($event.target.value)">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Broadcast Control Row -->
-        <div class="row g-3 mb-3">
-            <div class="col-12">
-                <div class="card" :class="{'border-danger': isLive}">
-                    <div class="card-body py-2 px-3">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div class="d-flex align-items-center gap-3">
-                                <!-- Live Status Indicator -->
-                                <div class="d-flex align-items-center gap-2">
-                                    <span class="live-indicator" :class="{'live-active': isLive}"></span>
-                                    <span class="fw-bold" :class="{'text-danger': isLive}" x-text="isLive ? 'ON AIR' : 'OFF AIR'"></span>
-                                </div>
-
-                                <!-- Mount Selector -->
-                                <div class="d-flex align-items-center gap-2" x-show="!isLive">
-                                    <label class="form-label small mb-0">Mount:</label>
-                                    <select class="form-select form-select-sm" style="width: 180px;" x-model="selectedMount">
-                                        <option value="">Select mount...</option>
-                                        {{range .Data.Mounts}}
-                                        <option value="{{.ID}}">{{.Name}}</option>
-                                        {{end}}
-                                    </select>
-                                </div>
-
-                                <!-- Current Mount Display (when live) -->
-                                <div class="d-flex align-items-center gap-2" x-show="isLive">
-                                    <span class="text-body-secondary small">Broadcasting to:</span>
-                                    <span class="badge bg-danger" x-text="liveMountName"></span>
-                                </div>
-                            </div>
-
-                            <div class="d-flex align-items-center gap-2">
-                                <!-- Input Type Selector -->
-                                <select class="form-select form-select-sm" style="width: 120px;" x-model="inputType" x-show="!isLive">
-                                    <option value="webrtc">WebRTC</option>
-                                    <option value="icecast">Icecast</option>
-                                    <option value="rtp">RTP</option>
-                                </select>
-
-                                <!-- Go Live / Off Air Button -->
-                                <button class="btn btn-sm px-4"
-                                        :class="isLive ? 'btn-danger' : 'btn-success'"
-                                        @click="toggleLive()"
-                                        :disabled="!isLive && !selectedMount">
-                                    <i class="bi me-1" :class="isLive ? 'bi-broadcast' : 'bi-broadcast'"></i>
-                                    <span x-text="isLive ? 'Go Off Air' : 'Go Live'"></span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Library Row -->
-        <div class="row g-3">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center py-2">
-                        <h6 class="mb-0"><i class="bi bi-collection me-2"></i>Library</h6>
-                        <div class="d-flex gap-2">
-                            <input type="text" class="form-control form-control-sm" style="width: 200px;"
-                                   placeholder="Search..." x-model="searchQuery" @input.debounce.300ms="searchLibrary()">
-                            <select class="form-select form-select-sm" style="width: 150px;" x-model="selectedPlaylist" @change="searchLibrary()">
-                                <option value="">All Tracks</option>
-                                {{range .Data.Playlists}}
-                                <option value="{{.ID}}">{{.Name}}</option>
-                                {{end}}
-                            </select>
-                        </div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-                            <table class="table table-hover table-sm mb-0">
-                                <thead class="sticky-top bg-body">
-                                    <tr>
-                                        <th></th>
-                                        <th>Title</th>
-                                        <th>Artist</th>
-                                        <th>Duration</th>
-                                        <th>BPM</th>
-                                        <th>Load</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="track in libraryTracks" :key="track.id">
-                                        <tr class="library-row" draggable="true"
-                                            @dragstart="startDrag($event, track)"
-                                            @dblclick="loadTrack('a', track.id)">
-                                            <td style="width: 40px;">
-                                                <img :src="'/dashboard/webdj/media/' + track.id + '/artwork'"
-                                                     class="rounded" style="width: 32px; height: 32px; object-fit: cover;">
-                                            </td>
-                                            <td x-text="track.title"></td>
-                                            <td class="text-body-secondary" x-text="track.artist"></td>
-                                            <td x-text="formatMs(track.duration_ms)"></td>
-                                            <td x-text="track.bpm ? track.bpm.toFixed(1) : '-'"></td>
-                                            <td>
-                                                <div class="btn-group btn-group-sm">
-                                                    <button class="btn btn-outline-primary" @click="loadTrack('a', track.id)" title="Load to Deck A">
-                                                        A
-                                                    </button>
-                                                    <button class="btn btn-outline-danger" @click="loadTrack('b', track.id)" title="Load to Deck B">
-                                                        B
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </template>
-                                    <tr x-show="libraryTracks.length === 0">
-                                        <td colspan="6" class="text-center text-body-secondary py-4">
-                                            <span x-show="!loading">No tracks found</span>
-                                            <span x-show="loading"><i class="bi bi-arrow-repeat spin"></i> Loading...</span>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                            <tr x-show="libraryTracks.length === 0">
+                                <td colspan="6" class="text-center text-body-secondary py-4">
+                                    <span x-show="!loading">No tracks found</span>
+                                    <span x-show="loading"><i class="bi bi-arrow-repeat dj-spin"></i> Loading...</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -412,96 +460,632 @@
 </div>
 
 <style>
-.deck-card {
-    transition: box-shadow 0.3s;
+/* ================================================================
+   WebDJ Console - Professional DJ Styling
+   Uses BS5 CSS custom properties for theme compatibility
+   ================================================================ */
+
+/* ---- Base / Reset ---- */
+[x-cloak] { display: none !important; }
+
+.dj-card {
+    border-color: var(--bs-border-color);
+    background: var(--bs-body-bg);
 }
-.deck-card.deck-active {
-    box-shadow: 0 0 0 2px var(--bs-success);
-}
-.deck-artwork {
-    width: 64px;
-    height: 64px;
-    cursor: pointer;
-}
-.deck-artwork img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-.waveform-container {
-    position: relative;
-    height: 60px;
+.dj-card-header {
     background: var(--bs-tertiary-bg);
-    border-radius: 4px;
-    cursor: pointer;
+    border-bottom-color: var(--bs-border-color);
+}
+
+/* ---- Start Screen ---- */
+.dj-start-icon {
+    font-size: 4rem;
+    color: var(--bs-primary);
+    animation: dj-disc-spin 4s linear infinite;
+}
+@keyframes dj-disc-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.dj-start-btn {
+    padding: 0.75rem 2.5rem;
+    font-size: 1.1rem;
+    border-radius: 2rem;
+}
+
+/* ---- Broadcast Bar ---- */
+.dj-broadcast-bar {
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.5rem 1rem;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+.dj-broadcast-bar.dj-on-air {
+    border-color: var(--bs-danger);
+    box-shadow: 0 0 12px rgba(220, 53, 69, 0.25);
+}
+
+.dj-live-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--bs-secondary);
+    display: inline-block;
+    transition: background 0.3s;
+}
+.dj-live-dot.active {
+    background: var(--bs-danger);
+    animation: dj-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dj-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.6); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(220, 53, 69, 0); }
+}
+
+/* ---- Console Container ---- */
+.dj-console {
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
     overflow: hidden;
 }
-.waveform-container canvas {
+
+/* ---- Decks ---- */
+.dj-deck {
+    padding: 0.75rem;
+    background: var(--bs-body-bg);
+    transition: box-shadow 0.3s;
+}
+.dj-deck-playing {
+    box-shadow: inset 0 0 0 2px var(--bs-success);
+}
+
+.dj-deck-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+.dj-deck-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #fff;
+}
+.dj-deck-label-a { background: var(--bs-primary); }
+.dj-deck-label-b { background: var(--bs-danger); }
+
+.dj-state-badge {
+    font-size: 0.65rem;
+    letter-spacing: 0.05em;
+}
+
+/* ---- Waveform ---- */
+.dj-waveform {
+    position: relative;
+    height: 80px;
+    background: color-mix(in srgb, var(--bs-body-bg) 60%, black);
+    border-radius: 6px;
+    cursor: pointer;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+    border: 1px solid var(--bs-border-color);
+}
+.dj-waveform canvas {
     width: 100%;
     height: 100%;
+    display: block;
 }
-.waveform-position {
+.dj-waveform-played {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    background: rgba(13, 110, 253, 0.12);
+    pointer-events: none;
+}
+.dj-waveform-played-b {
+    background: rgba(220, 53, 69, 0.12);
+}
+.dj-waveform-cursor {
     position: absolute;
     top: 0;
     bottom: 0;
     width: 2px;
     background: var(--bs-primary);
     pointer-events: none;
+    box-shadow: 0 0 4px var(--bs-primary);
 }
-.hotcue-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    font-size: 0.75rem;
-    border-radius: 50%;
+.dj-waveform-cursor-b {
+    background: var(--bs-danger);
+    box-shadow: 0 0 4px var(--bs-danger);
 }
-.hotcue-btn.has-cue {
-    background-color: var(--bs-warning);
+
+/* ---- Track Info ---- */
+.dj-track-info {
+    margin-bottom: 0.5rem;
+    min-height: 52px;
+}
+.dj-track-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dj-track-artist {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dj-track-time {
+    font-size: 0.78rem;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+}
+.dj-time-current {
+    font-weight: 600;
+}
+.dj-time-sep {
+    color: var(--bs-secondary-color);
+    margin: 0 2px;
+}
+.dj-time-total {
+    color: var(--bs-secondary-color);
+}
+.dj-bpm-badge {
+    display: inline-block;
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 3px;
+    padding: 0 4px;
+    margin-left: 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+/* ---- Buttons ---- */
+.dj-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    cursor: pointer;
+    transition: all 0.15s;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+.dj-btn:hover {
+    background: var(--bs-secondary-bg);
+}
+.dj-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Transport */
+.dj-transport {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    margin-bottom: 0.5rem;
+}
+.dj-btn-transport {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+    border-radius: 6px;
+}
+.dj-btn-play {
+    width: 48px;
+    height: 36px;
+    font-size: 1.1rem;
+    border-radius: 6px;
+    background: var(--bs-success);
+    border-color: var(--bs-success);
+    color: #fff;
+}
+.dj-btn-play:hover {
+    filter: brightness(1.1);
+    background: var(--bs-success);
+    color: #fff;
+}
+.dj-btn-play.dj-btn-active {
+    background: var(--bs-warning);
     border-color: var(--bs-warning);
     color: #000;
+    box-shadow: 0 0 8px rgba(255, 193, 7, 0.5);
 }
-.eq-slider {
+.dj-btn-eject {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+    border-radius: 6px;
+    color: var(--bs-danger);
+}
+.dj-btn-eject:hover {
+    background: var(--bs-danger);
+    color: #fff;
+}
+
+/* Hot Cues */
+.dj-hotcues {
+    display: flex;
+    justify-content: center;
+    gap: 3px;
+    margin-bottom: 0.5rem;
+}
+.dj-btn-cue {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    font-size: 0.7rem;
+    border-radius: 50%;
+    font-weight: 600;
+}
+.dj-btn-cue.has-cue,
+.dj-btn-cue.btn-warning {
+    background: var(--bs-warning) !important;
+    border-color: var(--bs-warning) !important;
+    color: #000 !important;
+    box-shadow: 0 0 4px rgba(255, 193, 7, 0.4);
+}
+
+/* Pitch */
+.dj-pitch-section {
+    text-align: center;
+}
+.dj-pitch-range {
+    width: 100%;
+}
+
+/* ---- Mixer Strip ---- */
+.dj-mixer {
+    background: color-mix(in srgb, var(--bs-tertiary-bg) 80%, black);
+    border-left: 1px solid var(--bs-border-color);
+    border-right: 1px solid var(--bs-border-color);
+    padding: 0.75rem 0.5rem;
+}
+.dj-mixer-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    height: 100%;
+}
+.dj-mixer-section {
+    text-align: center;
+    width: 100%;
+}
+.dj-mixer-divider {
+    width: 80%;
+    height: 1px;
+    background: var(--bs-border-color);
+}
+
+.dj-knob-label {
+    display: block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--bs-secondary-color);
+    margin-bottom: 2px;
+}
+
+/* Faders (vertical range inputs) */
+.dj-fader-wrap {
+    display: flex;
+    justify-content: center;
+}
+.dj-fader {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    height: 80px;
+    width: 28px;
+}
+.dj-fader-value {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+/* EQ Section */
+.dj-eq-section {
+    display: flex;
+    gap: 0.5rem;
+    width: 100%;
+}
+.dj-eq-column {
+    flex: 1;
+    text-align: center;
+}
+.dj-eq-group {
+    display: flex;
+    justify-content: center;
+    gap: 2px;
+}
+.dj-eq-knob-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.dj-eq-label {
+    font-size: 0.55rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    letter-spacing: 0.05em;
+}
+.dj-eq-fader {
     writing-mode: vertical-lr;
     direction: rtl;
     height: 60px;
+    width: 20px;
 }
-.crossfader {
-    background: linear-gradient(to right, var(--bs-primary) 0%, var(--bs-primary) 50%, var(--bs-danger) 50%, var(--bs-danger) 100%);
+
+/* Channel Faders */
+.dj-channel-faders {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    width: 100%;
+}
+.dj-channel-fader-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Crossfader */
+.dj-crossfader-section {
+    width: 100%;
+    text-align: center;
+}
+.dj-crossfader-labels {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px;
+    margin-bottom: 2px;
+}
+.dj-crossfader-labels .dj-deck-label-a,
+.dj-crossfader-labels .dj-deck-label-b {
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+.dj-crossfader-labels .dj-deck-label-a { color: var(--bs-primary); }
+.dj-crossfader-labels .dj-deck-label-b { color: var(--bs-danger); }
+.dj-crossfader {
+    width: 100%;
+}
+
+/* ---- Monitor Bar ---- */
+.dj-monitor-bar {
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.5rem 1rem;
+}
+.dj-monitor-icon {
+    font-size: 1.1rem;
+    color: var(--bs-secondary-color);
+}
+.dj-monitor-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+.dj-monitor-range {
+    width: 100px;
+}
+.dj-monitor-sep {
+    width: 1px;
+    height: 24px;
+    background: var(--bs-border-color);
+}
+
+/* CUE select buttons */
+.dj-btn-cue-select {
+    padding: 4px 12px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
     border-radius: 4px;
 }
-.library-row {
+.dj-btn-cue-active-a {
+    background: var(--bs-primary) !important;
+    border-color: var(--bs-primary) !important;
+    color: #fff !important;
+    box-shadow: 0 0 6px rgba(13, 110, 253, 0.5);
+}
+.dj-btn-cue-active-b {
+    background: var(--bs-danger) !important;
+    border-color: var(--bs-danger) !important;
+    color: #fff !important;
+    box-shadow: 0 0 6px rgba(220, 53, 69, 0.5);
+}
+
+/* Split button */
+.dj-btn-split {
+    padding: 4px 12px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    border-radius: 4px;
+}
+.dj-btn-split-active {
+    background: var(--bs-info) !important;
+    border-color: var(--bs-info) !important;
+    color: #fff !important;
+    box-shadow: 0 0 6px rgba(13, 202, 240, 0.4);
+}
+
+/* ---- Range Input Styling ---- */
+.dj-range {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+}
+.dj-range::-webkit-slider-runnable-track {
+    background: var(--bs-secondary-bg);
+    border-radius: 3px;
+    height: 6px;
+}
+.dj-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--bs-body-color);
+    border: 2px solid var(--bs-body-bg);
+    margin-top: -4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.dj-range::-moz-range-track {
+    background: var(--bs-secondary-bg);
+    border-radius: 3px;
+    height: 6px;
+}
+.dj-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--bs-body-color);
+    border: 2px solid var(--bs-body-bg);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* Vertical fader track overrides */
+.dj-fader::-webkit-slider-runnable-track,
+.dj-eq-fader::-webkit-slider-runnable-track {
+    width: 6px;
+    height: 100%;
+}
+.dj-fader::-moz-range-track,
+.dj-eq-fader::-moz-range-track {
+    width: 6px;
+    height: 100%;
+}
+
+/* ---- Library ---- */
+.dj-library-table thead {
+    background: var(--bs-tertiary-bg);
+}
+.dj-library-table thead th {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--bs-secondary-color);
+    font-weight: 700;
+    border-bottom-color: var(--bs-border-color);
+}
+.dj-library-row {
     cursor: grab;
 }
-.library-row:active {
+.dj-library-row:active {
     cursor: grabbing;
 }
-.spin {
-    animation: spin 1s linear infinite;
+.dj-btn-load {
+    padding: 2px 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    border-radius: 3px;
 }
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+.dj-btn-load-a {
+    color: var(--bs-primary);
+    border-color: var(--bs-primary);
 }
-[x-cloak] {
-    display: none !important;
+.dj-btn-load-a:hover {
+    background: var(--bs-primary);
+    color: #fff;
 }
-.live-indicator {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background-color: var(--bs-secondary);
-    display: inline-block;
+.dj-btn-load-b {
+    color: var(--bs-danger);
+    border-color: var(--bs-danger);
 }
-.live-indicator.live-active {
-    background-color: var(--bs-danger);
-    animation: pulse 1s ease-in-out infinite;
+.dj-btn-load-b:hover {
+    background: var(--bs-danger);
+    color: #fff;
 }
+
+/* Form controls */
+.dj-input, .dj-select {
+    background: var(--bs-body-bg);
+    border-color: var(--bs-border-color);
+    color: var(--bs-body-color);
+}
+
+/* ---- Utilities ---- */
+.dj-spin {
+    animation: dj-disc-spin 1s linear infinite;
+}
+
+/* IRT list */
 .irt-list .irt-item { border-bottom: 1px solid var(--bs-border-color); }
 .irt-list .irt-item:last-child { border-bottom: 0; }
 .irt-now-pill { font-size: 0.68rem; }
-@keyframes pulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
-    50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(220, 53, 69, 0); }
+
+/* ---- Responsive: Stack decks vertically on narrow screens ---- */
+@media (max-width: 991.98px) {
+    .dj-mixer {
+        border-left: none;
+        border-right: none;
+        border-top: 1px solid var(--bs-border-color);
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .dj-mixer-inner {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .dj-mixer-divider {
+        width: 1px;
+        height: 40px;
+    }
+    .dj-fader {
+        writing-mode: horizontal-tb;
+        direction: ltr;
+        height: auto;
+        width: 100px;
+    }
+    .dj-eq-fader {
+        writing-mode: horizontal-tb;
+        direction: ltr;
+        height: auto;
+        width: 60px;
+    }
+    .dj-eq-group {
+        flex-direction: column;
+    }
+    .dj-eq-knob-wrap {
+        flex-direction: row;
+        gap: 4px;
+    }
+    .dj-channel-faders {
+        flex-direction: row;
+    }
+    .dj-channel-fader-wrap {
+        flex-direction: row;
+        gap: 4px;
+        align-items: center;
+    }
 }
 </style>
 

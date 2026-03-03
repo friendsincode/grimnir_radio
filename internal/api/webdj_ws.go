@@ -378,6 +378,43 @@ func (h *WebDJWebSocket) handleCommand(ctx context.Context, sessionID string, cm
 		}
 		return h.webdjSvc.SetMasterVolume(ctx, sessionID, data.Volume)
 
+	case "cue_split":
+		var data struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := json.Unmarshal(cmd.Data, &data); err != nil {
+			return err
+		}
+		return h.webdjSvc.SetCueSplit(ctx, sessionID, data.Enabled)
+
+	case "cue_mix_level":
+		var data struct {
+			Level float64 `json:"level"`
+		}
+		if err := json.Unmarshal(cmd.Data, &data); err != nil {
+			return err
+		}
+		return h.webdjSvc.SetCueMixLevel(ctx, sessionID, data.Level)
+
+	case "headphone_cue":
+		var data struct {
+			Deck    string `json:"deck"`
+			Enabled bool   `json:"enabled"`
+		}
+		if err := json.Unmarshal(cmd.Data, &data); err != nil {
+			return err
+		}
+		return h.webdjSvc.SetHeadphoneCue(ctx, sessionID, data.Deck, data.Enabled)
+
+	case "headphone_volume":
+		var data struct {
+			Volume float64 `json:"volume"`
+		}
+		if err := json.Unmarshal(cmd.Data, &data); err != nil {
+			return err
+		}
+		return h.webdjSvc.SetHeadphoneVolume(ctx, sessionID, data.Volume)
+
 	case "pong":
 		// Client ping response, ignore
 		return nil
