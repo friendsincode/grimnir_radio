@@ -135,6 +135,7 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 	var total int64
 	fromValue := strings.TrimSpace(r.URL.Query().Get("from"))
 	toValue := strings.TrimSpace(r.URL.Query().Get("to"))
+	sourceFilter := strings.TrimSpace(r.URL.Query().Get("source"))
 
 	query := h.db.Model(&models.PlayHistory{}).Where("station_id = ?", station.ID)
 
@@ -147,6 +148,18 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 	if to := toValue; to != "" {
 		if t, err := time.Parse("2006-01-02", to); err == nil {
 			query = query.Where("started_at <= ?", t.Add(24*time.Hour))
+		}
+	}
+
+	// Source type filter
+	if sourceFilter != "" {
+		switch sourceFilter {
+		case "live":
+			query = query.Where("(metadata->>'source_type' IN (?, ?) OR metadata->>'type' IN (?, ?))", "live", "live_dj", "live", "live_dj")
+		case "automation":
+			query = query.Where("(metadata->>'source_type' IS NULL OR metadata->>'source_type' = '' OR metadata->>'source_type' = ?)", "automation")
+		default:
+			query = query.Where("(metadata->>'source_type' = ? OR metadata->>'type' = ?)", sourceFilter, sourceFilter)
 		}
 	}
 
@@ -201,16 +214,29 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Summary stats
+	var uniqueTracks int64
+	if err := query.Session(&gorm.Session{}).Select("COUNT(DISTINCT (title || '|' || artist))").Scan(&uniqueTracks).Error; err != nil {
+		h.logger.Warn().Err(err).Msg("failed to count unique tracks")
+	}
+	var uniqueArtists int64
+	if err := query.Session(&gorm.Session{}).Select("COUNT(DISTINCT artist)").Where("artist <> ''").Scan(&uniqueArtists).Error; err != nil {
+		h.logger.Warn().Err(err).Msg("failed to count unique artists")
+	}
+
 	h.Render(w, r, "pages/dashboard/analytics/history", PageData{
 		Title:    "Play History",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"History":   history,
-			"Total":     total,
-			"Page":      page,
-			"PerPage":   perPage,
-			"FromValue": fromValue,
-			"ToValue":   toValue,
+			"History":       history,
+			"Total":         total,
+			"Page":          page,
+			"PerPage":       perPage,
+			"FromValue":     fromValue,
+			"ToValue":       toValue,
+			"SourceFilter":  sourceFilter,
+			"UniqueTracks":  uniqueTracks,
+			"UniqueArtists": uniqueArtists,
 		},
 	})
 }
@@ -435,6 +461,179 @@ func (h *Handler) AnalyticsListenersExportCSV(w http.ResponseWriter, r *http.Req
 			strconv.Itoa(b.peak),
 			strconv.Itoa(b.count),
 		})
+	}
+	cw.Flush()
+}
+
+// AnalyticsHistoryExportCSV exports play history as CSV.
+func (h *Handler) AnalyticsHistoryExportCSV(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	fromValue := strings.TrimSpace(r.URL.Query().Get("from"))
+	toValue := strings.TrimSpace(r.URL.Query().Get("to"))
+	sourceFilter := strings.TrimSpace(r.URL.Query().Get("source"))
+
+	query := h.db.WithContext(r.Context()).Model(&models.PlayHistory{}).Where("station_id = ?", station.ID)
+
+	if fromValue != "" {
+		if t, err := time.Parse("2006-01-02", fromValue); err == nil {
+			query = query.Where("started_at >= ?", t)
+		}
+	}
+	if toValue != "" {
+		if t, err := time.Parse("2006-01-02", toValue); err == nil {
+			query = query.Where("started_at <= ?", t.Add(24*time.Hour))
+		}
+	}
+	if sourceFilter != "" {
+		switch sourceFilter {
+		case "live":
+			query = query.Where("(metadata->>'source_type' IN (?, ?) OR metadata->>'type' IN (?, ?))", "live", "live_dj", "live", "live_dj")
+		case "automation":
+			query = query.Where("(metadata->>'source_type' IS NULL OR metadata->>'source_type' = '' OR metadata->>'source_type' = ?)", "automation")
+		default:
+			query = query.Where("(metadata->>'source_type' = ? OR metadata->>'type' = ?)", sourceFilter, sourceFilter)
+		}
+	}
+
+	var entries []models.PlayHistory
+	if err := query.Order("started_at ASC").Find(&entries).Error; err != nil {
+		http.Error(w, "Failed to load play history", http.StatusInternalServerError)
+		return
+	}
+
+	fromStr := "all"
+	if fromValue != "" {
+		fromStr = strings.ReplaceAll(fromValue, "-", "")
+	}
+	toStr := "now"
+	if toValue != "" {
+		toStr = strings.ReplaceAll(toValue, "-", "")
+	}
+	filename := fmt.Sprintf("play-history-%s-to-%s.csv", fromStr, toStr)
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"started_at", "ended_at", "title", "artist", "album", "label", "duration_seconds", "source"})
+	for _, entry := range entries {
+		endedAt := ""
+		durationSec := ""
+		if !entry.EndedAt.IsZero() {
+			endedAt = entry.EndedAt.Format(time.RFC3339)
+			if entry.EndedAt.After(entry.StartedAt) {
+				durationSec = fmt.Sprintf("%.1f", entry.EndedAt.Sub(entry.StartedAt).Seconds())
+			}
+		}
+
+		source := "automation"
+		if entry.Metadata != nil {
+			if st, ok := entry.Metadata["source_type"].(string); ok && strings.TrimSpace(st) != "" {
+				source = strings.ToLower(strings.TrimSpace(st))
+			} else if typ, ok := entry.Metadata["type"].(string); ok && strings.TrimSpace(typ) != "" {
+				source = strings.ToLower(strings.TrimSpace(typ))
+			}
+		}
+
+		_ = cw.Write([]string{
+			entry.StartedAt.Format(time.RFC3339),
+			endedAt,
+			entry.Title,
+			entry.Artist,
+			entry.Album,
+			entry.Label,
+			durationSec,
+			source,
+		})
+	}
+	cw.Flush()
+}
+
+// AnalyticsSpinsExportCSV exports spin reports as CSV.
+func (h *Handler) AnalyticsSpinsExportCSV(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	fromDate := time.Now().AddDate(0, 0, -7)
+	toDate := time.Now()
+
+	if from := r.URL.Query().Get("from"); from != "" {
+		if t, err := time.Parse("2006-01-02", from); err == nil {
+			fromDate = t
+		}
+	}
+	if to := r.URL.Query().Get("to"); to != "" {
+		if t, err := time.Parse("2006-01-02", to); err == nil {
+			toDate = t.Add(24 * time.Hour)
+		}
+	}
+
+	reportType := r.URL.Query().Get("type")
+	if reportType == "" {
+		reportType = "tracks"
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+
+	cw := csv.NewWriter(w)
+
+	if reportType == "artists" {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"spin-artists-%s-to-%s.csv\"",
+			fromDate.Format("20060102"), toDate.Format("20060102")))
+
+		type artistSpin struct {
+			Artist string
+			Count  int64
+		}
+		var rows []artistSpin
+		h.db.WithContext(r.Context()).Model(&models.PlayHistory{}).
+			Select("artist, COUNT(*) as count").
+			Where("station_id = ? AND started_at >= ? AND started_at <= ?", station.ID, fromDate, toDate).
+			Group("artist").
+			Order("count DESC").
+			Scan(&rows)
+
+		_ = cw.Write([]string{"rank", "artist", "spin_count"})
+		for i, row := range rows {
+			_ = cw.Write([]string{
+				strconv.Itoa(i + 1),
+				row.Artist,
+				strconv.FormatInt(row.Count, 10),
+			})
+		}
+	} else {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"spin-tracks-%s-to-%s.csv\"",
+			fromDate.Format("20060102"), toDate.Format("20060102")))
+
+		type trackSpin struct {
+			Artist string
+			Title  string
+			Count  int64
+		}
+		var rows []trackSpin
+		h.db.WithContext(r.Context()).Model(&models.PlayHistory{}).
+			Select("artist, title, COUNT(*) as count").
+			Where("station_id = ? AND started_at >= ? AND started_at <= ?", station.ID, fromDate, toDate).
+			Group("artist, title").
+			Order("count DESC").
+			Scan(&rows)
+
+		_ = cw.Write([]string{"rank", "artist", "title", "spin_count"})
+		for i, row := range rows {
+			_ = cw.Write([]string{
+				strconv.Itoa(i + 1),
+				row.Artist,
+				row.Title,
+				strconv.FormatInt(row.Count, 10),
+			})
+		}
 	}
 	cw.Flush()
 }

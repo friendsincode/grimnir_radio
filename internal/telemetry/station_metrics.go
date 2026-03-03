@@ -90,3 +90,11 @@ func UpdateStationMetrics(db *gorm.DB) {
 		PlayHistoryTotal.WithLabelValues(pc.StationID).Set(float64(pc.PlayCount))
 	}
 }
+
+// UpdateListenerMetrics resets the listener gauge and sets per-station values.
+func UpdateListenerMetrics(counts map[string]int) {
+	ListenersCurrentTotal.Reset()
+	for stationID, count := range counts {
+		ListenersCurrentTotal.WithLabelValues(stationID).Set(float64(count))
+	}
+}
