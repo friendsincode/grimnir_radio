@@ -1,0 +1,352 @@
+package web
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+
+	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/migration"
+	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
+)
+
+type stubSchedulerService struct {
+	stationID string
+	err       error
+}
+
+func (s *stubSchedulerService) RefreshStation(_ context.Context, stationID string) error {
+	s.stationID = stationID
+	return s.err
+}
+
+func (s *stubSchedulerService) Materialize(_ context.Context, _ smartblock.GenerateRequest) (smartblock.GenerateResult, error) {
+	return smartblock.GenerateResult{}, errors.New("unused")
+}
+
+func newScheduleEndpointTestHandler(t *testing.T) (*Handler, *gorm.DB, models.User, models.Station) {
+	t.Helper()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Station{},
+		&models.StationUser{},
+		&models.Mount{},
+		&models.ScheduleEntry{},
+		&models.Playlist{},
+		&models.PlaylistItem{},
+		&models.MediaItem{},
+		&models.SmartBlock{},
+		&models.ClockHour{},
+		&models.ClockSlot{},
+		&models.Webstream{},
+		&models.SystemSettings{},
+		&models.LandingPage{},
+		&migration.Job{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	user := models.User{ID: "u1", Email: "manager@example.com", Password: "x", CalendarColorTheme: "forest"}
+	station := models.Station{ID: "s1", Name: "Station One", Active: true}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := db.Create(&station).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.StationUser{ID: "su1", UserID: user.ID, StationID: station.ID, Role: models.StationRoleManager}).Error; err != nil {
+		t.Fatalf("create station user: %v", err)
+	}
+
+	h, err := NewHandler(db, []byte("test"), t.TempDir(), nil, WebRTCConfig{}, HarborConfig{}, 0, events.NewBus(), nil, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("new handler: %v", err)
+	}
+
+	return h, db, user, station
+}
+
+func scheduleRequest(method, target string, user *models.User, station *models.Station, routeID string) *http.Request {
+	req := httptest.NewRequest(method, target, nil)
+	if routeID != "" {
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", routeID)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	}
+	ctx := req.Context()
+	if user != nil {
+		ctx = context.WithValue(ctx, ctxKeyUser, user)
+	}
+	if station != nil {
+		ctx = context.WithValue(ctx, ctxKeyStation, station)
+	}
+	return req.WithContext(ctx)
+}
+
+func TestScheduleCalendarRendersMountsAndTheme(t *testing.T) {
+	h, db, user, station := newScheduleEndpointTestHandler(t)
+	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main Mount", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	h.ScheduleCalendar(rr, scheduleRequest(http.MethodGet, "/dashboard/schedule", &user, &station, ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"Schedule", "Main Mount", "const colorTheme = 'forest'", "validateScheduleBtn"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected body to contain %q", want)
+		}
+	}
+}
+
+func TestScheduleRefreshHTMX(t *testing.T) {
+	h, _, _, station := newScheduleEndpointTestHandler(t)
+
+	t.Run("success returns hx success message", func(t *testing.T) {
+		stub := &stubSchedulerService{}
+		h.scheduler = stub
+		req := scheduleRequest(http.MethodPost, "/dashboard/schedule/refresh", nil, &station, "")
+		req.Header.Set("HX-Request", "true")
+		rr := httptest.NewRecorder()
+
+		h.ScheduleRefresh(rr, req)
+		if rr.Code != http.StatusOK || stub.stationID != station.ID {
+			t.Fatalf("unexpected refresh response: code=%d station=%q body=%s", rr.Code, stub.stationID, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "Schedule refresh queued") {
+			t.Fatalf("unexpected success body: %s", rr.Body.String())
+		}
+	})
+
+	t.Run("failure returns hx error message", func(t *testing.T) {
+		stub := &stubSchedulerService{err: errors.New("boom")}
+		h.scheduler = stub
+		req := scheduleRequest(http.MethodPost, "/dashboard/schedule/refresh", nil, &station, "")
+		req.Header.Set("HX-Request", "true")
+		rr := httptest.NewRecorder()
+
+		h.ScheduleRefresh(rr, req)
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Failed to refresh schedule") {
+			t.Fatalf("unexpected error response: code=%d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+}
+
+func TestScheduleEntryDetailsReturnsMediaAndWebstreamDetails(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	if err := db.Create(&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Duration: 3 * time.Minute, Path: "track.mp3"}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+	if err := db.Create(&models.Webstream{ID: "ws-1", StationID: station.ID, Name: "Relay", URLs: []string{"https://relay.example/stream"}}).Error; err != nil {
+		t.Fatalf("create webstream: %v", err)
+	}
+	entries := []models.ScheduleEntry{
+		{ID: "entry-media", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC(), EndsAt: time.Now().UTC().Add(time.Hour), SourceType: "media", SourceID: "media-1"},
+		{ID: "entry-webstream", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC(), EndsAt: time.Now().UTC().Add(time.Hour), SourceType: "webstream", SourceID: "ws-1"},
+	}
+	for _, entry := range entries {
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create entry: %v", err)
+		}
+	}
+
+	t.Run("media details include track metadata", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/entry-media", nil, &station, "entry-media"))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		media := payload["media"].(map[string]any)
+		if media["title"] != "Track One" || media["artist"] != "Artist One" {
+			t.Fatalf("unexpected media payload: %+v", media)
+		}
+	})
+
+	t.Run("webstream details include primary url", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/entry-webstream", nil, &station, "entry-webstream"))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		webstream := payload["webstream"].(map[string]any)
+		if webstream["name"] != "Relay" || webstream["url"] != "https://relay.example/stream" {
+			t.Fatalf("unexpected webstream payload: %+v", webstream)
+		}
+	})
+}
+
+func TestScheduleSourceTracksAppliesPlaylistOverrides(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	media := []models.MediaItem{
+		{ID: "track-1", StationID: station.ID, Title: "First", Artist: "Artist A", Duration: 2 * time.Minute, Path: "first.mp3"},
+		{ID: "track-2", StationID: station.ID, Title: "Second", Artist: "Artist B", Duration: 3 * time.Minute, Path: "second.mp3"},
+		{ID: "track-3", StationID: station.ID, Title: "Replacement", Artist: "Artist C", Duration: 4 * time.Minute, Path: "replacement.mp3"},
+	}
+	for _, item := range media {
+		if err := db.Create(&item).Error; err != nil {
+			t.Fatalf("create media: %v", err)
+		}
+	}
+	playlist := models.Playlist{ID: "pl-1", StationID: station.ID, Name: "Playlist One"}
+	if err := db.Create(&playlist).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	for i, mediaID := range []string{"track-1", "track-2"} {
+		if err := db.Create(&models.PlaylistItem{ID: "pli-" + mediaID, PlaylistID: playlist.ID, MediaID: mediaID, Position: i + 1}).Error; err != nil {
+			t.Fatalf("create playlist item: %v", err)
+		}
+	}
+	entry := models.ScheduleEntry{
+		ID:        "entry-overrides",
+		StationID: station.ID,
+		MountID:   "m1",
+		StartsAt:  time.Date(2026, 3, 6, 10, 0, 0, 0, time.UTC),
+		EndsAt:    time.Date(2026, 3, 6, 11, 0, 0, 0, time.UTC),
+		Metadata:  map[string]any{"track_overrides": map[string]any{"0": "track-3", "1": "__remove__"}},
+	}
+	if err := db.Create(&entry).Error; err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+
+	req := scheduleRequest(http.MethodGet,
+		"/dashboard/schedule/source-tracks?source_type=playlist&source_id=pl-1&starts_at=2026-03-06T10:00:00Z&ends_at=2026-03-06T11:00:00Z&mount_id=m1&entry_id=entry-overrides",
+		nil, &station, "")
+	rr := httptest.NewRecorder()
+
+	h.ScheduleSourceTracks(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var payload struct {
+		SourceName    string `json:"source_name"`
+		TrackCount    int    `json:"track_count"`
+		TotalDuration int64  `json:"total_duration"`
+		Tracks        []struct {
+			MediaID  string `json:"media_id"`
+			Title    string `json:"title"`
+			Artist   string `json:"artist"`
+			Duration int64  `json:"duration"`
+		} `json:"tracks"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.SourceName != "Playlist One" || payload.TrackCount != 1 || len(payload.Tracks) != 1 {
+		t.Fatalf("unexpected source payload: %+v", payload)
+	}
+	if payload.Tracks[0].MediaID != "track-3" || payload.Tracks[0].Title != "Replacement" || payload.TotalDuration != 240 {
+		t.Fatalf("unexpected tracks after overrides: %+v", payload.Tracks)
+	}
+}
+
+func TestScheduleDropdownAndSearchEndpoints(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	otherStation := models.Station{ID: "s2", Name: "Archive Station", Active: true}
+	for _, record := range []any{
+		&models.Playlist{ID: "pl-1", StationID: station.ID, Name: "Morning Playlist"},
+		&models.SmartBlock{ID: "sb-1", StationID: station.ID, Name: "Rotation Block"},
+		&models.ClockHour{ID: "clock-1", StationID: station.ID, Name: "Top Hour"},
+		&models.Webstream{ID: "ws-1", StationID: station.ID, Name: "News Relay", URLs: []string{"https://relay.example/stream"}},
+		&models.MediaItem{ID: "media-local", StationID: station.ID, Title: "Local Track", Artist: "Artist Local", Duration: 90 * time.Second, Path: "local.mp3"},
+		&otherStation,
+		&models.MediaItem{ID: "media-archive", StationID: otherStation.ID, Title: "Archive Track", Artist: "Artist Archive", Duration: 75 * time.Second, Path: "archive.mp3", ShowInArchive: true},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	if err := db.Create(&models.ClockSlot{ID: "slot-1", ClockHourID: "clock-1", Position: 1, Type: models.SlotTypeHardItem, Payload: map[string]any{"media_id": "media-local"}}).Error; err != nil {
+		t.Fatalf("create clock slot: %v", err)
+	}
+
+	t.Run("playlist smartblock clock and webstream dropdowns return station records", func(t *testing.T) {
+		tests := []struct {
+			name string
+			path string
+			key  string
+			want string
+		}{
+			{name: "playlists", path: "/dashboard/schedule/playlists", key: "playlists", want: "Morning Playlist"},
+			{name: "smartblocks", path: "/dashboard/schedule/smartblocks", key: "smart_blocks", want: "Rotation Block"},
+			{name: "clocks", path: "/dashboard/schedule/clocks", key: "clocks", want: "Top Hour"},
+			{name: "webstreams", path: "/dashboard/schedule/webstreams", key: "webstreams", want: "News Relay"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				req := scheduleRequest(http.MethodGet, tt.path, nil, &station, "")
+				rr := httptest.NewRecorder()
+				switch tt.name {
+				case "playlists":
+					h.SchedulePlaylistsJSON(rr, req)
+				case "smartblocks":
+					h.ScheduleSmartBlocksJSON(rr, req)
+				case "clocks":
+					h.ScheduleClocksJSON(rr, req)
+				case "webstreams":
+					h.ScheduleWebstreamsJSON(rr, req)
+				}
+				if rr.Code != http.StatusOK {
+					t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+				}
+				if !strings.Contains(rr.Body.String(), tt.want) {
+					t.Fatalf("expected body to contain %q, got %s", tt.want, rr.Body.String())
+				}
+			})
+		}
+	})
+
+	t.Run("media search can include archive items from other stations", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/media-search?q=track&include_archive=true", nil, &station, "")
+		rr := httptest.NewRecorder()
+
+		h.ScheduleMediaSearchJSON(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload struct {
+			Items []struct {
+				ID          string `json:"id"`
+				Title       string `json:"title"`
+				StationName string `json:"station_name"`
+				IsArchive   bool   `json:"is_archive"`
+			} `json:"items"`
+		}
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if len(payload.Items) != 2 {
+			t.Fatalf("expected 2 items, got %+v", payload.Items)
+		}
+		if !payload.Items[0].IsArchive && !payload.Items[1].IsArchive {
+			t.Fatalf("expected archive item in results: %+v", payload.Items)
+		}
+	})
+}
