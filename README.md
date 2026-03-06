@@ -1,8 +1,8 @@
 # Grimnir Radio
 
 [![CI](https://github.com/friendsincode/grimnir_radio/actions/workflows/ci.yml/badge.svg)](https://github.com/friendsincode/grimnir_radio/actions/workflows/ci.yml)
-[![Coverage Target](https://img.shields.io/badge/coverage%20target-80%25-0a7f5a)](https://github.com/friendsincode/grimnir_radio/actions/workflows/ci.yml)
-[![Coverage Report](https://img.shields.io/badge/coverage-report%20artifact-blue)](https://github.com/friendsincode/grimnir_radio/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://rlmradio.xyz/api/v1/public/coverage/badge)](https://rlmradio.xyz/api/v1/public/coverage)
+[![Coverage Target](https://img.shields.io/endpoint?url=https://rlmradio.xyz/api/v1/public/coverage/target-badge)](https://rlmradio.xyz/api/v1/public/coverage)
 
 **Version:** 1.17.11
 
