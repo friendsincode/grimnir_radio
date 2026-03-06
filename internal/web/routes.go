@@ -236,11 +236,11 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/", h.ScheduleCalendar)
 					r.Get("/events", h.ScheduleEvents)     // JSON for calendar
 					r.Get("/validate", h.ScheduleValidate) // JSON validation for calendar (web auth)
-					r.Post("/entries", h.ScheduleCreateEntry)
+					r.With(h.RequireRole("manager")).Post("/entries", h.ScheduleCreateEntry)
 					r.Get("/entries/{id}/details", h.ScheduleEntryDetails)
-					r.Put("/entries/{id}", h.ScheduleUpdateEntry)
-					r.Delete("/entries/{id}", h.ScheduleDeleteEntry)
-					r.Post("/refresh", h.ScheduleRefresh)
+					r.With(h.RequireRole("manager")).Put("/entries/{id}", h.ScheduleUpdateEntry)
+					r.With(h.RequireRole("manager")).Delete("/entries/{id}", h.ScheduleDeleteEntry)
+					r.With(h.RequireRole("manager")).Post("/refresh", h.ScheduleRefresh)
 
 					r.Get("/source-tracks", h.ScheduleSourceTracks) // JSON track list for any source
 
