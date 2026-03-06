@@ -196,14 +196,9 @@
                     <dt class="col-5 text-body-secondary">Updated</dt>
                     <dd class="col-7">{{formatTime $ws.UpdatedAt}}</dd>
 
-                    {{if $ws.LastCheckedAt}}
+                    {{if $ws.LastHealthCheck}}
                     <dt class="col-5 text-body-secondary">Last Checked</dt>
-                    <dd class="col-7">{{formatTime $ws.LastCheckedAt}}</dd>
-                    {{end}}
-
-                    {{if $ws.LastFailoverAt}}
-                    <dt class="col-5 text-body-secondary">Last Failover</dt>
-                    <dd class="col-7">{{formatTime $ws.LastFailoverAt}}</dd>
+                    <dd class="col-7">{{formatTime $ws.LastHealthCheck}}</dd>
                     {{end}}
                 </dl>
             </div>
