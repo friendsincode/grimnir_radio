@@ -47,6 +47,9 @@ func newScheduleEndpointTestHandler(t *testing.T) (*Handler, *gorm.DB, models.Us
 		&models.Station{},
 		&models.StationUser{},
 		&models.Mount{},
+		&models.Show{},
+		&models.ShowInstance{},
+		&models.ScheduleRule{},
 		&models.ScheduleEntry{},
 		&models.Playlist{},
 		&models.PlaylistItem{},
@@ -149,6 +152,143 @@ func TestScheduleRefreshHTMX(t *testing.T) {
 			t.Fatalf("unexpected error response: code=%d body=%s", rr.Code, rr.Body.String())
 		}
 	})
+}
+
+func TestScheduleValidateCapsRangeAndReturnsJSON(t *testing.T) {
+	h, _, _, station := newScheduleEndpointTestHandler(t)
+	req := scheduleRequest(
+		http.MethodGet,
+		"/dashboard/schedule/validate?start=2026-03-01T00:00:00Z&end=2026-07-01T00:00:00Z",
+		nil,
+		&station,
+		"",
+	)
+	rr := httptest.NewRecorder()
+
+	h.ScheduleValidate(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var result models.ValidationResult
+	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+		t.Fatalf("decode validation response: %v", err)
+	}
+	if !result.Valid || len(result.Errors) != 0 {
+		t.Fatalf("unexpected validation result: %+v", result)
+	}
+	if got := result.RangeEnd.Sub(result.RangeStart); got != 90*24*time.Hour {
+		t.Fatalf("expected 90 day cap, got %v", got)
+	}
+}
+
+func TestScheduleEventsReturnsExpandedRecurringAndOrphanedEntries(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	for _, record := range []any{
+		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
+		&models.Playlist{ID: "pl-1", StationID: station.ID, Name: "Playlist One"},
+		&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Duration: 3 * time.Minute, Path: "track.mp3"},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	entries := []models.ScheduleEntry{
+		{
+			ID:             "weekly-parent",
+			StationID:      station.ID,
+			MountID:        "m1",
+			StartsAt:       time.Date(2026, 3, 4, 10, 0, 0, 0, time.UTC),
+			EndsAt:         time.Date(2026, 3, 4, 11, 0, 0, 0, time.UTC),
+			SourceType:     "playlist",
+			SourceID:       "pl-1",
+			RecurrenceType: models.RecurrenceWeekly,
+		},
+		{
+			ID:                 "weekly-override",
+			StationID:          station.ID,
+			MountID:            "m1",
+			StartsAt:           time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC),
+			EndsAt:             time.Date(2026, 3, 11, 11, 0, 0, 0, time.UTC),
+			SourceType:         "media",
+			SourceID:           "media-1",
+			IsInstance:         true,
+			RecurrenceParentID: func() *string { s := "weekly-parent"; return &s }(),
+		},
+		{
+			ID:         "orphan-entry",
+			StationID:  station.ID,
+			MountID:    "m1",
+			StartsAt:   time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC),
+			EndsAt:     time.Date(2026, 3, 5, 13, 0, 0, 0, time.UTC),
+			SourceType: "playlist",
+			SourceID:   "missing-playlist",
+		},
+		{
+			ID:         "webstream-entry",
+			StationID:  station.ID,
+			MountID:    "m1",
+			StartsAt:   time.Date(2026, 3, 6, 9, 0, 0, 0, time.UTC),
+			EndsAt:     time.Date(2026, 3, 6, 10, 0, 0, 0, time.UTC),
+			SourceType: "live",
+			Metadata:   map[string]any{"session_name": "Morning Live"},
+		},
+	}
+	for _, entry := range entries {
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create entry: %v", err)
+		}
+	}
+
+	req := scheduleRequest(
+		http.MethodGet,
+		"/dashboard/schedule/events?start=2026-03-01T00:00:00Z&end=2026-03-20T00:00:00Z&view=timeGridDay&mount_id=m1",
+		nil,
+		&station,
+		"",
+	)
+	rr := httptest.NewRecorder()
+
+	h.ScheduleEvents(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var payload []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode events payload: %v", err)
+	}
+	if len(payload) != 5 {
+		t.Fatalf("expected 5 events, got %+v", payload)
+	}
+
+	titles := make(map[string]map[string]any, len(payload))
+	playlistCount := 0
+	for _, event := range payload {
+		titles[event["title"].(string)] = event
+		if event["title"] == "Playlist One" {
+			playlistCount++
+		}
+	}
+	if playlistCount != 2 {
+		t.Fatalf("expected 2 recurring playlist instances, got %+v", payload)
+	}
+	if _, ok := titles["Playlist One"]; !ok {
+		t.Fatalf("expected recurring playlist event in payload: %+v", payload)
+	}
+	if _, ok := titles["Artist One - Track One"]; !ok {
+		t.Fatalf("expected override media event in payload: %+v", payload)
+	}
+	orphan, ok := titles["⚠ MISSING Playlist"]
+	if !ok {
+		t.Fatalf("expected orphaned event in payload: %+v", payload)
+	}
+	if orphan["className"] != "event-orphaned" {
+		t.Fatalf("expected orphaned class, got %+v", orphan)
+	}
+	if _, ok := titles["Morning Live"]; !ok {
+		t.Fatalf("expected live metadata title in payload: %+v", payload)
+	}
 }
 
 func TestScheduleEntryDetailsReturnsMediaAndWebstreamDetails(t *testing.T) {
