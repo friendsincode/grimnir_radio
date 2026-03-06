@@ -229,13 +229,21 @@
             </div>
             <div class="card-body">
                 <div class="d-grid gap-2">
-                    <button class="btn btn-outline-primary"
-                            hx-post="/api/v1/playout/queue"
-                            hx-vals='{"media_id": "{{$media.ID}}"}'
-                            hx-swap="none"
-                            title="Add track to play queue">
+                    {{$mounts := .Data.Mounts}}
+                    <div>
+                        <label for="queueMountSelect" class="form-label small text-body-secondary mb-1">Queue Target Mount</label>
+                        <select id="queueMountSelect" class="form-select form-select-sm" {{if not $mounts}}disabled{{end}}>
+                            {{range $mounts}}
+                            <option value="{{.ID}}">{{.Name}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+                    <button class="btn btn-outline-primary" id="addToQueueBtn" title="Add track to play queue" {{if not $mounts}}disabled{{end}}>
                         <i class="bi bi-plus-circle me-2"></i>Add to Queue
                     </button>
+                    {{if not $mounts}}
+                    <div class="text-body-secondary small">No mounts configured for this station.</div>
+                    {{end}}
                     <a href="/dashboard/playlists?add={{$media.ID}}" class="btn btn-outline-secondary">
                         <i class="bi bi-list-ul me-2"></i>Add to Playlist
                     </a>
@@ -398,5 +406,62 @@ progressBar.parentElement.addEventListener('click', (e) => {
         audio.currentTime = pct * audio.duration;
     }
 });
+
+const addToQueueBtn = document.getElementById('addToQueueBtn');
+const queueMountSelect = document.getElementById('queueMountSelect');
+if (addToQueueBtn) {
+    addToQueueBtn.addEventListener('click', async () => {
+        const mountID = queueMountSelect?.value || '';
+        if (!mountID) {
+            if (window.grimnirUtils?.showToast) {
+                window.grimnirUtils.showToast('Select a mount before queuing', 'warning');
+            }
+            return;
+        }
+
+        const original = addToQueueBtn.innerHTML;
+        addToQueueBtn.disabled = true;
+        addToQueueBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Queueing...';
+
+        try {
+            const resp = await fetch('/api/v1/playout/queue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    station_id: '{{.Station.ID}}',
+                    mount_id: mountID,
+                    media_id: '{{.Data.Media.ID}}'
+                })
+            });
+
+            const body = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                let msg = 'Failed to queue track';
+                if (body && body.error) {
+                    if (body.error === 'insufficient_role') msg = 'You do not have permission to queue tracks.';
+                    else if (body.error === 'station_access_denied') msg = 'Station access denied.';
+                    else if (body.error === 'mount_not_in_station') msg = 'Selected mount is not valid for this station.';
+                }
+                if (window.grimnirUtils?.showToast) {
+                    window.grimnirUtils.showToast(msg, 'error');
+                }
+                return;
+            }
+
+            const mountName = queueMountSelect.options[queueMountSelect.selectedIndex]?.text || mountID;
+            const pos = body?.position ? ` at position ${body.position}` : '';
+            if (window.grimnirUtils?.showToast) {
+                window.grimnirUtils.showToast(`Queued on ${mountName}${pos}`, 'success');
+            }
+        } catch (err) {
+            if (window.grimnirUtils?.showToast) {
+                window.grimnirUtils.showToast('Failed to queue track', 'error');
+            }
+        } finally {
+            addToQueueBtn.disabled = false;
+            addToQueueBtn.innerHTML = original;
+        }
+    });
+}
 </script>
 {{end}}
