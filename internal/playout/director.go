@@ -8,11 +8,13 @@ package playout
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -1249,16 +1251,26 @@ func (d *Director) startPlaylistEntry(ctx context.Context, entry models.Schedule
 		return nil
 	}
 
-	// Get position from metadata (survives restarts)
-	position := 0
-	if p, ok := entry.Metadata["current_position"].(float64); ok {
-		position = int(p) % len(playlist.Items)
-	}
-
 	// Build items list (media IDs in order)
 	items := make([]string, len(playlist.Items))
 	for i, item := range playlist.Items {
 		items[i] = item.MediaID
+	}
+	items = d.applyTrackOverrides(ctx, entry, items)
+	if len(items) == 0 {
+		d.logger.Warn().Str("playlist", playlist.ID).Msg("playlist has no items after track overrides")
+		d.publishNowPlaying(entry, map[string]any{
+			"playlist_id":   playlist.ID,
+			"playlist_name": playlist.Name,
+			"error":         "playlist empty after overrides",
+		})
+		return nil
+	}
+
+	// Get position from metadata (survives restarts)
+	position := 0
+	if p, ok := entry.Metadata["current_position"].(float64); ok {
+		position = int(p) % len(items)
 	}
 
 	// Load media at current position
@@ -1329,6 +1341,16 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 	items := make([]string, len(result.Items))
 	for i, item := range result.Items {
 		items[i] = item.MediaID
+	}
+	items = d.applyTrackOverrides(ctx, entry, items)
+	if len(items) == 0 {
+		d.logger.Warn().Str("block", block.ID).Msg("smart block has no items after track overrides")
+		d.publishNowPlaying(entry, map[string]any{
+			"smart_block_id":   block.ID,
+			"smart_block_name": block.Name,
+			"error":            "smart block empty after overrides",
+		})
+		return nil
 	}
 
 	// Load first media item
@@ -1521,6 +1543,21 @@ func (d *Director) startSmartBlockByID(ctx context.Context, entry models.Schedul
 	for i, item := range result.Items {
 		items[i] = item.MediaID
 	}
+	items = d.applyTrackOverrides(ctx, entry, items)
+	if len(items) == 0 {
+		d.logger.Warn().
+			Str("block", block.ID).
+			Str("clock", clockID).
+			Msg("clock smart block has no items after track overrides")
+		d.publishNowPlaying(entry, map[string]any{
+			"clock_id":         clockID,
+			"clock_name":       clockName,
+			"smart_block_id":   block.ID,
+			"smart_block_name": block.Name,
+			"error":            "smart block empty after overrides",
+		})
+		return nil
+	}
 
 	var media models.MediaItem
 	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
@@ -1538,12 +1575,23 @@ func (d *Director) startSmartBlockByID(ctx context.Context, entry models.Schedul
 
 // playMediaByID plays a specific media item by ID (used by clock hard_item slots)
 func (d *Director) playMediaByID(ctx context.Context, entry models.ScheduleEntry, mediaID, clockID, clockName string) error {
+	items := d.applyTrackOverrides(ctx, entry, []string{mediaID})
+	if len(items) == 0 {
+		d.logger.Warn().Str("clock", clockID).Msg("clock hard item removed by track overrides")
+		d.publishNowPlaying(entry, map[string]any{
+			"clock_id":   clockID,
+			"clock_name": clockName,
+			"error":      "clock hard item removed by overrides",
+		})
+		return nil
+	}
+
 	var media models.MediaItem
-	if err := d.db.WithContext(ctx).First(&media, "id = ?", mediaID).Error; err != nil {
+	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
 		return fmt.Errorf("failed to load media item: %w", err)
 	}
 
-	return d.playMediaWithState(ctx, entry, media, "clock", clockID, 0, []string{mediaID}, map[string]any{
+	return d.playMediaWithState(ctx, entry, media, "clock", clockID, 0, items, map[string]any{
 		"clock_id":   clockID,
 		"clock_name": clockName,
 	})
@@ -1558,6 +1606,83 @@ func deterministicSmartBlockSeed(entry models.ScheduleEntry, blockID string) int
 	_, _ = h.Write([]byte(entry.StationID))
 	_, _ = h.Write([]byte(entry.MountID))
 	return int64(h.Sum64() & 0x7fffffffffffffff)
+}
+
+func (d *Director) applyTrackOverrides(ctx context.Context, entry models.ScheduleEntry, items []string) []string {
+	if len(items) == 0 || entry.Metadata == nil {
+		return items
+	}
+
+	overridesRaw, ok := entry.Metadata["track_overrides"]
+	if !ok || overridesRaw == nil {
+		return items
+	}
+
+	overrides := make(map[string]string)
+	switch typed := overridesRaw.(type) {
+	case map[string]any:
+		for k, v := range typed {
+			if s, ok := v.(string); ok {
+				overrides[k] = s
+			}
+		}
+	case map[string]string:
+		for k, v := range typed {
+			overrides[k] = v
+		}
+	default:
+		return items
+	}
+	if len(overrides) == 0 {
+		return items
+	}
+
+	replacementIDs := make([]string, 0, len(overrides))
+	seen := make(map[string]struct{}, len(overrides))
+	for _, mediaID := range overrides {
+		if mediaID == "" || mediaID == "__remove__" {
+			continue
+		}
+		if _, ok := seen[mediaID]; ok {
+			continue
+		}
+		seen[mediaID] = struct{}{}
+		replacementIDs = append(replacementIDs, mediaID)
+	}
+
+	replacementAllowed := make(map[string]struct{}, len(replacementIDs))
+	if len(replacementIDs) > 0 {
+		var mediaItems []models.MediaItem
+		if err := d.db.WithContext(ctx).
+			Select("id").
+			Where("station_id = ? AND id IN ?", entry.StationID, replacementIDs).
+			Find(&mediaItems).Error; err == nil {
+			for _, m := range mediaItems {
+				replacementAllowed[m.ID] = struct{}{}
+			}
+		}
+	}
+
+	finalItems := make([]string, 0, len(items))
+	for i, mediaID := range items {
+		override, ok := overrides[strconv.Itoa(i)]
+		if !ok {
+			finalItems = append(finalItems, mediaID)
+			continue
+		}
+		if override == "__remove__" {
+			continue
+		}
+		if override != "" {
+			if _, ok := replacementAllowed[override]; ok {
+				finalItems = append(finalItems, override)
+				continue
+			}
+		}
+		finalItems = append(finalItems, mediaID)
+	}
+
+	return finalItems
 }
 
 // startPlaylistByID plays a playlist by ID (used by clock playlist slots)
@@ -1586,6 +1711,21 @@ func (d *Director) startPlaylistByID(ctx context.Context, entry models.ScheduleE
 	items := make([]string, len(playlist.Items))
 	for i, item := range playlist.Items {
 		items[i] = item.MediaID
+	}
+	items = d.applyTrackOverrides(ctx, entry, items)
+	if len(items) == 0 {
+		d.logger.Warn().
+			Str("playlist", playlist.ID).
+			Str("clock", clockID).
+			Msg("clock playlist has no items after track overrides")
+		d.publishNowPlaying(entry, map[string]any{
+			"clock_id":      clockID,
+			"clock_name":    clockName,
+			"playlist_id":   playlist.ID,
+			"playlist_name": playlist.Name,
+			"error":         "playlist empty after overrides",
+		})
+		return nil
 	}
 
 	// Load first media item
@@ -2297,6 +2437,18 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		return
 	}
 
+	queuedMedia, queuedItem, err := d.popNextQueuedMedia(context.Background(), entry.StationID, entry.MountID)
+	if err != nil {
+		d.logger.Warn().
+			Err(err).
+			Str("station_id", entry.StationID).
+			Str("mount_id", entry.MountID).
+			Msg("failed to consume queued media")
+	} else if queuedMedia != nil && queuedItem != nil {
+		d.playQueuedTrack(entry, state, *queuedMedia, *queuedItem, mountName)
+		return
+	}
+
 	// Context-aware track selection based on source type
 	switch state.SourceType {
 	case "playlist":
@@ -2348,6 +2500,64 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 
 	// Default: random track selection (for plain media entries or exhausted sequences)
 	d.playRandomNextTrack(entry, mountName)
+}
+
+func (d *Director) popNextQueuedMedia(ctx context.Context, stationID, mountID string) (*models.MediaItem, *models.PlayoutQueueItem, error) {
+	var picked models.PlayoutQueueItem
+	var media models.MediaItem
+
+	err := d.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < 5; i++ {
+			var item models.PlayoutQueueItem
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("station_id = ? AND mount_id = ?", stationID, mountID).
+				Order("position ASC, created_at ASC").
+				First(&item).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+
+			var m models.MediaItem
+			if err := tx.Where("id = ? AND station_id = ?", item.MediaID, stationID).First(&m).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					if err := tx.Delete(&models.PlayoutQueueItem{}, "id = ?", item.ID).Error; err != nil {
+						return err
+					}
+					if err := tx.Model(&models.PlayoutQueueItem{}).
+						Where("station_id = ? AND mount_id = ? AND position > ?", stationID, mountID, item.Position).
+						Update("position", gorm.Expr("position - 1")).Error; err != nil {
+						return err
+					}
+					continue
+				}
+				return err
+			}
+
+			if err := tx.Delete(&models.PlayoutQueueItem{}, "id = ?", item.ID).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.PlayoutQueueItem{}).
+				Where("station_id = ? AND mount_id = ? AND position > ?", stationID, mountID, item.Position).
+				Update("position", gorm.Expr("position - 1")).Error; err != nil {
+				return err
+			}
+
+			picked = item
+			media = m
+			return nil
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if picked.ID == "" {
+		return nil, nil, nil
+	}
+	return &media, &picked, nil
 }
 
 // updateEntryPosition persists the current playlist position to entry metadata
@@ -2510,6 +2720,137 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 		"artist":   media.Artist,
 		"album":    media.Album,
 		"position": nextPos,
+	})
+}
+
+func (d *Director) playQueuedTrack(entry models.ScheduleEntry, state playoutState, media models.MediaItem, queueItem models.PlayoutQueueItem, mountName string) {
+	// Get mount config
+	var mount models.Mount
+	if err := d.db.First(&mount, "id = ?", entry.MountID).Error; err != nil {
+		d.logger.Warn().Err(err).Str("mount_id", entry.MountID).Msg("failed to load mount config for queued track")
+		return
+	}
+
+	hqBitrate := mount.Bitrate
+	if hqBitrate == 0 {
+		hqBitrate = 128
+	}
+	lqBitrate := 64
+
+	fullPath := media.Path
+	if !filepath.IsAbs(media.Path) {
+		fullPath = filepath.Join(d.mediaRoot, media.Path)
+	}
+	stationXFade := d.getCrossfadeConfig(context.Background(), entry.StationID)
+	xfade := effectiveCrossfade(entry, stationXFade)
+
+	d.mu.Lock()
+	d.active[entry.MountID] = playoutState{
+		MediaID:    media.ID,
+		EntryID:    entry.ID,
+		StationID:  entry.StationID,
+		Started:    time.Now(),
+		Ends:       entry.EndsAt,
+		SourceType: state.SourceType,
+		SourceID:   state.SourceID,
+		Position:   state.Position,
+		TotalItems: state.TotalItems,
+		Items:      state.Items,
+	}
+	d.mu.Unlock()
+	d.mu.Lock()
+	s := d.active[entry.MountID]
+	d.mu.Unlock()
+	d.persistMountState(context.Background(), entry.MountID, s)
+
+	broadcastMount := d.broadcast.GetMount(mount.Name)
+	if broadcastMount == nil {
+		d.logger.Warn().Str("mount", mount.Name).Msg("broadcast mount not found for queued track")
+		return
+	}
+
+	lqMountName := mount.Name + "-lq"
+	lqMount := d.broadcast.GetMount(lqMountName)
+	if lqMount == nil {
+		d.logger.Warn().Str("mount", lqMountName).Msg("LQ broadcast mount not found for queued track")
+		return
+	}
+
+	d.logger.Info().
+		Str("mount", entry.MountID).
+		Str("queue_item_id", queueItem.ID).
+		Str("media", media.Title).
+		Str("artist", media.Artist).
+		Msg("playing queued track")
+
+	broadcastMount.ClearBuffer()
+	lqMount.ClearBuffer()
+
+	ctx := context.Background()
+	hqHandler := func(r io.Reader) {
+		if err := broadcastMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", mount.Name).Msg("HQ broadcast feed ended")
+		}
+		d.handleTrackEnded(entry, mountName)
+	}
+	lqHandler := func(r io.Reader) {
+		if err := lqMount.FeedFrom(r); err != nil {
+			d.logger.Debug().Err(err).Str("mount", lqMountName).Msg("LQ broadcast feed ended")
+		}
+	}
+
+	if xfade.Enabled && xfade.Duration > 0 {
+		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+		encLaunch, err := d.buildPCMEncoderPipeline(mount, hqBitrate, lqBitrate, webrtcPort)
+		if err != nil {
+			d.logger.Warn().Err(err).Msg("failed to build pcm encoder pipeline for queued track")
+			return
+		}
+		stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, entry.MountID, encLaunch, hqHandler, lqHandler)
+		if err != nil {
+			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start pcm encoder pipeline for queued track")
+			return
+		}
+
+		d.xfadeMu.Lock()
+		sess := d.xfadeSessions[entry.MountID]
+		if sess == nil {
+			sess = newPCMCrossfadeSession(sessionConfig{
+				GStreamerBin: d.cfg.GStreamerBin,
+				SampleRate:   mount.SampleRate,
+				Channels:     mount.Channels,
+			}, stdin, d.logger.With().Str("mount_id", entry.MountID).Logger(), func() {
+				d.handleTrackEnded(entry, mount.Name)
+			})
+			d.xfadeSessions[entry.MountID] = sess
+			go func() { _ = sess.Pump(ctx) }()
+		}
+		sess.SetEncoderIn(stdin)
+		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
+		d.xfadeMu.Unlock()
+
+		if err := sess.Play(ctx, fullPath, xfade.Duration, 0); err != nil {
+			d.logger.Warn().Err(err).Msg("crossfade play failed for queued track")
+		}
+	} else {
+		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort)
+		if err != nil {
+			d.logger.Warn().Err(err).Msg("failed to build pipeline for queued track")
+			return
+		}
+		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
+			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start queued track pipeline")
+		}
+	}
+
+	d.publishNowPlaying(entry, map[string]any{
+		"media_id":      media.ID,
+		"title":         media.Title,
+		"artist":        media.Artist,
+		"album":         media.Album,
+		"queued":        true,
+		"queue_item_id": queueItem.ID,
 	})
 }
 

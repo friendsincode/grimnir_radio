@@ -14,6 +14,7 @@ type EventType string
 const (
 	EventNowPlaying         EventType = "now_playing"
 	EventHealth             EventType = "health"
+	EventPlayoutQueueChange EventType = "playout.queue_change"
 	EventListenerStats      EventType = "listener_stats"
 	EventDJConnect          EventType = "dj_connect"
 	EventDJDisconnect       EventType = "dj_disconnect"
