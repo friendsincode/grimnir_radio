@@ -1003,6 +1003,25 @@ func TestScheduleSourceTracksMediaWebstreamAndValidationSummary(t *testing.T) {
 		}
 	})
 
+	t.Run("smart block source returns error when unresolved", func(t *testing.T) {
+		if err := db.Create(&models.SmartBlock{ID: "sb-empty-2", StationID: station.ID, Name: "Empty Block", Rules: map[string]any{"genre": "NoSuchGenreAnywhere"}}).Error; err != nil {
+			t.Fatalf("create smart block: %v", err)
+		}
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/source-tracks?source_type=smart_block&source_id=sb-empty-2&starts_at=2026-03-12T10:00:00Z&ends_at=2026-03-12T11:00:00Z&mount_id=m1", nil, &station, "")
+		rr := httptest.NewRecorder()
+		h.ScheduleSourceTracks(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload["error"] == nil || int(payload["track_count"].(float64)) != 0 {
+			t.Fatalf("unexpected smart block error payload: %+v", payload)
+		}
+	})
+
 	t.Run("validation summary helper handles nil and overlap batches", func(t *testing.T) {
 		h.logValidationSummary(station.ID, time.Now().UTC(), time.Now().UTC().Add(time.Hour), nil)
 		h.logValidationSummary(station.ID, time.Now().UTC(), time.Now().UTC().Add(time.Hour), &models.ValidationResult{
@@ -1011,6 +1030,79 @@ func TestScheduleSourceTracksMediaWebstreamAndValidationSummary(t *testing.T) {
 			Warnings: []models.ValidationViolation{{RuleType: models.RuleTypeOverlap, Message: "warning overlap"}},
 			Info:     []models.ValidationViolation{{RuleType: models.RuleTypeGap, Message: "info gap"}},
 		})
+	})
+}
+
+func TestPublicScheduleAndEventsFilterToPublicStations(t *testing.T) {
+	h, db, user, _ := newScheduleEndpointTestHandler(t)
+	now := time.Now().UTC()
+	publicStation := models.Station{ID: "pub-1", Name: "Public One", Active: true, Public: true, Approved: true, SortOrder: 2}
+	publicStation2 := models.Station{ID: "pub-2", Name: "Public Two", Active: true, Public: true, Approved: true, SortOrder: 1}
+	privateStation := models.Station{ID: "priv-1", Name: "Private", Active: true, Public: false, Approved: true}
+	for _, record := range []any{
+		&publicStation,
+		&publicStation2,
+		&privateStation,
+		&models.ScheduleEntry{ID: "pub-live", StationID: publicStation.ID, MountID: "m1", StartsAt: now.Add(2 * time.Hour), EndsAt: now.Add(3 * time.Hour), SourceType: "live", Metadata: map[string]any{"session_name": "Public Live"}},
+		&models.ScheduleEntry{ID: "pub-media", StationID: publicStation.ID, MountID: "m1", StartsAt: now.Add(2 * time.Hour), EndsAt: now.Add(2*time.Hour + 3*time.Minute), SourceType: "media", SourceID: "media-hidden"},
+		&models.ScheduleEntry{ID: "priv-live", StationID: privateStation.ID, MountID: "m1", StartsAt: now.Add(2 * time.Hour), EndsAt: now.Add(3 * time.Hour), SourceType: "live", Metadata: map[string]any{"session_name": "Private Live"}},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+
+	t.Run("public schedule page lists only public stations", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/schedule?station_id=pub-1", &user, nil, "")
+		rr := httptest.NewRecorder()
+		h.PublicSchedule(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		body := rr.Body.String()
+		for _, want := range []string{"Public One", "Public Two", "const colorTheme = 'forest'"} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("expected body to contain %q", want)
+			}
+		}
+		if strings.Contains(body, "Private") {
+			t.Fatalf("did not expect private station in body: %s", body)
+		}
+	})
+
+	t.Run("public schedule events returns only public non-media events", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/schedule/events?start=2026-01-01T00:00:00Z&end=2099-01-01T00:00:00Z&theme=ocean", nil, nil, "")
+		rr := httptest.NewRecorder()
+		h.PublicScheduleEvents(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload []map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if len(payload) != 1 {
+			t.Fatalf("expected one public non-media event, got %+v", payload)
+		}
+		if payload[0]["title"] != "Public Live" || payload[0]["backgroundColor"] != "#14b8a6" {
+			t.Fatalf("unexpected public events payload: %+v", payload)
+		}
+		props := payload[0]["extendedProps"].(map[string]any)
+		if props["station_name"] != "Public One" {
+			t.Fatalf("expected station name in public event, got %+v", props)
+		}
+	})
+
+	t.Run("public schedule events with no public stations returns empty array", func(t *testing.T) {
+		if err := db.Model(&models.Station{}).Where("public = ?", true).Updates(map[string]any{"active": false}).Error; err != nil {
+			t.Fatalf("deactivate public stations: %v", err)
+		}
+		req := scheduleRequest(http.MethodGet, "/schedule/events", nil, nil, "")
+		rr := httptest.NewRecorder()
+		h.PublicScheduleEvents(rr, req)
+		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != "[]" {
+			t.Fatalf("expected empty array, got code=%d body=%s", rr.Code, rr.Body.String())
+		}
 	})
 }
 
