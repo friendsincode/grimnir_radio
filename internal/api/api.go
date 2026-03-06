@@ -373,6 +373,11 @@ func (a *API) Routes(r chi.Router) {
 			})
 
 			pr.Route("/playout", func(r chi.Router) {
+				r.Get("/queue", a.handlePlayoutQueueList)
+				r.Post("/queue", a.handlePlayoutQueueCreate)
+				r.Patch("/queue/{queueID}", a.handlePlayoutQueueReorder)
+				r.Delete("/queue/{queueID}", a.handlePlayoutQueueDelete)
+
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/reload", a.handlePlayoutReload)
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager, models.RoleDJ)).Post("/skip", a.handlePlayoutSkip)
 				r.With(a.requireRoles(models.RoleAdmin, models.RoleManager)).Post("/stop", a.handlePlayoutStop)
