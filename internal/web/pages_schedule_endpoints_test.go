@@ -293,6 +293,53 @@ func TestScheduleEventsReturnsExpandedRecurringAndOrphanedEntries(t *testing.T) 
 	}
 }
 
+func TestScheduleEventsHonorsMountFilterAndMetadataFallbacks(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	for _, record := range []any{
+		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
+		&models.Mount{ID: "m2", StationID: station.ID, Name: "Alt", Format: "mp3"},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	entries := []models.ScheduleEntry{
+		{ID: "show-meta", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 7, 8, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 7, 9, 0, 0, 0, time.UTC), SourceType: "show", Metadata: map[string]any{"title": "Metadata Show"}},
+		{ID: "fallback-yellow", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 7, 9, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 7, 10, 0, 0, 0, time.UTC), SourceType: "live", Metadata: map[string]any{"emergency_fallback": true}},
+		{ID: "other-mount", StationID: station.ID, MountID: "m2", StartsAt: time.Date(2026, 3, 7, 11, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC), SourceType: "live", Metadata: map[string]any{"session_name": "Other Mount"}},
+	}
+	for _, entry := range entries {
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create entry: %v", err)
+		}
+	}
+
+	req := scheduleRequest(http.MethodGet, "/dashboard/schedule/events?start=2026-03-07T00:00:00Z&end=2026-03-08T00:00:00Z&mount_id=m1&view=listWeek", nil, &station, "")
+	rr := httptest.NewRecorder()
+	h.ScheduleEvents(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var payload []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload) != 2 {
+		t.Fatalf("expected 2 filtered events, got %+v", payload)
+	}
+	byID := map[string]map[string]any{}
+	for _, event := range payload {
+		byID[event["id"].(string)] = event
+	}
+	if byID["show-meta"]["title"] != "Metadata Show" {
+		t.Fatalf("expected metadata show title, got %+v", byID["show-meta"])
+	}
+	props := byID["fallback-yellow"]["extendedProps"].(map[string]any)
+	if props["health"] != "yellow" || byID["fallback-yellow"]["title"] != "Live Session" {
+		t.Fatalf("expected yellow fallback live event, got %+v %+v", byID["fallback-yellow"], props)
+	}
+}
+
 func TestScheduleEntryDetailsReturnsMediaAndWebstreamDetails(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	if err := db.Create(&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Duration: 3 * time.Minute, Path: "track.mp3"}).Error; err != nil {
@@ -773,6 +820,78 @@ func TestScheduleHelpersUseSystemSettingsAndDeterministicSeed(t *testing.T) {
 		if seedC == seedA {
 			t.Fatalf("expected changed entry timing to change seed, got %d", seedC)
 		}
+	})
+}
+
+func TestScheduleSourceTracksMediaWebstreamAndValidationSummary(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	for _, record := range []any{
+		&models.MediaItem{ID: "media-plain", StationID: station.ID, Title: "Plain Track", Artist: "Artist Plain", Duration: 95 * time.Second, Path: "plain.mp3"},
+		&models.Webstream{ID: "ws-1", StationID: station.ID, Name: "News Relay", URLs: []string{"https://relay.example/stream"}},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+
+	t.Run("source tracks rejects missing source params", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/source-tracks", nil, &station, "")
+		rr := httptest.NewRecorder()
+		h.ScheduleSourceTracks(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("media source returns direct track payload", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/source-tracks?source_type=media&source_id=media-plain", nil, &station, "")
+		rr := httptest.NewRecorder()
+		h.ScheduleSourceTracks(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload struct {
+			TrackCount int `json:"track_count"`
+			Tracks     []struct {
+				Title string `json:"title"`
+			} `json:"tracks"`
+		}
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.TrackCount != 1 || payload.Tracks[0].Title != "Plain Track" {
+			t.Fatalf("unexpected media tracks payload: %+v", payload)
+		}
+	})
+
+	t.Run("webstream source returns metadata without tracks", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/source-tracks?source_type=webstream&source_id=ws-1", nil, &station, "")
+		rr := httptest.NewRecorder()
+		h.ScheduleSourceTracks(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload struct {
+			SourceName string `json:"source_name"`
+			URL        string `json:"url"`
+			TrackCount int    `json:"track_count"`
+		}
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.SourceName != "News Relay" || payload.URL != "https://relay.example/stream" || payload.TrackCount != 0 {
+			t.Fatalf("unexpected webstream payload: %+v", payload)
+		}
+	})
+
+	t.Run("validation summary helper handles nil and overlap batches", func(t *testing.T) {
+		h.logValidationSummary(station.ID, time.Now().UTC(), time.Now().UTC().Add(time.Hour), nil)
+		h.logValidationSummary(station.ID, time.Now().UTC(), time.Now().UTC().Add(time.Hour), &models.ValidationResult{
+			Valid:    false,
+			Errors:   []models.ValidationViolation{{RuleType: models.RuleTypeOverlap, Message: "error overlap", Details: map[string]any{"overlap_minutes": 10}}},
+			Warnings: []models.ValidationViolation{{RuleType: models.RuleTypeOverlap, Message: "warning overlap"}},
+			Info:     []models.ValidationViolation{{RuleType: models.RuleTypeGap, Message: "info gap"}},
+		})
 	})
 }
 
