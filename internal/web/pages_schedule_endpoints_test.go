@@ -52,6 +52,7 @@ func newScheduleEndpointTestHandler(t *testing.T) (*Handler, *gorm.DB, models.Us
 		&models.ShowInstance{},
 		&models.ScheduleRule{},
 		&models.ScheduleEntry{},
+		&models.PlayHistory{},
 		&models.Playlist{},
 		&models.PlaylistItem{},
 		&models.MediaItem{},
@@ -631,6 +632,7 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 		&models.MediaItem{ID: "media-pl", StationID: station.ID, Title: "Playlist Track", Artist: "Artist Playlist", Duration: 180 * time.Second, Path: "playlist.mp3"},
 		&models.Playlist{ID: "pl-clock", StationID: station.ID, Name: "Clock Playlist"},
 		&models.ClockHour{ID: "clock-1", StationID: station.ID, Name: "Clock One"},
+		&models.Webstream{ID: "ws-slot", StationID: station.ID, Name: "Slot Relay", URLs: []string{"https://slot.example/stream"}},
 		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
 	} {
 		if err := db.Create(record).Error; err != nil {
@@ -643,6 +645,7 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 	for _, slot := range []models.ClockSlot{
 		{ID: "slot-pl", ClockHourID: "clock-1", Position: 1, Offset: 0, Type: models.SlotTypePlaylist, Payload: map[string]any{"playlist_id": "pl-clock"}},
 		{ID: "slot-hard", ClockHourID: "clock-1", Position: 2, Offset: 15 * time.Minute, Type: models.SlotTypeHardItem, Payload: map[string]any{"media_id": "media-hard"}},
+		{ID: "slot-web", ClockHourID: "clock-1", Position: 3, Offset: 30 * time.Minute, Type: models.SlotTypeWebstream, Payload: map[string]any{"webstream_id": "ws-slot"}},
 	} {
 		if err := db.Create(&slot).Error; err != nil {
 			t.Fatalf("create clock slot: %v", err)
@@ -651,6 +654,19 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 	entry := models.ScheduleEntry{ID: "entry-clock", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 12, 13, 0, 0, 0, time.UTC), SourceType: "clock_template", SourceID: "clock-1"}
 	if err := db.Create(&entry).Error; err != nil {
 		t.Fatalf("create entry: %v", err)
+	}
+	if err := db.Create(&models.PlayHistory{
+		ID:        "ph-1",
+		StationID: station.ID,
+		MountID:   "m1",
+		MediaID:   "media-hard",
+		Title:     "Hard Track",
+		Artist:    "Artist Hard",
+		StartedAt: entry.StartsAt.Add(16 * time.Minute),
+		EndedAt:   entry.StartsAt.Add(18 * time.Minute),
+		Metadata:  map[string]any{"clock_id": "clock-1"},
+	}).Error; err != nil {
+		t.Fatalf("create play history: %v", err)
 	}
 
 	t.Run("entry details returns clock slots and trace", func(t *testing.T) {
@@ -664,8 +680,21 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode payload: %v", err)
 		}
-		if payload["clock"] == nil || payload["clock_trace"] == nil || len(payload["slots"].([]any)) != 2 {
+		if payload["clock"] == nil || payload["clock_trace"] == nil || len(payload["slots"].([]any)) != 3 {
 			t.Fatalf("unexpected clock detail payload: %+v", payload)
+		}
+		clockTrace := payload["clock_trace"].(map[string]any)
+		played := clockTrace["played_tracks"].([]any)
+		if len(played) != 1 {
+			t.Fatalf("expected one played track in trace, got %+v", played)
+		}
+		queued := clockTrace["queued_slots"].([]any)
+		if len(queued) != 3 {
+			t.Fatalf("expected three queued slot traces, got %+v", queued)
+		}
+		webSlot := queued[2].(map[string]any)
+		if webSlot["webstream"] == nil {
+			t.Fatalf("expected webstream trace on third slot, got %+v", webSlot)
 		}
 	})
 
@@ -703,4 +732,108 @@ func containsStringValue(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestScheduleHelpersUseSystemSettingsAndDeterministicSeed(t *testing.T) {
+	h, db, _, _ := newScheduleEndpointTestHandler(t)
+
+	t.Run("scheduler lookahead defaults and honors valid settings", func(t *testing.T) {
+		if got := h.schedulerLookaheadDuration(); got != 168*time.Hour {
+			t.Fatalf("expected default 168h lookahead, got %v", got)
+		}
+		if err := db.Save(&models.SystemSettings{ID: 1, SchedulerLookahead: "48h"}).Error; err != nil {
+			t.Fatalf("save settings: %v", err)
+		}
+		if got := h.schedulerLookaheadDuration(); got != 48*time.Hour {
+			t.Fatalf("expected configured 48h lookahead, got %v", got)
+		}
+		if err := db.Save(&models.SystemSettings{ID: 1, SchedulerLookahead: "garbage"}).Error; err != nil {
+			t.Fatalf("save invalid settings: %v", err)
+		}
+		if got := h.schedulerLookaheadDuration(); got != 168*time.Hour {
+			t.Fatalf("expected invalid setting to fall back to 168h, got %v", got)
+		}
+	})
+
+	t.Run("smart block seed is deterministic and changes with entry fields", func(t *testing.T) {
+		entry := models.ScheduleEntry{
+			ID:        "entry-1",
+			StationID: "s1",
+			MountID:   "m1",
+			StartsAt:  time.Date(2026, 3, 14, 9, 0, 0, 0, time.UTC),
+			EndsAt:    time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC),
+		}
+		seedA := deterministicSmartBlockSeed(entry, "sb-1")
+		seedB := deterministicSmartBlockSeed(entry, "sb-1")
+		if seedA != seedB {
+			t.Fatalf("expected deterministic seed, got %d and %d", seedA, seedB)
+		}
+		entry.EndsAt = entry.EndsAt.Add(time.Minute)
+		seedC := deterministicSmartBlockSeed(entry, "sb-1")
+		if seedC == seedA {
+			t.Fatalf("expected changed entry timing to change seed, got %d", seedC)
+		}
+	})
+}
+
+func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	if err := db.Save(&models.SystemSettings{ID: 1, SchedulerLookahead: "24h"}).Error; err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	for _, record := range []any{
+		&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Duration: 210 * time.Second, Path: "track1.mp3"},
+		&models.Playlist{ID: "pl-1", StationID: station.ID, Name: "Playlist One"},
+		&models.SmartBlock{ID: "sb-1", StationID: station.ID, Name: "Smart Future", Rules: map[string]any{"mode": "test"}},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	if err := db.Create(&models.PlaylistItem{ID: "pli-1", PlaylistID: "pl-1", MediaID: "media-1", Position: 1}).Error; err != nil {
+		t.Fatalf("create playlist item: %v", err)
+	}
+	entries := []models.ScheduleEntry{
+		{ID: "entry-playlist", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC(), EndsAt: time.Now().UTC().Add(time.Hour), SourceType: "playlist", SourceID: "pl-1"},
+		{ID: "entry-smart-future", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC().Add(72 * time.Hour), EndsAt: time.Now().UTC().Add(73 * time.Hour), SourceType: "smart_block", SourceID: "sb-1"},
+	}
+	for _, entry := range entries {
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create entry: %v", err)
+		}
+	}
+
+	t.Run("playlist details return track listing", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/entry-playlist", nil, &station, "entry-playlist")
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		playlist := payload["playlist"].(map[string]any)
+		if playlist["name"] != "Playlist One" || int(playlist["track_count"].(float64)) != 1 {
+			t.Fatalf("unexpected playlist payload: %+v", playlist)
+		}
+	})
+
+	t.Run("future smart block details stay pending before lookahead window", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/entry-smart-future", nil, &station, "entry-smart-future")
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		preview := payload["smart_block_preview"].(map[string]any)
+		if preview["status"] != "pending_materialization" {
+			t.Fatalf("unexpected smart block preview payload: %+v", preview)
+		}
+	})
 }
