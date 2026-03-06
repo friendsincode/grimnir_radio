@@ -1403,8 +1403,121 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	response["resolution_summary"] = buildScheduleResolutionSummary(entry, response)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[string]any) map[string]any {
+	summary := map[string]any{
+		"configured_type": entry.SourceType,
+		"configured_id":   entry.SourceID,
+		"duration_s":      int64(entry.EndsAt.Sub(entry.StartsAt).Seconds()),
+	}
+
+	checks := make([]string, 0, 4)
+	state := "ok"
+	headline := "This entry resolves cleanly."
+	resolvedAs := entry.SourceType
+
+	switch entry.SourceType {
+	case "clock_template":
+		if clock, ok := response["clock"].(map[string]any); ok {
+			if name, ok := clock["name"].(string); ok && strings.TrimSpace(name) != "" {
+				headline = "This clock entry expands into slot-level sources for the scheduled window."
+				resolvedAs = name
+			}
+		}
+		if trace, ok := response["clock_trace"].(map[string]any); ok {
+			if queued, ok := trace["queued_slots"].([]map[string]any); ok {
+				summary["queued_slot_count"] = len(queued)
+				checks = append(checks, fmt.Sprintf("Verify %d queued slot(s) match the intended hour layout.", len(queued)))
+			} else if queuedAny, ok := trace["queued_slots"].([]any); ok {
+				summary["queued_slot_count"] = len(queuedAny)
+				checks = append(checks, fmt.Sprintf("Verify %d queued slot(s) match the intended hour layout.", len(queuedAny)))
+			}
+			if playedAny, ok := trace["played_tracks"].([]any); ok && len(playedAny) > 0 {
+				checks = append(checks, "Compare played tracks against the queued slot trace for this window.")
+			}
+		}
+	case "playlist":
+		if playlist, ok := response["playlist"].(map[string]any); ok {
+			if name, ok := playlist["name"].(string); ok && strings.TrimSpace(name) != "" {
+				resolvedAs = name
+			}
+			if count, ok := playlist["track_count"].(int); ok {
+				summary["track_count"] = count
+				headline = fmt.Sprintf("This playlist entry will draw from %d track(s) in the configured list.", count)
+			} else if count, ok := playlist["track_count"].(float64); ok {
+				summary["track_count"] = int(count)
+				headline = fmt.Sprintf("This playlist entry will draw from %d track(s) in the configured list.", int(count))
+			}
+			checks = append(checks, "Verify the playlist order and any track overrides before air.")
+		}
+	case "smart_block":
+		if block, ok := response["smart_block"].(map[string]any); ok {
+			if name, ok := block["name"].(string); ok && strings.TrimSpace(name) != "" {
+				resolvedAs = name
+			}
+		}
+		if preview, ok := response["smart_block_preview"].(map[string]any); ok {
+			if status, _ := preview["status"].(string); status != "" {
+				summary["preview_status"] = status
+				switch status {
+				case "pending_materialization":
+					state = "pending"
+					headline = "This smart block has not been materialized yet for the scheduled window."
+					checks = append(checks, "Wait for the slot to enter the lookahead window, then confirm the generated track list.")
+				case "error":
+					state = "attention"
+					headline = "This smart block could not currently resolve a playable sequence."
+					checks = append(checks, "Review smart block rules or matching media before trusting this slot.")
+				case "ready":
+					if count, ok := preview["track_count"].(float64); ok {
+						summary["track_count"] = int(count)
+						headline = fmt.Sprintf("This smart block currently resolves to %d planned track(s) for this time window.", int(count))
+					}
+					checks = append(checks, "Confirm the generated track list still fits the intended duration and rotation.")
+				}
+			}
+		}
+	case "media":
+		if media, ok := response["media"].(map[string]any); ok {
+			title, _ := media["title"].(string)
+			artist, _ := media["artist"].(string)
+			if artist != "" && title != "" {
+				resolvedAs = artist + " - " + title
+			} else if title != "" {
+				resolvedAs = title
+			}
+			headline = "This entry points directly at one media item."
+			checks = append(checks, "Verify the exact track metadata and duration match the intended slot.")
+		}
+	case "webstream":
+		if webstream, ok := response["webstream"].(map[string]any); ok {
+			if name, ok := webstream["name"].(string); ok && strings.TrimSpace(name) != "" {
+				resolvedAs = name
+			}
+		}
+		headline = "This entry relays an external webstream instead of selecting tracks."
+		checks = append(checks, "Verify the webstream URL and expected live source are available.")
+	case "live":
+		headline = "This entry expects a live operator or source to take over the mount."
+		checks = append(checks, "Verify the live source is ready before this slot starts.")
+	default:
+		headline = "Review this entry carefully before air."
+	}
+
+	if entry.MountID != "" {
+		checks = append(checks, "Confirm the entry is scheduled on the intended mount.")
+	}
+
+	summary["state"] = state
+	summary["headline"] = headline
+	summary["resolved_as"] = resolvedAs
+	summary["checks"] = checks
+	return summary
 }
 
 // ScheduleRefresh triggers a schedule refresh
