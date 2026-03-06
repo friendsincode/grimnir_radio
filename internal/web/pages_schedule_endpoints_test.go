@@ -791,6 +791,177 @@ func TestScheduleWritePathValidationErrors(t *testing.T) {
 	})
 }
 
+func TestScheduleRecurringInstanceWritePathsAndParity(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	h.eventBus = events.NewBus()
+	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+	for _, record := range []any{
+		&models.Webstream{ID: "ws-episode", StationID: station.ID, Name: "Episode Stream", URLs: []string{"https://example.test/live"}},
+		&models.MediaItem{ID: "media-episode", StationID: station.ID, Title: "Episode Track", Artist: "Episode Artist", Duration: 4 * time.Minute, Path: "episode.mp3"},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+
+	parent := models.ScheduleEntry{
+		ID:             "series-parent",
+		StationID:      station.ID,
+		MountID:        "m1",
+		StartsAt:       time.Date(2026, 3, 15, 18, 0, 0, 0, time.UTC),
+		EndsAt:         time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC),
+		SourceType:     "live",
+		SourceID:       "series-live",
+		RecurrenceType: models.RecurrenceDaily,
+		Metadata:       map[string]any{"session_name": "Nightly Show"},
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create recurring parent: %v", err)
+	}
+
+	createSub := h.eventBus.Subscribe(events.EventScheduleUpdate)
+	defer h.eventBus.Unsubscribe(events.EventScheduleUpdate, createSub)
+
+	editBody, _ := json.Marshal(map[string]any{
+		"starts_at":   "2026-03-16T18:30:00Z",
+		"ends_at":     "2026-03-16T20:00:00Z",
+		"source_type": "webstream",
+		"source_id":   "ws-episode",
+		"metadata": map[string]any{
+			"session_name": "Special Episode",
+		},
+		"edit_mode": "single",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/series-parent_20260316", bytes.NewReader(editBody))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "series-parent_20260316")
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.ScheduleUpdateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var createdInstance models.ScheduleEntry
+	if err := json.NewDecoder(rr.Body).Decode(&createdInstance); err != nil {
+		t.Fatalf("decode create-instance response: %v", err)
+	}
+	if !createdInstance.IsInstance || createdInstance.RecurrenceParentID == nil || *createdInstance.RecurrenceParentID != parent.ID {
+		t.Fatalf("expected recurring instance override, got %+v", createdInstance)
+	}
+	if createdInstance.SourceType != "webstream" || createdInstance.SourceID != "ws-episode" {
+		t.Fatalf("unexpected override source fields: %+v", createdInstance)
+	}
+	select {
+	case payload := <-createSub:
+		if payload["event"] != "create_instance" || payload["entry_id"] != createdInstance.ID {
+			t.Fatalf("unexpected create_instance payload: %+v", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected create_instance event")
+	}
+
+	t.Run("dashboard and public schedule agree on override visibility", func(t *testing.T) {
+		dashboardReq := scheduleRequest(http.MethodGet, "/dashboard/schedule/events?start=2026-03-15T00:00:00Z&end=2026-03-17T23:59:59Z&mount_id=m1&view=listWeek", nil, &station, "")
+		dashboardRR := httptest.NewRecorder()
+		h.ScheduleEvents(dashboardRR, dashboardReq)
+		if dashboardRR.Code != http.StatusOK {
+			t.Fatalf("dashboard schedule events failed: code=%d body=%s", dashboardRR.Code, dashboardRR.Body.String())
+		}
+		var dashboardPayload []map[string]any
+		if err := json.NewDecoder(dashboardRR.Body).Decode(&dashboardPayload); err != nil {
+			t.Fatalf("decode dashboard payload: %v", err)
+		}
+
+		publicStation := models.Station{ID: "pub-series", Name: "Public Series", Active: true, Public: true, Approved: true}
+		if err := db.Create(&publicStation).Error; err != nil {
+			t.Fatalf("create public station: %v", err)
+		}
+		if err := db.Create(&models.Mount{ID: "pub-m1", StationID: publicStation.ID, Name: "Public Main", Format: "mp3"}).Error; err != nil {
+			t.Fatalf("create public mount: %v", err)
+		}
+		pubParent := parent
+		pubParent.ID = "pub-series-parent"
+		pubParent.StationID = publicStation.ID
+		pubParent.MountID = "pub-m1"
+		pubParent.SourceID = "pub-series-live"
+		if err := db.Create(&pubParent).Error; err != nil {
+			t.Fatalf("create public parent: %v", err)
+		}
+		pubParentID := pubParent.ID
+		pubOverride := createdInstance
+		pubOverride.ID = "pub-series-override"
+		pubOverride.StationID = publicStation.ID
+		pubOverride.MountID = "pub-m1"
+		pubOverride.RecurrenceParentID = &pubParentID
+		if err := db.Create(&pubOverride).Error; err != nil {
+			t.Fatalf("create public override: %v", err)
+		}
+
+		publicReq := scheduleRequest(http.MethodGet, "/schedule/events?start=2026-03-15T00:00:00Z&end=2026-03-17T23:59:59Z&station_id=pub-series&theme=forest", nil, nil, "")
+		publicRR := httptest.NewRecorder()
+		h.PublicScheduleEvents(publicRR, publicReq)
+		if publicRR.Code != http.StatusOK {
+			t.Fatalf("public schedule events failed: code=%d body=%s", publicRR.Code, publicRR.Body.String())
+		}
+		var publicPayload []map[string]any
+		if err := json.NewDecoder(publicRR.Body).Decode(&publicPayload); err != nil {
+			t.Fatalf("decode public payload: %v", err)
+		}
+
+		assertHasOverride := func(events []map[string]any, label, overrideID string) {
+			var sawOverride, sawSuppressedVirtual bool
+			for _, event := range events {
+				if event["id"] == overrideID && event["title"] == "Episode Stream" {
+					sawOverride = true
+				}
+				if event["id"] == "series-parent_20260316" || event["id"] == "pub-series-parent_20260316" {
+					sawSuppressedVirtual = true
+				}
+			}
+			if !sawOverride || sawSuppressedVirtual {
+				t.Fatalf("%s payload did not preserve override parity: %+v", label, events)
+			}
+		}
+		assertHasOverride(dashboardPayload, "dashboard", createdInstance.ID)
+		assertHasOverride(publicPayload, "public", pubOverride.ID)
+	})
+
+	deleteSub := h.eventBus.Subscribe(events.EventScheduleUpdate)
+	defer h.eventBus.Unsubscribe(events.EventScheduleUpdate, deleteSub)
+
+	req = httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/series-parent_20260316", nil)
+	rctx = chi.NewRouteContext()
+	rctx.URLParams.Add("id", "series-parent_20260316")
+	ctx = context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr = httptest.NewRecorder()
+
+	h.ScheduleDeleteEntry(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var count int64
+	db.Model(&models.ScheduleEntry{}).Where("id = ?", createdInstance.ID).Count(&count)
+	if count != 0 {
+		t.Fatalf("expected concrete override instance to be deleted, remaining=%d", count)
+	}
+	select {
+	case payload := <-deleteSub:
+		if payload["event"] != "delete" || payload["entry_id"] != createdInstance.ID {
+			t.Fatalf("unexpected delete payload after virtual-id delete: %+v", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected delete event for concrete override instance")
+	}
+}
+
 func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	for _, record := range []any{
