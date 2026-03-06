@@ -752,6 +752,10 @@ func (h *Handler) MediaDetail(w http.ResponseWriter, r *http.Request) {
 	var history []models.PlayHistory
 	h.db.Where("media_id = ? AND station_id = ?", id, station.ID).Order("started_at DESC").Limit(20).Find(&history)
 
+	// Load mounts for queue actions
+	var mounts []models.Mount
+	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&mounts)
+
 	// Load usage references (playlists, schedule entries, clock slots)
 	usageMap := h.loadMediaUsage(r, station.ID, []string{id})
 	usage := usageMap[id]
@@ -771,6 +775,7 @@ func (h *Handler) MediaDetail(w http.ResponseWriter, r *http.Request) {
 		Data: map[string]any{
 			"Media":          media,
 			"History":        history,
+			"Mounts":         mounts,
 			"Usage":          usage,
 			"HashDuplicates": hashDuplicates,
 		},
