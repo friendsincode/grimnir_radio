@@ -1094,6 +1094,10 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 		if payload["clock"] == nil || payload["clock_trace"] == nil || len(payload["slots"].([]any)) != 4 {
 			t.Fatalf("unexpected clock detail payload: %+v", payload)
 		}
+		resolution := payload["resolution_summary"].(map[string]any)
+		if resolution["state"] != "ok" || resolution["configured_type"] != "clock_template" {
+			t.Fatalf("unexpected clock resolution summary: %+v", resolution)
+		}
 		clockTrace := payload["clock_trace"].(map[string]any)
 		played := clockTrace["played_tracks"].([]any)
 		if len(played) != 1 {
@@ -1558,6 +1562,10 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		if playlist["name"] != "Playlist One" || int(playlist["track_count"].(float64)) != 1 {
 			t.Fatalf("unexpected playlist payload: %+v", playlist)
 		}
+		resolution := payload["resolution_summary"].(map[string]any)
+		if resolution["resolved_as"] != "Playlist One" || resolution["state"] != "ok" {
+			t.Fatalf("unexpected playlist resolution summary: %+v", resolution)
+		}
 	})
 
 	t.Run("future smart block details stay pending before lookahead window", func(t *testing.T) {
@@ -1574,6 +1582,10 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		preview := payload["smart_block_preview"].(map[string]any)
 		if preview["status"] != "pending_materialization" {
 			t.Fatalf("unexpected smart block preview payload: %+v", preview)
+		}
+		resolution := payload["resolution_summary"].(map[string]any)
+		if resolution["state"] != "pending" {
+			t.Fatalf("expected pending resolution summary, got %+v", resolution)
 		}
 	})
 
@@ -1595,6 +1607,10 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		preview := payload["smart_block_preview"].(map[string]any)
 		if preview["status"] != "error" {
 			t.Fatalf("expected smart block error preview, got %+v", preview)
+		}
+		resolution := payload["resolution_summary"].(map[string]any)
+		if resolution["state"] != "attention" {
+			t.Fatalf("expected attention resolution summary, got %+v", resolution)
 		}
 	})
 
@@ -1628,6 +1644,10 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		firstTrack := tracks[0].(map[string]any)
 		if firstTrack["title"] == "" || firstTrack["artist"] != "Artist Ready" {
 			t.Fatalf("unexpected preview track payload: %+v", firstTrack)
+		}
+		resolution := payload["resolution_summary"].(map[string]any)
+		if resolution["state"] != "ok" || resolution["resolved_as"] != "Smart Ready" {
+			t.Fatalf("expected ready resolution summary, got %+v", resolution)
 		}
 	})
 }
