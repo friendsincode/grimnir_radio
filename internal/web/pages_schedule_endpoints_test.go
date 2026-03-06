@@ -53,6 +53,7 @@ func newScheduleEndpointTestHandler(t *testing.T) (*Handler, *gorm.DB, models.Us
 		&models.ScheduleRule{},
 		&models.ScheduleEntry{},
 		&models.PlayHistory{},
+		&models.MountPlayoutState{},
 		&models.Playlist{},
 		&models.PlaylistItem{},
 		&models.MediaItem{},
@@ -335,18 +336,20 @@ func TestScheduleEventsReturnsExpandedRecurringAndOrphanedEntries(t *testing.T) 
 
 func TestScheduleEventsHonorsMountFilterAndMetadataFallbacks(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
+	now := time.Now().UTC().Truncate(time.Minute)
 	for _, record := range []any{
 		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
 		&models.Mount{ID: "m2", StationID: station.ID, Name: "Alt", Format: "mp3"},
+		&models.MountPlayoutState{MountID: "m1", StationID: station.ID, EntryID: "show-meta", SourceType: "webstream", SourceID: "ws-runtime", StartedAt: now.Add(-time.Minute), EndsAt: now.Add(time.Minute), UpdatedAt: now},
 	} {
 		if err := db.Create(record).Error; err != nil {
 			t.Fatalf("seed record: %v", err)
 		}
 	}
 	entries := []models.ScheduleEntry{
-		{ID: "show-meta", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 7, 8, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 7, 9, 0, 0, 0, time.UTC), SourceType: "show", Metadata: map[string]any{"title": "Metadata Show"}},
-		{ID: "fallback-yellow", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 7, 9, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 7, 10, 0, 0, 0, time.UTC), SourceType: "live", Metadata: map[string]any{"emergency_fallback": true}},
-		{ID: "other-mount", StationID: station.ID, MountID: "m2", StartsAt: time.Date(2026, 3, 7, 11, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC), SourceType: "live", Metadata: map[string]any{"session_name": "Other Mount"}},
+		{ID: "show-meta", StationID: station.ID, MountID: "m1", StartsAt: now.Add(-10 * time.Minute), EndsAt: now.Add(50 * time.Minute), SourceType: "show", Metadata: map[string]any{"title": "Metadata Show"}},
+		{ID: "fallback-yellow", StationID: station.ID, MountID: "m1", StartsAt: now.Add(60 * time.Minute), EndsAt: now.Add(120 * time.Minute), SourceType: "live", Metadata: map[string]any{"emergency_fallback": true}},
+		{ID: "other-mount", StationID: station.ID, MountID: "m2", StartsAt: now.Add(180 * time.Minute), EndsAt: now.Add(240 * time.Minute), SourceType: "live", Metadata: map[string]any{"session_name": "Other Mount"}},
 	}
 	for _, entry := range entries {
 		if err := db.Create(&entry).Error; err != nil {
@@ -354,7 +357,7 @@ func TestScheduleEventsHonorsMountFilterAndMetadataFallbacks(t *testing.T) {
 		}
 	}
 
-	req := scheduleRequest(http.MethodGet, "/dashboard/schedule/events?start=2026-03-07T00:00:00Z&end=2026-03-08T00:00:00Z&mount_id=m1&view=listWeek", nil, &station, "")
+	req := scheduleRequest(http.MethodGet, "/dashboard/schedule/events?mount_id=m1&view=listWeek", nil, &station, "")
 	rr := httptest.NewRecorder()
 	h.ScheduleEvents(rr, req)
 	if rr.Code != http.StatusOK {
@@ -373,6 +376,9 @@ func TestScheduleEventsHonorsMountFilterAndMetadataFallbacks(t *testing.T) {
 	}
 	if byID["show-meta"]["title"] != "Metadata Show" {
 		t.Fatalf("expected metadata show title, got %+v", byID["show-meta"])
+	}
+	if byID["show-meta"]["extendedProps"].(map[string]any)["runtime_mismatch"] != true {
+		t.Fatalf("expected runtime mismatch on active entry, got %+v", byID["show-meta"])
 	}
 	props := byID["fallback-yellow"]["extendedProps"].(map[string]any)
 	if props["health"] != "yellow" || byID["fallback-yellow"]["title"] != "Live Session" {
@@ -797,6 +803,16 @@ func TestScheduleWritePathValidationErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("create rejects invalid json", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", strings.NewReader("{"))
+		req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+		rr := httptest.NewRecorder()
+		h.ScheduleCreateEntry(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
 	t.Run("update rejects overlap with sibling entry", func(t *testing.T) {
 		entry := models.ScheduleEntry{ID: "update-me", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 12, 13, 0, 0, 0, time.UTC), SourceType: "media", SourceID: "m2"}
 		if err := db.Create(&entry).Error; err != nil {
@@ -813,6 +829,24 @@ func TestScheduleWritePathValidationErrors(t *testing.T) {
 		h.ScheduleUpdateEntry(rr, req)
 		if rr.Code != http.StatusConflict {
 			t.Fatalf("expected 409, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("update rejects invalid json", func(t *testing.T) {
+		entry := models.ScheduleEntry{ID: "update-json", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 12, 14, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 12, 15, 0, 0, 0, time.UTC), SourceType: "media", SourceID: "m3"}
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create update-json entry: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/update-json", strings.NewReader("{"))
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "update-json")
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		ctx = context.WithValue(ctx, ctxKeyStation, &station)
+		req = req.WithContext(ctx)
+		rr := httptest.NewRecorder()
+		h.ScheduleUpdateEntry(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
 		}
 	})
 

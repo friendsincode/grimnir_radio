@@ -352,6 +352,7 @@ type DashboardConfidenceData struct {
 }
 
 type dashboardMountRuntime struct {
+	EntryID    string
 	MountID    string
 	MountName  string
 	MediaID    string
@@ -443,6 +444,7 @@ func (h *Handler) loadDashboardConfidenceData(r *http.Request, stationID string)
 				continue
 			}
 			data.CurrentMount = &dashboardMountRuntime{
+				EntryID:    state.EntryID,
 				MountID:    state.MountID,
 				MountName:  mountNames[state.MountID],
 				MediaID:    state.MediaID,
@@ -459,6 +461,7 @@ func (h *Handler) loadDashboardConfidenceData(r *http.Request, stationID string)
 	if data.CurrentMount == nil && len(mountStates) > 0 {
 		state := mountStates[0]
 		data.CurrentMount = &dashboardMountRuntime{
+			EntryID:    state.EntryID,
 			MountID:    state.MountID,
 			MountName:  mountNames[state.MountID],
 			MediaID:    state.MediaID,

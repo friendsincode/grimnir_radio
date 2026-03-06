@@ -481,6 +481,14 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		Extendedprops   any    `json:"extendedProps,omitempty"`
 	}
 
+	nowUTC := time.Now().UTC()
+	activeMountStates := make(map[string]models.MountPlayoutState)
+	var mountStates []models.MountPlayoutState
+	h.db.Where("station_id = ?", station.ID).Find(&mountStates)
+	for _, state := range mountStates {
+		activeMountStates[state.MountID] = state
+	}
+
 	events := make([]calendarEvent, 0, len(entries))
 	for _, entry := range entries {
 		// Get title based on source type and detect orphaned references
@@ -578,6 +586,8 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 		className := "event-" + entry.SourceType
 		health := "green"
+		runtimeMismatch := false
+		runtimeMismatchReason := ""
 		if orphaned {
 			className = "event-orphaned"
 			health = "red"
@@ -588,6 +598,20 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 				health = "yellow"
 			}
 		}
+		if entry.StartsAt.Before(nowUTC) && entry.EndsAt.After(nowUTC) {
+			if mountState, ok := activeMountStates[entry.MountID]; ok {
+				if mountState.SourceType != "" && mountState.SourceType != entry.SourceType {
+					runtimeMismatch = true
+					runtimeMismatchReason = fmt.Sprintf("Runtime source type is %s while schedule expects %s.", mountState.SourceType, entry.SourceType)
+				} else if entry.SourceType != "live" && entry.SourceID != "" && mountState.SourceID != "" && mountState.SourceID != entry.SourceID {
+					runtimeMismatch = true
+					runtimeMismatchReason = "Runtime source does not match the configured schedule source."
+				}
+			}
+		}
+		if runtimeMismatch && health == "green" {
+			health = "yellow"
+		}
 
 		event := calendarEvent{
 			ID:        entry.ID,
@@ -596,16 +620,18 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 			End:       entry.EndsAt.Format(time.RFC3339),
 			ClassName: className,
 			Extendedprops: map[string]any{
-				"source_type":  entry.SourceType,
-				"source_id":    entry.SourceID,
-				"source_label": sourceLabel,
-				"source_name":  title,
-				"mount_id":     entry.MountID,
-				"metadata":     entry.Metadata,
-				"recurrence":   recurrenceInfo,
-				"is_instance":  entry.IsInstance,
-				"orphaned":     orphaned,
-				"health":       health,
+				"source_type":             entry.SourceType,
+				"source_id":               entry.SourceID,
+				"source_label":            sourceLabel,
+				"source_name":             title,
+				"mount_id":                entry.MountID,
+				"metadata":                entry.Metadata,
+				"recurrence":              recurrenceInfo,
+				"is_instance":             entry.IsInstance,
+				"orphaned":                orphaned,
+				"health":                  health,
+				"runtime_mismatch":        runtimeMismatch,
+				"runtime_mismatch_reason": runtimeMismatchReason,
 			},
 		}
 

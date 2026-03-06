@@ -45,8 +45,9 @@ func TestDashboardPlayoutConfidenceRendersQueueHealthAndActions(t *testing.T) {
 	station := models.Station{ID: "s1", Name: "Station One", Active: true}
 	mount := models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3", URL: "/live/main"}
 	media := models.MediaItem{ID: "track-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Path: "track1.mp3"}
+	playlist := models.Playlist{ID: "playlist-1", StationID: station.ID, Name: "Primary Playlist"}
 
-	for _, record := range []any{&user, &station, &mount, &media} {
+	for _, record := range []any{&user, &station, &mount, &media, &playlist} {
 		if err := db.Create(record).Error; err != nil {
 			t.Fatalf("seed record: %v", err)
 		}
@@ -151,6 +152,8 @@ func TestDashboardPlayoutConfidenceRendersQueueHealthAndActions(t *testing.T) {
 		"1400 ms",
 		"Underruns: <strong>2</strong>",
 		"Expected Schedule",
+		"/dashboard/schedule?entry_details=entry-1",
+		"/dashboard/schedule?edit_entry=entry-1",
 		"Track One",
 		"Artist One",
 		"playout.queue.add",

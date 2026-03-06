@@ -97,6 +97,12 @@
         color: #fff !important;
         box-shadow: 0 0 0 2px rgba(var(--bs-danger-rgb), 0.35);
     }
+    .fc-event.event-runtime-mismatch {
+        box-shadow: 0 0 0 2px rgba(var(--bs-warning-rgb), 0.55);
+        background-image: repeating-linear-gradient(
+            -45deg, transparent, transparent 6px, rgba(255,255,255,0.12) 6px, rgba(255,255,255,0.12) 12px
+        ) !important;
+    }
     /* Badge for purple/clock type */
     .badge.bg-purple { background-color: var(--calendar-color-clock) !important; }
     .badge.bg-pink { background-color: var(--calendar-color-show) !important; }
@@ -1291,6 +1297,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const type = props.source_type;
             const classes = ['event-' + (type || 'media')];
             if (props.overlap_highlight || overlapEventIDs.has(arg.event.id)) classes.push('event-overlap');
+            if (props.runtime_mismatch) classes.push('event-runtime-mismatch');
             return classes;
         },
 
@@ -1356,6 +1363,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 dot.title = health === 'red' ? 'Missing source' : 'Fallback or relaxed constraints';
                 const fc = info.el.querySelector('.fc-event-main') || info.el;
                 fc.prepend(dot);
+            }
+            if (info.event.extendedProps?.runtime_mismatch) {
+                info.el.title = info.event.extendedProps.runtime_mismatch_reason || 'Runtime does not match the scheduled source.';
             }
         },
 
@@ -3673,6 +3683,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const canManageIRT = {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}true{{else}}false{{end}};
     let irtRefreshTimer = null;
     let pendingEditEntryId = new URLSearchParams(window.location.search).get('edit_entry');
+    let pendingDetailsEntryId = new URLSearchParams(window.location.search).get('entry_details');
 
     // Validate schedule button
     document.getElementById('validateScheduleBtn')?.addEventListener('click', function() {
@@ -3933,6 +3944,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (pendingEditEntryId) {
                 openEntryForEdit(pendingEditEntryId);
             }
+            if (pendingDetailsEntryId) {
+                openEntryForDetails(pendingDetailsEntryId);
+            }
         } catch (err) {
             nowPlayingEl.innerHTML = '<span class="text-danger">Failed to load IRT state.</span>';
         }
@@ -4034,6 +4048,23 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         pendingEditEntryId = null;
         openEditModal(event);
+    };
+
+    window.openEntryForDetails = function(entryID, targetStart = null) {
+        const event = calendar.getEventById(entryID);
+        if (!event) {
+            pendingDetailsEntryId = entryID;
+            if (targetStart) {
+                const date = new Date(targetStart);
+                if (!isNaN(date.getTime())) {
+                    calendar.gotoDate(date);
+                }
+            }
+            calendar.refetchEvents();
+            return;
+        }
+        pendingDetailsEntryId = null;
+        showEventDetails(event);
     };
 
     window.openConflictItem = function(itemID, itemType, startsAt = '') {
