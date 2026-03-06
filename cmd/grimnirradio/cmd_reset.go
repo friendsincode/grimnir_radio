@@ -171,6 +171,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 		&models.ClockHour{},
 		&models.ScheduleEntry{},
 		&models.PlayHistory{},
+		&models.PlayoutQueueItem{},
 		&models.AnalysisJob{},
 		&models.PrioritySource{},
 		&models.ExecutorState{},
