@@ -8,6 +8,7 @@ package web
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -342,10 +343,12 @@ type NowPlayingInfo struct {
 }
 
 type DashboardConfidenceData struct {
-	RuntimeState  *models.ExecutorState
-	CurrentMount  *dashboardMountRuntime
-	QueuedByMount []dashboardQueuedMount
-	RecentActions []dashboardActionEntry
+	RuntimeState    *models.ExecutorState
+	CurrentMount    *dashboardMountRuntime
+	ExpectedMount   *dashboardExpectedMount
+	MismatchReasons []string
+	QueuedByMount   []dashboardQueuedMount
+	RecentActions   []dashboardActionEntry
 }
 
 type dashboardMountRuntime struct {
@@ -358,6 +361,18 @@ type dashboardMountRuntime struct {
 	TotalItems int
 	StartedAt  time.Time
 	EndsAt     time.Time
+}
+
+type dashboardExpectedMount struct {
+	EntryID    string
+	Title      string
+	SourceType string
+	SourceID   string
+	MountID    string
+	MountName  string
+	StartsAt   time.Time
+	EndsAt     time.Time
+	IsOverride bool
 }
 
 type dashboardQueuedMount struct {
@@ -456,6 +471,30 @@ func (h *Handler) loadDashboardConfidenceData(r *http.Request, stationID string)
 		}
 	}
 
+	activeMountID := ""
+	if data.CurrentMount != nil {
+		activeMountID = data.CurrentMount.MountID
+	} else if data.RuntimeState != nil {
+		activeMountID = data.RuntimeState.MountID
+	}
+	if activeMountID != "" {
+		data.ExpectedMount = h.loadExpectedCurrentSchedule(r, stationID, activeMountID, mountNames)
+	}
+	if data.ExpectedMount != nil && data.CurrentMount == nil {
+		data.MismatchReasons = append(data.MismatchReasons, "Schedule expects content on the active window, but runtime has no current playout state for that mount.")
+	}
+	if data.ExpectedMount == nil && data.CurrentMount != nil {
+		data.MismatchReasons = append(data.MismatchReasons, "Runtime is active on this mount, but no schedule entry currently covers this time window.")
+	}
+	if data.ExpectedMount != nil && data.CurrentMount != nil {
+		if data.ExpectedMount.SourceType != data.CurrentMount.SourceType {
+			data.MismatchReasons = append(data.MismatchReasons, fmt.Sprintf("Source type mismatch: schedule expects %s but runtime reports %s.", data.ExpectedMount.SourceType, data.CurrentMount.SourceType))
+		}
+		if data.ExpectedMount.SourceType != "live" && data.ExpectedMount.SourceID != "" && data.CurrentMount.SourceID != "" && data.ExpectedMount.SourceID != data.CurrentMount.SourceID {
+			data.MismatchReasons = append(data.MismatchReasons, "Source identity mismatch: runtime is not reporting the same configured source.")
+		}
+	}
+
 	var queueRows []models.PlayoutQueueItem
 	_ = h.db.WithContext(r.Context()).
 		Where("station_id = ?", stationID).
@@ -547,6 +586,98 @@ func (h *Handler) loadDashboardConfidenceData(r *http.Request, stationID string)
 	}
 
 	return data
+}
+
+func (h *Handler) loadExpectedCurrentSchedule(r *http.Request, stationID, mountID string, mountNames map[string]string) *dashboardExpectedMount {
+	now := time.Now().UTC()
+
+	query := h.db.WithContext(r.Context()).
+		Where("station_id = ? AND mount_id = ? AND starts_at < ? AND ends_at > ? AND (recurrence_type = '' OR recurrence_type IS NULL OR is_instance = true)",
+			stationID, mountID, now, now)
+	var entries []models.ScheduleEntry
+	_ = query.Order("starts_at DESC").Find(&entries).Error
+
+	instanceOverrides := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsInstance && entry.RecurrenceParentID != nil {
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+		}
+	}
+	var recurring []models.ScheduleEntry
+	_ = h.db.WithContext(r.Context()).
+		Where("station_id = ? AND mount_id = ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false",
+			stationID, mountID).
+		Find(&recurring).Error
+	for _, re := range recurring {
+		for _, inst := range h.expandRecurringEntry(re, now.Add(-24*time.Hour), now.Add(24*time.Hour), instanceOverrides) {
+			if inst.StartsAt.Before(now) && inst.EndsAt.After(now) {
+				entries = append(entries, inst)
+			}
+		}
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].IsInstance != entries[j].IsInstance {
+			return entries[i].IsInstance
+		}
+		if entries[i].StartsAt.Equal(entries[j].StartsAt) {
+			return entries[i].ID < entries[j].ID
+		}
+		return entries[i].StartsAt.After(entries[j].StartsAt)
+	})
+	entry := entries[0]
+	title := entry.SourceType
+	switch entry.SourceType {
+	case "playlist":
+		var playlist models.Playlist
+		if err := h.db.WithContext(r.Context()).Select("id, name").First(&playlist, "id = ?", entry.SourceID).Error; err == nil {
+			title = playlist.Name
+		}
+	case "smart_block":
+		var block models.SmartBlock
+		if err := h.db.WithContext(r.Context()).Select("id, name").First(&block, "id = ?", entry.SourceID).Error; err == nil {
+			title = block.Name
+		}
+	case "clock_template":
+		var clock models.ClockHour
+		if err := h.db.WithContext(r.Context()).Select("id, name").First(&clock, "id = ?", entry.SourceID).Error; err == nil {
+			title = clock.Name
+		}
+	case "webstream":
+		var stream models.Webstream
+		if err := h.db.WithContext(r.Context()).Select("id, name").First(&stream, "id = ?", entry.SourceID).Error; err == nil {
+			title = stream.Name
+		}
+	case "media":
+		var media models.MediaItem
+		if err := h.db.WithContext(r.Context()).Select("id, title, artist").First(&media, "id = ?", entry.SourceID).Error; err == nil {
+			if media.Artist != "" {
+				title = media.Artist + " - " + media.Title
+			} else {
+				title = media.Title
+			}
+		}
+	case "live":
+		if name, ok := entry.Metadata["session_name"].(string); ok && strings.TrimSpace(name) != "" {
+			title = name
+		} else {
+			title = "Live Session"
+		}
+	}
+
+	return &dashboardExpectedMount{
+		EntryID:    entry.ID,
+		Title:      title,
+		SourceType: entry.SourceType,
+		SourceID:   entry.SourceID,
+		MountID:    entry.MountID,
+		MountName:  mountNames[entry.MountID],
+		StartsAt:   entry.StartsAt,
+		EndsAt:     entry.EndsAt,
+		IsOverride: entry.IsInstance,
+	}
 }
 
 // StationSelect renders the station selection page
