@@ -796,7 +796,9 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 	for _, record := range []any{
 		&models.MediaItem{ID: "media-hard", StationID: station.ID, Title: "Hard Track", Artist: "Artist Hard", Duration: 150 * time.Second, Path: "hard.mp3"},
 		&models.MediaItem{ID: "media-pl", StationID: station.ID, Title: "Playlist Track", Artist: "Artist Playlist", Duration: 180 * time.Second, Path: "playlist.mp3"},
+		&models.MediaItem{ID: "media-sb", StationID: station.ID, Title: "Smart Slot Track", Artist: "Artist Smart", Genre: "ClockGenre", Duration: 210 * time.Second, Path: "smart.mp3", AnalysisState: models.AnalysisComplete},
 		&models.Playlist{ID: "pl-clock", StationID: station.ID, Name: "Clock Playlist"},
+		&models.SmartBlock{ID: "sb-clock", StationID: station.ID, Name: "Clock Smart Block", Rules: map[string]any{"genre": "ClockGenre"}},
 		&models.ClockHour{ID: "clock-1", StationID: station.ID, Name: "Clock One"},
 		&models.Webstream{ID: "ws-slot", StationID: station.ID, Name: "Slot Relay", URLs: []string{"https://slot.example/stream"}},
 		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
@@ -812,6 +814,7 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 		{ID: "slot-pl", ClockHourID: "clock-1", Position: 1, Offset: 0, Type: models.SlotTypePlaylist, Payload: map[string]any{"playlist_id": "pl-clock"}},
 		{ID: "slot-hard", ClockHourID: "clock-1", Position: 2, Offset: 15 * time.Minute, Type: models.SlotTypeHardItem, Payload: map[string]any{"media_id": "media-hard"}},
 		{ID: "slot-web", ClockHourID: "clock-1", Position: 3, Offset: 30 * time.Minute, Type: models.SlotTypeWebstream, Payload: map[string]any{"webstream_id": "ws-slot"}},
+		{ID: "slot-sb", ClockHourID: "clock-1", Position: 4, Offset: 45 * time.Minute, Type: models.SlotTypeSmartBlock, Payload: map[string]any{"smart_block_id": "sb-clock"}},
 	} {
 		if err := db.Create(&slot).Error; err != nil {
 			t.Fatalf("create clock slot: %v", err)
@@ -846,7 +849,7 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode payload: %v", err)
 		}
-		if payload["clock"] == nil || payload["clock_trace"] == nil || len(payload["slots"].([]any)) != 3 {
+		if payload["clock"] == nil || payload["clock_trace"] == nil || len(payload["slots"].([]any)) != 4 {
 			t.Fatalf("unexpected clock detail payload: %+v", payload)
 		}
 		clockTrace := payload["clock_trace"].(map[string]any)
@@ -855,16 +858,21 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 			t.Fatalf("expected one played track in trace, got %+v", played)
 		}
 		queued := clockTrace["queued_slots"].([]any)
-		if len(queued) != 3 {
-			t.Fatalf("expected three queued slot traces, got %+v", queued)
+		if len(queued) != 4 {
+			t.Fatalf("expected four queued slot traces, got %+v", queued)
 		}
 		webSlot := queued[2].(map[string]any)
 		if webSlot["webstream"] == nil {
 			t.Fatalf("expected webstream trace on third slot, got %+v", webSlot)
 		}
+		smartSlot := queued[3].(map[string]any)
+		preview := smartSlot["smart_block_preview"].(map[string]any)
+		if preview["status"] != "ready" || int(preview["track_count"].(float64)) == 0 {
+			t.Fatalf("expected resolved smart block preview on fourth slot, got %+v", smartSlot)
+		}
 	})
 
-	t.Run("source tracks expands clock playlist and hard item", func(t *testing.T) {
+	t.Run("source tracks expands clock playlist hard item and smart block", func(t *testing.T) {
 		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/source-tracks?source_type=clock_template&source_id=clock-1&starts_at=2026-03-12T12:00:00Z&ends_at=2026-03-12T13:00:00Z&mount_id=m1", nil, &station, "")
 		rr := httptest.NewRecorder()
 		h.ScheduleSourceTracks(rr, req)
@@ -881,11 +889,11 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode payload: %v", err)
 		}
-		if payload.SourceName != "Clock One" || payload.TrackCount != 2 {
+		if payload.SourceName != "Clock One" || payload.TrackCount != 3 {
 			t.Fatalf("unexpected clock source tracks payload: %+v", payload)
 		}
-		titles := []string{payload.Tracks[0].Title, payload.Tracks[1].Title}
-		if !(containsStringValue(titles, "Playlist Track") && containsStringValue(titles, "Hard Track")) {
+		titles := []string{payload.Tracks[0].Title, payload.Tracks[1].Title, payload.Tracks[2].Title}
+		if !(containsStringValue(titles, "Playlist Track") && containsStringValue(titles, "Hard Track") && containsStringValue(titles, "Smart Slot Track")) {
 			t.Fatalf("unexpected track titles: %+v", titles)
 		}
 	})
@@ -1106,6 +1114,89 @@ func TestPublicScheduleAndEventsFilterToPublicStations(t *testing.T) {
 	})
 }
 
+func TestPublicScheduleEventsExpandsRecurringProgramsAndPrefersOverrides(t *testing.T) {
+	h, db, _, _ := newScheduleEndpointTestHandler(t)
+	publicStation := models.Station{ID: "pub-rec", Name: "Recurring Public", Active: true, Public: true, Approved: true}
+	if err := db.Create(&publicStation).Error; err != nil {
+		t.Fatalf("create public station: %v", err)
+	}
+	if err := db.Create(&models.Mount{ID: "pub-mount", StationID: publicStation.ID, Name: "Public Mount", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	startA := time.Date(2026, 3, 10, 15, 0, 0, 0, time.UTC)
+	parentID := "recurring-live"
+	if err := db.Create(&models.ScheduleEntry{
+		ID:                 parentID,
+		StationID:          publicStation.ID,
+		MountID:            "pub-mount",
+		StartsAt:           startA,
+		EndsAt:             startA.Add(time.Hour),
+		SourceType:         "live",
+		RecurrenceType:     models.RecurrenceDaily,
+		Metadata:           map[string]any{"title": "Daily Public Show"},
+		RecurrenceDays:     []int{},
+		IsInstance:         false,
+		RecurrenceParentID: nil,
+	}).Error; err != nil {
+		t.Fatalf("create recurring parent: %v", err)
+	}
+
+	overrideParent := parentID
+	overrideStart := startA.Add(24 * time.Hour)
+	if err := db.Create(&models.ScheduleEntry{
+		ID:                 "recurring-live-override",
+		StationID:          publicStation.ID,
+		MountID:            "pub-mount",
+		StartsAt:           overrideStart,
+		EndsAt:             overrideStart.Add(90 * time.Minute),
+		SourceType:         "live",
+		IsInstance:         true,
+		RecurrenceParentID: &overrideParent,
+		Metadata:           map[string]any{"session_name": "Override Special"},
+	}).Error; err != nil {
+		t.Fatalf("create recurring override: %v", err)
+	}
+
+	req := scheduleRequest(http.MethodGet, "/schedule/events?start=2026-03-10T00:00:00Z&end=2026-03-12T23:59:59Z&theme=forest", nil, nil, "")
+	rr := httptest.NewRecorder()
+	h.PublicScheduleEvents(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var payload []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload) != 3 {
+		t.Fatalf("expected three events after recurrence expansion, got %+v", payload)
+	}
+
+	var sawParentDay1, sawParentDay3, sawOverride bool
+	for _, event := range payload {
+		switch event["id"] {
+		case "recurring-live_20260310":
+			sawParentDay1 = true
+			if event["title"] != "Live Session" {
+				t.Fatalf("expected public live fallback title on day 1, got %+v", event)
+			}
+		case "recurring-live_20260311":
+			t.Fatalf("virtual instance should have been suppressed by explicit override: %+v", event)
+		case "recurring-live_20260312":
+			sawParentDay3 = true
+		case "recurring-live-override":
+			sawOverride = true
+			if event["title"] != "Override Special" {
+				t.Fatalf("expected override session name, got %+v", event)
+			}
+		}
+	}
+	if !sawParentDay1 || !sawParentDay3 || !sawOverride {
+		t.Fatalf("missing expected recurring/override events: %+v", payload)
+	}
+}
+
 func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	if err := db.Save(&models.SystemSettings{ID: 1, SchedulerLookahead: "24h"}).Error; err != nil {
@@ -1113,8 +1204,11 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 	}
 	for _, record := range []any{
 		&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Duration: 210 * time.Second, Path: "track1.mp3"},
+		&models.MediaItem{ID: "media-ready-1", StationID: station.ID, Title: "Ready One", Artist: "Artist Ready", Genre: "ReadyGenre", Duration: 240 * time.Second, Path: "ready1.mp3", AnalysisState: models.AnalysisComplete},
+		&models.MediaItem{ID: "media-ready-2", StationID: station.ID, Title: "Ready Two", Artist: "Artist Ready", Genre: "ReadyGenre", Duration: 180 * time.Second, Path: "ready2.mp3", AnalysisState: models.AnalysisComplete},
 		&models.Playlist{ID: "pl-1", StationID: station.ID, Name: "Playlist One"},
 		&models.SmartBlock{ID: "sb-1", StationID: station.ID, Name: "Smart Future", Rules: map[string]any{"mode": "test"}},
+		&models.SmartBlock{ID: "sb-ready", StationID: station.ID, Name: "Smart Ready", Rules: map[string]any{"genre": "ReadyGenre"}},
 		&models.SmartBlock{ID: "sb-empty", StationID: station.ID, Name: "Smart Empty", Rules: map[string]any{"genre": "NoSuchGenreAnywhere"}},
 	} {
 		if err := db.Create(record).Error; err != nil {
@@ -1186,6 +1280,39 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		preview := payload["smart_block_preview"].(map[string]any)
 		if preview["status"] != "error" {
 			t.Fatalf("expected smart block error preview, got %+v", preview)
+		}
+	})
+
+	t.Run("smart block inside lookahead returns resolved preview tracks", func(t *testing.T) {
+		start := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Minute)
+		entry := models.ScheduleEntry{ID: "entry-smart-ready", StationID: station.ID, MountID: "m1", StartsAt: start, EndsAt: start.Add(30 * time.Minute), SourceType: "smart_block", SourceID: "sb-ready"}
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create ready smart block entry: %v", err)
+		}
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/entry-smart-ready", nil, &station, "entry-smart-ready")
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		preview := payload["smart_block_preview"].(map[string]any)
+		if preview["status"] != "ready" {
+			t.Fatalf("expected ready smart block preview, got %+v", preview)
+		}
+		if int(preview["track_count"].(float64)) == 0 || int(preview["total_duration_s"].(float64)) == 0 {
+			t.Fatalf("expected generated tracks in smart block preview, got %+v", preview)
+		}
+		tracks := preview["tracks"].([]any)
+		if len(tracks) == 0 {
+			t.Fatalf("expected preview tracks, got %+v", preview)
+		}
+		firstTrack := tracks[0].(map[string]any)
+		if firstTrack["title"] == "" || firstTrack["artist"] != "Artist Ready" {
+			t.Fatalf("unexpected preview track payload: %+v", firstTrack)
 		}
 	})
 }
