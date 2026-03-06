@@ -324,6 +324,7 @@ func (h *Handler) Routes(r chi.Router) {
 
 				// Playout controls
 				r.Route("/playout", func(r chi.Router) {
+					r.Get("/confidence", h.DashboardPlayoutConfidence)
 					r.Post("/skip", h.PlayoutSkip)
 					r.Post("/stop", h.PlayoutStop)
 					r.Post("/reload", h.PlayoutReload)

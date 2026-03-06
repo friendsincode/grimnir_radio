@@ -20,6 +20,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -739,6 +740,22 @@ func (h *Handler) PlayoutSkip(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to skip track: %v", err), http.StatusInternalServerError)
 		return
 	}
+	if h.eventBus != nil {
+		user := h.GetUser(r)
+		payload := events.Payload{
+			"station_id":    station.ID,
+			"resource_type": "playout",
+			"resource_id":   station.ID,
+			"mount_count":   skipped,
+			"ip_address":    r.RemoteAddr,
+			"user_agent":    r.UserAgent(),
+		}
+		if user != nil {
+			payload["user_id"] = user.ID
+			payload["user_email"] = user.Email
+		}
+		h.eventBus.Publish(events.EventAuditPlayoutSkip, payload)
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Write([]byte(fmt.Sprintf(`<div class="alert alert-success">Skipped on %d active mount(s)</div>`, skipped)))
@@ -766,6 +783,22 @@ func (h *Handler) PlayoutStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to stop playout: %v", err), http.StatusInternalServerError)
 		return
 	}
+	if h.eventBus != nil {
+		user := h.GetUser(r)
+		payload := events.Payload{
+			"station_id":    station.ID,
+			"resource_type": "playout",
+			"resource_id":   station.ID,
+			"mount_count":   stopped,
+			"ip_address":    r.RemoteAddr,
+			"user_agent":    r.UserAgent(),
+		}
+		if user != nil {
+			payload["user_id"] = user.ID
+			payload["user_email"] = user.Email
+		}
+		h.eventBus.Publish(events.EventAuditPlayoutStop, payload)
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Write([]byte(fmt.Sprintf(`<div class="alert alert-warning">Playout stopped on %d mount(s)</div>`, stopped)))
@@ -792,6 +825,22 @@ func (h *Handler) PlayoutReload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to reload playout: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if h.eventBus != nil {
+		user := h.GetUser(r)
+		payload := events.Payload{
+			"station_id":    station.ID,
+			"resource_type": "playout",
+			"resource_id":   station.ID,
+			"mount_count":   reloaded,
+			"ip_address":    r.RemoteAddr,
+			"user_agent":    r.UserAgent(),
+		}
+		if user != nil {
+			payload["user_id"] = user.ID
+			payload["user_email"] = user.Email
+		}
+		h.eventBus.Publish(events.EventAuditPlayoutReload, payload)
 	}
 
 	if r.Header.Get("HX-Request") == "true" {

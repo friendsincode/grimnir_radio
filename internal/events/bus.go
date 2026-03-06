@@ -59,6 +59,12 @@ const (
 	// Audit events (for operations that need explicit audit logging)
 	EventAuditAPIKeyCreate       EventType = "audit.apikey.create"
 	EventAuditAPIKeyRevoke       EventType = "audit.apikey.revoke"
+	EventAuditPlayoutQueueAdd    EventType = "audit.playout.queue.add"
+	EventAuditPlayoutQueueMove   EventType = "audit.playout.queue.move"
+	EventAuditPlayoutQueueDelete EventType = "audit.playout.queue.delete"
+	EventAuditPlayoutSkip        EventType = "audit.playout.skip"
+	EventAuditPlayoutStop        EventType = "audit.playout.stop"
+	EventAuditPlayoutReload      EventType = "audit.playout.reload"
 	EventAuditWebstreamCreate    EventType = "audit.webstream.create"
 	EventAuditWebstreamUpdate    EventType = "audit.webstream.update"
 	EventAuditWebstreamDelete    EventType = "audit.webstream.delete"

@@ -328,6 +328,7 @@ type DashboardData struct {
 	PeakToday        int
 	Avg24h           float64
 	NowPlaying       *NowPlayingInfo
+	Confidence       DashboardConfidenceData
 }
 
 // NowPlayingInfo holds current playback info
@@ -338,6 +339,214 @@ type NowPlayingInfo struct {
 	Duration time.Duration
 	Elapsed  time.Duration
 	MountID  string
+}
+
+type DashboardConfidenceData struct {
+	RuntimeState  *models.ExecutorState
+	CurrentMount  *dashboardMountRuntime
+	QueuedByMount []dashboardQueuedMount
+	RecentActions []dashboardActionEntry
+}
+
+type dashboardMountRuntime struct {
+	MountID    string
+	MountName  string
+	MediaID    string
+	SourceType string
+	SourceID   string
+	Position   int
+	TotalItems int
+	StartedAt  time.Time
+	EndsAt     time.Time
+}
+
+type dashboardQueuedMount struct {
+	MountID   string
+	MountName string
+	Items     []dashboardQueueItem
+}
+
+type dashboardQueueItem struct {
+	ID        string
+	MediaID   string
+	Title     string
+	Artist    string
+	Position  int
+	CreatedAt time.Time
+}
+
+type dashboardActionEntry struct {
+	Action    models.AuditAction
+	UserEmail string
+	MountID   string
+	MediaID   string
+	Position  int
+	Count     int
+	CreatedAt time.Time
+}
+
+// DashboardPlayoutConfidence renders the runtime queue/health/action panel.
+func (h *Handler) DashboardPlayoutConfidence(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	h.RenderPartial(w, r, "partials/dashboard-playout-confidence", h.loadDashboardConfidenceData(r, station.ID))
+}
+
+func (h *Handler) loadDashboardConfidenceData(r *http.Request, stationID string) DashboardConfidenceData {
+	data := DashboardConfidenceData{}
+
+	var runtimeState models.ExecutorState
+	if err := h.db.WithContext(r.Context()).
+		Where("station_id = ?", stationID).
+		First(&runtimeState).Error; err == nil {
+		data.RuntimeState = &runtimeState
+	}
+
+	var mountStates []models.MountPlayoutState
+	_ = h.db.WithContext(r.Context()).
+		Where("station_id = ?", stationID).
+		Order("updated_at DESC").
+		Find(&mountStates).Error
+
+	var mounts []models.Mount
+	_ = h.db.WithContext(r.Context()).
+		Where("station_id = ?", stationID).
+		Order("name ASC").
+		Find(&mounts).Error
+	mountNames := make(map[string]string, len(mounts))
+	for _, mount := range mounts {
+		mountNames[mount.ID] = mount.Name
+	}
+
+	if data.RuntimeState != nil && data.RuntimeState.MountID != "" {
+		for _, state := range mountStates {
+			if state.MountID != data.RuntimeState.MountID {
+				continue
+			}
+			data.CurrentMount = &dashboardMountRuntime{
+				MountID:    state.MountID,
+				MountName:  mountNames[state.MountID],
+				MediaID:    state.MediaID,
+				SourceType: state.SourceType,
+				SourceID:   state.SourceID,
+				Position:   state.Position,
+				TotalItems: state.TotalItems,
+				StartedAt:  state.StartedAt,
+				EndsAt:     state.EndsAt,
+			}
+			break
+		}
+	}
+	if data.CurrentMount == nil && len(mountStates) > 0 {
+		state := mountStates[0]
+		data.CurrentMount = &dashboardMountRuntime{
+			MountID:    state.MountID,
+			MountName:  mountNames[state.MountID],
+			MediaID:    state.MediaID,
+			SourceType: state.SourceType,
+			SourceID:   state.SourceID,
+			Position:   state.Position,
+			TotalItems: state.TotalItems,
+			StartedAt:  state.StartedAt,
+			EndsAt:     state.EndsAt,
+		}
+	}
+
+	var queueRows []models.PlayoutQueueItem
+	_ = h.db.WithContext(r.Context()).
+		Where("station_id = ?", stationID).
+		Order("mount_id ASC, position ASC, created_at ASC").
+		Limit(12).
+		Find(&queueRows).Error
+
+	mediaIDs := make([]string, 0, len(queueRows))
+	for _, row := range queueRows {
+		mediaIDs = append(mediaIDs, row.MediaID)
+	}
+	mediaByID := map[string]models.MediaItem{}
+	if len(mediaIDs) > 0 {
+		var mediaItems []models.MediaItem
+		_ = h.db.WithContext(r.Context()).
+			Select("id, title, artist").
+			Where("id IN ?", mediaIDs).
+			Find(&mediaItems).Error
+		for _, item := range mediaItems {
+			mediaByID[item.ID] = item
+		}
+	}
+
+	queueByMount := make(map[string][]dashboardQueueItem)
+	mountOrder := make([]string, 0, len(queueRows))
+	for _, row := range queueRows {
+		if _, ok := queueByMount[row.MountID]; !ok {
+			mountOrder = append(mountOrder, row.MountID)
+		}
+		media := mediaByID[row.MediaID]
+		queueByMount[row.MountID] = append(queueByMount[row.MountID], dashboardQueueItem{
+			ID:        row.ID,
+			MediaID:   row.MediaID,
+			Title:     media.Title,
+			Artist:    media.Artist,
+			Position:  row.Position,
+			CreatedAt: row.CreatedAt,
+		})
+	}
+	for _, mountID := range mountOrder {
+		data.QueuedByMount = append(data.QueuedByMount, dashboardQueuedMount{
+			MountID:   mountID,
+			MountName: mountNames[mountID],
+			Items:     queueByMount[mountID],
+		})
+	}
+
+	var logs []models.AuditLog
+	_ = h.db.WithContext(r.Context()).
+		Where("station_id = ? AND action IN ?", stationID, []models.AuditAction{
+			models.AuditActionPlayoutQueueAdd,
+			models.AuditActionPlayoutQueueMove,
+			models.AuditActionPlayoutQueueDelete,
+			models.AuditActionPlayoutSkip,
+			models.AuditActionPlayoutStop,
+			models.AuditActionPlayoutReload,
+			models.AuditActionScheduleRefresh,
+			models.AuditActionScheduleUpdate,
+		}).
+		Order("timestamp DESC").
+		Limit(8).
+		Find(&logs).Error
+
+	for _, log := range logs {
+		entry := dashboardActionEntry{
+			Action:    log.Action,
+			UserEmail: log.UserEmail,
+			CreatedAt: log.Timestamp,
+		}
+		if mountID, ok := log.Details["mount_id"].(string); ok {
+			entry.MountID = mountID
+		}
+		if mediaID, ok := log.Details["media_id"].(string); ok {
+			entry.MediaID = mediaID
+		}
+		if pos, ok := log.Details["position"].(float64); ok {
+			entry.Position = int(pos)
+		}
+		if pos, ok := log.Details["position"].(int); ok {
+			entry.Position = pos
+		}
+		if count, ok := log.Details["mount_count"].(float64); ok {
+			entry.Count = int(count)
+		}
+		if count, ok := log.Details["mount_count"].(int); ok {
+			entry.Count = count
+		}
+		data.RecentActions = append(data.RecentActions, entry)
+	}
+
+	return data
 }
 
 // StationSelect renders the station selection page
