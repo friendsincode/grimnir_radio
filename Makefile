@@ -6,7 +6,7 @@ RACE ?= 1
 PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test test-e2e test-frontend build build-mediascan verify ci proto proto-clean \
+.PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan verify ci proto proto-clean \
         dev-db dev-redis dev-stack run-control run-media
 
 help:
@@ -16,6 +16,8 @@ help:
 	@echo "  make vet         # go vet ./..."
 	@echo "  make lint        # golangci-lint run (if installed)"
 	@echo "  make test        # go test (-race)"
+	@echo "  make coverage    # run coverage report (default target 80%)"
+	@echo "  make coverage-check # enforce coverage threshold (set COVERAGE_MIN)"
 	@echo "  make build       # build cmd/$(BIN)"
 	@echo ""
 	@echo "Frontend testing targets:"
@@ -52,6 +54,12 @@ tidy:
 
 test:
 	@$(GO) test $(GOFLAGS) $(if $(filter 1,$(RACE)),-race,) $(PKG)
+
+coverage:
+	@COVERAGE_ENFORCE=0 COVERAGE_MIN=$${COVERAGE_MIN:-80} ./scripts/coverage.sh
+
+coverage-check:
+	@COVERAGE_ENFORCE=1 COVERAGE_MIN=$${COVERAGE_MIN:-80} ./scripts/coverage.sh
 
 build:
 	@$(GO) build $(GOFLAGS) -o ./grimnirradio ./cmd/grimnirradio
