@@ -962,6 +962,77 @@ func TestScheduleRecurringInstanceWritePathsAndParity(t *testing.T) {
 	}
 }
 
+func TestScheduleWritePathsAutoMountAndLiveNormalization(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+
+	createBody, _ := json.Marshal(map[string]any{
+		"starts_at":   time.Date(2026, 3, 20, 14, 0, 0, 0, time.UTC),
+		"ends_at":     time.Date(2026, 3, 20, 15, 0, 0, 0, time.UTC),
+		"source_type": "live",
+		"source_id":   "",
+		"metadata": map[string]any{
+			"session_name": "Auto Mount Live",
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", bytes.NewReader(createBody))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+	rr := httptest.NewRecorder()
+
+	h.ScheduleCreateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var created models.ScheduleEntry
+	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.SourceID == "" || created.MountID == "" {
+		t.Fatalf("expected live source id and auto-created mount, got %+v", created)
+	}
+
+	var createdMount models.Mount
+	if err := db.First(&createdMount, "id = ?", created.MountID).Error; err != nil {
+		t.Fatalf("reload auto-created mount: %v", err)
+	}
+	if createdMount.StationID != station.ID || createdMount.Name == "" || createdMount.URL == "" {
+		t.Fatalf("unexpected auto-created mount: %+v", createdMount)
+	}
+
+	updateBody, _ := json.Marshal(map[string]any{
+		"starts_at":   time.Date(2026, 3, 20, 16, 0, 0, 0, time.UTC),
+		"ends_at":     time.Date(2026, 3, 20, 17, 0, 0, 0, time.UTC),
+		"source_type": "live",
+		"source_id":   "",
+		"metadata": map[string]any{
+			"session_name": "Renormalized Live",
+		},
+	})
+	req = httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/"+created.ID, bytes.NewReader(updateBody))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", created.ID)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr = httptest.NewRecorder()
+
+	h.ScheduleUpdateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var updated models.ScheduleEntry
+	if err := db.First(&updated, "id = ?", created.ID).Error; err != nil {
+		t.Fatalf("reload updated entry: %v", err)
+	}
+	if updated.SourceType != "live" || updated.SourceID != created.ID {
+		t.Fatalf("expected live source id normalization to entry id, got %+v", updated)
+	}
+	if updated.MountID != created.MountID {
+		t.Fatalf("expected mount to remain stable after update, got %+v", updated)
+	}
+}
+
 func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	for _, record := range []any{
@@ -1365,6 +1436,79 @@ func TestPublicScheduleEventsExpandsRecurringProgramsAndPrefersOverrides(t *test
 	}
 	if !sawParentDay1 || !sawParentDay3 || !sawOverride {
 		t.Fatalf("missing expected recurring/override events: %+v", payload)
+	}
+}
+
+func TestPublicScheduleEventsResolvesSourceTitlesAndDefaultThemeFallback(t *testing.T) {
+	h, db, _, _ := newScheduleEndpointTestHandler(t)
+	station := models.Station{ID: "pub-titles", Name: "Public Titles", Active: true, Public: true, Approved: true}
+	if err := db.Create(&station).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	for _, record := range []any{
+		&models.Mount{ID: "pub-title-mount", StationID: station.ID, Name: "Main Public", Format: "mp3"},
+		&models.Playlist{ID: "pub-pl", StationID: station.ID, Name: "Public Playlist"},
+		&models.SmartBlock{ID: "pub-sb", StationID: station.ID, Name: "Public Smart Block"},
+		&models.ClockHour{ID: "pub-clock", StationID: station.ID, Name: "Public Clock"},
+		&models.Webstream{ID: "pub-ws", StationID: station.ID, Name: "Public Stream", URLs: []string{"https://example.test/public"}},
+		&models.MediaItem{ID: "pub-media", StationID: station.ID, Title: "Standalone Track", Artist: "Standalone Artist", Duration: 180 * time.Second, Path: "standalone.mp3"},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+
+	base := time.Date(2026, 3, 18, 12, 0, 0, 0, time.UTC)
+	entries := []models.ScheduleEntry{
+		{ID: "pub-pl-entry", StationID: station.ID, MountID: "pub-title-mount", StartsAt: base, EndsAt: base.Add(time.Hour), SourceType: "playlist", SourceID: "pub-pl"},
+		{ID: "pub-sb-entry", StationID: station.ID, MountID: "pub-title-mount", StartsAt: base.Add(2 * time.Hour), EndsAt: base.Add(3 * time.Hour), SourceType: "smart_block", SourceID: "pub-sb"},
+		{ID: "pub-clock-entry", StationID: station.ID, MountID: "pub-title-mount", StartsAt: base.Add(4 * time.Hour), EndsAt: base.Add(5 * time.Hour), SourceType: "clock_template", SourceID: "pub-clock"},
+		{ID: "pub-ws-entry", StationID: station.ID, MountID: "pub-title-mount", StartsAt: base.Add(6 * time.Hour), EndsAt: base.Add(7 * time.Hour), SourceType: "webstream", SourceID: "pub-ws"},
+		{ID: "pub-live-entry", StationID: station.ID, MountID: "pub-title-mount", StartsAt: base.Add(8 * time.Hour), EndsAt: base.Add(9 * time.Hour), SourceType: "live", Metadata: map[string]any{"session_name": "Public Live Show"}},
+	}
+	for _, entry := range entries {
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create entry: %v", err)
+		}
+	}
+
+	req := scheduleRequest(http.MethodGet, "/schedule/events?start=2026-03-18T00:00:00Z&end=2026-03-19T00:00:00Z&station_id=pub-titles&theme=not-a-theme", nil, nil, "")
+	rr := httptest.NewRecorder()
+	h.PublicScheduleEvents(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var payload []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload) != 5 {
+		t.Fatalf("expected five public events, got %+v", payload)
+	}
+
+	byID := make(map[string]map[string]any, len(payload))
+	for _, event := range payload {
+		byID[event["id"].(string)] = event
+		if event["backgroundColor"] != "#6366f1" {
+			t.Fatalf("expected default theme fallback color, got %+v", event)
+		}
+	}
+
+	for id, wantTitle := range map[string]string{
+		"pub-pl-entry":    "Public Playlist",
+		"pub-sb-entry":    "Public Smart Block",
+		"pub-clock-entry": "Public Clock",
+		"pub-ws-entry":    "Public Stream",
+		"pub-live-entry":  "Public Live Show",
+	} {
+		if byID[id]["title"] != wantTitle {
+			t.Fatalf("unexpected title for %s: %+v", id, byID[id])
+		}
+		props := byID[id]["extendedProps"].(map[string]any)
+		if props["mount_name"] != "Main Public" || props["station_name"] != "Public Titles" {
+			t.Fatalf("unexpected extended props for %s: %+v", id, props)
+		}
 	}
 }
 
