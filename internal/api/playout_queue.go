@@ -223,6 +223,14 @@ func (a *API) handlePlayoutQueueCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.publishQueueEvent("created", item)
+	a.publishAuditEvent(r, events.EventAuditPlayoutQueueAdd, events.Payload{
+		"station_id":    item.StationID,
+		"resource_type": "playout_queue_item",
+		"resource_id":   item.ID,
+		"mount_id":      item.MountID,
+		"media_id":      item.MediaID,
+		"position":      item.Position,
+	})
 
 	writeJSON(w, http.StatusCreated, playoutQueueItemResponse{
 		ID:        item.ID,
@@ -282,6 +290,14 @@ func (a *API) handlePlayoutQueueReorder(w http.ResponseWriter, r *http.Request) 
 	}
 
 	a.publishQueueEvent("reordered", updated)
+	a.publishAuditEvent(r, events.EventAuditPlayoutQueueMove, events.Payload{
+		"station_id":    updated.StationID,
+		"resource_type": "playout_queue_item",
+		"resource_id":   updated.ID,
+		"mount_id":      updated.MountID,
+		"media_id":      updated.MediaID,
+		"position":      updated.Position,
+	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":         updated.ID,
@@ -328,6 +344,14 @@ func (a *API) handlePlayoutQueueDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.publishQueueEvent("deleted", item)
+	a.publishAuditEvent(r, events.EventAuditPlayoutQueueDelete, events.Payload{
+		"station_id":    item.StationID,
+		"resource_type": "playout_queue_item",
+		"resource_id":   item.ID,
+		"mount_id":      item.MountID,
+		"media_id":      item.MediaID,
+		"position":      item.Position,
+	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "deleted",

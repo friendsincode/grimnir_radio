@@ -109,6 +109,17 @@
         </a>
     </div>
 
+    <div class="col-12">
+        <div id="dashboardPlayoutConfidence"
+             hx-get="/dashboard/playout/confidence"
+             hx-trigger="load, every 10s"
+             hx-swap="innerHTML">
+            <div class="card">
+                <div class="card-body text-body-secondary">Loading operator confidence panel...</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Upcoming Schedule -->
     <div class="col-12">
         <div class="card">

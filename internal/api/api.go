@@ -2258,6 +2258,9 @@ func (a *API) auditContext(r *http.Request) events.Payload {
 
 // publishAuditEvent publishes an audit event with user and request context.
 func (a *API) publishAuditEvent(r *http.Request, eventType events.EventType, data events.Payload) {
+	if a.bus == nil {
+		return
+	}
 	payload := a.auditContext(r)
 	for k, v := range data {
 		payload[k] = v

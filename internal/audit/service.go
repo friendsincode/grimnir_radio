@@ -58,6 +58,12 @@ func (s *Service) Start(ctx context.Context) {
 	// Subscribe to audit-specific events
 	auditAPIKeyCreate := s.bus.Subscribe(events.EventAuditAPIKeyCreate)
 	auditAPIKeyRevoke := s.bus.Subscribe(events.EventAuditAPIKeyRevoke)
+	auditPlayoutQueueAdd := s.bus.Subscribe(events.EventAuditPlayoutQueueAdd)
+	auditPlayoutQueueMove := s.bus.Subscribe(events.EventAuditPlayoutQueueMove)
+	auditPlayoutQueueDelete := s.bus.Subscribe(events.EventAuditPlayoutQueueDelete)
+	auditPlayoutSkip := s.bus.Subscribe(events.EventAuditPlayoutSkip)
+	auditPlayoutStop := s.bus.Subscribe(events.EventAuditPlayoutStop)
+	auditPlayoutReload := s.bus.Subscribe(events.EventAuditPlayoutReload)
 	auditWebstreamCreate := s.bus.Subscribe(events.EventAuditWebstreamCreate)
 	auditWebstreamUpdate := s.bus.Subscribe(events.EventAuditWebstreamUpdate)
 	auditWebstreamDelete := s.bus.Subscribe(events.EventAuditWebstreamDelete)
@@ -79,6 +85,12 @@ func (s *Service) Start(ctx context.Context) {
 		s.bus.Unsubscribe(events.EventWebstreamFailover, webstreamFailover)
 		s.bus.Unsubscribe(events.EventAuditAPIKeyCreate, auditAPIKeyCreate)
 		s.bus.Unsubscribe(events.EventAuditAPIKeyRevoke, auditAPIKeyRevoke)
+		s.bus.Unsubscribe(events.EventAuditPlayoutQueueAdd, auditPlayoutQueueAdd)
+		s.bus.Unsubscribe(events.EventAuditPlayoutQueueMove, auditPlayoutQueueMove)
+		s.bus.Unsubscribe(events.EventAuditPlayoutQueueDelete, auditPlayoutQueueDelete)
+		s.bus.Unsubscribe(events.EventAuditPlayoutSkip, auditPlayoutSkip)
+		s.bus.Unsubscribe(events.EventAuditPlayoutStop, auditPlayoutStop)
+		s.bus.Unsubscribe(events.EventAuditPlayoutReload, auditPlayoutReload)
 		s.bus.Unsubscribe(events.EventAuditWebstreamCreate, auditWebstreamCreate)
 		s.bus.Unsubscribe(events.EventAuditWebstreamUpdate, auditWebstreamUpdate)
 		s.bus.Unsubscribe(events.EventAuditWebstreamDelete, auditWebstreamDelete)
@@ -129,6 +141,24 @@ func (s *Service) Start(ctx context.Context) {
 
 		case payload := <-auditAPIKeyRevoke:
 			s.logAuditEntry(ctx, models.AuditActionAPIKeyRevoke, payload)
+
+		case payload := <-auditPlayoutQueueAdd:
+			s.logAuditEntry(ctx, models.AuditActionPlayoutQueueAdd, payload)
+
+		case payload := <-auditPlayoutQueueMove:
+			s.logAuditEntry(ctx, models.AuditActionPlayoutQueueMove, payload)
+
+		case payload := <-auditPlayoutQueueDelete:
+			s.logAuditEntry(ctx, models.AuditActionPlayoutQueueDelete, payload)
+
+		case payload := <-auditPlayoutSkip:
+			s.logAuditEntry(ctx, models.AuditActionPlayoutSkip, payload)
+
+		case payload := <-auditPlayoutStop:
+			s.logAuditEntry(ctx, models.AuditActionPlayoutStop, payload)
+
+		case payload := <-auditPlayoutReload:
+			s.logAuditEntry(ctx, models.AuditActionPlayoutReload, payload)
 
 		case payload := <-auditWebstreamCreate:
 			s.logAuditEntry(ctx, models.AuditActionWebstreamCreate, payload)
