@@ -28,6 +28,11 @@
                     <div class="small mb-1">Source: <strong>{{.CurrentMount.SourceType}}</strong></div>
                     <div class="small mb-1">Position: <strong>{{.CurrentMount.Position}}</strong>{{if gt .CurrentMount.TotalItems 0}} / {{.CurrentMount.TotalItems}}{{end}}</div>
                     <div class="small">Window: <strong>{{formatTime .CurrentMount.StartedAt}}</strong> to <strong>{{formatTime .CurrentMount.EndsAt}}</strong></div>
+                    {{if .CurrentMount.EntryID}}
+                    <div class="mt-2">
+                        <a class="btn btn-sm btn-outline-secondary" href="/dashboard/schedule?entry_details={{.CurrentMount.EntryID}}">Inspect runtime slot</a>
+                    </div>
+                    {{end}}
                     {{end}}
                     {{if .ExpectedMount}}
                     <hr>
@@ -35,6 +40,10 @@
                     <div class="small mb-1">Title: <strong>{{.ExpectedMount.Title}}</strong></div>
                     <div class="small mb-1">Source: <strong>{{.ExpectedMount.SourceType}}</strong>{{if .ExpectedMount.IsOverride}} <span class="badge bg-warning text-dark">override</span>{{end}}</div>
                     <div class="small">Window: <strong>{{formatTime .ExpectedMount.StartsAt}}</strong> to <strong>{{formatTime .ExpectedMount.EndsAt}}</strong></div>
+                    <div class="mt-2">
+                        <a class="btn btn-sm btn-outline-secondary" href="/dashboard/schedule?entry_details={{.ExpectedMount.EntryID}}">Inspect expected slot</a>
+                        <a class="btn btn-sm btn-outline-primary" href="/dashboard/schedule?edit_entry={{.ExpectedMount.EntryID}}">Edit expected slot</a>
+                    </div>
                     {{end}}
                     {{if .MismatchReasons}}
                     <div class="alert alert-warning py-2 mt-3 mb-0 small">
