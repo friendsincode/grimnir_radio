@@ -340,6 +340,70 @@ func TestScheduleEventsHonorsMountFilterAndMetadataFallbacks(t *testing.T) {
 	}
 }
 
+func TestScheduleEventsExpandsSmartBlocksAndCarriesRecurrenceMetadata(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	for _, record := range []any{
+		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
+		&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Block Track", Artist: "Block Artist", Duration: 180 * time.Second, Path: "block.mp3", Genre: "rock"},
+		&models.SmartBlock{ID: "sb-expand", StationID: station.ID, Name: "Expandable Block", Rules: map[string]any{"genre": "rock", "targetMinutes": 3}},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	entry := models.ScheduleEntry{
+		ID:                "smart-recurring",
+		StationID:         station.ID,
+		MountID:           "m1",
+		StartsAt:          time.Date(2026, 3, 8, 13, 0, 0, 0, time.UTC),
+		EndsAt:            time.Date(2026, 3, 8, 13, 3, 0, 0, time.UTC),
+		SourceType:        "smart_block",
+		SourceID:          "sb-expand",
+		RecurrenceType:    models.RecurrenceDaily,
+		RecurrenceDays:    []int{},
+		RecurrenceEndDate: func() *time.Time { t := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC); return &t }(),
+	}
+	if err := db.Create(&entry).Error; err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+
+	req := scheduleRequest(http.MethodGet, "/dashboard/schedule/events?start=2026-03-08T00:00:00Z&end=2026-03-10T23:59:59Z&view=timeGridDay&mount_id=m1", nil, &station, "")
+	rr := httptest.NewRecorder()
+	h.ScheduleEvents(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var payload []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	var parentFound, expandedFound bool
+	for _, event := range payload {
+		id := event["id"].(string)
+		props := event["extendedProps"].(map[string]any)
+		if strings.HasPrefix(id, "smart-recurring_") && props["source_type"] == "smart_block" {
+			parentFound = true
+			recurrence := props["recurrence"].(map[string]any)
+			if recurrence["type"] != "daily" || recurrence["end_date"] != "2026-03-10" {
+				t.Fatalf("unexpected recurrence metadata: %+v", recurrence)
+			}
+		}
+		if strings.Contains(id, "-t-media-1") {
+			expandedFound = true
+			if props["source_type"] != "media" {
+				t.Fatalf("expected expanded child media source, got %+v", props)
+			}
+			metadata := props["metadata"].(map[string]any)
+			if metadata["expanded"] != true || metadata["smart_block_id"] != "sb-expand" {
+				t.Fatalf("unexpected expanded metadata: %+v", metadata)
+			}
+		}
+	}
+	if !parentFound || !expandedFound {
+		t.Fatalf("expected recurring smart block parent and expanded child events, got %+v", payload)
+	}
+}
+
 func TestScheduleEntryDetailsReturnsMediaAndWebstreamDetails(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	if err := db.Create(&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Duration: 3 * time.Minute, Path: "track.mp3"}).Error; err != nil {
@@ -670,6 +734,61 @@ func TestScheduleCreateUpdateDeleteRoundTripAndEvents(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("expected delete schedule event")
 	}
+}
+
+func TestScheduleWritePathValidationErrors(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+	existing := models.ScheduleEntry{ID: "existing", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 12, 10, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 12, 11, 0, 0, 0, time.UTC), SourceType: "media", SourceID: "m"}
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("create existing entry: %v", err)
+	}
+
+	t.Run("create rejects inverted time range", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"mount_id":"m1","starts_at":"2026-03-12T12:00:00Z","ends_at":"2026-03-12T11:00:00Z","source_type":"media","source_id":"m1"}`)
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", body)
+		req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+		rr := httptest.NewRecorder()
+		h.ScheduleCreateEntry(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("update rejects overlap with sibling entry", func(t *testing.T) {
+		entry := models.ScheduleEntry{ID: "update-me", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 12, 13, 0, 0, 0, time.UTC), SourceType: "media", SourceID: "m2"}
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create update entry: %v", err)
+		}
+		body := bytes.NewBufferString(`{"starts_at":"2026-03-12T10:30:00Z","ends_at":"2026-03-12T11:30:00Z"}`)
+		req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/update-me", body)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "update-me")
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		ctx = context.WithValue(ctx, ctxKeyStation, &station)
+		req = req.WithContext(ctx)
+		rr := httptest.NewRecorder()
+		h.ScheduleUpdateEntry(rr, req)
+		if rr.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("delete rejects missing id", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/missing", nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "missing")
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		ctx = context.WithValue(ctx, ctxKeyStation, &station)
+		req = req.WithContext(ctx)
+		rr := httptest.NewRecorder()
+		h.ScheduleDeleteEntry(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
 }
 
 func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.T) {
