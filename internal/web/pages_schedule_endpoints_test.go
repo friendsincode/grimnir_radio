@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -489,4 +490,217 @@ func TestScheduleDropdownAndSearchEndpoints(t *testing.T) {
 			t.Fatalf("expected archive item in results: %+v", payload.Items)
 		}
 	})
+}
+
+func TestScheduleCreateUpdateDeleteRoundTripAndEvents(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	h.eventBus = events.NewBus()
+	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	createSub := h.eventBus.Subscribe(events.EventScheduleUpdate)
+	defer h.eventBus.Unsubscribe(events.EventScheduleUpdate, createSub)
+
+	createBody, _ := json.Marshal(map[string]any{
+		"mount_id":            "m1",
+		"starts_at":           time.Date(2026, 3, 10, 14, 0, 0, 0, time.UTC),
+		"ends_at":             time.Date(2026, 3, 10, 15, 0, 0, 0, time.UTC),
+		"source_type":         "live",
+		"source_id":           "",
+		"recurrence_type":     "custom",
+		"recurrence_days":     []int{2, 4},
+		"recurrence_end_date": "2026-03-31",
+		"metadata": map[string]any{
+			"session_name": "Afternoon Live",
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", bytes.NewReader(createBody))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+	rr := httptest.NewRecorder()
+
+	h.ScheduleCreateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var created models.ScheduleEntry
+	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.SourceType != "live" || created.SourceID == "" {
+		t.Fatalf("expected normalized live source id, got %+v", created)
+	}
+	if created.RecurrenceType != models.RecurrenceCustom || len(created.RecurrenceDays) != 2 {
+		t.Fatalf("unexpected recurrence fields: %+v", created)
+	}
+	if created.RecurrenceEndDate == nil || created.RecurrenceEndDate.Format("2006-01-02") != "2026-03-31" {
+		t.Fatalf("unexpected recurrence end date: %+v", created.RecurrenceEndDate)
+	}
+	select {
+	case payload := <-createSub:
+		if payload["event"] != "create" || payload["entry_id"] != created.ID {
+			t.Fatalf("unexpected create event payload: %+v", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected create schedule event")
+	}
+
+	updateSub := h.eventBus.Subscribe(events.EventScheduleUpdate)
+	defer h.eventBus.Unsubscribe(events.EventScheduleUpdate, updateSub)
+	updateBody, _ := json.Marshal(map[string]any{
+		"starts_at":           time.Date(2026, 3, 10, 16, 0, 0, 0, time.UTC),
+		"ends_at":             time.Date(2026, 3, 10, 17, 30, 0, 0, time.UTC),
+		"source_type":         "webstream",
+		"source_id":           "ws-1",
+		"recurrence_type":     "weekly",
+		"recurrence_days":     []int{},
+		"recurrence_end_date": "",
+		"metadata": map[string]any{
+			"note": "updated",
+		},
+	})
+	req = httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/"+created.ID, bytes.NewReader(updateBody))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", created.ID)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr = httptest.NewRecorder()
+
+	h.ScheduleUpdateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var updated models.ScheduleEntry
+	if err := db.First(&updated, "id = ?", created.ID).Error; err != nil {
+		t.Fatalf("reload updated entry: %v", err)
+	}
+	if updated.SourceType != "webstream" || updated.SourceID != "ws-1" {
+		t.Fatalf("unexpected updated source fields: %+v", updated)
+	}
+	if updated.RecurrenceType != models.RecurrenceWeekly || updated.RecurrenceEndDate != nil {
+		t.Fatalf("unexpected updated recurrence fields: %+v", updated)
+	}
+	if updated.Metadata["note"] != "updated" {
+		t.Fatalf("unexpected updated metadata: %+v", updated.Metadata)
+	}
+	select {
+	case payload := <-updateSub:
+		if payload["event"] != "update" || payload["entry_id"] != created.ID {
+			t.Fatalf("unexpected update event payload: %+v", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected update schedule event")
+	}
+
+	deleteSub := h.eventBus.Subscribe(events.EventScheduleUpdate)
+	defer h.eventBus.Unsubscribe(events.EventScheduleUpdate, deleteSub)
+	req = httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/"+created.ID, nil)
+	rctx = chi.NewRouteContext()
+	rctx.URLParams.Add("id", created.ID)
+	ctx = context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr = httptest.NewRecorder()
+
+	h.ScheduleDeleteEntry(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var count int64
+	db.Model(&models.ScheduleEntry{}).Where("id = ?", created.ID).Count(&count)
+	if count != 0 {
+		t.Fatalf("expected deleted entry, remaining=%d", count)
+	}
+	select {
+	case payload := <-deleteSub:
+		if payload["event"] != "delete" || payload["entry_id"] != created.ID {
+			t.Fatalf("unexpected delete event payload: %+v", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected delete schedule event")
+	}
+}
+
+func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	for _, record := range []any{
+		&models.MediaItem{ID: "media-hard", StationID: station.ID, Title: "Hard Track", Artist: "Artist Hard", Duration: 150 * time.Second, Path: "hard.mp3"},
+		&models.MediaItem{ID: "media-pl", StationID: station.ID, Title: "Playlist Track", Artist: "Artist Playlist", Duration: 180 * time.Second, Path: "playlist.mp3"},
+		&models.Playlist{ID: "pl-clock", StationID: station.ID, Name: "Clock Playlist"},
+		&models.ClockHour{ID: "clock-1", StationID: station.ID, Name: "Clock One"},
+		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	if err := db.Create(&models.PlaylistItem{ID: "pli-1", PlaylistID: "pl-clock", MediaID: "media-pl", Position: 1}).Error; err != nil {
+		t.Fatalf("create playlist item: %v", err)
+	}
+	for _, slot := range []models.ClockSlot{
+		{ID: "slot-pl", ClockHourID: "clock-1", Position: 1, Offset: 0, Type: models.SlotTypePlaylist, Payload: map[string]any{"playlist_id": "pl-clock"}},
+		{ID: "slot-hard", ClockHourID: "clock-1", Position: 2, Offset: 15 * time.Minute, Type: models.SlotTypeHardItem, Payload: map[string]any{"media_id": "media-hard"}},
+	} {
+		if err := db.Create(&slot).Error; err != nil {
+			t.Fatalf("create clock slot: %v", err)
+		}
+	}
+	entry := models.ScheduleEntry{ID: "entry-clock", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 12, 13, 0, 0, 0, time.UTC), SourceType: "clock_template", SourceID: "clock-1"}
+	if err := db.Create(&entry).Error; err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+
+	t.Run("entry details returns clock slots and trace", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/entry-clock", nil, &station, "entry-clock")
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload["clock"] == nil || payload["clock_trace"] == nil || len(payload["slots"].([]any)) != 2 {
+			t.Fatalf("unexpected clock detail payload: %+v", payload)
+		}
+	})
+
+	t.Run("source tracks expands clock playlist and hard item", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/source-tracks?source_type=clock_template&source_id=clock-1&starts_at=2026-03-12T12:00:00Z&ends_at=2026-03-12T13:00:00Z&mount_id=m1", nil, &station, "")
+		rr := httptest.NewRecorder()
+		h.ScheduleSourceTracks(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload struct {
+			SourceName string `json:"source_name"`
+			TrackCount int    `json:"track_count"`
+			Tracks     []struct {
+				Title string `json:"title"`
+			} `json:"tracks"`
+		}
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.SourceName != "Clock One" || payload.TrackCount != 2 {
+			t.Fatalf("unexpected clock source tracks payload: %+v", payload)
+		}
+		titles := []string{payload.Tracks[0].Title, payload.Tracks[1].Title}
+		if !(containsStringValue(titles, "Playlist Track") && containsStringValue(titles, "Hard Track")) {
+			t.Fatalf("unexpected track titles: %+v", titles)
+		}
+	})
+}
+
+func containsStringValue(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
