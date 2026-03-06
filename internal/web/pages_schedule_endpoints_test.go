@@ -904,6 +904,7 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Duration: 210 * time.Second, Path: "track1.mp3"},
 		&models.Playlist{ID: "pl-1", StationID: station.ID, Name: "Playlist One"},
 		&models.SmartBlock{ID: "sb-1", StationID: station.ID, Name: "Smart Future", Rules: map[string]any{"mode": "test"}},
+		&models.SmartBlock{ID: "sb-empty", StationID: station.ID, Name: "Smart Empty", Rules: map[string]any{"genre": "NoSuchGenreAnywhere"}},
 	} {
 		if err := db.Create(record).Error; err != nil {
 			t.Fatalf("seed record: %v", err)
@@ -914,7 +915,7 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 	}
 	entries := []models.ScheduleEntry{
 		{ID: "entry-playlist", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC(), EndsAt: time.Now().UTC().Add(time.Hour), SourceType: "playlist", SourceID: "pl-1"},
-		{ID: "entry-smart-future", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC().Add(72 * time.Hour), EndsAt: time.Now().UTC().Add(73 * time.Hour), SourceType: "smart_block", SourceID: "sb-1"},
+		{ID: "entry-smart-future", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC().Add(72 * time.Hour), EndsAt: time.Now().UTC().Add(73 * time.Hour), SourceType: "smart_block", SourceID: "sb-empty"},
 	}
 	for _, entry := range entries {
 		if err := db.Create(&entry).Error; err != nil {
@@ -953,6 +954,27 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		preview := payload["smart_block_preview"].(map[string]any)
 		if preview["status"] != "pending_materialization" {
 			t.Fatalf("unexpected smart block preview payload: %+v", preview)
+		}
+	})
+
+	t.Run("smart block inside lookahead returns generation error when unresolved", func(t *testing.T) {
+		entry := models.ScheduleEntry{ID: "entry-smart-now", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC().Add(time.Hour), EndsAt: time.Now().UTC().Add(2 * time.Hour), SourceType: "smart_block", SourceID: "sb-empty"}
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create smart block now entry: %v", err)
+		}
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/entry-smart-now", nil, &station, "entry-smart-now")
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		preview := payload["smart_block_preview"].(map[string]any)
+		if preview["status"] != "error" {
+			t.Fatalf("expected smart block error preview, got %+v", preview)
 		}
 	})
 }
