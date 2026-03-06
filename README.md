@@ -1,5 +1,9 @@
 # Grimnir Radio
 
+[![CI](https://github.com/friendsincode/grimnir_radio/actions/workflows/ci.yml/badge.svg)](https://github.com/friendsincode/grimnir_radio/actions/workflows/ci.yml)
+[![Coverage Target](https://img.shields.io/badge/coverage%20target-80%25-0a7f5a)](https://github.com/friendsincode/grimnir_radio/actions/workflows/ci.yml)
+[![Coverage Report](https://img.shields.io/badge/coverage-report%20artifact-blue)](https://github.com/friendsincode/grimnir_radio/actions/workflows/ci.yml)
+
 **Version:** 1.17.11
 
 Grimnir Radio is a modern, production-ready broadcast automation system built in Go. It features a multi-process architecture with separated control plane and media engine, live DJ input, HTTP stream relay with automatic failover, horizontal scaling, and comprehensive observability.
