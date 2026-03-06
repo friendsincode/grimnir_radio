@@ -1098,6 +1098,11 @@ func TestScheduleEntryDetailsAndSourceTracksClockAndPlaylistBranches(t *testing.
 		if resolution["state"] != "ok" || resolution["configured_type"] != "clock_template" {
 			t.Fatalf("unexpected clock resolution summary: %+v", resolution)
 		}
+		effective := payload["effective_preview"].(map[string]any)
+		sections := effective["sections"].([]any)
+		if len(sections) != 4 {
+			t.Fatalf("expected one effective preview section per clock slot, got %+v", effective)
+		}
 		clockTrace := payload["clock_trace"].(map[string]any)
 		played := clockTrace["played_tracks"].([]any)
 		if len(played) != 1 {
@@ -1566,6 +1571,10 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		if resolution["resolved_as"] != "Playlist One" || resolution["state"] != "ok" {
 			t.Fatalf("unexpected playlist resolution summary: %+v", resolution)
 		}
+		effective := payload["effective_preview"].(map[string]any)
+		if sections := effective["sections"].([]any); len(sections) != 1 {
+			t.Fatalf("expected one playlist effective preview section, got %+v", effective)
+		}
 	})
 
 	t.Run("future smart block details stay pending before lookahead window", func(t *testing.T) {
@@ -1586,6 +1595,15 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		resolution := payload["resolution_summary"].(map[string]any)
 		if resolution["state"] != "pending" {
 			t.Fatalf("expected pending resolution summary, got %+v", resolution)
+		}
+		effective := payload["effective_preview"].(map[string]any)
+		if sections, ok := effective["sections"].([]any); ok && len(sections) > 0 {
+			section := sections[0].(map[string]any)
+			if items, ok := section["items"].([]any); ok && len(items) != 0 {
+				t.Fatalf("expected no effective preview items while pending, got %+v", section)
+			}
+		} else if effective["empty_reason"] == "" {
+			t.Fatalf("expected pending preview explanation, got %+v", effective)
 		}
 	})
 
@@ -1611,6 +1629,15 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		resolution := payload["resolution_summary"].(map[string]any)
 		if resolution["state"] != "attention" {
 			t.Fatalf("expected attention resolution summary, got %+v", resolution)
+		}
+		effective := payload["effective_preview"].(map[string]any)
+		if sections, ok := effective["sections"].([]any); ok && len(sections) > 0 {
+			section := sections[0].(map[string]any)
+			if items, ok := section["items"].([]any); ok && len(items) != 0 {
+				t.Fatalf("expected unresolved smart block effective preview to stay empty, got %+v", section)
+			}
+		} else if effective["empty_reason"] == "" {
+			t.Fatalf("expected unresolved preview explanation, got %+v", effective)
 		}
 	})
 
@@ -1648,6 +1675,11 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		resolution := payload["resolution_summary"].(map[string]any)
 		if resolution["state"] != "ok" || resolution["resolved_as"] != "Smart Ready" {
 			t.Fatalf("expected ready resolution summary, got %+v", resolution)
+		}
+		effective := payload["effective_preview"].(map[string]any)
+		section := effective["sections"].([]any)[0].(map[string]any)
+		if len(section["items"].([]any)) == 0 {
+			t.Fatalf("expected generated tracks in effective preview, got %+v", effective)
 		}
 	})
 }

@@ -1404,6 +1404,7 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response["resolution_summary"] = buildScheduleResolutionSummary(entry, response)
+	response["effective_preview"] = buildEffectiveEntryPreview(entry, response)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -1518,6 +1519,138 @@ func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[str
 	summary["resolved_as"] = resolvedAs
 	summary["checks"] = checks
 	return summary
+}
+
+func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]any) map[string]any {
+	preview := map[string]any{
+		"entry_id":     entry.ID,
+		"source_type":  entry.SourceType,
+		"starts_at":    entry.StartsAt,
+		"ends_at":      entry.EndsAt,
+		"window_s":     int64(entry.EndsAt.Sub(entry.StartsAt).Seconds()),
+		"sections":     []map[string]any{},
+		"empty_reason": "",
+	}
+
+	sections := make([]map[string]any, 0, 8)
+	addSection := func(title, kind string, items []map[string]any, note string) {
+		sections = append(sections, map[string]any{
+			"title": title,
+			"kind":  kind,
+			"items": items,
+			"note":  note,
+		})
+	}
+	collectItems := func(raw any) []map[string]any {
+		switch items := raw.(type) {
+		case []map[string]any:
+			return items
+		case []any:
+			out := make([]map[string]any, 0, len(items))
+			for _, itemRaw := range items {
+				if item, ok := itemRaw.(map[string]any); ok {
+					out = append(out, item)
+				}
+			}
+			return out
+		default:
+			return nil
+		}
+	}
+	collectSections := func(raw any) []map[string]any {
+		switch sectionsRaw := raw.(type) {
+		case []map[string]any:
+			return sectionsRaw
+		case []any:
+			out := make([]map[string]any, 0, len(sectionsRaw))
+			for _, sectionRaw := range sectionsRaw {
+				if section, ok := sectionRaw.(map[string]any); ok {
+					out = append(out, section)
+				}
+			}
+			return out
+		default:
+			return nil
+		}
+	}
+
+	switch entry.SourceType {
+	case "clock_template":
+		if trace, ok := response["clock_trace"].(map[string]any); ok {
+			for _, slot := range collectSections(trace["queued_slots"]) {
+				items := make([]map[string]any, 0, 6)
+				if playlist, ok := slot["playlist"].(map[string]any); ok {
+					items = append(items, collectItems(playlist["tracks"])...)
+				}
+				if media, ok := slot["media"].(map[string]any); ok {
+					items = append(items, media)
+				}
+				if previewMap, ok := slot["smart_block_preview"].(map[string]any); ok {
+					items = append(items, collectItems(previewMap["tracks"])...)
+					if len(items) == 0 {
+						note, _ := previewMap["message"].(string)
+						if note == "" {
+							note, _ = previewMap["error"].(string)
+						}
+						addSection(fmt.Sprintf("Slot %v", slot["position"]), "slot", items, note)
+						continue
+					}
+				}
+				if webstream, ok := slot["webstream"].(map[string]any); ok {
+					items = append(items, webstream)
+				}
+				title := fmt.Sprintf("Slot %v", slot["position"])
+				note := ""
+				if sourceMap, ok := slot["source_map"].(string); ok {
+					note = sourceMap
+				}
+				addSection(title, "slot", items, note)
+			}
+		}
+	case "playlist":
+		if playlist, ok := response["playlist"].(map[string]any); ok {
+			items := collectItems(playlist["tracks"])
+			addSection("Playlist Tracks", "tracks", items, "Ordered list from the configured playlist.")
+		}
+	case "smart_block":
+		if previewMap, ok := response["smart_block_preview"].(map[string]any); ok {
+			items := collectItems(previewMap["tracks"])
+			note := ""
+			if len(items) == 0 {
+				note, _ = previewMap["message"].(string)
+				if note == "" {
+					note, _ = previewMap["error"].(string)
+				}
+			}
+			addSection("Generated Track Plan", "tracks", items, note)
+		}
+	case "media":
+		if media, ok := response["media"].(map[string]any); ok {
+			addSection("Direct Media", "track", []map[string]any{media}, "Single fixed media item.")
+		}
+	case "webstream":
+		if webstream, ok := response["webstream"].(map[string]any); ok {
+			addSection("Relay Source", "relay", []map[string]any{webstream}, "External stream relay for this window.")
+		}
+	case "live":
+		title := ""
+		if entry.Metadata != nil {
+			if sessionName, ok := entry.Metadata["session_name"].(string); ok {
+				title = sessionName
+			}
+		}
+		addSection("Live Window", "live", []map[string]any{{
+			"title":    title,
+			"duration": int64(entry.EndsAt.Sub(entry.StartsAt).Seconds()),
+		}}, "Human/live source must take over for this window.")
+	}
+
+	if len(sections) == 0 {
+		preview["empty_reason"] = "No resolved preview is available for this entry yet."
+	} else {
+		preview["sections"] = sections
+	}
+	return preview
 }
 
 // ScheduleRefresh triggers a schedule refresh
