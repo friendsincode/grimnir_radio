@@ -56,6 +56,187 @@ func (h *Handler) ScheduleCalendar(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type EffectiveSchedulePreviewData struct {
+	WindowStart time.Time
+	WindowEnd   time.Time
+	Hours       int
+	MountID     string
+	MountName   string
+	Items       []EffectiveSchedulePreviewItem
+}
+
+type EffectiveSchedulePreviewItem struct {
+	ID          string
+	Title       string
+	SourceType  string
+	SourceLabel string
+	MountName   string
+	StartsAt    time.Time
+	EndsAt      time.Time
+	State       string
+	Headline    string
+}
+
+// ScheduleEffectivePreview renders the next window of effective schedule items for operator review.
+func (h *Handler) ScheduleEffectivePreview(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	hours := 24
+	mountID := strings.TrimSpace(r.URL.Query().Get("mount_id"))
+	data := h.loadEffectiveSchedulePreviewData(r, station.ID, mountID, hours)
+	h.RenderPartial(w, r, "partials/schedule-effective-preview", data)
+}
+
+func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, mountID string, hours int) EffectiveSchedulePreviewData {
+	now := time.Now().UTC()
+	end := now.Add(time.Duration(hours) * time.Hour)
+	data := EffectiveSchedulePreviewData{
+		WindowStart: now,
+		WindowEnd:   end,
+		Hours:       hours,
+		MountID:     mountID,
+	}
+
+	var mounts []models.Mount
+	_ = h.db.WithContext(r.Context()).Where("station_id = ?", stationID).Order("name ASC").Find(&mounts).Error
+	mountNames := make(map[string]string, len(mounts))
+	for _, mount := range mounts {
+		mountNames[mount.ID] = mount.Name
+		if mount.ID == mountID {
+			data.MountName = mount.Name
+		}
+	}
+
+	query := h.db.WithContext(r.Context()).
+		Where("station_id = ? AND starts_at < ? AND ends_at > ? AND (recurrence_type = '' OR recurrence_type IS NULL OR is_instance = true)", stationID, end, now)
+	if mountID != "" {
+		query = query.Where("mount_id = ?", mountID)
+	}
+	var entries []models.ScheduleEntry
+	_ = query.Order("starts_at ASC").Find(&entries).Error
+
+	instanceOverrides := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsInstance && entry.RecurrenceParentID != nil {
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+		}
+	}
+
+	recurringQuery := h.db.WithContext(r.Context()).
+		Where("station_id = ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false", stationID)
+	if mountID != "" {
+		recurringQuery = recurringQuery.Where("mount_id = ?", mountID)
+	}
+	var recurringEntries []models.ScheduleEntry
+	_ = recurringQuery.Find(&recurringEntries).Error
+	for _, re := range recurringEntries {
+		entries = append(entries, h.expandRecurringEntry(re, now.Add(-24*time.Hour), end, instanceOverrides)...)
+	}
+
+	filtered := make([]models.ScheduleEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.EndsAt.After(now) && entry.StartsAt.Before(end) {
+			filtered = append(filtered, entry)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].StartsAt.Equal(filtered[j].StartsAt) {
+			return filtered[i].ID < filtered[j].ID
+		}
+		return filtered[i].StartsAt.Before(filtered[j].StartsAt)
+	})
+	if len(filtered) > 16 {
+		filtered = filtered[:16]
+	}
+
+	for _, entry := range filtered {
+		title, label := h.resolveSchedulePreviewLabel(r, entry)
+		headline := "Review this scheduled item."
+		state := "scheduled"
+		switch entry.SourceType {
+		case "live":
+			headline = "Live source takeover expected in this window."
+		case "webstream":
+			headline = "External relay expected in this window."
+		case "smart_block":
+			headline = "Rule-based selection will resolve for this window."
+		case "clock_template":
+			headline = "Clock slots will expand into source segments in this window."
+		case "playlist":
+			headline = "Playlist order drives the scheduled window."
+		case "media":
+			headline = "Single fixed media item is scheduled."
+		}
+		if entry.IsInstance {
+			state = "override"
+		}
+		data.Items = append(data.Items, EffectiveSchedulePreviewItem{
+			ID:          entry.ID,
+			Title:       title,
+			SourceType:  entry.SourceType,
+			SourceLabel: label,
+			MountName:   mountNames[entry.MountID],
+			StartsAt:    entry.StartsAt,
+			EndsAt:      entry.EndsAt,
+			State:       state,
+			Headline:    headline,
+		})
+	}
+
+	return data
+}
+
+func (h *Handler) resolveSchedulePreviewLabel(r *http.Request, entry models.ScheduleEntry) (string, string) {
+	switch entry.SourceType {
+	case "playlist":
+		var playlist models.Playlist
+		if err := h.db.WithContext(r.Context()).Select("id, name").First(&playlist, "id = ?", entry.SourceID).Error; err == nil {
+			return playlist.Name, "Playlist"
+		}
+		return "Playlist", "Playlist"
+	case "smart_block":
+		var block models.SmartBlock
+		if err := h.db.WithContext(r.Context()).Select("id, name").First(&block, "id = ?", entry.SourceID).Error; err == nil {
+			return block.Name, "Smart Block"
+		}
+		return "Smart Block", "Smart Block"
+	case "clock_template":
+		var clock models.ClockHour
+		if err := h.db.WithContext(r.Context()).Select("id, name").First(&clock, "id = ?", entry.SourceID).Error; err == nil {
+			return clock.Name, "Clock"
+		}
+		return "Clock", "Clock"
+	case "webstream":
+		var stream models.Webstream
+		if err := h.db.WithContext(r.Context()).Select("id, name").First(&stream, "id = ?", entry.SourceID).Error; err == nil {
+			return stream.Name, "Webstream"
+		}
+		return "Webstream", "Webstream"
+	case "media":
+		var media models.MediaItem
+		if err := h.db.WithContext(r.Context()).Select("id, title, artist").First(&media, "id = ?", entry.SourceID).Error; err == nil {
+			if media.Artist != "" {
+				return media.Artist + " - " + media.Title, "Track"
+			}
+			return media.Title, "Track"
+		}
+		return "Track", "Track"
+	case "live":
+		if entry.Metadata != nil {
+			if name, ok := entry.Metadata["session_name"].(string); ok && strings.TrimSpace(name) != "" {
+				return name, "Live"
+			}
+		}
+		return "Live Session", "Live"
+	default:
+		return entry.SourceType, entry.SourceType
+	}
+}
+
 // ScheduleValidate validates the schedule for the current station (web-authenticated).
 // This mirrors the API endpoint but works with the dashboard session auth (no JWT required).
 func (h *Handler) ScheduleValidate(w http.ResponseWriter, r *http.Request) {

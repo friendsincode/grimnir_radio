@@ -29,9 +29,11 @@ func TestDashboardPlayoutConfidenceRendersQueueHealthAndActions(t *testing.T) {
 		&models.StationUser{},
 		&models.Mount{},
 		&models.MediaItem{},
+		&models.Playlist{},
 		&models.PlayoutQueueItem{},
 		&models.ExecutorState{},
 		&models.MountPlayoutState{},
+		&models.ScheduleEntry{},
 		&models.AuditLog{},
 		&models.LandingPage{},
 		&migration.Job{},
@@ -58,7 +60,7 @@ func TestDashboardPlayoutConfidenceRendersQueueHealthAndActions(t *testing.T) {
 		t.Fatalf("create station user: %v", err)
 	}
 
-	now := time.Date(2026, 3, 6, 22, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	if err := db.Create(&models.ExecutorState{
 		ID:              "exec-1",
 		StationID:       station.ID,
@@ -97,6 +99,17 @@ func TestDashboardPlayoutConfidenceRendersQueueHealthAndActions(t *testing.T) {
 		t.Fatalf("create queue item: %v", err)
 	}
 	stationID := station.ID
+	if err := db.Create(&models.ScheduleEntry{
+		ID:         "entry-1",
+		StationID:  station.ID,
+		MountID:    mount.ID,
+		StartsAt:   now.Add(-5 * time.Minute),
+		EndsAt:     now.Add(15 * time.Minute),
+		SourceType: "playlist",
+		SourceID:   "playlist-1",
+	}).Error; err != nil {
+		t.Fatalf("create schedule entry: %v", err)
+	}
 	if err := db.Create(&models.AuditLog{
 		ID:        "audit-1",
 		Timestamp: now.Add(-30 * time.Second),
@@ -137,11 +150,105 @@ func TestDashboardPlayoutConfidenceRendersQueueHealthAndActions(t *testing.T) {
 		"playing",
 		"1400 ms",
 		"Underruns: <strong>2</strong>",
+		"Expected Schedule",
 		"Track One",
 		"Artist One",
 		"playout.queue.add",
 		"manager@example.com",
 	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected body to contain %q", want)
+		}
+	}
+}
+
+func TestDashboardPlayoutConfidenceHighlightsRuntimeMismatch(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Station{},
+		&models.StationUser{},
+		&models.Mount{},
+		&models.ExecutorState{},
+		&models.MountPlayoutState{},
+		&models.ScheduleEntry{},
+		&models.Playlist{},
+		&models.LandingPage{},
+		&migration.Job{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	user := models.User{ID: "u1", Email: "manager@example.com", Password: "x"}
+	station := models.Station{ID: "s1", Name: "Station One", Active: true}
+	mount := models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3", URL: "/live/main"}
+	for _, record := range []any{&user, &station, &mount, &models.Playlist{ID: "playlist-expected", StationID: station.ID, Name: "Expected Playlist"}} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	if err := db.Create(&models.StationUser{ID: "su1", UserID: user.ID, StationID: station.ID, Role: models.StationRoleManager}).Error; err != nil {
+		t.Fatalf("create station user: %v", err)
+	}
+
+	now := time.Now().UTC()
+	if err := db.Create(&models.ExecutorState{
+		ID:              "exec-1",
+		StationID:       station.ID,
+		MountID:         mount.ID,
+		State:           models.ExecutorStatePlaying,
+		CurrentPriority: models.PriorityAutomation,
+		LastHeartbeat:   now,
+	}).Error; err != nil {
+		t.Fatalf("create executor state: %v", err)
+	}
+	if err := db.Create(&models.MountPlayoutState{
+		MountID:    mount.ID,
+		StationID:  station.ID,
+		EntryID:    "runtime-entry",
+		MediaID:    "track-x",
+		SourceType: "webstream",
+		SourceID:   "ws-runtime",
+		StartedAt:  now.Add(-2 * time.Minute),
+		EndsAt:     now.Add(3 * time.Minute),
+		UpdatedAt:  now,
+	}).Error; err != nil {
+		t.Fatalf("create runtime state: %v", err)
+	}
+	if err := db.Create(&models.ScheduleEntry{
+		ID:         "expected-entry",
+		StationID:  station.ID,
+		MountID:    mount.ID,
+		StartsAt:   now.Add(-5 * time.Minute),
+		EndsAt:     now.Add(15 * time.Minute),
+		SourceType: "playlist",
+		SourceID:   "playlist-expected",
+	}).Error; err != nil {
+		t.Fatalf("create expected schedule entry: %v", err)
+	}
+
+	h, err := NewHandler(db, []byte("test"), t.TempDir(), nil, WebRTCConfig{}, HarborConfig{}, 0, events.NewBus(), nil, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("new handler: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/playout/confidence", nil)
+	rctx := chi.NewRouteContext()
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxKeyUser, &user)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.DashboardPlayoutConfidence(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"Config vs Runtime Review", "Expected Playlist", "Source type mismatch"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected body to contain %q", want)
 		}

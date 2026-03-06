@@ -209,6 +209,12 @@
     </div>
 </div>
 
+<div id="effectivePreviewContainer">
+    <div class="card mb-3">
+        <div class="card-body text-body-secondary small">Loading effective schedule view...</div>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-body">
         <div id="calendar"></div>
@@ -661,6 +667,21 @@
                         <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="editChangeSourceBtn" title="Change source">
                             <i class="bi bi-pencil me-1"></i>Change
                         </button>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="border rounded p-3 h-100">
+                            <div class="small text-body-secondary mb-2">Current Saved Trust View</div>
+                            <div id="editSavedTrustPanel" class="small text-body-secondary">Loading current resolution...</div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="border rounded p-3 h-100">
+                            <div class="small text-body-secondary mb-2">Pending Edit Trust View</div>
+                            <div id="editPendingTrustPanel" class="small text-body-secondary">Adjust the entry to compare before saving.</div>
+                        </div>
                     </div>
                 </div>
 
@@ -1833,6 +1854,164 @@ document.addEventListener('DOMContentLoaded', function() {
         return html;
     }
 
+    function renderEditSavedTrust(details) {
+        const panel = document.getElementById('editSavedTrustPanel');
+        if (!panel) return;
+        if (!details) {
+            panel.innerHTML = '<div class="text-body-secondary small">Current saved resolution is unavailable.</div>';
+            return;
+        }
+        let html = '';
+        if (details.resolution_summary) html += renderResolutionSummary(details.resolution_summary);
+        if (details.effective_preview) html += renderEffectivePreview(details.effective_preview);
+        panel.innerHTML = html || '<div class="text-body-secondary small">No saved trust data available.</div>';
+    }
+
+    function renderPendingEditTrust(event, previewData) {
+        const panel = document.getElementById('editPendingTrustPanel');
+        if (!panel || !event) return;
+
+        const sourceType = getPendingEditSourceType(event);
+        const resolvedAs = getPendingEditSourceName(event);
+        const start = getEditStartDateTime();
+        const end = getEditEndDateTime();
+        const durationS = Math.max(0, Math.round((end - start) / 1000));
+        const checks = [];
+
+        if (document.getElementById('editIsRecurring').value === 'true') {
+            const mode = document.querySelector('input[name="editMode"]:checked')?.value || 'all';
+            checks.push(mode === 'single' ? 'This save affects only one occurrence.' : 'This save affects the whole recurring series.');
+        }
+        if (sourceType === 'smart_block') checks.push('Re-check generated tracks after save if the slot is near air time.');
+        if (sourceType === 'webstream') checks.push('Confirm the relay source is live and healthy.');
+        if (sourceType === 'live') checks.push('Confirm the live operator/source is ready before the slot starts.');
+        if (sourceType !== 'live' && sourceType !== 'webstream') checks.push('Compare queued tracks against the intended content before saving.');
+
+        const summary = {
+            state: durationS > 0 ? 'ok' : 'attention',
+            configured_type: sourceType,
+            resolved_as: resolvedAs,
+            duration_s: durationS,
+            headline: durationS > 0 ? 'This is the staged edit you are about to save.' : 'This edit has an invalid time range.',
+            checks
+        };
+
+        let html = renderResolutionSummary(summary);
+        if (previewData) {
+            html += renderEffectivePreview(buildPendingEffectivePreview(event, sourceType, start, end, previewData));
+        } else {
+            html += '<div class="text-body-secondary small">Preview will update after track/source lookup.</div>';
+        }
+        panel.innerHTML = html;
+    }
+
+    function buildPendingEffectivePreview(event, sourceType, start, end, previewData) {
+        const preview = {
+            entry_id: document.getElementById('editEntryId').value,
+            source_type: sourceType,
+            starts_at: start,
+            ends_at: end,
+            window_s: Math.max(0, Math.round((end - start) / 1000)),
+            sections: []
+        };
+
+        if (sourceType === 'webstream') {
+            preview.sections.push({
+                title: 'Relay Source',
+                kind: 'relay',
+                items: [{ title: previewData.source_name || getPendingEditSourceName(event), url: previewData.url || '' }],
+                note: 'External stream relay for this edited window.'
+            });
+            return preview;
+        }
+        if (sourceType === 'live') {
+            preview.sections.push({
+                title: 'Live Window',
+                kind: 'live',
+                items: [{ title: getPendingEditSourceName(event), duration: preview.window_s }],
+                note: 'Human/live source must take over for this edited window.'
+            });
+            return preview;
+        }
+
+        const tracks = Array.isArray(previewData.tracks) ? previewData.tracks : [];
+        preview.sections.push({
+            title: 'Pending Effective Preview',
+            kind: 'tracks',
+            items: tracks,
+            note: previewData.error || (tracks.length === 0 ? 'No resolved items yet.' : 'Resolved from the current edit values.')
+        });
+        if (tracks.length === 0 && !previewData.error) {
+            preview.empty_reason = 'No resolved preview is available for this edited state yet.';
+        }
+        return preview;
+    }
+
+    function getPendingEditSourceType(event) {
+        const selectionOpen = !document.getElementById('editSourceSelection').classList.contains('d-none');
+        if (selectionOpen) {
+            return document.getElementById('editSourceType').value || event.extendedProps.source_type;
+        }
+        return event.extendedProps.source_type;
+    }
+
+    function getPendingEditSourceName(event) {
+        const selectionOpen = !document.getElementById('editSourceSelection').classList.contains('d-none');
+        if (!selectionOpen) return document.getElementById('editEntryName').textContent || event.title || 'Scheduled Item';
+
+        const sourceType = document.getElementById('editSourceType').value;
+        if (sourceType === 'media') {
+            const selectedMedia = document.querySelector('#editMediaSearchResults .list-group-item.active');
+            return selectedMedia ? selectedMedia.textContent.trim() : 'Selected Media';
+        }
+        if (sourceType === 'live') {
+            return 'Live Session';
+        }
+        const select = document.getElementById('editSourceSelect');
+        if (select && select.selectedOptions.length > 0) {
+            return select.selectedOptions[0].textContent.trim();
+        }
+        return document.getElementById('editEntryName').textContent || event.title || 'Scheduled Item';
+    }
+
+    function getPendingEditSourceId(event) {
+        const selectionOpen = !document.getElementById('editSourceSelection').classList.contains('d-none');
+        if (!selectionOpen) return event.extendedProps.source_id;
+        const sourceType = document.getElementById('editSourceType').value;
+        if (sourceType === 'media') {
+            const selectedMedia = document.querySelector('#editMediaSearchResults .list-group-item.active');
+            return selectedMedia ? selectedMedia.dataset.mediaId : '';
+        }
+        if (sourceType === 'live') return '';
+        return document.getElementById('editSourceSelect').value || '';
+    }
+
+    async function refreshEditTrustPreviewFromForm() {
+        if (!selectedEvent) return;
+        const sourceType = getPendingEditSourceType(selectedEvent);
+        const sourceId = getPendingEditSourceId(selectedEvent);
+        const start = getEditStartDateTime();
+        const end = getEditEndDateTime();
+        const mountId = selectedEvent.extendedProps?.mount_id || '';
+        const trackSection = document.getElementById('editQueuedTracks');
+
+        if (sourceType === 'live') {
+            if (trackSection) trackSection.classList.add('d-none');
+            _editTrackPreviewData = { tracks: [] };
+            renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
+            return;
+        }
+
+        if (!sourceId) {
+            _editTrackPreviewData = null;
+            renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
+            return;
+        }
+
+        if (trackSection) trackSection.classList.toggle('d-none', sourceType === 'webstream');
+        await fetchEditTracks(sourceType, sourceId, start, end, mountId, document.getElementById('editEntryId').value);
+    }
+
     function renderSmartBlockPreview(preview) {
         if (!preview) {
             return '<div class="text-body-secondary small">No generated selection is available for this entry yet.</div>';
@@ -2007,6 +2186,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Track currently being swapped
     let _trackSwapIdx = -1;
     let _editTrackOverrides = {};
+    let _editCurrentDetails = null;
+    let _editTrackPreviewData = null;
 
     // Delegate click events for swap/remove buttons
     document.addEventListener('click', function(e) {
@@ -2697,6 +2878,7 @@ document.addEventListener('DOMContentLoaded', function() {
         radio.addEventListener('change', function() {
             const isSingle = this.value === 'single';
             document.getElementById('editRecurrenceSection').classList.toggle('d-none', isSingle);
+            renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
         });
     });
 
@@ -2707,11 +2889,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!container.classList.contains('d-none')) {
             loadEditSourceOptions();
         }
+        renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
     });
 
     // Edit source type change
     document.getElementById('editSourceType')?.addEventListener('change', function() {
         loadEditSourceOptions();
+        refreshEditTrustPreviewFromForm();
     });
 
     // Edit modal media search
@@ -2769,6 +2953,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Deselect others
                         results.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
                         div.classList.add('active');
+                        refreshEditTrustPreviewFromForm();
                     });
                     results.appendChild(div);
                 });
@@ -2833,6 +3018,7 @@ document.addEventListener('DOMContentLoaded', function() {
             (data[dataKey] || []).forEach(item => {
                 select.innerHTML += `<option value="${item.ID}">${item[nameKey]}</option>`;
             });
+            renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
         } catch (e) {
             select.innerHTML = '<option value="">Error loading options</option>';
         }
@@ -2998,6 +3184,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Reset track overrides for this edit session
         _editTrackOverrides = {};
+        _editCurrentDetails = null;
+        _editTrackPreviewData = null;
+        renderEditSavedTrust(null);
+        renderPendingEditTrust(event, null);
+
+        fetch(`/dashboard/schedule/entries/${event.id}/details`)
+            .then(resp => resp.ok ? resp.json() : null)
+            .then(details => {
+                _editCurrentDetails = details;
+                renderEditSavedTrust(details);
+            })
+            .catch(err => {
+                console.warn('Failed to load saved trust view:', err);
+                renderEditSavedTrust(null);
+            });
 
         // Fetch and display queued tracks (unless orphaned or live/webstream)
         const trackSection = document.getElementById('editQueuedTracks');
@@ -3005,6 +3206,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const trackSummary = document.getElementById('editTrackSummary');
         if (props.orphaned || props.source_type === 'live') {
             trackSection.classList.add('d-none');
+            _editTrackPreviewData = { tracks: [] };
+            renderPendingEditTrust(event, _editTrackPreviewData);
         } else {
             trackSection.classList.remove('d-none');
             trackContent.innerHTML = '<div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading tracks...</div>';
@@ -3037,15 +3240,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const tracks = data.tracks || [];
 
             if (sourceType === 'webstream') {
+                _editTrackPreviewData = data;
                 trackContent.innerHTML = `<div class="small text-body-secondary">
                     <i class="bi bi-broadcast me-1"></i>${escapeHtml(data.source_name || 'Webstream')}
                     ${data.url ? `<div class="text-truncate">${escapeHtml(data.url)}</div>` : ''}
                 </div>`;
                 trackSummary.textContent = 'Live stream';
+                renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
                 return;
             }
 
             if (tracks.length === 0) {
+                _editTrackPreviewData = data;
                 if (data.error) {
                     trackContent.innerHTML = `<div class="alert alert-warning py-2 small mb-0">
                         <i class="bi bi-exclamation-triangle me-1"></i>Could not generate track list.
@@ -3055,14 +3261,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     trackContent.innerHTML = '<div class="text-body-secondary small">No tracks queued for this entry.</div>';
                 }
                 trackSummary.textContent = '0 tracks';
+                renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
                 return;
             }
 
+            _editTrackPreviewData = data;
             trackSummary.textContent = `${tracks.length} track${tracks.length !== 1 ? 's' : ''}, ${formatDuration(data.total_duration || 0)}`;
             trackContent.innerHTML = renderEditableTrackList(tracks);
+            renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
         } catch (e) {
             console.warn('Failed to fetch source tracks:', e);
             trackSection.classList.add('d-none');
+            _editTrackPreviewData = null;
+            renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
         }
     }
 
@@ -3108,8 +3319,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // Edit modal time change listeners
     ['editStartDate', 'editStartHour', 'editStartMinute',
      'editEndDate', 'editEndHour', 'editEndMinute'].forEach(id => {
-        document.getElementById(id)?.addEventListener('change', updateEditDurationDisplay);
+        document.getElementById(id)?.addEventListener('change', () => {
+            updateEditDurationDisplay();
+            refreshEditTrustPreviewFromForm();
+        });
     });
+    document.getElementById('editSourceSelect')?.addEventListener('change', refreshEditTrustPreviewFromForm);
+    document.getElementById('editIncludeArchiveMedia')?.addEventListener('change', refreshEditTrustPreviewFromForm);
 
     // Confirm edit
     document.getElementById('confirmEditSchedule')?.addEventListener('click', async function() {
@@ -3263,6 +3479,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Mount filter
     mountFilter.addEventListener('change', () => {
         calendar.refetchEvents();
+        refreshEffectivePreview();
     });
 
     // Delete event button in modal
@@ -3721,6 +3938,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    async function refreshEffectivePreview() {
+        const container = document.getElementById('effectivePreviewContainer');
+        if (!container) return;
+        const params = new URLSearchParams();
+        if (mountFilter.value) params.set('mount_id', mountFilter.value);
+        const url = `/dashboard/schedule/effective-preview?${params.toString()}`;
+        try {
+            const resp = await fetch(url);
+            if (!resp.ok) {
+                container.innerHTML = '<div class="card mb-3"><div class="card-body text-danger small">Failed to load effective schedule view.</div></div>';
+                return;
+            }
+            container.innerHTML = await resp.text();
+        } catch (e) {
+            console.warn('Failed to refresh effective preview:', e);
+            container.innerHTML = '<div class="card mb-3"><div class="card-body text-danger small">Failed to load effective schedule view.</div></div>';
+        }
+    }
+
     function renderNowPlaying(np) {
         if (!np || np.status !== 'playing') {
             return '<i class="bi bi-music-note me-1"></i>No active playback right now.';
@@ -3849,6 +4085,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     refreshIRTPanel();
     irtRefreshTimer = setInterval(refreshIRTPanel, 10000);
+    refreshEffectivePreview();
 
     // ===== Template Management =====
 

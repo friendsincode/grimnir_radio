@@ -1,0 +1,36 @@
+{{define "partials/schedule-effective-preview"}}
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <h6 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Next {{.Hours}}h Effective View</h6>
+            <div class="small text-body-secondary">
+                {{if .MountName}}Filtered to {{.MountName}}{{else}}All mounts{{end}}
+            </div>
+        </div>
+        <div class="small text-body-secondary">
+            {{formatTime .WindowStart}} to {{formatTime .WindowEnd}}
+        </div>
+    </div>
+    <div class="card-body py-2">
+        {{range .Items}}
+        <div class="border rounded p-2 mb-2">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+                <div>
+                    <div class="fw-semibold">{{.Title}}</div>
+                    <div class="small text-body-secondary">{{.SourceLabel}}{{if .MountName}} • {{.MountName}}{{end}}</div>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-{{if eq .State "override"}}warning text-dark{{else}}secondary{{end}}">
+                        {{if eq .State "override"}}Override{{else}}Scheduled{{end}}
+                    </span>
+                    <div class="small text-body-secondary mt-1">{{formatTime .StartsAt}} to {{formatTime .EndsAt}}</div>
+                </div>
+            </div>
+            <div class="small text-body-secondary mt-2">{{.Headline}}</div>
+        </div>
+        {{else}}
+        <div class="text-body-secondary small">No upcoming entries were found for this window.</div>
+        {{end}}
+    </div>
+</div>
+{{end}}

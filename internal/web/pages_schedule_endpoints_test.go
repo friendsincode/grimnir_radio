@@ -116,10 +116,50 @@ func TestScheduleCalendarRendersMountsAndTheme(t *testing.T) {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Schedule", "Main Mount", "const colorTheme = 'forest'", "validateScheduleBtn"} {
+	for _, want := range []string{"Schedule", "Main Mount", "const colorTheme = 'forest'", "validateScheduleBtn", "effectivePreviewContainer"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected body to contain %q", want)
 		}
+	}
+}
+
+func TestScheduleEffectivePreviewRendersUpcomingResolvedEntries(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	now := time.Now().UTC().Truncate(time.Minute)
+	for _, record := range []any{
+		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
+		&models.Mount{ID: "m2", StationID: station.ID, Name: "Alt", Format: "mp3"},
+		&models.Playlist{ID: "pl-preview", StationID: station.ID, Name: "Preview Playlist"},
+		&models.Webstream{ID: "ws-preview", StationID: station.ID, Name: "Preview Relay", URLs: []string{"https://preview.example/stream"}},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	for _, entry := range []models.ScheduleEntry{
+		{ID: "preview-playlist", StationID: station.ID, MountID: "m1", StartsAt: now.Add(30 * time.Minute), EndsAt: now.Add(90 * time.Minute), SourceType: "playlist", SourceID: "pl-preview"},
+		{ID: "preview-live", StationID: station.ID, MountID: "m1", StartsAt: now.Add(2 * time.Hour), EndsAt: now.Add(3 * time.Hour), SourceType: "live", Metadata: map[string]any{"session_name": "Preview Live"}},
+		{ID: "preview-webstream", StationID: station.ID, MountID: "m2", StartsAt: now.Add(4 * time.Hour), EndsAt: now.Add(5 * time.Hour), SourceType: "webstream", SourceID: "ws-preview"},
+	} {
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create entry: %v", err)
+		}
+	}
+
+	req := scheduleRequest(http.MethodGet, "/dashboard/schedule/effective-preview?mount_id=m1", nil, &station, "")
+	rr := httptest.NewRecorder()
+	h.ScheduleEffectivePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"Next 24h Effective View", "Preview Playlist", "Preview Live", "Filtered to Main"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected body to contain %q", want)
+		}
+	}
+	if strings.Contains(body, "Preview Relay") {
+		t.Fatalf("did not expect mount-filtered out relay entry in preview: %s", body)
 	}
 }
 
