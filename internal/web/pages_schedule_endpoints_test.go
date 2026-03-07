@@ -183,6 +183,56 @@ func TestScheduleEffectivePreviewRendersUpcomingResolvedEntries(t *testing.T) {
 	}
 }
 
+func TestScheduleEffectivePreviewDoesNotMarkVirtualRecurringInstancesAsOverrides(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	now := time.Now().UTC().Truncate(time.Minute)
+	start := now.Add(2 * time.Hour)
+
+	for _, record := range []any{
+		&models.Mount{ID: "m1", StationID: station.ID, Name: "rlmradioxyz", Format: "mp3"},
+		&models.ClockHour{ID: "clock-1", StationID: station.ID, Name: "Unkle Bonehead"},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+
+	parent := models.ScheduleEntry{
+		ID:             "clock-parent",
+		StationID:      station.ID,
+		MountID:        "m1",
+		StartsAt:       start,
+		EndsAt:         start.Add(2 * time.Hour),
+		SourceType:     "clock_template",
+		SourceID:       "clock-1",
+		RecurrenceType: models.RecurrenceDaily,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create recurring parent: %v", err)
+	}
+
+	req := scheduleRequest(http.MethodGet, "/dashboard/schedule/effective-preview?mount_id=m1", nil, &station, "")
+	rr := httptest.NewRecorder()
+	h.ScheduleEffectivePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Unkle Bonehead") {
+		t.Fatalf("expected recurring clock entry in preview: %s", body)
+	}
+	if strings.Contains(body, "Override") {
+		t.Fatalf("did not expect virtual recurring instance to be labeled override: %s", body)
+	}
+	if !strings.Contains(body, "Scheduled") {
+		t.Fatalf("expected recurring generated instance to stay scheduled: %s", body)
+	}
+	if !strings.Contains(body, "Generated from the recurring schedule rule for this window.") {
+		t.Fatalf("expected recurring generated explanation in preview: %s", body)
+	}
+}
+
 func TestScheduleRefreshHTMX(t *testing.T) {
 	h, _, _, station := newScheduleEndpointTestHandler(t)
 

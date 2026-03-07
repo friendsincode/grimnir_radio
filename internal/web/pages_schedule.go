@@ -79,6 +79,14 @@ type EffectiveSchedulePreviewItem struct {
 	RuntimeMismatchReason string
 }
 
+func isVirtualRecurringInstance(entry models.ScheduleEntry) bool {
+	if !entry.IsInstance || entry.RecurrenceParentID == nil {
+		return false
+	}
+	parentID, _, ok := parseRecurringInstanceID(entry.ID)
+	return ok && parentID == *entry.RecurrenceParentID
+}
+
 // ScheduleEffectivePreview renders the next window of effective schedule items for operator review.
 func (h *Handler) ScheduleEffectivePreview(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
@@ -183,8 +191,10 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 		case "media":
 			headline = "Single fixed media item is scheduled."
 		}
-		if entry.IsInstance {
+		if entry.IsInstance && !isVirtualRecurringInstance(entry) {
 			state = "override"
+		} else if isVirtualRecurringInstance(entry) {
+			headline = "Generated from the recurring schedule rule for this window."
 		}
 		if entry.StartsAt.Before(now) && entry.EndsAt.After(now) {
 			if mountState, ok := activeMountStates[entry.MountID]; ok {
