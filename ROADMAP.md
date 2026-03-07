@@ -1,6 +1,6 @@
 # Grimnir Radio Roadmap
 
-## Version 1.31.0 (Current)
+## Version 1.31.1 (Current)
 
 ### Core Features (Complete)
 - ✅ Core radio automation functionality

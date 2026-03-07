@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.31.1 — 2026-03-06
+
+### Change: Schedule Status Labels and Operator Copy
+- Replaced generic schedule trust tags with specific operator-facing labels such as `Wrong Source Type`, `Wrong Source`, `Saved Override`, `Recurring Block`, `Fallback Active`, and `Constraint Relaxed`.
+- Added short `Why this tag:` explanations in the effective preview, details modal, and operator readback so schedule status states explain themselves.
+- Simplified schedule trust wording across previews, clock slot traces, playlist views, and before-save panels to match how operators actually reason about scheduled blocks.
+
+---
+
 ## 1.31.0 — 2026-03-06
 
 ### Change: Schedule Trust, Coverage, and Operator UI Hardening
