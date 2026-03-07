@@ -4,7 +4,7 @@
 [![Coverage](https://img.shields.io/endpoint?url=https://rlmradio.xyz/api/v1/public/coverage/badge)](https://rlmradio.xyz/api/v1/public/coverage)
 [![Coverage Target](https://img.shields.io/endpoint?url=https://rlmradio.xyz/api/v1/public/coverage/target-badge)](https://rlmradio.xyz/api/v1/public/coverage)
 
-**Version:** 1.18.50
+**Version:** 1.30.1
 
 Grimnir Radio is a modern, production-ready broadcast automation system built in Go. It features a multi-process architecture with separated control plane and media engine, live DJ input, HTTP stream relay with automatic failover, horizontal scaling, and comprehensive observability.
 
@@ -70,7 +70,7 @@ See [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md) for manual 
 
 ## Production Status
 
-**All planned phases complete through 1.18.50:**
+**All planned phases complete through 1.30.1:**
 
 - ✅ **Phase 0**: Foundation Fixes
 - ✅ **Phase 4A**: Executor & Priority System (5-tier priority ladder)
