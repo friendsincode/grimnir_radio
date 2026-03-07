@@ -1505,10 +1505,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const chips = [];
             const props = info.event.extendedProps || {};
             if (props.orphaned) chips.push({ label: 'Broken', tone: 'danger' });
-            if (props.runtime_mismatch) chips.push({ label: 'Runtime Drift', tone: 'warning' });
+            if (props.runtime_mismatch) chips.push({ label: props.status_label || 'Runtime Drift', tone: 'warning' });
             if (props.overlap_highlight || overlapEventIDs.has(info.event.id)) chips.push({ label: 'Overlap', tone: 'danger' });
-            if (props.is_instance) chips.push({ label: 'Override', tone: 'info' });
-            if (health === 'yellow' && !props.runtime_mismatch) chips.push({ label: 'Review', tone: 'warning' });
+            if (props.status_label === 'Saved Override') chips.push({ label: 'Saved Override', tone: 'info' });
+            if (health === 'yellow' && !props.runtime_mismatch) chips.push({ label: props.status_label || 'Needs Review', tone: 'warning' });
             if (chips.length > 0) {
                 const target = info.el.querySelector('.fc-event-title, .fc-list-event-title') || info.el.querySelector('.fc-event-main') || info.el;
                 const stack = document.createElement('span');
@@ -1523,7 +1523,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 target.appendChild(stack);
             }
             if (info.event.extendedProps?.runtime_mismatch) {
-                info.el.title = info.event.extendedProps.runtime_mismatch_reason || 'Runtime does not match the scheduled source.';
+                info.el.title = info.event.extendedProps.runtime_mismatch_reason || info.event.extendedProps.status_reason || 'Runtime does not match the scheduled source.';
             }
         },
 
@@ -1785,7 +1785,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (props.runtime_mismatch) {
             body += `
                 <div class="alert alert-danger py-2 px-3 small">
-                    <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-2"></i>Runtime Mismatch</div>
+                    <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-2"></i>${escapeHtml(props.status_label || 'Runtime Mismatch')}</div>
+                    ${props.status_reason ? `<div class="text-body-secondary mb-1">${escapeHtml(props.status_reason)}</div>` : ''}
                     <div>${escapeHtml(props.runtime_mismatch_reason || 'Runtime does not match the scheduled source.')}</div>
                     <div class="mt-1 text-body-secondary">Use the readback and effective preview below to confirm what the slot is supposed to do before editing.</div>
                 </div>
@@ -1967,12 +1968,20 @@ document.addEventListener('DOMContentLoaded', function() {
             live: 'Live slot',
             webstream: 'Relay stream'
         };
-        const stateMap = {
-            ok: { badge: 'success', label: 'Resolved' },
-            pending: { badge: 'info', label: 'Pending' },
-            attention: { badge: 'warning text-dark', label: 'Needs Review' }
-        };
-        const state = stateMap[summary.state] || { badge: 'secondary', label: 'Review' };
+        let state = { badge: 'secondary', label: 'Review', reason: 'This block needs a manual check.' };
+        if (summary.state === 'ok') {
+            state = { badge: 'success', label: 'Ready', reason: 'The current schedule details resolve cleanly for this block.' };
+        } else if (summary.state === 'pending') {
+            state = { badge: 'info text-dark', label: 'Pending Build', reason: 'The system has not built the final playback plan for this block yet.' };
+        } else if (summary.state === 'attention') {
+            if (summary.preview_status === 'error') {
+                state = { badge: 'danger', label: 'Build Failed', reason: 'The system could not build a playable plan for this block.' };
+            } else if (summary.bumper_limit_reached) {
+                state = { badge: 'warning text-dark', label: 'Bumper Cap Hit', reason: 'Smart block bumper fill hit the configured cap before the block was fully filled.' };
+            } else {
+                state = { badge: 'warning text-dark', label: 'Needs Review', reason: 'This block has a warning that should be checked before air.' };
+            }
+        }
         const configuredLabel = sourceTypeLabels[summary.configured_type] || summary.configured_type || '-';
         let html = `
             <div class="border-top pt-3 mb-3">
@@ -1983,6 +1992,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <span class="badge bg-${state.badge}">${state.label}</span>
                 </div>
+                <div class="small text-body-secondary mt-2"><strong>Why this tag:</strong> ${escapeHtml(state.reason)}</div>
                 <dl class="row mb-0 mt-2 small">
                     <dt class="col-4">You Set</dt>
                     <dd class="col-8">${escapeHtml(configuredLabel)}</dd>

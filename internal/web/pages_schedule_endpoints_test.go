@@ -170,7 +170,7 @@ func TestScheduleEffectivePreviewRendersUpcomingResolvedEntries(t *testing.T) {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Next 24h Effective View", "Preview Playlist", "Preview Live", "Filtered to Main", "Mismatch", "openEntryForDetails('preview-active')", "openEntryForEdit('preview-playlist')"} {
+	for _, want := range []string{"Next 24h Effective View", "Preview Playlist", "Preview Live", "Filtered to Main", "Wrong Source Type", "Why this tag:", "openEntryForDetails('preview-active')", "openEntryForEdit('preview-playlist')"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected body to contain %q", want)
 		}
@@ -225,8 +225,8 @@ func TestScheduleEffectivePreviewDoesNotMarkVirtualRecurringInstancesAsOverrides
 	if strings.Contains(body, "Override") {
 		t.Fatalf("did not expect virtual recurring instance to be labeled override: %s", body)
 	}
-	if !strings.Contains(body, "Scheduled") {
-		t.Fatalf("expected recurring generated instance to stay scheduled: %s", body)
+	if !strings.Contains(body, "Recurring Block") {
+		t.Fatalf("expected recurring generated instance to use recurring label: %s", body)
 	}
 	if !strings.Contains(body, "This block was generated from the recurring schedule rule.") {
 		t.Fatalf("expected recurring generated explanation in preview: %s", body)
@@ -449,9 +449,16 @@ func TestScheduleEventsHonorsMountFilterAndMetadataFallbacks(t *testing.T) {
 	if byID["show-meta"]["extendedProps"].(map[string]any)["runtime_mismatch"] != true {
 		t.Fatalf("expected runtime mismatch on active entry, got %+v", byID["show-meta"])
 	}
+	showProps := byID["show-meta"]["extendedProps"].(map[string]any)
+	if showProps["status_label"] != "Wrong Source Type" {
+		t.Fatalf("expected specific runtime mismatch label, got %+v", showProps)
+	}
 	props := byID["fallback-yellow"]["extendedProps"].(map[string]any)
 	if props["health"] != "yellow" || byID["fallback-yellow"]["title"] != "Live Session" {
 		t.Fatalf("expected yellow fallback live event, got %+v %+v", byID["fallback-yellow"], props)
+	}
+	if props["status_label"] != "Fallback Active" {
+		t.Fatalf("expected fallback status label, got %+v", props)
 	}
 }
 
