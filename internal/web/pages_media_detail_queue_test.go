@@ -114,9 +114,12 @@ func TestMediaDetailRendersQueueControlsWithRealQueueAPI(t *testing.T) {
 		`id="queueMountSelect"`,
 		`<option value="mount-main">Main</option>`,
 		`id="addToQueueBtn"`,
+		`id="queueActionHint"`,
+		`Open Schedule`,
 		`fetch('/api/v1/playout/queue'`,
 		`station_id: 's1'`,
 		`media_id: 'media-1'`,
+		`Queue this track on ${mountName}, or switch mounts before sending it to playout.`,
 		`Queued on ${mountName}${pos}`,
 	} {
 		if !strings.Contains(body, want) {

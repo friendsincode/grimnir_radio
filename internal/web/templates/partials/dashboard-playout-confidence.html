@@ -24,7 +24,10 @@
                     <div class="small">Priority: <strong>{{.RuntimeState.CurrentPriority}}</strong></div>
                     {{if .CurrentMount}}
                     <hr>
-                    <div class="small text-body-secondary mb-1">Current Runtime Sequence</div>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <div class="small text-body-secondary">Current Runtime Sequence</div>
+                        {{if .MismatchReasons}}<span class="badge bg-warning text-dark">Needs Review</span>{{end}}
+                    </div>
                     <div class="small mb-1">Source: <strong>{{.CurrentMount.SourceType}}</strong></div>
                     <div class="small mb-1">Position: <strong>{{.CurrentMount.Position}}</strong>{{if gt .CurrentMount.TotalItems 0}} / {{.CurrentMount.TotalItems}}{{end}}</div>
                     <div class="small">Window: <strong>{{formatTime .CurrentMount.StartedAt}}</strong> to <strong>{{formatTime .CurrentMount.EndsAt}}</strong></div>
@@ -62,10 +65,16 @@
             </div>
             <div class="col-xl-4">
                 <div class="border rounded-3 p-3 h-100">
-                    <div class="small text-body-secondary mb-2">Runtime Queue</div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="small text-body-secondary">Runtime Queue</div>
+                        <a class="btn btn-sm btn-outline-secondary" href="/dashboard/media">Open media</a>
+                    </div>
                     {{range .QueuedByMount}}
                     <div class="mb-3">
-                        <div class="fw-semibold small">{{if .MountName}}{{.MountName}}{{else}}{{.MountID}}{{end}}</div>
+                        <div class="d-flex justify-content-between align-items-center gap-2">
+                            <div class="fw-semibold small">{{if .MountName}}{{.MountName}}{{else}}{{.MountID}}{{end}}</div>
+                            <span class="badge bg-secondary">{{len .Items}} queued</span>
+                        </div>
                         <ul class="list-unstyled small mb-0 mt-2">
                             {{range .Items}}
                             <li class="mb-2">

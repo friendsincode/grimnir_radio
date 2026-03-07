@@ -151,6 +151,8 @@ func TestDashboardPlayoutConfidenceRendersQueueHealthAndActions(t *testing.T) {
 		"playing",
 		"1400 ms",
 		"Underruns: <strong>2</strong>",
+		"1 queued",
+		"Open media",
 		"Expected Schedule",
 		"/dashboard/schedule?entry_details=entry-1",
 		"/dashboard/schedule?edit_entry=entry-1",
@@ -251,7 +253,7 @@ func TestDashboardPlayoutConfidenceHighlightsRuntimeMismatch(t *testing.T) {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Config vs Runtime Review", "Expected Playlist", "Source type mismatch"} {
+	for _, want := range []string{"Config vs Runtime Review", "Expected Playlist", "Source type mismatch", "Needs Review"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected body to contain %q", want)
 		}

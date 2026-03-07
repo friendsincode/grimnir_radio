@@ -132,6 +132,42 @@
     .health-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; flex-shrink: 0; }
     .health-yellow { background-color: var(--bs-warning); }
     .health-red { background-color: var(--bs-danger); }
+    .event-status-stack {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        margin-left: 6px;
+        vertical-align: middle;
+    }
+    .event-status-chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 0 6px;
+        font-size: 0.6rem;
+        line-height: 1.3;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        background: rgba(255,255,255,0.18);
+        color: #fff;
+    }
+    .event-status-chip.warning {
+        background: rgba(255,193,7,0.92);
+        color: #1f2937;
+    }
+    .event-status-chip.danger {
+        background: rgba(220,53,69,0.92);
+        color: #fff;
+    }
+    .event-status-chip.info {
+        background: rgba(13,202,240,0.92);
+        color: #0b2239;
+    }
+    .event-status-chip.secondary {
+        background: rgba(255,255,255,0.22);
+        color: #fff;
+    }
     .validation-detail-list { margin-top: 0.5rem; margin-bottom: 0; padding-left: 1rem; }
     .irt-list .irt-item { border-bottom: 1px solid var(--bs-border-color); }
     .irt-list .irt-item:last-child { border-bottom: 0; }
@@ -158,8 +194,27 @@
         .schedule-toolbar-actions .btn {
             flex: 1 1 auto;
         }
+        .fc .fc-button,
+        .fc .fc-toolbar-title,
+        #editScheduleModal .btn,
+        #eventModal .btn {
+            min-height: 44px;
+        }
+        .fc-event {
+            min-height: 38px;
+        }
         #editScheduleModal .modal-dialog {
             margin: 0.5rem;
+        }
+        #editScheduleModal .modal-content {
+            min-height: calc(100vh - 1rem);
+        }
+        #editScheduleModal .modal-footer {
+            position: sticky;
+            bottom: 0;
+            background: var(--bs-body-bg);
+            z-index: 2;
+            border-top: 1px solid var(--bs-border-color);
         }
     }
 </style>
@@ -1405,6 +1460,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 dot.title = health === 'red' ? 'Missing source' : 'Fallback or relaxed constraints';
                 const fc = info.el.querySelector('.fc-event-main') || info.el;
                 fc.prepend(dot);
+            }
+            const chips = [];
+            const props = info.event.extendedProps || {};
+            if (props.orphaned) chips.push({ label: 'Broken', tone: 'danger' });
+            if (props.runtime_mismatch) chips.push({ label: 'Runtime Drift', tone: 'warning' });
+            if (props.overlap_highlight || overlapEventIDs.has(info.event.id)) chips.push({ label: 'Overlap', tone: 'danger' });
+            if (props.is_instance) chips.push({ label: 'Override', tone: 'info' });
+            if (health === 'yellow' && !props.runtime_mismatch) chips.push({ label: 'Review', tone: 'warning' });
+            if (chips.length > 0) {
+                const target = info.el.querySelector('.fc-event-title, .fc-list-event-title') || info.el.querySelector('.fc-event-main') || info.el;
+                const stack = document.createElement('span');
+                stack.className = 'event-status-stack';
+                stack.setAttribute('aria-label', 'Event status');
+                chips.forEach(chip => {
+                    const el = document.createElement('span');
+                    el.className = `event-status-chip ${chip.tone}`;
+                    el.textContent = chip.label;
+                    stack.appendChild(el);
+                });
+                target.appendChild(stack);
             }
             if (info.event.extendedProps?.runtime_mismatch) {
                 info.el.title = info.event.extendedProps.runtime_mismatch_reason || 'Runtime does not match the scheduled source.';
