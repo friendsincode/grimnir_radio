@@ -123,6 +123,11 @@ func TestScheduleCalendarRendersMountsAndTheme(t *testing.T) {
 			t.Fatalf("expected body to contain %q", want)
 		}
 	}
+	for _, want := range []string{"densityToggleBtn", "editPreflightPanel"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected body to contain %q", want)
+		}
+	}
 }
 
 func TestScheduleEffectivePreviewRendersUpcomingResolvedEntries(t *testing.T) {
@@ -767,6 +772,31 @@ func TestScheduleCreateUpdateDeleteRoundTripAndEvents(t *testing.T) {
 		t.Fatal("expected update schedule event")
 	}
 
+	updateLiveBody, _ := json.Marshal(map[string]any{
+		"starts_at":   time.Date(2026, 3, 10, 18, 0, 0, 0, time.UTC),
+		"ends_at":     time.Date(2026, 3, 10, 19, 0, 0, 0, time.UTC),
+		"source_type": "live",
+		"source_id":   "",
+	})
+	req = httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/"+created.ID, bytes.NewReader(updateLiveBody))
+	rctx = chi.NewRouteContext()
+	rctx.URLParams.Add("id", created.ID)
+	ctx = context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr = httptest.NewRecorder()
+
+	h.ScheduleUpdateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating to live, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if err := db.First(&updated, "id = ?", created.ID).Error; err != nil {
+		t.Fatalf("reload live-updated entry: %v", err)
+	}
+	if updated.SourceType != "live" || updated.SourceID != created.ID {
+		t.Fatalf("expected live source normalization on update, got %+v", updated)
+	}
+
 	deleteSub := h.eventBus.Subscribe(events.EventScheduleUpdate)
 	defer h.eventBus.Unsubscribe(events.EventScheduleUpdate, deleteSub)
 	req = httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/"+created.ID, nil)
@@ -873,6 +903,40 @@ func TestScheduleWritePathValidationErrors(t *testing.T) {
 		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
 		h.ScheduleDeleteEntry(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("update rejects inverted time range", func(t *testing.T) {
+		entry := models.ScheduleEntry{ID: "update-range", StationID: station.ID, MountID: "m1", StartsAt: time.Date(2026, 3, 12, 16, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 12, 17, 0, 0, 0, time.UTC), SourceType: "media", SourceID: "m4"}
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create update-range entry: %v", err)
+		}
+		body := bytes.NewBufferString(`{"starts_at":"2026-03-12T17:00:00Z","ends_at":"2026-03-12T16:00:00Z"}`)
+		req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/update-range", body)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "update-range")
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		ctx = context.WithValue(ctx, ctxKeyStation, &station)
+		req = req.WithContext(ctx)
+		rr := httptest.NewRecorder()
+		h.ScheduleUpdateEntry(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("update rejects missing entry", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"starts_at":"2026-03-12T17:00:00Z","ends_at":"2026-03-12T18:00:00Z"}`)
+		req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/missing-update", body)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "missing-update")
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		ctx = context.WithValue(ctx, ctxKeyStation, &station)
+		req = req.WithContext(ctx)
+		rr := httptest.NewRecorder()
+		h.ScheduleUpdateEntry(rr, req)
 		if rr.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d body=%s", rr.Code, rr.Body.String())
 		}
