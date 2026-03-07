@@ -228,7 +228,7 @@ func TestScheduleEffectivePreviewDoesNotMarkVirtualRecurringInstancesAsOverrides
 	if !strings.Contains(body, "Scheduled") {
 		t.Fatalf("expected recurring generated instance to stay scheduled: %s", body)
 	}
-	if !strings.Contains(body, "Generated from the recurring schedule rule for this window.") {
+	if !strings.Contains(body, "This block was generated from the recurring schedule rule.") {
 		t.Fatalf("expected recurring generated explanation in preview: %s", body)
 	}
 }

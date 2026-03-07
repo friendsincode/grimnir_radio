@@ -173,28 +173,28 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 
 	for _, entry := range filtered {
 		title, label := h.resolveSchedulePreviewLabel(r, entry)
-		headline := "Review this scheduled item."
+		headline := "Check this scheduled block before air."
 		state := "scheduled"
 		runtimeMismatch := false
 		runtimeMismatchReason := ""
 		switch entry.SourceType {
 		case "live":
-			headline = "Live source takeover expected in this window."
+			headline = "A live source is expected to take this block."
 		case "webstream":
-			headline = "External relay expected in this window."
+			headline = "This block should relay the selected stream."
 		case "smart_block":
-			headline = "Rule-based selection will resolve for this window."
+			headline = "This block will be filled by the smart block rules."
 		case "clock_template":
-			headline = "Clock slots will expand into source segments in this window."
+			headline = "This block will be filled by the clock's scheduled slots."
 		case "playlist":
-			headline = "Playlist order drives the scheduled window."
+			headline = "This block will pull from the selected playlist."
 		case "media":
-			headline = "Single fixed media item is scheduled."
+			headline = "This block points to one fixed track."
 		}
 		if entry.IsInstance && !isVirtualRecurringInstance(entry) {
 			state = "override"
 		} else if isVirtualRecurringInstance(entry) {
-			headline = "Generated from the recurring schedule rule for this window."
+			headline = "This block was generated from the recurring schedule rule."
 		}
 		if entry.StartsAt.Before(now) && entry.EndsAt.After(now) {
 			if mountState, ok := activeMountStates[entry.MountID]; ok {
@@ -1673,27 +1673,27 @@ func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[str
 
 	checks := make([]string, 0, 4)
 	state := "ok"
-	headline := "This entry resolves cleanly."
+	headline := "This block is ready as currently configured."
 	resolvedAs := entry.SourceType
 
 	switch entry.SourceType {
 	case "clock_template":
 		if clock, ok := response["clock"].(map[string]any); ok {
 			if name, ok := clock["name"].(string); ok && strings.TrimSpace(name) != "" {
-				headline = "This clock entry expands into slot-level sources for the scheduled window."
+				headline = "This clock will fill this time block using the clock's slots and their assigned sources."
 				resolvedAs = name
 			}
 		}
 		if trace, ok := response["clock_trace"].(map[string]any); ok {
 			if queued, ok := trace["queued_slots"].([]map[string]any); ok {
 				summary["queued_slot_count"] = len(queued)
-				checks = append(checks, fmt.Sprintf("Verify %d queued slot(s) match the intended hour layout.", len(queued)))
+				checks = append(checks, fmt.Sprintf("Make sure the %d clock slot(s) match what you expect in this block.", len(queued)))
 			} else if queuedAny, ok := trace["queued_slots"].([]any); ok {
 				summary["queued_slot_count"] = len(queuedAny)
-				checks = append(checks, fmt.Sprintf("Verify %d queued slot(s) match the intended hour layout.", len(queuedAny)))
+				checks = append(checks, fmt.Sprintf("Make sure the %d clock slot(s) match what you expect in this block.", len(queuedAny)))
 			}
 			if playedAny, ok := trace["played_tracks"].([]any); ok && len(playedAny) > 0 {
-				checks = append(checks, "Compare played tracks against the queued slot trace for this window.")
+				checks = append(checks, "Compare what already played against the current clock plan for this block.")
 			}
 		}
 	case "playlist":
@@ -1703,12 +1703,12 @@ func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[str
 			}
 			if count, ok := playlist["track_count"].(int); ok {
 				summary["track_count"] = count
-				headline = fmt.Sprintf("This playlist entry will draw from %d track(s) in the configured list.", count)
+				headline = fmt.Sprintf("This block will pull from %d track(s) in the selected playlist.", count)
 			} else if count, ok := playlist["track_count"].(float64); ok {
 				summary["track_count"] = int(count)
-				headline = fmt.Sprintf("This playlist entry will draw from %d track(s) in the configured list.", int(count))
+				headline = fmt.Sprintf("This block will pull from %d track(s) in the selected playlist.", int(count))
 			}
-			checks = append(checks, "Verify the playlist order and any track overrides before air.")
+			checks = append(checks, "Make sure the playlist order and any track swaps look right before air.")
 		}
 	case "smart_block":
 		if block, ok := response["smart_block"].(map[string]any); ok {
@@ -1722,31 +1722,31 @@ func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[str
 				switch status {
 				case "pending_materialization":
 					state = "pending"
-					headline = "This smart block has not been materialized yet for the scheduled window."
-					checks = append(checks, "Wait for the slot to enter the lookahead window, then confirm the generated track list.")
+					headline = "This smart block has not built its track plan for this block yet."
+					checks = append(checks, "Wait until this block is closer to air time, then review the generated track list.")
 				case "error":
 					state = "attention"
-					headline = "This smart block could not currently resolve a playable sequence."
-					checks = append(checks, "Review smart block rules or matching media before trusting this slot.")
+					headline = "This smart block could not build a playable plan for this block."
+					checks = append(checks, "Review the smart block rules or available matching tracks before trusting this block.")
 				case "ready":
 					if count, ok := preview["track_count"].(float64); ok {
 						summary["track_count"] = int(count)
-						headline = fmt.Sprintf("This smart block currently resolves to %d planned track(s) for this time window.", int(count))
+						headline = fmt.Sprintf("This smart block currently plans %d track(s) for this block.", int(count))
 					}
 					if bumperCount, ok := preview["bumper_count"].(float64); ok {
 						summary["bumper_count"] = int(bumperCount)
 						if bumperLimit, ok := preview["bumper_limit"].(float64); ok && bumperLimit > 0 {
 							summary["bumper_limit"] = int(bumperLimit)
-							checks = append(checks, fmt.Sprintf("Verify bumper tail-fill used %d of %d allowed bumper slot(s).", int(bumperCount), int(bumperLimit)))
+							checks = append(checks, fmt.Sprintf("Check the bumper fill: %d of %d allowed bumper slots were used.", int(bumperCount), int(bumperLimit)))
 						} else {
-							checks = append(checks, fmt.Sprintf("Verify bumper tail-fill used %d extra bumper track(s).", int(bumperCount)))
+							checks = append(checks, fmt.Sprintf("Check the bumper fill: %d extra bumper track(s) were used.", int(bumperCount)))
 						}
 					}
 					if reached, ok := preview["bumper_limit_reached"].(bool); ok && reached {
 						state = "attention"
-						checks = append(checks, "Bumper cap was reached before the window was fully filled. Review the smart block duration plan.")
+						checks = append(checks, "The bumper cap was hit before the full block was filled. Review the smart block timing plan.")
 					}
-					checks = append(checks, "Confirm the generated track list still fits the intended duration and rotation.")
+					checks = append(checks, "Make sure the generated track list still fits the block length and rotation you expect.")
 				}
 			}
 		}
@@ -1759,8 +1759,8 @@ func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[str
 			} else if title != "" {
 				resolvedAs = title
 			}
-			headline = "This entry points directly at one media item."
-			checks = append(checks, "Verify the exact track metadata and duration match the intended slot.")
+			headline = "This block points to one fixed track."
+			checks = append(checks, "Make sure the exact track and duration are the ones you want in this block.")
 		}
 	case "webstream":
 		if webstream, ok := response["webstream"].(map[string]any); ok {
@@ -1768,17 +1768,17 @@ func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[str
 				resolvedAs = name
 			}
 		}
-		headline = "This entry relays an external webstream instead of selecting tracks."
-		checks = append(checks, "Verify the webstream URL and expected live source are available.")
+		headline = "This block relays an external stream instead of selecting tracks."
+		checks = append(checks, "Make sure the stream source is available and the right relay is selected.")
 	case "live":
-		headline = "This entry expects a live operator or source to take over the mount."
-		checks = append(checks, "Verify the live source is ready before this slot starts.")
+		headline = "This block expects a live operator or live source takeover."
+		checks = append(checks, "Make sure the live source is ready before this block starts.")
 	default:
-		headline = "Review this entry carefully before air."
+		headline = "Review this block carefully before air."
 	}
 
 	if entry.MountID != "" {
-		checks = append(checks, "Confirm the entry is scheduled on the intended mount.")
+		checks = append(checks, "Make sure this block is scheduled on the correct mount.")
 	}
 
 	summary["state"] = state
@@ -1887,7 +1887,7 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 	case "playlist":
 		if playlist, ok := response["playlist"].(map[string]any); ok {
 			items := collectItems(playlist["tracks"])
-			addSection("Playlist Tracks", "tracks", items, "Ordered list from the configured playlist.")
+			addSection("Playlist Plan", "tracks", items, "Tracks from the selected playlist for this block.")
 		}
 	case "smart_block":
 		if previewMap, ok := response["smart_block_preview"].(map[string]any); ok {
@@ -1905,11 +1905,11 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 					note = fmt.Sprintf("%s Max allowed: %d.", note, int(bumperLimit))
 				}
 			}
-			addSection("Generated Track Plan", "tracks", items, note)
+			addSection("Smart Block Plan", "tracks", items, note)
 		}
 	case "media":
 		if media, ok := response["media"].(map[string]any); ok {
-			addSection("Direct Media", "track", []map[string]any{media}, "Single fixed media item.")
+			addSection("Fixed Track", "track", []map[string]any{media}, "One fixed track for this block.")
 		}
 	case "webstream":
 		if webstream, ok := response["webstream"].(map[string]any); ok {
@@ -1929,7 +1929,7 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 	}
 
 	if len(sections) == 0 {
-		preview["empty_reason"] = "No resolved preview is available for this entry yet."
+		preview["empty_reason"] = "No playback plan is available for this block yet."
 	} else {
 		preview["sections"] = sections
 	}
