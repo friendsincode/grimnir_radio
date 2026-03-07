@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1737,9 +1738,13 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 	}
 	for _, record := range []any{
 		&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Track One", Artist: "Artist One", Duration: 210 * time.Second, Path: "track1.mp3"},
+		&models.MediaItem{ID: "media-long-1", StationID: station.ID, Title: "Long One", Artist: "Artist Long", Duration: time.Hour, Path: "long1.mp3"},
+		&models.MediaItem{ID: "media-long-2", StationID: station.ID, Title: "Long Two", Artist: "Artist Long", Duration: time.Hour, Path: "long2.mp3"},
+		&models.MediaItem{ID: "media-long-3", StationID: station.ID, Title: "Long Three", Artist: "Artist Long", Duration: time.Hour, Path: "long3.mp3"},
 		&models.MediaItem{ID: "media-ready-1", StationID: station.ID, Title: "Ready One", Artist: "Artist Ready", Genre: "ReadyGenre", Duration: 240 * time.Second, Path: "ready1.mp3", AnalysisState: models.AnalysisComplete},
 		&models.MediaItem{ID: "media-ready-2", StationID: station.ID, Title: "Ready Two", Artist: "Artist Ready", Genre: "ReadyGenre", Duration: 180 * time.Second, Path: "ready2.mp3", AnalysisState: models.AnalysisComplete},
 		&models.Playlist{ID: "pl-1", StationID: station.ID, Name: "Playlist One"},
+		&models.Playlist{ID: "pl-window", StationID: station.ID, Name: "Windowed Playlist"},
 		&models.SmartBlock{ID: "sb-1", StationID: station.ID, Name: "Smart Future", Rules: map[string]any{"mode": "test"}},
 		&models.SmartBlock{ID: "sb-ready", StationID: station.ID, Name: "Smart Ready", Rules: map[string]any{"genre": "ReadyGenre"}},
 		&models.SmartBlock{ID: "sb-empty", StationID: station.ID, Name: "Smart Empty", Rules: map[string]any{"genre": "NoSuchGenreAnywhere"}},
@@ -1751,8 +1756,14 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 	if err := db.Create(&models.PlaylistItem{ID: "pli-1", PlaylistID: "pl-1", MediaID: "media-1", Position: 1}).Error; err != nil {
 		t.Fatalf("create playlist item: %v", err)
 	}
+	for idx, mediaID := range []string{"media-long-1", "media-long-2", "media-long-3"} {
+		if err := db.Create(&models.PlaylistItem{ID: fmt.Sprintf("pli-window-%d", idx+1), PlaylistID: "pl-window", MediaID: mediaID, Position: idx + 1}).Error; err != nil {
+			t.Fatalf("create windowed playlist item %d: %v", idx+1, err)
+		}
+	}
 	entries := []models.ScheduleEntry{
 		{ID: "entry-playlist", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC(), EndsAt: time.Now().UTC().Add(time.Hour), SourceType: "playlist", SourceID: "pl-1"},
+		{ID: "entry-playlist-window", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC(), EndsAt: time.Now().UTC().Add(2 * time.Hour), SourceType: "playlist", SourceID: "pl-window"},
 		{ID: "entry-smart-future", StationID: station.ID, MountID: "m1", StartsAt: time.Now().UTC().Add(72 * time.Hour), EndsAt: time.Now().UTC().Add(73 * time.Hour), SourceType: "smart_block", SourceID: "sb-empty"},
 	}
 	for _, entry := range entries {
@@ -1783,6 +1794,33 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		effective := payload["effective_preview"].(map[string]any)
 		if sections := effective["sections"].([]any); len(sections) != 1 {
 			t.Fatalf("expected one playlist effective preview section, got %+v", effective)
+		}
+	})
+
+	t.Run("playlist effective preview is clipped to the block window", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/entry-playlist-window", nil, &station, "entry-playlist-window")
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		effective := payload["effective_preview"].(map[string]any)
+		sections := effective["sections"].([]any)
+		if len(sections) != 1 {
+			t.Fatalf("expected one playlist section, got %+v", effective)
+		}
+		section := sections[0].(map[string]any)
+		items := section["items"].([]any)
+		if len(items) != 2 {
+			t.Fatalf("expected playlist preview to stop at 2 hours, got %+v", section)
+		}
+		note, _ := section["note"].(string)
+		if !strings.Contains(note, "2h0m0s") || !strings.Contains(note, "1 more item(s) are hidden") {
+			t.Fatalf("expected overflow note in clipped playlist preview, got %q", note)
 		}
 	})
 
