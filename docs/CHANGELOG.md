@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.18.50 — 2026-03-06
+
+### Change: Schedule Trust, Coverage, and Operator UI Hardening
+- Added authoritative smart block bumper trust coverage so generated previews now expose bumper counts, cap usage, and bumper-tagged tracks.
+- Added schedule operator trust layers across details, edit, and next-24h views, including runtime mismatch surfacing, actionable inspect/edit links, and preflight overlap review before save.
+- Increased schedule write-path and trust-surface coverage, including `ScheduleUpdateEntry` over 80% and deep coverage on `ScheduleEntryDetails` and `ScheduleSourceTracks`.
+- Polished operator-facing schedule and media UI with compact density mode, stronger mobile touch targets, clearer confidence-panel review states, and better queue/schedule quick actions.
+
+---
+
 ## 1.18.49 — 2026-02-28
 
 ### Fix: Station and Transport Dropdown Menus White on Landing Page
