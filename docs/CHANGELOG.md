@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.30.1 — 2026-03-06
+## 1.31.0 — 2026-03-06
 
 ### Change: Schedule Trust, Coverage, and Operator UI Hardening
 - Added authoritative smart block bumper trust coverage so generated previews now expose bumper counts, cap usage, and bumper-tagged tracks.
