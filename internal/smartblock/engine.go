@@ -54,14 +54,18 @@ type SequenceItem struct {
 	IntroEnd   float64
 	OutroIn    float64
 	Energy     float64
+	IsBumper   bool
 }
 
 // GenerateResult returns the materialized sequence.
 type GenerateResult struct {
-	Items     []SequenceItem
-	TotalMS   int64
-	Exhausted bool
-	Warnings  []string
+	Items              []SequenceItem
+	TotalMS            int64
+	Exhausted          bool
+	Warnings           []string
+	BumperCount        int
+	BumperLimit        int
+	BumperLimitReached bool
 }
 
 // Generate materializes a sequence using smart block rules.
@@ -119,7 +123,12 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 
 		// Tail-fill with bumper tracks if enabled and sequence is underfilled.
 		if def.Bumpers.Enabled && result.TotalMS < target {
+			result.BumperLimit = def.Bumpers.MaxPerGap
 			e.tailFillBumpers(ctx, &result, def.Bumpers, req.StationID, target)
+			if result.BumperCount >= def.Bumpers.MaxPerGap && result.TotalMS < target {
+				result.BumperLimitReached = true
+				result.Warnings = append(result.Warnings, "bumper_limit_reached")
+			}
 		}
 
 		if level > 0 {
@@ -392,11 +401,13 @@ func (e *Engine) tailFillBumpers(ctx context.Context, result *GenerateResult, cf
 			IntroEnd:   chosen.CuePoints.IntroEnd,
 			OutroIn:    chosen.CuePoints.OutroIn,
 			Energy:     deriveEnergy(chosen),
+			IsBumper:   true,
 		})
 		result.TotalMS += bestDur
 		prevID = lastID
 		lastID = chosen.ID
 		added++
+		result.BumperCount++
 
 		// Shuffle remaining bumpers for variety.
 		rng.Shuffle(len(bumpers), func(i, j int) { bumpers[i], bumpers[j] = bumpers[j], bumpers[i] })

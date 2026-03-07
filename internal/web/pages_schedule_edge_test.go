@@ -287,3 +287,31 @@ func TestParseRecurringInstanceID(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduleWriteHandlersRequireSelectedStation(t *testing.T) {
+	db, _ := newScheduleEdgeTestDB(t)
+	h := &Handler{db: db, logger: zerolog.Nop()}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", bytes.NewReader([]byte(`{}`)))
+	createRR := httptest.NewRecorder()
+	h.ScheduleCreateEntry(createRR, createReq)
+	if createRR.Code != http.StatusBadRequest {
+		t.Fatalf("create expected 400 without station, got %d", createRR.Code)
+	}
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/e1", bytes.NewReader([]byte(`{}`)))
+	updateReq = withScheduleRouteID(updateReq, "e1")
+	updateRR := httptest.NewRecorder()
+	h.ScheduleUpdateEntry(updateRR, updateReq)
+	if updateRR.Code != http.StatusBadRequest {
+		t.Fatalf("update expected 400 without station, got %d", updateRR.Code)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/e1", nil)
+	deleteReq = withScheduleRouteID(deleteReq, "e1")
+	deleteRR := httptest.NewRecorder()
+	h.ScheduleDeleteEntry(deleteRR, deleteReq)
+	if deleteRR.Code != http.StatusBadRequest {
+		t.Fatalf("delete expected 400 without station, got %d", deleteRR.Code)
+	}
+}

@@ -1949,7 +1949,9 @@ document.addEventListener('DOMContentLoaded', function() {
             title: 'Pending Effective Preview',
             kind: 'tracks',
             items: tracks,
-            note: previewData.error || (tracks.length === 0 ? 'No resolved items yet.' : 'Resolved from the current edit values.')
+            note: previewData.error || ((previewData.bumper_count || 0) > 0
+                ? `Resolved from the current edit values. Bumper tail-fill: ${previewData.bumper_count}${previewData.bumper_limit ? ` / max ${previewData.bumper_limit}` : ''}.`
+                : (tracks.length === 0 ? 'No resolved items yet.' : 'Resolved from the current edit values.'))
         });
         if (tracks.length === 0 && !previewData.error) {
             preview.empty_reason = 'No resolved preview is available for this edited state yet.';
@@ -2054,6 +2056,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 ${tracks.length} selected track(s), target ${formatDuration(preview.target_duration_s || 0)}, total ${formatDuration(preview.total_duration_s || 0)}
             </div>
         `;
+        if ((preview.bumper_count || 0) > 0) {
+            const limit = preview.bumper_limit ? ` / max ${preview.bumper_limit}` : '';
+            const capNote = preview.bumper_limit_reached ? ' Cap reached.' : '';
+            html += `<div class="small ${preview.bumper_limit_reached ? 'text-warning' : 'text-body-secondary'} mb-2">Bumper tail-fill: ${preview.bumper_count}${limit}.${capNote}</div>`;
+        }
         html += renderTrackList(tracks, 15);
 
         if (preview.warnings && preview.warnings.length > 0) {
@@ -2319,6 +2326,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <span class="text-body-secondary me-1">${idx + 1}.</span>
                     ${titleHTML}
                     ${track.artist ? `<span class="text-body-secondary"> - ${escapeHtml(track.artist)}</span>` : ''}
+                    ${track.is_bumper ? '<span class="badge bg-warning text-dark ms-2">Bumper</span>' : ''}
                 </span>
                 <span class="text-body-secondary">${formatDuration(track.duration)}</span>
             </div>`;

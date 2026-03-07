@@ -1422,10 +1422,14 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 											"duration":    int64(media.Duration.Seconds()),
 											"starts_at_s": item.StartsAtMS / 1000,
 											"ends_at_s":   item.EndsAtMS / 1000,
+											"is_bumper":   item.IsBumper,
 										})
 									}
 									preview["track_count"] = len(tracks)
 									preview["total_duration_s"] = result.TotalMS / 1000
+									preview["bumper_count"] = result.BumperCount
+									preview["bumper_limit"] = result.BumperLimit
+									preview["bumper_limit_reached"] = result.BumperLimitReached
 									preview["warnings"] = result.Warnings
 									preview["tracks"] = tracks
 									slotTrace["smart_block_preview"] = preview
@@ -1572,11 +1576,15 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 					"duration":    int64(media.Duration.Seconds()),
 					"starts_at_s": item.StartsAtMS / 1000,
 					"ends_at_s":   item.EndsAtMS / 1000,
+					"is_bumper":   item.IsBumper,
 				})
 			}
 
 			preview["total_duration_s"] = result.TotalMS / 1000
 			preview["track_count"] = len(tracks)
+			preview["bumper_count"] = result.BumperCount
+			preview["bumper_limit"] = result.BumperLimit
+			preview["bumper_limit_reached"] = result.BumperLimitReached
 			preview["warnings"] = result.Warnings
 			preview["tracks"] = tracks
 			response["smart_block_preview"] = preview
@@ -1686,6 +1694,19 @@ func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[str
 						summary["track_count"] = int(count)
 						headline = fmt.Sprintf("This smart block currently resolves to %d planned track(s) for this time window.", int(count))
 					}
+					if bumperCount, ok := preview["bumper_count"].(float64); ok {
+						summary["bumper_count"] = int(bumperCount)
+						if bumperLimit, ok := preview["bumper_limit"].(float64); ok && bumperLimit > 0 {
+							summary["bumper_limit"] = int(bumperLimit)
+							checks = append(checks, fmt.Sprintf("Verify bumper tail-fill used %d of %d allowed bumper slot(s).", int(bumperCount), int(bumperLimit)))
+						} else {
+							checks = append(checks, fmt.Sprintf("Verify bumper tail-fill used %d extra bumper track(s).", int(bumperCount)))
+						}
+					}
+					if reached, ok := preview["bumper_limit_reached"].(bool); ok && reached {
+						state = "attention"
+						checks = append(checks, "Bumper cap was reached before the window was fully filled. Review the smart block duration plan.")
+					}
 					checks = append(checks, "Confirm the generated track list still fits the intended duration and rotation.")
 				}
 			}
@@ -1786,6 +1807,7 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 		if trace, ok := response["clock_trace"].(map[string]any); ok {
 			for _, slot := range collectSections(trace["queued_slots"]) {
 				items := make([]map[string]any, 0, 6)
+				note := ""
 				if playlist, ok := slot["playlist"].(map[string]any); ok {
 					items = append(items, collectItems(playlist["tracks"])...)
 				}
@@ -1795,21 +1817,30 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 				if previewMap, ok := slot["smart_block_preview"].(map[string]any); ok {
 					items = append(items, collectItems(previewMap["tracks"])...)
 					if len(items) == 0 {
-						note, _ := previewMap["message"].(string)
+						note, _ = previewMap["message"].(string)
 						if note == "" {
 							note, _ = previewMap["error"].(string)
 						}
 						addSection(fmt.Sprintf("Slot %v", slot["position"]), "slot", items, note)
 						continue
 					}
+					if bumperCount, ok := previewMap["bumper_count"].(float64); ok && bumperCount > 0 {
+						note = fmt.Sprintf("Includes %d bumper track(s) in the resolved smart block plan.", int(bumperCount))
+						if bumperLimit, ok := previewMap["bumper_limit"].(float64); ok && bumperLimit > 0 {
+							note = fmt.Sprintf("%s Max allowed: %d.", note, int(bumperLimit))
+						}
+					}
 				}
 				if webstream, ok := slot["webstream"].(map[string]any); ok {
 					items = append(items, webstream)
 				}
 				title := fmt.Sprintf("Slot %v", slot["position"])
-				note := ""
 				if sourceMap, ok := slot["source_map"].(string); ok {
-					note = sourceMap
+					if note == "" {
+						note = sourceMap
+					} else {
+						note = note + " " + sourceMap
+					}
 				}
 				addSection(title, "slot", items, note)
 			}
@@ -1827,6 +1858,12 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 				note, _ = previewMap["message"].(string)
 				if note == "" {
 					note, _ = previewMap["error"].(string)
+				}
+			}
+			if bumperCount, ok := previewMap["bumper_count"].(float64); ok && bumperCount > 0 {
+				note = fmt.Sprintf("Includes %d bumper track(s) in the resolved plan.", int(bumperCount))
+				if bumperLimit, ok := previewMap["bumper_limit"].(float64); ok && bumperLimit > 0 {
+					note = fmt.Sprintf("%s Max allowed: %d.", note, int(bumperLimit))
 				}
 			}
 			addSection("Generated Track Plan", "tracks", items, note)
@@ -1943,6 +1980,7 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 		Title    string `json:"title"`
 		Artist   string `json:"artist"`
 		Duration int64  `json:"duration"`
+		IsBumper bool   `json:"is_bumper,omitempty"`
 	}
 
 	response := map[string]any{
@@ -2003,8 +2041,13 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 						Title:    media.Title,
 						Artist:   media.Artist,
 						Duration: int64(media.Duration.Seconds()),
+						IsBumper: item.IsBumper,
 					})
 				}
+				response["bumper_count"] = result.BumperCount
+				response["bumper_limit"] = result.BumperLimit
+				response["bumper_limit_reached"] = result.BumperLimitReached
+				response["warnings"] = result.Warnings
 			} else {
 				response["error"] = err.Error()
 			}
@@ -2086,6 +2129,7 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 										Title:    media.Title,
 										Artist:   media.Artist,
 										Duration: int64(media.Duration.Seconds()),
+										IsBumper: item.IsBumper,
 									})
 								}
 							}
@@ -2172,10 +2216,17 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 	response["track_count"] = len(tracks)
 
 	var totalDuration int64
+	bumperCount := 0
 	for _, t := range tracks {
 		totalDuration += t.Duration
+		if t.IsBumper {
+			bumperCount++
+		}
 	}
 	response["total_duration"] = totalDuration
+	if bumperCount > 0 {
+		response["bumper_count"] = bumperCount
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
