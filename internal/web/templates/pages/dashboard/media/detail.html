@@ -241,9 +241,15 @@
                     <button class="btn btn-outline-primary" id="addToQueueBtn" title="Add track to play queue" {{if not $mounts}}disabled{{end}}>
                         <i class="bi bi-plus-circle me-2"></i>Add to Queue
                     </button>
+                    <div class="small text-body-secondary" id="queueActionHint">
+                        Queue this track immediately or jump into schedule planning from here.
+                    </div>
                     {{if not $mounts}}
                     <div class="text-body-secondary small">No mounts configured for this station.</div>
                     {{end}}
+                    <a href="/dashboard/schedule" class="btn btn-outline-secondary">
+                        <i class="bi bi-calendar3 me-2"></i>Open Schedule
+                    </a>
                     <a href="/dashboard/playlists?add={{$media.ID}}" class="btn btn-outline-secondary">
                         <i class="bi bi-list-ul me-2"></i>Add to Playlist
                     </a>
@@ -409,6 +415,15 @@ progressBar.parentElement.addEventListener('click', (e) => {
 
 const addToQueueBtn = document.getElementById('addToQueueBtn');
 const queueMountSelect = document.getElementById('queueMountSelect');
+const queueActionHint = document.getElementById('queueActionHint');
+if (queueMountSelect && queueActionHint) {
+    const updateQueueHint = () => {
+        const mountName = queueMountSelect.options[queueMountSelect.selectedIndex]?.text || 'selected mount';
+        queueActionHint.textContent = `Queue this track on ${mountName}, or switch mounts before sending it to playout.`;
+    };
+    queueMountSelect.addEventListener('change', updateQueueHint);
+    updateQueueHint();
+}
 if (addToQueueBtn) {
     addToQueueBtn.addEventListener('click', async () => {
         const mountID = queueMountSelect?.value || '';
