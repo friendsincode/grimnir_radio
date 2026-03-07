@@ -1889,6 +1889,51 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 			return nil
 		}
 	}
+	durationSeconds := func(item map[string]any) int64 {
+		switch v := item["duration"].(type) {
+		case int:
+			return int64(v)
+		case int32:
+			return int64(v)
+		case int64:
+			return v
+		case float64:
+			return int64(v)
+		default:
+			return 0
+		}
+	}
+	trimItemsToWindow := func(items []map[string]any, limitSeconds int64) ([]map[string]any, int) {
+		if limitSeconds <= 0 || len(items) == 0 {
+			return items, 0
+		}
+		total := int64(0)
+		trimmed := make([]map[string]any, 0, len(items))
+		for idx, item := range items {
+			itemDuration := durationSeconds(item)
+			if itemDuration <= 0 {
+				trimmed = append(trimmed, item)
+				continue
+			}
+			if total+itemDuration > limitSeconds {
+				return trimmed, len(items) - idx
+			}
+			trimmed = append(trimmed, item)
+			total += itemDuration
+		}
+		return trimmed, 0
+	}
+	appendOverflowNote := func(note string, hiddenCount int, limitSeconds int64) string {
+		if hiddenCount <= 0 {
+			return note
+		}
+		overflowNote := fmt.Sprintf("Showing only the first %s of planned material for this block. %d more item(s) are hidden.", time.Duration(limitSeconds)*time.Second, hiddenCount)
+		if note == "" {
+			return overflowNote
+		}
+		return note + " " + overflowNote
+	}
+	windowSeconds := int64(entry.EndsAt.Sub(entry.StartsAt).Seconds())
 
 	switch entry.SourceType {
 	case "clock_template":
@@ -1930,13 +1975,27 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 						note = note + " " + sourceMap
 					}
 				}
+				slotSeconds := windowSeconds
+				if startsAtRaw, ok := slot["starts_at"].(string); ok {
+					if endsAtRaw, ok := slot["ends_at"].(string); ok {
+						if slotStart, err := time.Parse(time.RFC3339, startsAtRaw); err == nil {
+							if slotEnd, err := time.Parse(time.RFC3339, endsAtRaw); err == nil && slotEnd.After(slotStart) {
+								slotSeconds = int64(slotEnd.Sub(slotStart).Seconds())
+							}
+						}
+					}
+				}
+				items, hiddenCount := trimItemsToWindow(items, slotSeconds)
+				note = appendOverflowNote(note, hiddenCount, slotSeconds)
 				addSection(title, "slot", items, note)
 			}
 		}
 	case "playlist":
 		if playlist, ok := response["playlist"].(map[string]any); ok {
 			items := collectItems(playlist["tracks"])
-			addSection("Playlist Plan", "tracks", items, "Tracks from the selected playlist for this block.")
+			items, hiddenCount := trimItemsToWindow(items, windowSeconds)
+			note := appendOverflowNote("Tracks from the selected playlist for this block.", hiddenCount, windowSeconds)
+			addSection("Playlist Plan", "tracks", items, note)
 		}
 	case "smart_block":
 		if previewMap, ok := response["smart_block_preview"].(map[string]any); ok {
@@ -1954,6 +2013,8 @@ func buildEffectiveEntryPreview(entry models.ScheduleEntry, response map[string]
 					note = fmt.Sprintf("%s Max allowed: %d.", note, int(bumperLimit))
 				}
 			}
+			items, hiddenCount := trimItemsToWindow(items, windowSeconds)
+			note = appendOverflowNote(note, hiddenCount, windowSeconds)
 			addSection("Smart Block Plan", "tracks", items, note)
 		}
 	case "media":
