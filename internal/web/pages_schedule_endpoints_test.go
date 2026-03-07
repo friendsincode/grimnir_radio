@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -1754,6 +1755,132 @@ func TestScheduleEntryDetailsPlaylistAndPendingSmartBlock(t *testing.T) {
 		section := effective["sections"].([]any)[0].(map[string]any)
 		if len(section["items"].([]any)) == 0 {
 			t.Fatalf("expected generated tracks in effective preview, got %+v", effective)
+		}
+	})
+}
+
+func TestScheduleSmartBlockTrustPreviewExposesBumperUsage(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+
+	for _, record := range []any{
+		&models.MediaItem{ID: "main-track", StationID: station.ID, Title: "Main Track", Artist: "Main Artist", Duration: 4 * time.Minute, Path: "main.mp3", AnalysisState: models.AnalysisComplete},
+		&models.MediaItem{ID: "bumper-a", StationID: station.ID, Title: "Bumper A", Artist: "VO", Duration: 30 * time.Second, Path: "bumper-a.mp3", AnalysisState: models.AnalysisComplete},
+		&models.MediaItem{ID: "bumper-b", StationID: station.ID, Title: "Bumper B", Artist: "VO", Duration: 30 * time.Second, Path: "bumper-b.mp3", AnalysisState: models.AnalysisComplete},
+		&models.MediaItem{ID: "bumper-c", StationID: station.ID, Title: "Bumper C", Artist: "VO", Duration: 30 * time.Second, Path: "bumper-c.mp3", AnalysisState: models.AnalysisComplete},
+		&models.Playlist{ID: "pl-main-only", StationID: station.ID, Name: "Main Only"},
+		&models.Playlist{ID: "pl-bumpers", StationID: station.ID, Name: "Bumpers"},
+		&models.SmartBlock{ID: "sb-bumper-trust", StationID: station.ID, Name: "Bumper Trust Block", Rules: map[string]any{
+			"sourcePlaylists": []string{"pl-main-only"},
+			"bumpers": map[string]any{
+				"enabled":    true,
+				"sourceType": "playlist",
+				"playlistID": "pl-bumpers",
+				"maxPerGap":  2,
+			},
+		}},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	for _, item := range []models.PlaylistItem{
+		{ID: "pli-main-only", PlaylistID: "pl-main-only", MediaID: "main-track", Position: 0},
+		{ID: "pli-bumper-a", PlaylistID: "pl-bumpers", MediaID: "bumper-a", Position: 0},
+		{ID: "pli-bumper-b", PlaylistID: "pl-bumpers", MediaID: "bumper-b", Position: 1},
+		{ID: "pli-bumper-c", PlaylistID: "pl-bumpers", MediaID: "bumper-c", Position: 2},
+	} {
+		if err := db.Create(&item).Error; err != nil {
+			t.Fatalf("seed playlist item: %v", err)
+		}
+	}
+
+	start := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Minute)
+	entry := models.ScheduleEntry{
+		ID:         "entry-bumper-trust",
+		StationID:  station.ID,
+		MountID:    "m1",
+		StartsAt:   start,
+		EndsAt:     start.Add(5*time.Minute + 30*time.Second),
+		SourceType: "smart_block",
+		SourceID:   "sb-bumper-trust",
+	}
+	if err := db.Create(&entry).Error; err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+
+	t.Run("entry details exposes bumper counts and tagged tracks", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/entries/"+entry.ID, nil, &station, entry.ID)
+		rr := httptest.NewRecorder()
+		h.ScheduleEntryDetails(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+
+		var payload map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+
+		preview := payload["smart_block_preview"].(map[string]any)
+		if int(preview["bumper_count"].(float64)) != 2 || int(preview["bumper_limit"].(float64)) != 2 || preview["bumper_limit_reached"] != true {
+			t.Fatalf("unexpected bumper preview summary: %+v", preview)
+		}
+
+		resolution := payload["resolution_summary"].(map[string]any)
+		if resolution["state"] != "attention" {
+			t.Fatalf("expected attention state when bumper cap is reached, got %+v", resolution)
+		}
+		checks := resolution["checks"].([]any)
+		foundBumperCheck := false
+		for _, check := range checks {
+			if strings.Contains(strings.ToLower(check.(string)), "bumper") {
+				foundBumperCheck = true
+				break
+			}
+		}
+		if !foundBumperCheck {
+			t.Fatalf("expected bumper trust guidance in checks, got %+v", checks)
+		}
+
+		tracks := preview["tracks"].([]any)
+		if len(tracks) != 3 {
+			t.Fatalf("expected 3 planned tracks, got %+v", tracks)
+		}
+		if tracks[0].(map[string]any)["is_bumper"] == true {
+			t.Fatalf("expected first track to be main content, got %+v", tracks[0])
+		}
+		if tracks[1].(map[string]any)["is_bumper"] != true || tracks[2].(map[string]any)["is_bumper"] != true {
+			t.Fatalf("expected tail tracks to be marked as bumpers, got %+v", tracks)
+		}
+	})
+
+	t.Run("source tracks exposes bumper counts for pending edit trust view", func(t *testing.T) {
+		req := scheduleRequest(http.MethodGet, "/dashboard/schedule/source-tracks?source_type=smart_block&source_id=sb-bumper-trust&starts_at="+url.QueryEscape(entry.StartsAt.Format(time.RFC3339))+"&ends_at="+url.QueryEscape(entry.EndsAt.Format(time.RFC3339))+"&mount_id=m1", nil, &station, "")
+		rr := httptest.NewRecorder()
+		h.ScheduleSourceTracks(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+		}
+
+		var payload struct {
+			BumperCount        int  `json:"bumper_count"`
+			BumperLimit        int  `json:"bumper_limit"`
+			BumperLimitReached bool `json:"bumper_limit_reached"`
+			TrackCount         int  `json:"track_count"`
+			Tracks             []struct {
+				MediaID  string `json:"media_id"`
+				Title    string `json:"title"`
+				IsBumper bool   `json:"is_bumper"`
+			} `json:"tracks"`
+		}
+		if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.BumperCount != 2 || payload.BumperLimit != 2 || !payload.BumperLimitReached || payload.TrackCount != 3 {
+			t.Fatalf("unexpected source tracks bumper payload: %+v", payload)
+		}
+		if payload.Tracks[0].IsBumper || !payload.Tracks[1].IsBumper || !payload.Tracks[2].IsBumper {
+			t.Fatalf("unexpected bumper track flags: %+v", payload.Tracks)
 		}
 	})
 }

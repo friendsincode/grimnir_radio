@@ -680,3 +680,94 @@ func TestGenerate_AllExhausted_ReturnsErrUnresolved(t *testing.T) {
 		t.Fatalf("expected ErrUnresolved, got: %v", err)
 	}
 }
+
+func TestGenerate_BumpersRespectMaxPerGap(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-bumper"
+	mainTrack := models.MediaItem{ID: "main-1", StationID: stationID, Title: "Main Track", Artist: "Main Artist", Duration: 4 * time.Minute, AnalysisState: models.AnalysisComplete}
+	bumpers := []models.MediaItem{
+		{ID: "bumper-1", StationID: stationID, Title: "Bumper One", Artist: "Station VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+		{ID: "bumper-2", StationID: stationID, Title: "Bumper Two", Artist: "Station VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+		{ID: "bumper-3", StationID: stationID, Title: "Bumper Three", Artist: "Station VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+	}
+	allMedia := append([]models.MediaItem{mainTrack}, bumpers...)
+	if err := db.Create(&allMedia).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	mainPlaylist := models.Playlist{ID: "pl-main", StationID: stationID, Name: "Main Only"}
+	bumperPlaylist := models.Playlist{ID: "pl-bumpers", StationID: stationID, Name: "Bumpers"}
+	if err := db.Create(&[]models.Playlist{mainPlaylist, bumperPlaylist}).Error; err != nil {
+		t.Fatalf("create playlists: %v", err)
+	}
+	playlistItems := []models.PlaylistItem{
+		{ID: "pli-main", PlaylistID: mainPlaylist.ID, MediaID: mainTrack.ID, Position: 0},
+		{ID: "pli-b1", PlaylistID: bumperPlaylist.ID, MediaID: "bumper-1", Position: 0},
+		{ID: "pli-b2", PlaylistID: bumperPlaylist.ID, MediaID: "bumper-2", Position: 1},
+		{ID: "pli-b3", PlaylistID: bumperPlaylist.ID, MediaID: "bumper-3", Position: 2},
+	}
+	if err := db.Create(&playlistItems).Error; err != nil {
+		t.Fatalf("create playlist items: %v", err)
+	}
+
+	sb := models.SmartBlock{
+		ID:        "sb-bumper-cap",
+		StationID: stationID,
+		Name:      "Bumper Cap Test",
+		Rules: map[string]any{
+			"sourcePlaylists": []string{mainPlaylist.ID},
+			"bumpers": map[string]any{
+				"enabled":    true,
+				"sourceType": "playlist",
+				"playlistID": bumperPlaylist.ID,
+				"maxPerGap":  2,
+			},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smart block: %v", err)
+	}
+
+	eng := New(db, zerolog.Nop())
+	res, err := eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         42,
+		Duration:     int64((5*time.Minute + 30*time.Second) / time.Millisecond),
+		StationID:    stationID,
+		MountID:      "mount-1",
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if got := len(res.Items); got != 3 {
+		t.Fatalf("expected 3 items total, got %d", got)
+	}
+	if res.BumperCount != 2 || res.BumperLimit != 2 || !res.BumperLimitReached {
+		t.Fatalf("unexpected bumper summary: %+v", res)
+	}
+	if res.Items[0].IsBumper {
+		t.Fatalf("expected first item to be main content, got %+v", res.Items[0])
+	}
+	if !res.Items[1].IsBumper || !res.Items[2].IsBumper {
+		t.Fatalf("expected tail items to be bumpers, got %+v", res.Items)
+	}
+	foundLimitWarning := false
+	for _, warning := range res.Warnings {
+		if warning == "bumper_limit_reached" {
+			foundLimitWarning = true
+			break
+		}
+	}
+	if !foundLimitWarning {
+		t.Fatalf("expected bumper_limit_reached warning, got %+v", res.Warnings)
+	}
+}
