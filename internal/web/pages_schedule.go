@@ -66,15 +66,17 @@ type EffectiveSchedulePreviewData struct {
 }
 
 type EffectiveSchedulePreviewItem struct {
-	ID          string
-	Title       string
-	SourceType  string
-	SourceLabel string
-	MountName   string
-	StartsAt    time.Time
-	EndsAt      time.Time
-	State       string
-	Headline    string
+	ID                    string
+	Title                 string
+	SourceType            string
+	SourceLabel           string
+	MountName             string
+	StartsAt              time.Time
+	EndsAt                time.Time
+	State                 string
+	Headline              string
+	RuntimeMismatch       bool
+	RuntimeMismatchReason string
 }
 
 // ScheduleEffectivePreview renders the next window of effective schedule items for operator review.
@@ -153,10 +155,20 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 		filtered = filtered[:16]
 	}
 
+	activeMountStates := make(map[string]models.MountPlayoutState)
+	var mountStates []models.MountPlayoutState
+	if err := h.db.WithContext(r.Context()).Where("station_id = ?", stationID).Find(&mountStates).Error; err == nil {
+		for _, state := range mountStates {
+			activeMountStates[state.MountID] = state
+		}
+	}
+
 	for _, entry := range filtered {
 		title, label := h.resolveSchedulePreviewLabel(r, entry)
 		headline := "Review this scheduled item."
 		state := "scheduled"
+		runtimeMismatch := false
+		runtimeMismatchReason := ""
 		switch entry.SourceType {
 		case "live":
 			headline = "Live source takeover expected in this window."
@@ -174,16 +186,33 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 		if entry.IsInstance {
 			state = "override"
 		}
+		if entry.StartsAt.Before(now) && entry.EndsAt.After(now) {
+			if mountState, ok := activeMountStates[entry.MountID]; ok {
+				if mountState.SourceType != "" && mountState.SourceType != entry.SourceType {
+					runtimeMismatch = true
+					runtimeMismatchReason = fmt.Sprintf("Runtime source type is %s while schedule expects %s.", mountState.SourceType, entry.SourceType)
+				} else if entry.SourceType != "live" && entry.SourceID != "" && mountState.SourceID != "" && mountState.SourceID != entry.SourceID {
+					runtimeMismatch = true
+					runtimeMismatchReason = "Runtime source does not match the configured schedule source."
+				}
+			}
+		}
+		if runtimeMismatch {
+			state = "mismatch"
+			headline = runtimeMismatchReason
+		}
 		data.Items = append(data.Items, EffectiveSchedulePreviewItem{
-			ID:          entry.ID,
-			Title:       title,
-			SourceType:  entry.SourceType,
-			SourceLabel: label,
-			MountName:   mountNames[entry.MountID],
-			StartsAt:    entry.StartsAt,
-			EndsAt:      entry.EndsAt,
-			State:       state,
-			Headline:    headline,
+			ID:                    entry.ID,
+			Title:                 title,
+			SourceType:            entry.SourceType,
+			SourceLabel:           label,
+			MountName:             mountNames[entry.MountID],
+			StartsAt:              entry.StartsAt,
+			EndsAt:                entry.EndsAt,
+			State:                 state,
+			Headline:              headline,
+			RuntimeMismatch:       runtimeMismatch,
+			RuntimeMismatchReason: runtimeMismatchReason,
 		})
 	}
 

@@ -20,13 +20,22 @@
                     <div class="small text-body-secondary">{{.SourceLabel}}{{if .MountName}} • {{.MountName}}{{end}}</div>
                 </div>
                 <div class="text-end">
-                    <span class="badge bg-{{if eq .State "override"}}warning text-dark{{else}}secondary{{end}}">
-                        {{if eq .State "override"}}Override{{else}}Scheduled{{end}}
+                    <span class="badge bg-{{if eq .State "override"}}warning text-dark{{else if eq .State "mismatch"}}danger{{else}}secondary{{end}}">
+                        {{if eq .State "override"}}Override{{else if eq .State "mismatch"}}Mismatch{{else}}Scheduled{{end}}
                     </span>
                     <div class="small text-body-secondary mt-1">{{formatTime .StartsAt}} to {{formatTime .EndsAt}}</div>
                 </div>
             </div>
             <div class="small text-body-secondary mt-2">{{.Headline}}</div>
+            {{if .RuntimeMismatchReason}}
+            <div class="alert alert-danger py-2 px-3 mt-2 mb-0 small">
+                <strong>Runtime mismatch:</strong> {{.RuntimeMismatchReason}}
+            </div>
+            {{end}}
+            <div class="d-flex gap-2 mt-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openEntryForDetails('{{.ID}}'); return false;">Inspect</button>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openEntryForEdit('{{.ID}}'); return false;">Edit</button>
+            </div>
         </div>
         {{else}}
         <div class="text-body-secondary small">No upcoming entries were found for this window.</div>

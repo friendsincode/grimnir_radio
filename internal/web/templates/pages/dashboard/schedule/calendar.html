@@ -1624,6 +1624,16 @@ document.addEventListener('DOMContentLoaded', function() {
             </dl>
         `;
 
+        if (props.runtime_mismatch) {
+            body += `
+                <div class="alert alert-danger py-2 px-3 small">
+                    <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-2"></i>Runtime Mismatch</div>
+                    <div>${escapeHtml(props.runtime_mismatch_reason || 'Runtime does not match the scheduled source.')}</div>
+                    <div class="mt-1 text-body-secondary">Use the readback and effective preview below to confirm what the slot is supposed to do before editing.</div>
+                </div>
+            `;
+        }
+
         // Add detailed content section
         if (details) {
             body += renderDetailsContent(details, props.source_type);

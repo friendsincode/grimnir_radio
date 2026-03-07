@@ -139,6 +139,7 @@ func TestScheduleEffectivePreviewRendersUpcomingResolvedEntries(t *testing.T) {
 		}
 	}
 	for _, entry := range []models.ScheduleEntry{
+		{ID: "preview-active", StationID: station.ID, MountID: "m1", StartsAt: now.Add(-15 * time.Minute), EndsAt: now.Add(15 * time.Minute), SourceType: "playlist", SourceID: "pl-preview"},
 		{ID: "preview-playlist", StationID: station.ID, MountID: "m1", StartsAt: now.Add(30 * time.Minute), EndsAt: now.Add(90 * time.Minute), SourceType: "playlist", SourceID: "pl-preview"},
 		{ID: "preview-live", StationID: station.ID, MountID: "m1", StartsAt: now.Add(2 * time.Hour), EndsAt: now.Add(3 * time.Hour), SourceType: "live", Metadata: map[string]any{"session_name": "Preview Live"}},
 		{ID: "preview-webstream", StationID: station.ID, MountID: "m2", StartsAt: now.Add(4 * time.Hour), EndsAt: now.Add(5 * time.Hour), SourceType: "webstream", SourceID: "ws-preview"},
@@ -146,6 +147,15 @@ func TestScheduleEffectivePreviewRendersUpcomingResolvedEntries(t *testing.T) {
 		if err := db.Create(&entry).Error; err != nil {
 			t.Fatalf("create entry: %v", err)
 		}
+	}
+	if err := db.Create(&models.MountPlayoutState{
+		MountID:    "m1",
+		StationID:  station.ID,
+		EntryID:    "preview-active",
+		SourceType: "webstream",
+		SourceID:   "ws-preview",
+	}).Error; err != nil {
+		t.Fatalf("create mount playout state: %v", err)
 	}
 
 	req := scheduleRequest(http.MethodGet, "/dashboard/schedule/effective-preview?mount_id=m1", nil, &station, "")
@@ -155,10 +165,13 @@ func TestScheduleEffectivePreviewRendersUpcomingResolvedEntries(t *testing.T) {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Next 24h Effective View", "Preview Playlist", "Preview Live", "Filtered to Main"} {
+	for _, want := range []string{"Next 24h Effective View", "Preview Playlist", "Preview Live", "Filtered to Main", "Mismatch", "openEntryForDetails('preview-active')", "openEntryForEdit('preview-playlist')"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected body to contain %q", want)
 		}
+	}
+	if !strings.Contains(body, "Runtime source type is webstream while schedule expects playlist.") {
+		t.Fatalf("expected runtime mismatch explanation in preview body: %s", body)
 	}
 	if strings.Contains(body, "Preview Relay") {
 		t.Fatalf("did not expect mount-filtered out relay entry in preview: %s", body)
