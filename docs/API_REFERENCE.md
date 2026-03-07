@@ -1,6 +1,6 @@
 # Grimnir Radio API Reference
 
-Version: 1.30.1
+Version: 1.31.0
 
 Base URL: `http://localhost:8080/api/v1`
 
