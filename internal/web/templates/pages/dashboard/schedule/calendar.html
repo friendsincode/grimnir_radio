@@ -176,6 +176,16 @@
         max-height: 140px;
         overflow-y: auto;
     }
+    .effective-preview-drawer .offcanvas-body {
+        background: var(--bs-body-bg);
+    }
+    .effective-preview-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
     @media (max-width: 991.98px) {
         #calendar {
             height: calc(100vh - 360px);
@@ -202,6 +212,9 @@
         }
         .fc-event {
             min-height: 38px;
+        }
+        .effective-preview-summary {
+            align-items: stretch;
         }
         #editScheduleModal .modal-dialog {
             margin: 0.5rem;
@@ -307,9 +320,37 @@
     </div>
 </div>
 
-<div id="effectivePreviewContainer">
-    <div class="card mb-3">
-        <div class="card-body text-body-secondary small">Loading effective schedule view...</div>
+<div class="card mb-3">
+    <div class="card-body effective-preview-summary">
+        <div>
+            <div class="small text-body-secondary mb-1">Next 24h Effective View</div>
+            <div class="small" id="effectivePreviewSummary">Loading effective schedule summary...</div>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" id="refreshEffectivePreviewBtn" type="button">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh View
+            </button>
+            <button class="btn btn-outline-primary btn-sm" id="openEffectivePreviewBtn" type="button" data-bs-toggle="offcanvas" data-bs-target="#effectivePreviewDrawer" aria-controls="effectivePreviewDrawer">
+                <i class="bi bi-layout-sidebar-inset me-1"></i>Open 24h View
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-end effective-preview-drawer" tabindex="-1" id="effectivePreviewDrawer" aria-labelledby="effectivePreviewDrawerLabel">
+    <div class="offcanvas-header">
+        <div>
+            <h5 class="offcanvas-title" id="effectivePreviewDrawerLabel"><i class="bi bi-diagram-3 me-2"></i>Next 24h Effective View</h5>
+            <div class="small text-body-secondary">Calendar-first schedule page. Use this side panel when you need the expanded plan.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        <div id="effectivePreviewContainer">
+            <div class="card mb-3">
+                <div class="card-body text-body-secondary small">Loading effective schedule view...</div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -3929,6 +3970,7 @@ document.addEventListener('DOMContentLoaded', function() {
         runValidation();
     });
     document.getElementById('irtRefreshBtn')?.addEventListener('click', refreshIRTPanel);
+    document.getElementById('refreshEffectivePreviewBtn')?.addEventListener('click', refreshEffectivePreview);
 
     // Re-validate button
     document.getElementById('revalidateBtn')?.addEventListener('click', function() {
@@ -4192,6 +4234,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function refreshEffectivePreview() {
         const container = document.getElementById('effectivePreviewContainer');
+        const summary = document.getElementById('effectivePreviewSummary');
         if (!container) return;
         const params = new URLSearchParams();
         if (mountFilter.value) params.set('mount_id', mountFilter.value);
@@ -4200,12 +4243,27 @@ document.addEventListener('DOMContentLoaded', function() {
             const resp = await fetch(url);
             if (!resp.ok) {
                 container.innerHTML = '<div class="card mb-3"><div class="card-body text-danger small">Failed to load effective schedule view.</div></div>';
+                if (summary) summary.textContent = 'Effective view unavailable right now.';
                 return;
             }
             container.innerHTML = await resp.text();
+            if (summary) {
+                const items = container.querySelectorAll('.effective-preview-item');
+                const mismatches = container.querySelectorAll('.effective-preview-item[data-state="mismatch"]').length;
+                const overrides = container.querySelectorAll('.effective-preview-item[data-state="override"]').length;
+                const mountLabel = mountFilter.value
+                    ? (mountFilter.options[mountFilter.selectedIndex]?.text || 'selected mount')
+                    : 'all mounts';
+                if (items.length === 0) {
+                    summary.textContent = `No upcoming entries loaded for ${mountLabel}.`;
+                } else {
+                    summary.textContent = `${items.length} upcoming entries for ${mountLabel} • ${mismatches} mismatch${mismatches === 1 ? '' : 'es'} • ${overrides} explicit override${overrides === 1 ? '' : 's'}`;
+                }
+            }
         } catch (e) {
             console.warn('Failed to refresh effective preview:', e);
             container.innerHTML = '<div class="card mb-3"><div class="card-body text-danger small">Failed to load effective schedule view.</div></div>';
+            if (summary) summary.textContent = 'Failed to refresh effective schedule summary.';
         }
     }
 

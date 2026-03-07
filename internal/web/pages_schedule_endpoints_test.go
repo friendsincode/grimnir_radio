@@ -118,7 +118,7 @@ func TestScheduleCalendarRendersMountsAndTheme(t *testing.T) {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Schedule", "Main Mount", "const colorTheme = 'forest'", "validateScheduleBtn", "effectivePreviewContainer"} {
+	for _, want := range []string{"Schedule", "Main Mount", "const colorTheme = 'forest'", "validateScheduleBtn", "effectivePreviewContainer", "effectivePreviewDrawer", "openEffectivePreviewBtn", "effectivePreviewSummary"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected body to contain %q", want)
 		}
