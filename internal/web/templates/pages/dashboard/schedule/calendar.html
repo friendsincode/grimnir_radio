@@ -9,12 +9,22 @@
         height: calc(100vh - 280px);
         min-height: 500px;
     }
+    .schedule-density-compact #calendar {
+        height: calc(100vh - 240px);
+    }
     .fc-event {
         cursor: pointer;
         font-size: 0.85rem;
     }
+    .schedule-density-compact .fc-event {
+        font-size: 0.74rem;
+        line-height: 1.15;
+    }
     .fc-timegrid-slot {
         height: 2em;
+    }
+    .schedule-density-compact .fc-timegrid-slot {
+        height: 1.55em;
     }
     /* Context Menu */
     .context-menu {
@@ -130,11 +140,34 @@
         max-height: 140px;
         overflow-y: auto;
     }
+    @media (max-width: 991.98px) {
+        #calendar {
+            height: calc(100vh - 360px);
+            min-height: 420px;
+        }
+        .schedule-toolbar {
+            flex-wrap: wrap;
+            align-items: stretch !important;
+        }
+        .schedule-toolbar-actions {
+            width: 100%;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+        .schedule-toolbar-actions .form-select,
+        .schedule-toolbar-actions .btn {
+            flex: 1 1 auto;
+        }
+        #editScheduleModal .modal-dialog {
+            margin: 0.5rem;
+        }
+    }
 </style>
 <script>
 // Apply calendar color theme
 (function() {
     const colorTheme = '{{index .Data "ColorTheme"}}' || 'default';
+    const densityMode = localStorage.getItem('grimnir_schedule_density') || 'comfortable';
     const themes = {
         'default': { media: '#6366f1', playlist: '#10b981', smartblock: '#06b6d4', live: '#ef4444', webstream: '#f59e0b', clock: '#8b5cf6', show: '#ec4899' },
         'ocean': { media: '#0ea5e9', playlist: '#14b8a6', smartblock: '#06b6d4', live: '#3b82f6', webstream: '#0891b2', clock: '#22d3ee', show: '#06b6d4' },
@@ -154,6 +187,7 @@
     root.style.setProperty('--calendar-color-webstream', colors.webstream);
     root.style.setProperty('--calendar-color-clock', colors.clock);
     root.style.setProperty('--calendar-color-show', colors.show);
+    root.classList.toggle('schedule-density-compact', densityMode === 'compact');
 })();
 </script>
 {{end}}
@@ -168,15 +202,18 @@
 {{end}}
 
 {{define "main"}}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4 schedule-toolbar">
     <h4 class="mb-0"><i class="bi bi-calendar3 me-2"></i>Schedule</h4>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 schedule-toolbar-actions">
         <select class="form-select form-select-sm" id="mountFilter" style="width: 200px;">
             <option value="">All Mounts</option>
             {{range .Data.Mounts}}
             <option value="{{.ID}}">{{.Name}}</option>
             {{end}}
         </select>
+        <button class="btn btn-outline-secondary btn-sm" id="densityToggleBtn" title="Toggle compact density">
+            <i class="bi bi-distribute-vertical me-1"></i>Compact
+        </button>
         <button class="btn btn-outline-secondary btn-sm" id="validateScheduleBtn" title="Validate schedule for conflicts">
             <i class="bi bi-shield-check me-1"></i>Validate
             <span class="badge bg-danger validation-badge d-none" id="validationBadge">0</span>
@@ -689,6 +726,11 @@
                             <div id="editPendingTrustPanel" class="small text-body-secondary">Adjust the entry to compare before saving.</div>
                         </div>
                     </div>
+                </div>
+
+                <div class="border rounded p-3 mb-3">
+                    <div class="small text-body-secondary mb-2">Edit Preflight</div>
+                    <div id="editPreflightPanel" class="small text-body-secondary">Review pending timing, recurrence impact, and overlap risk before saving.</div>
                 </div>
 
                 <!-- Queued tracks for this entry -->
@@ -1925,6 +1967,81 @@ document.addEventListener('DOMContentLoaded', function() {
         panel.innerHTML = html;
     }
 
+    function renderEditPreflight(event) {
+        const panel = document.getElementById('editPreflightPanel');
+        if (!panel || !event) return;
+
+        const start = getEditStartDateTime();
+        const end = getEditEndDateTime();
+        const durationS = Math.max(0, Math.round((end - start) / 1000));
+        const mountID = event.extendedProps?.mount_id || '';
+        const isRecurring = document.getElementById('editIsRecurring').value === 'true';
+        const editMode = document.querySelector('input[name="editMode"]:checked')?.value || 'all';
+        const conflicts = [];
+
+        calendar.getEvents().forEach(other => {
+            if (!other || other.id === event.id) return;
+            const otherProps = other.extendedProps || {};
+            if ((otherProps.mount_id || '') !== mountID) return;
+            if (!other.start || !other.end) return;
+            if (other.end <= start || other.start >= end) return;
+            conflicts.push({
+                id: other.id,
+                title: other.title || otherProps.source_name || otherProps.source_type || 'Scheduled item',
+                start: other.start,
+                end: other.end,
+            });
+        });
+
+        let html = '';
+        if (end <= start) {
+            html += `<div class="alert alert-danger py-2 mb-2"><strong>Invalid time range.</strong> End time must be after start time.</div>`;
+        } else {
+            html += `<div class="d-flex flex-wrap gap-2 mb-2">
+                <span class="badge bg-${conflicts.length > 0 ? 'danger' : 'success'}">${conflicts.length > 0 ? 'Conflict Risk' : 'No Overlap Detected'}</span>
+                <span class="badge bg-secondary">${formatDuration(durationS)}</span>
+                ${isRecurring ? `<span class="badge bg-warning text-dark">${editMode === 'single' ? 'One occurrence' : 'Whole series'}</span>` : ''}
+                ${event.extendedProps?.runtime_mismatch ? '<span class="badge bg-danger">Runtime drift active</span>' : ''}
+            </div>`;
+        }
+
+        const notes = [];
+        if (isRecurring) {
+            notes.push(editMode === 'single'
+                ? 'Only this occurrence will change. The rest of the recurring series stays as-is.'
+                : 'This save updates the recurring rule and future occurrences using the same series.');
+        }
+        if (event.extendedProps?.runtime_mismatch_reason) {
+            notes.push(event.extendedProps.runtime_mismatch_reason);
+        }
+        if (conflicts.length > 0) {
+            notes.push('This pending edit overlaps another item on the same mount.');
+        } else if (end > start) {
+            notes.push('The current edit window does not overlap another loaded item on this mount.');
+        }
+
+        if (notes.length > 0) {
+            html += `<ul class="small text-body-secondary mb-2 ps-3">${notes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul>`;
+        }
+
+        if (conflicts.length > 0) {
+            html += `<div class="small fw-semibold mb-1">Conflicting Loaded Entries</div>`;
+            html += conflicts.map(conflict => `
+                <div class="validation-result-item error py-2">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                            <strong>${escapeHtml(conflict.title)}</strong>
+                            <div class="text-body-secondary small">${conflict.start.toLocaleString()} - ${conflict.end.toLocaleString()}</div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openEntryForDetails('${conflict.id}'); return false;">Inspect</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        panel.innerHTML = html || '<div class="text-body-secondary small">No preflight data available.</div>';
+    }
+
     function buildPendingEffectivePreview(event, sourceType, start, end, previewData) {
         const preview = {
             entry_id: document.getElementById('editEntryId').value,
@@ -2907,8 +3024,28 @@ document.addEventListener('DOMContentLoaded', function() {
             const isSingle = this.value === 'single';
             document.getElementById('editRecurrenceSection').classList.toggle('d-none', isSingle);
             renderPendingEditTrust(selectedEvent, _editTrackPreviewData);
+            renderEditPreflight(selectedEvent);
         });
     });
+
+    document.getElementById('densityToggleBtn')?.addEventListener('click', function() {
+        const root = document.documentElement;
+        const compact = !root.classList.contains('schedule-density-compact');
+        root.classList.toggle('schedule-density-compact', compact);
+        localStorage.setItem('grimnir_schedule_density', compact ? 'compact' : 'comfortable');
+        this.innerHTML = compact
+            ? '<i class="bi bi-arrows-expand-vertical me-1"></i>Comfortable'
+            : '<i class="bi bi-distribute-vertical me-1"></i>Compact';
+        calendar.updateSize();
+    });
+    (function syncDensityToggleButton() {
+        const btn = document.getElementById('densityToggleBtn');
+        if (!btn) return;
+        const compact = document.documentElement.classList.contains('schedule-density-compact');
+        btn.innerHTML = compact
+            ? '<i class="bi bi-arrows-expand-vertical me-1"></i>Comfortable'
+            : '<i class="bi bi-distribute-vertical me-1"></i>Compact';
+    })();
 
     // Change source button
     document.getElementById('editChangeSourceBtn')?.addEventListener('click', function() {
@@ -3216,6 +3353,7 @@ document.addEventListener('DOMContentLoaded', function() {
         _editTrackPreviewData = null;
         renderEditSavedTrust(null);
         renderPendingEditTrust(event, null);
+        renderEditPreflight(event);
 
         fetch(`/dashboard/schedule/entries/${event.id}/details`)
             .then(resp => resp.ok ? resp.json() : null)
@@ -3350,10 +3488,17 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById(id)?.addEventListener('change', () => {
             updateEditDurationDisplay();
             refreshEditTrustPreviewFromForm();
+            renderEditPreflight(selectedEvent);
         });
     });
-    document.getElementById('editSourceSelect')?.addEventListener('change', refreshEditTrustPreviewFromForm);
-    document.getElementById('editIncludeArchiveMedia')?.addEventListener('change', refreshEditTrustPreviewFromForm);
+    document.getElementById('editSourceSelect')?.addEventListener('change', () => {
+        refreshEditTrustPreviewFromForm();
+        renderEditPreflight(selectedEvent);
+    });
+    document.getElementById('editIncludeArchiveMedia')?.addEventListener('change', () => {
+        refreshEditTrustPreviewFromForm();
+        renderEditPreflight(selectedEvent);
+    });
 
     // Confirm edit
     document.getElementById('confirmEditSchedule')?.addEventListener('click', async function() {
