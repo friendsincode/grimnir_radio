@@ -20,12 +20,13 @@
                     <div class="small text-body-secondary">{{.SourceLabel}}{{if .MountName}} • {{.MountName}}{{end}}</div>
                 </div>
                 <div class="text-end">
-                    <span class="badge bg-{{if eq .State "override"}}warning text-dark{{else if eq .State "mismatch"}}danger{{else}}secondary{{end}}">
-                        {{if eq .State "override"}}Override{{else if eq .State "mismatch"}}Mismatch{{else}}Scheduled{{end}}
-                    </span>
+                    <span class="badge bg-{{.StatusTone}}">{{.StatusLabel}}</span>
                     <div class="small text-body-secondary mt-1">{{formatTime .StartsAt}} to {{formatTime .EndsAt}}</div>
                 </div>
             </div>
+            {{if .StatusReason}}
+            <div class="small text-body-secondary mt-2"><strong>Why this tag:</strong> {{.StatusReason}}</div>
+            {{end}}
             <div class="small text-body-secondary mt-2">{{.Headline}}</div>
             {{if .RuntimeMismatchReason}}
             <div class="alert alert-danger py-2 px-3 mt-2 mb-0 small">

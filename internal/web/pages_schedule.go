@@ -74,9 +74,50 @@ type EffectiveSchedulePreviewItem struct {
 	StartsAt              time.Time
 	EndsAt                time.Time
 	State                 string
+	StatusLabel           string
+	StatusTone            string
+	StatusReason          string
 	Headline              string
 	RuntimeMismatch       bool
 	RuntimeMismatchReason string
+}
+
+func classifyRuntimeMismatch(entry models.ScheduleEntry, mountState models.MountPlayoutState) (bool, string, string) {
+	if mountState.SourceType != "" && mountState.SourceType != entry.SourceType {
+		return true,
+			fmt.Sprintf("Runtime source type is %s while schedule expects %s.", mountState.SourceType, entry.SourceType),
+			"Wrong Source Type"
+	}
+	if entry.SourceType != "live" && entry.SourceID != "" && mountState.SourceID != "" && mountState.SourceID != entry.SourceID {
+		return true,
+			"Runtime source does not match the configured schedule source.",
+			"Wrong Source"
+	}
+	return false, "", ""
+}
+
+func scheduleStatusForPreview(entry models.ScheduleEntry, runtimeMismatch bool, runtimeMismatchLabel string) (string, string, string) {
+	if runtimeMismatch {
+		return "mismatch", runtimeMismatchLabel, "The active playout state does not match this saved schedule block."
+	}
+	if entry.IsInstance && !isVirtualRecurringInstance(entry) {
+		return "override", "Saved Override", "This occurrence was changed separately from the main recurring rule."
+	}
+	if isVirtualRecurringInstance(entry) {
+		return "scheduled", "Recurring Block", "This occurrence was generated from the recurring schedule rule."
+	}
+	return "scheduled", "Scheduled", "This block is following the saved schedule as configured."
+}
+
+func previewStatusTone(state string) string {
+	switch state {
+	case "override":
+		return "warning text-dark"
+	case "mismatch":
+		return "danger"
+	default:
+		return "secondary"
+	}
 }
 
 func isVirtualRecurringInstance(entry models.ScheduleEntry) bool {
@@ -174,9 +215,9 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 	for _, entry := range filtered {
 		title, label := h.resolveSchedulePreviewLabel(r, entry)
 		headline := "Check this scheduled block before air."
-		state := "scheduled"
 		runtimeMismatch := false
 		runtimeMismatchReason := ""
+		runtimeMismatchLabel := ""
 		switch entry.SourceType {
 		case "live":
 			headline = "A live source is expected to take this block."
@@ -191,24 +232,16 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 		case "media":
 			headline = "This block points to one fixed track."
 		}
-		if entry.IsInstance && !isVirtualRecurringInstance(entry) {
-			state = "override"
-		} else if isVirtualRecurringInstance(entry) {
+		if isVirtualRecurringInstance(entry) {
 			headline = "This block was generated from the recurring schedule rule."
 		}
 		if entry.StartsAt.Before(now) && entry.EndsAt.After(now) {
 			if mountState, ok := activeMountStates[entry.MountID]; ok {
-				if mountState.SourceType != "" && mountState.SourceType != entry.SourceType {
-					runtimeMismatch = true
-					runtimeMismatchReason = fmt.Sprintf("Runtime source type is %s while schedule expects %s.", mountState.SourceType, entry.SourceType)
-				} else if entry.SourceType != "live" && entry.SourceID != "" && mountState.SourceID != "" && mountState.SourceID != entry.SourceID {
-					runtimeMismatch = true
-					runtimeMismatchReason = "Runtime source does not match the configured schedule source."
-				}
+				runtimeMismatch, runtimeMismatchReason, runtimeMismatchLabel = classifyRuntimeMismatch(entry, mountState)
 			}
 		}
+		state, statusLabel, statusReason := scheduleStatusForPreview(entry, runtimeMismatch, runtimeMismatchLabel)
 		if runtimeMismatch {
-			state = "mismatch"
 			headline = runtimeMismatchReason
 		}
 		data.Items = append(data.Items, EffectiveSchedulePreviewItem{
@@ -220,6 +253,9 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 			StartsAt:              entry.StartsAt,
 			EndsAt:                entry.EndsAt,
 			State:                 state,
+			StatusLabel:           statusLabel,
+			StatusTone:            previewStatusTone(state),
+			StatusReason:          statusReason,
 			Headline:              headline,
 			RuntimeMismatch:       runtimeMismatch,
 			RuntimeMismatchReason: runtimeMismatchReason,
@@ -627,29 +663,39 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		health := "green"
 		runtimeMismatch := false
 		runtimeMismatchReason := ""
+		runtimeMismatchLabel := ""
+		statusLabel := ""
+		statusReason := ""
 		if orphaned {
 			className = "event-orphaned"
 			health = "red"
+			statusLabel = "Missing Source"
+			statusReason = "This block points to a source the system cannot load."
 		} else if entry.Metadata != nil {
 			if _, ok := entry.Metadata["emergency_fallback"]; ok {
 				health = "yellow"
+				statusLabel = "Fallback Active"
+				statusReason = "This block is running with emergency fallback metadata."
 			} else if _, ok := entry.Metadata["constraint_relaxed"]; ok {
 				health = "yellow"
+				statusLabel = "Constraint Relaxed"
+				statusReason = "Rules had to be relaxed to build this block."
 			}
 		}
 		if entry.StartsAt.Before(nowUTC) && entry.EndsAt.After(nowUTC) {
 			if mountState, ok := activeMountStates[entry.MountID]; ok {
-				if mountState.SourceType != "" && mountState.SourceType != entry.SourceType {
-					runtimeMismatch = true
-					runtimeMismatchReason = fmt.Sprintf("Runtime source type is %s while schedule expects %s.", mountState.SourceType, entry.SourceType)
-				} else if entry.SourceType != "live" && entry.SourceID != "" && mountState.SourceID != "" && mountState.SourceID != entry.SourceID {
-					runtimeMismatch = true
-					runtimeMismatchReason = "Runtime source does not match the configured schedule source."
-				}
+				runtimeMismatch, runtimeMismatchReason, runtimeMismatchLabel = classifyRuntimeMismatch(entry, mountState)
 			}
 		}
 		if runtimeMismatch && health == "green" {
 			health = "yellow"
+		}
+		if runtimeMismatch {
+			statusLabel = runtimeMismatchLabel
+			statusReason = "The active playout state does not match the saved schedule block."
+		} else if statusLabel == "" && entry.IsInstance && !isVirtualRecurringInstance(entry) {
+			statusLabel = "Saved Override"
+			statusReason = "This occurrence was changed separately from the main recurring rule."
 		}
 
 		event := calendarEvent{
@@ -671,6 +717,8 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 				"health":                  health,
 				"runtime_mismatch":        runtimeMismatch,
 				"runtime_mismatch_reason": runtimeMismatchReason,
+				"status_label":            statusLabel,
+				"status_reason":           statusReason,
 			},
 		}
 
@@ -1743,6 +1791,7 @@ func buildScheduleResolutionSummary(entry models.ScheduleEntry, response map[str
 						}
 					}
 					if reached, ok := preview["bumper_limit_reached"].(bool); ok && reached {
+						summary["bumper_limit_reached"] = true
 						state = "attention"
 						checks = append(checks, "The bumper cap was hit before the full block was filled. Review the smart block timing plan.")
 					}
