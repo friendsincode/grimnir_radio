@@ -818,7 +818,7 @@
                     </div>
                     <div class="col-lg-6">
                         <div class="border rounded p-3 h-100">
-                            <div class="small text-body-secondary mb-2">Pending Edit Trust View</div>
+                            <div class="small text-body-secondary mb-2">Before You Save</div>
                             <div id="editPendingTrustPanel" class="small text-body-secondary">Adjust the entry to compare before saving.</div>
                         </div>
                     </div>
@@ -1897,13 +1897,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     <h6 class="mb-2"><i class="bi bi-clock me-2"></i>Clock: ${escapeHtml(details.clock.name)}</h6>
                     <div class="small text-body-secondary mb-2">Clock -> Slot source -> Media trace for this scheduled window.</div>`;
 
-                if (details.clock_trace) {
-                    html += renderClockTrace(details.clock_trace);
-                } else if (details.slots && details.slots.length > 0) {
-                    html += `<div class="small text-body-secondary mb-2">${details.slots.length} slot(s) configured</div>`;
+            if (details.clock_trace) {
+                html += renderClockTrace(details.clock_trace);
+            } else if (details.slots && details.slots.length > 0) {
+                    html += `<div class="small text-body-secondary mb-2">${details.slots.length} clock slot${details.slots.length === 1 ? '' : 's'} in this block</div>`;
                     for (const slot of details.slots) html += renderSlotContent(slot);
                 } else {
-                    html += `<div class="text-body-secondary small">No slots configured</div>`;
+                    html += `<div class="text-body-secondary small">No clock slots are set up for this block.</div>`;
                 }
                 html += `</div>`;
             }
@@ -1913,7 +1913,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (details.playlist) {
                 html += `<div class="border-top pt-3">
                     <h6 class="mb-2"><i class="bi bi-music-note-list me-2"></i>Playlist: ${escapeHtml(details.playlist.name)}</h6>
-                    <div class="small text-body-secondary mb-2">${details.playlist.track_count} tracks, ${formatDuration(details.playlist.total_duration)}</div>`;
+                    <div class="small text-body-secondary mb-2">${details.playlist.track_count} playlist track${details.playlist.track_count === 1 ? '' : 's'}, ${formatDuration(details.playlist.total_duration)}</div>`;
                 html += renderTrackList(details.playlist.tracks);
                 html += `</div>`;
             }
@@ -1923,7 +1923,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (details.smart_block) {
                 html += `<div class="border-top pt-3">
                     <h6 class="mb-2"><i class="bi bi-lightning me-2"></i>Smart Block: ${escapeHtml(details.smart_block.name)}</h6>
-                    <div class="small text-body-secondary mb-2">Rule-driven selection for this scheduled time window.</div>
+                    <div class="small text-body-secondary mb-2">Rule-driven track plan for this block.</div>
                     ${renderSmartBlockPreview(details.smart_block_preview)}
                 </div>`;
             }
@@ -1959,12 +1959,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function renderResolutionSummary(summary) {
         const checks = Array.isArray(summary.checks) ? summary.checks : [];
+        const sourceTypeLabels = {
+            media: 'Single track',
+            playlist: 'Playlist',
+            smart_block: 'Smart block',
+            clock_template: 'Clock',
+            live: 'Live slot',
+            webstream: 'Relay stream'
+        };
         const stateMap = {
             ok: { badge: 'success', label: 'Resolved' },
             pending: { badge: 'info', label: 'Pending' },
             attention: { badge: 'warning text-dark', label: 'Needs Review' }
         };
         const state = stateMap[summary.state] || { badge: 'secondary', label: 'Review' };
+        const configuredLabel = sourceTypeLabels[summary.configured_type] || summary.configured_type || '-';
         let html = `
             <div class="border-top pt-3 mb-3">
                 <div class="d-flex justify-content-between align-items-start gap-2">
@@ -1975,9 +1984,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     <span class="badge bg-${state.badge}">${state.label}</span>
                 </div>
                 <dl class="row mb-0 mt-2 small">
-                    <dt class="col-4">Configured As</dt>
-                    <dd class="col-8">${escapeHtml(summary.configured_type || '-')}</dd>
-                    <dt class="col-4">Resolves To</dt>
+                    <dt class="col-4">You Set</dt>
+                    <dd class="col-8">${escapeHtml(configuredLabel)}</dd>
+                    <dt class="col-4">Will Air As</dt>
                     <dd class="col-8">${escapeHtml(summary.resolved_as || '-')}</dd>
                     <dt class="col-4">Window</dt>
                     <dd class="col-8">${formatDuration(summary.duration_s || 0)}</dd>
@@ -1985,7 +1994,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (checks.length > 0) {
             html += `<div class="mt-2">
-                <div class="small fw-semibold mb-1">What To Verify</div>
+                <div class="small fw-semibold mb-1">Double-Check</div>
                 <ul class="small text-body-secondary mb-0 ps-3">`;
             for (const check of checks) {
                 html += `<li>${escapeHtml(check)}</li>`;
@@ -2002,10 +2011,10 @@ document.addEventListener('DOMContentLoaded', function() {
         let html = `
             <div class="border-top pt-3 mb-3">
                 <h6 class="mb-1"><i class="bi bi-diagram-3 me-2"></i>Effective Preview</h6>
-                <div class="small text-body-secondary mb-2">Resolved parts for this specific scheduled window.</div>`;
+                <div class="small text-body-secondary mb-2">What the system currently expects to play in this time block.</div>`;
 
         if (sections.length === 0) {
-            html += `<div class="text-body-secondary small">${escapeHtml(preview.empty_reason || 'No resolved preview is available yet.')}</div></div>`;
+            html += `<div class="text-body-secondary small">${escapeHtml(preview.empty_reason || 'No playback plan is available yet.')}</div></div>`;
             return html;
         }
 
@@ -2021,7 +2030,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>`;
 
             if (items.length === 0) {
-                html += `<div class="small text-body-secondary mt-2">No resolved items yet.</div>`;
+                html += `<div class="small text-body-secondary mt-2">No items are planned for this part of the block yet.</div>`;
             } else {
                 html += renderTrackList(items, 20);
             }
@@ -2058,19 +2067,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (document.getElementById('editIsRecurring').value === 'true') {
             const mode = document.querySelector('input[name="editMode"]:checked')?.value || 'all';
-            checks.push(mode === 'single' ? 'This save affects only one occurrence.' : 'This save affects the whole recurring series.');
+            checks.push(mode === 'single' ? 'This save changes only this occurrence.' : 'This save changes the whole recurring series.');
         }
-        if (sourceType === 'smart_block') checks.push('Re-check generated tracks after save if the slot is near air time.');
-        if (sourceType === 'webstream') checks.push('Confirm the relay source is live and healthy.');
-        if (sourceType === 'live') checks.push('Confirm the live operator/source is ready before the slot starts.');
-        if (sourceType !== 'live' && sourceType !== 'webstream') checks.push('Compare queued tracks against the intended content before saving.');
+        if (sourceType === 'smart_block') checks.push('Re-check the generated track plan after saving if this block is close to air time.');
+        if (sourceType === 'webstream') checks.push('Make sure the relay stream is live and healthy.');
+        if (sourceType === 'live') checks.push('Make sure the live operator or live source is ready before this block starts.');
+        if (sourceType !== 'live' && sourceType !== 'webstream') checks.push('Compare the planned tracks with what you expect before saving.');
 
         const summary = {
             state: durationS > 0 ? 'ok' : 'attention',
             configured_type: sourceType,
             resolved_as: resolvedAs,
             duration_s: durationS,
-            headline: durationS > 0 ? 'This is the staged edit you are about to save.' : 'This edit has an invalid time range.',
+            headline: durationS > 0 ? 'If you save now, the schedule will use this setup for the selected time block.' : 'This edit has an invalid time range.',
             checks
         };
 
@@ -2141,7 +2150,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (conflicts.length > 0) {
-            html += `<div class="small fw-semibold mb-1">Conflicting Loaded Entries</div>`;
+            html += `<div class="small fw-semibold mb-1">Conflicting Loaded Blocks</div>`;
             html += conflicts.map(conflict => `
                 <div class="validation-result-item error py-2">
                     <div class="d-flex justify-content-between align-items-start gap-2">
@@ -2189,15 +2198,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const tracks = Array.isArray(previewData.tracks) ? previewData.tracks : [];
         preview.sections.push({
-            title: 'Pending Effective Preview',
+            title: 'Planned Playback',
             kind: 'tracks',
             items: tracks,
             note: previewData.error || ((previewData.bumper_count || 0) > 0
-                ? `Resolved from the current edit values. Bumper tail-fill: ${previewData.bumper_count}${previewData.bumper_limit ? ` / max ${previewData.bumper_limit}` : ''}.`
-                : (tracks.length === 0 ? 'No resolved items yet.' : 'Resolved from the current edit values.'))
+                ? `Based on your current edit values. Bumper fill: ${previewData.bumper_count}${previewData.bumper_limit ? ` / max ${previewData.bumper_limit}` : ''}.`
+                : (tracks.length === 0 ? 'No playback items are planned yet.' : 'Based on your current edit values.'))
         });
         if (tracks.length === 0 && !previewData.error) {
-            preview.empty_reason = 'No resolved preview is available for this edited state yet.';
+            preview.empty_reason = 'No playback plan is available for this edited state yet.';
         }
         return preview;
     }
@@ -2318,7 +2327,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (slot.playlist) {
             html += `<div class="d-flex justify-content-between align-items-center mb-1">
                 <span><i class="bi bi-music-note-list me-1"></i><strong>${escapeHtml(slot.playlist.name)}</strong></span>
-                <span class="badge bg-success">${slot.playlist.track_count} tracks</span>
+                <span class="badge bg-success">${slot.playlist.track_count} playlist track${slot.playlist.track_count === 1 ? '' : 's'}</span>
             </div>`;
             html += renderTrackList(slot.playlist.tracks, 5);
         } else if (slot.smart_block) {
@@ -2346,7 +2355,7 @@ document.addEventListener('DOMContentLoaded', function() {
         html += `</div>`;
 
         html += `<div class="mb-1">
-            <h6 class="mb-2"><i class="bi bi-list-task me-2"></i>Queued / Planned Trace</h6>`;
+            <h6 class="mb-2"><i class="bi bi-list-task me-2"></i>Clock Playback Plan</h6>`;
         if (queued.length === 0) {
             html += `<div class="text-body-secondary small">No slot trace available for this window.</div>`;
         } else {
@@ -2361,7 +2370,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <small class="text-body-secondary">${slotStart} - ${slotEnd}</small>
                     </div>
-                    <div class="small text-body-secondary mb-2">Clock -> ${renderSlotSourceLabel(slot)}</div>
+                    <div class="small text-body-secondary mb-2">This slot will pull from ${renderSlotSourceLabel(slot)}</div>
                     ${renderSlotSourceDetails(slot)}
                 </div>`;
             }
@@ -2372,23 +2381,23 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderSlotSourceLabel(slot) {
-        if (slot.playlist) return `Playlist: ${escapeHtml(slot.playlist.name || 'Unknown')}`;
-        if (slot.smart_block) return `Smart Block: ${escapeHtml(slot.smart_block.name || 'Unknown')}`;
-        if (slot.media) return `Hard Item: ${escapeHtml(slot.media.title || 'Unknown')}`;
-        if (slot.webstream) return `Webstream: ${escapeHtml(slot.webstream.name || 'Unknown')}`;
+        if (slot.playlist) return `playlist "${escapeHtml(slot.playlist.name || 'Unknown')}"`;
+        if (slot.smart_block) return `smart block "${escapeHtml(slot.smart_block.name || 'Unknown')}"`;
+        if (slot.media) return `fixed track "${escapeHtml(slot.media.title || 'Unknown')}"`;
+        if (slot.webstream) return `relay stream "${escapeHtml(slot.webstream.name || 'Unknown')}"`;
         return escapeHtml(slot.type || 'Unknown source');
     }
 
     function renderSlotSourceDetails(slot) {
         if (slot.playlist) {
             return `
-                <div class="small text-body-secondary mb-1">${slot.playlist.track_count || 0} track(s)</div>
+                <div class="small text-body-secondary mb-1">${slot.playlist.track_count || 0} playlist track${(slot.playlist.track_count || 0) === 1 ? '' : 's'}</div>
                 ${renderTrackList(slot.playlist.tracks || [], 10)}
             `;
         }
         if (slot.smart_block) {
             return `
-                <div class="small text-body-secondary mb-1">Smart Block selection for this scheduled clock entry:</div>
+                    <div class="small text-body-secondary mb-1">Smart block playback plan for this clock slot:</div>
                 ${renderSmartBlockPreview(slot.smart_block_preview)}
             `;
         }
@@ -2403,7 +2412,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function renderEditableTrackList(tracks) {
         if (!tracks || tracks.length === 0) {
-            return '<div class="text-body-secondary small">No tracks queued for this entry.</div>';
+            return '<div class="text-body-secondary small">No tracks are planned for this block.</div>';
         }
 
         let html = '<div class="list-group list-group-flush small" style="max-height: 400px; overflow-y: auto;" id="editableTrackListInner">';
