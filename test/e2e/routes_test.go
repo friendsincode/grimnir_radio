@@ -1662,6 +1662,7 @@ func TestScheduleEntryRoutes(t *testing.T) {
 	entry := models.ScheduleEntry{
 		ID:         uuid.New().String(),
 		StationID:  stationID,
+		MountID:    testMountUUID,
 		SourceType: "playlist",
 		SourceID:   uuid.New().String(),
 		StartsAt:   time.Now(),
@@ -2408,6 +2409,7 @@ func TestStationManagementRoutes(t *testing.T) {
 	// Create a second station for edit/update/delete
 	station2 := models.Station{
 		ID:       uuid.New().String(),
+		OwnerID:  userID,
 		Name:     "Second Station",
 		Timezone: "UTC",
 		Active:   true,
