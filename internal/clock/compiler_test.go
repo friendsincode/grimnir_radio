@@ -185,6 +185,66 @@ func TestCompileNarrowClockBeats24HourFallback(t *testing.T) {
 	}
 }
 
+func TestCompileSkipsEmptyClockHours(t *testing.T) {
+	db := newPlannerTestDB(t)
+	planner := NewPlanner(db, zerolog.Nop())
+
+	stationID := "station-empty-first"
+	if err := db.Create(&models.Station{ID: stationID, Name: "EmptyFirst", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+
+	// Create empty clock FIRST (oldest created_at) — simulates "test show" bug
+	empty := models.ClockHour{
+		ID:        "clock-empty",
+		StationID: stationID,
+		Name:      "test show",
+		StartHour: 0,
+		EndHour:   24,
+		Slots:     nil,
+	}
+	if err := db.Create(&empty).Error; err != nil {
+		t.Fatalf("create empty clock: %v", err)
+	}
+
+	// Create real content clock SECOND
+	real := models.ClockHour{
+		ID:        "clock-real",
+		StationID: stationID,
+		Name:      "Real Content",
+		StartHour: 0,
+		EndHour:   24,
+		Slots: []models.ClockSlot{
+			{
+				ID:          "slot-real",
+				ClockHourID: "clock-real",
+				Position:    0,
+				Offset:      0,
+				Type:        models.SlotTypePlaylist,
+				Payload:     map[string]any{"playlist_id": "real-playlist"},
+			},
+		},
+	}
+	if err := db.Create(&real).Error; err != nil {
+		t.Fatalf("create real clock: %v", err)
+	}
+
+	start := time.Date(2026, 3, 10, 9, 0, 0, 0, time.UTC)
+	plans, err := planner.Compile(stationID, start, 2*time.Hour)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if len(plans) == 0 {
+		t.Fatal("expected plans but got none — empty clock was not skipped")
+	}
+	for _, p := range plans {
+		if p.SlotID != "slot-real" {
+			t.Errorf("plan slot = %q, want slot-real", p.SlotID)
+		}
+	}
+}
+
 func TestCompileSupportsOvernightClockWindow(t *testing.T) {
 	db := newPlannerTestDB(t)
 	planner := NewPlanner(db, zerolog.Nop())
