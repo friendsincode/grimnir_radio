@@ -769,7 +769,7 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 		if entry.RecurrenceEndDate != nil && currentLocal.After(*entry.RecurrenceEndDate) {
 			break
 		}
-		if h.matchesRecurrence(entry, currentLocal) {
+		if h.matchesRecurrence(entry, currentLocal, loc) {
 			if _, overridden := overrides[recurrenceInstanceKey(entry.ID, currentLocal)]; overridden {
 				currentLocal = h.nextOccurrenceLocal(entry, currentLocal, loc)
 				if currentLocal.IsZero() {
@@ -845,7 +845,7 @@ func (h *Handler) nextOccurrenceLocal(entry models.ScheduleEntry, from time.Time
 }
 
 // matchesRecurrence checks if a date matches the recurrence pattern
-func (h *Handler) matchesRecurrence(entry models.ScheduleEntry, date time.Time) bool {
+func (h *Handler) matchesRecurrence(entry models.ScheduleEntry, date time.Time, loc *time.Location) bool {
 	switch entry.RecurrenceType {
 	case models.RecurrenceDaily:
 		return true
@@ -862,8 +862,8 @@ func (h *Handler) matchesRecurrence(entry models.ScheduleEntry, date time.Time) 
 			}
 			return false
 		}
-		// Same day of week as original
-		return date.Weekday() == entry.StartsAt.Weekday()
+		// Same day of week as original (use station local time to avoid UTC midnight crossover)
+		return date.Weekday() == entry.StartsAt.In(loc).Weekday()
 	case models.RecurrenceCustom:
 		// Check if this weekday is in the allowed days
 		if len(entry.RecurrenceDays) == 0 {
