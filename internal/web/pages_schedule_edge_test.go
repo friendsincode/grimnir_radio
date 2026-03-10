@@ -198,7 +198,7 @@ func TestMatchesRecurrenceBranches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := h.matchesRecurrence(tt.entry, tt.date); got != tt.want {
+			if got := h.matchesRecurrence(tt.entry, tt.date, time.UTC); got != tt.want {
 				t.Fatalf("got %v want %v", got, tt.want)
 			}
 		})
