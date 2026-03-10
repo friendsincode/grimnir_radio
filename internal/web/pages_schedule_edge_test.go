@@ -288,6 +288,79 @@ func TestParseRecurringInstanceID(t *testing.T) {
 	}
 }
 
+func TestScheduleUpdateEntryForwardSplitsSeries(t *testing.T) {
+	db, station := newScheduleEdgeTestDB(t)
+
+	parent := models.ScheduleEntry{
+		ID:             "parent-weekly-fw",
+		StationID:      station.ID,
+		MountID:        "m1",
+		StartsAt:       time.Date(2026, 3, 9, 10, 0, 0, 0, time.UTC),
+		EndsAt:         time.Date(2026, 3, 9, 11, 0, 0, 0, time.UTC),
+		SourceType:     "smart_block",
+		SourceID:       "block-1",
+		RecurrenceType: models.RecurrenceWeekly,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	h := &Handler{db: db, logger: zerolog.Nop()}
+
+	instanceStart := time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC)
+	reqBody, _ := json.Marshal(map[string]any{
+		"starts_at":   instanceStart,
+		"ends_at":     instanceStart.Add(90 * time.Minute),
+		"source_type": "smart_block",
+		"source_id":   "block-2",
+		"edit_mode":   "forward",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/"+recurrenceInstanceKey(parent.ID, instanceStart), bytes.NewReader(reqBody))
+	req = withScheduleRouteID(req, recurrenceInstanceKey(parent.ID, instanceStart))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+	rr := httptest.NewRecorder()
+
+	h.ScheduleUpdateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Parent should now have recurrence_end_date set to the instance date (March 16)
+	var updated models.ScheduleEntry
+	if err := db.First(&updated, "id = ?", parent.ID).Error; err != nil {
+		t.Fatalf("reload parent: %v", err)
+	}
+	if updated.RecurrenceEndDate == nil {
+		t.Fatal("expected parent recurrence_end_date to be set")
+	}
+	wantEndDate := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
+	if !updated.RecurrenceEndDate.Equal(wantEndDate) {
+		t.Fatalf("recurrence_end_date = %v, want %v", updated.RecurrenceEndDate, wantEndDate)
+	}
+
+	// A new non-instance entry should have been created for the new series
+	var entries []models.ScheduleEntry
+	if err := db.Where("id != ? AND station_id = ? AND is_instance = false", parent.ID, station.ID).Find(&entries).Error; err != nil {
+		t.Fatalf("load entries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 new forward entry, got %d", len(entries))
+	}
+	fwd := entries[0]
+	if fwd.IsInstance {
+		t.Fatal("forward entry should not be an instance")
+	}
+	if !fwd.StartsAt.Equal(instanceStart) {
+		t.Fatalf("forward entry StartsAt = %v, want %v", fwd.StartsAt, instanceStart)
+	}
+	if fwd.SourceID != "block-2" {
+		t.Fatalf("forward entry SourceID = %q, want %q", fwd.SourceID, "block-2")
+	}
+	if fwd.RecurrenceType != models.RecurrenceWeekly {
+		t.Fatalf("forward entry RecurrenceType = %q, want weekly", fwd.RecurrenceType)
+	}
+}
+
 func TestScheduleWriteHandlersRequireSelectedStation(t *testing.T) {
 	db, _ := newScheduleEdgeTestDB(t)
 	h := &Handler{db: db, logger: zerolog.Nop()}

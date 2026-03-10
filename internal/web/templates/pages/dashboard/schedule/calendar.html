@@ -760,11 +760,15 @@
                     <div class="mt-2">
                         <div class="form-check form-check-inline">
                             <input class="form-check-input" type="radio" name="editMode" id="editModeSingle" value="single">
-                            <label class="form-check-label" for="editModeSingle">Edit only this occurrence</label>
+                            <label class="form-check-label" for="editModeSingle">Only this occurrence</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="editMode" id="editModeForward" value="forward">
+                            <label class="form-check-label" for="editModeForward">This and all following</label>
                         </div>
                         <div class="form-check form-check-inline">
                             <input class="form-check-input" type="radio" name="editMode" id="editModeAll" value="all" checked>
-                            <label class="form-check-label" for="editModeAll">Edit all occurrences</label>
+                            <label class="form-check-label" for="editModeAll">All occurrences</label>
                         </div>
                     </div>
                 </div>
@@ -2033,7 +2037,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (document.getElementById('editIsRecurring').value === 'true') {
             const mode = document.querySelector('input[name="editMode"]:checked')?.value || 'all';
-            checks.push(mode === 'single' ? 'This save changes only this occurrence.' : 'This save changes the whole recurring series.');
+            checks.push(mode === 'single' ? 'This save changes only this occurrence.' : mode === 'forward' ? 'This saves changes to this occurrence and all following.' : 'This save changes the whole recurring series.');
         }
         if (sourceType === 'smart_block') checks.push('Re-check the generated track plan after saving if this block is close to air time.');
         if (sourceType === 'webstream') checks.push('Make sure the relay stream is live and healthy.');
@@ -2091,7 +2095,7 @@ document.addEventListener('DOMContentLoaded', function() {
             html += `<div class="d-flex flex-wrap gap-2 mb-2">
                 <span class="badge bg-${conflicts.length > 0 ? 'danger' : 'success'}">${conflicts.length > 0 ? 'Conflict Risk' : 'No Overlap Detected'}</span>
                 <span class="badge bg-secondary">${formatDuration(durationS)}</span>
-                ${isRecurring ? `<span class="badge bg-warning text-dark">${editMode === 'single' ? 'One occurrence' : 'Whole series'}</span>` : ''}
+                ${isRecurring ? `<span class="badge bg-warning text-dark">${editMode === 'single' ? 'One occurrence' : editMode === 'forward' ? 'This + following' : 'Whole series'}</span>` : ''}
                 ${event.extendedProps?.runtime_mismatch ? '<span class="badge bg-danger">Runtime drift active</span>' : ''}
             </div>`;
         }
@@ -2100,6 +2104,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (isRecurring) {
             notes.push(editMode === 'single'
                 ? 'Only this occurrence will change. The rest of the recurring series stays as-is.'
+                : editMode === 'forward'
+                ? 'This and all following occurrences will change. Earlier occurrences in the series are unaffected.'
                 : 'This save updates the recurring rule and future occurrences using the same series.');
         }
         if (event.extendedProps?.runtime_mismatch_reason) {
@@ -3631,8 +3637,8 @@ document.addEventListener('DOMContentLoaded', function() {
             payload.edit_mode = document.querySelector('input[name="editMode"]:checked')?.value || 'all';
         }
 
-        // Get recurrence settings (only if editing all occurrences)
-        if (!isRecurring || payload.edit_mode === 'all') {
+        // Get recurrence settings (for all-occurrences and this-and-forward edits)
+        if (!isRecurring || payload.edit_mode === 'all' || payload.edit_mode === 'forward') {
             const recurrenceType = document.getElementById('editRecurrenceType').value;
             payload.recurrence_type = recurrenceType;
 
