@@ -486,18 +486,7 @@
                                 </select>
                                 <span class="align-self-center">:</span>
                                 <select class="form-select" id="scheduleStartMinute" style="width: 80px;">
-                                    <option value="0">00</option>
-                                    <option value="5">05</option>
-                                    <option value="10">10</option>
-                                    <option value="15">15</option>
-                                    <option value="20">20</option>
-                                    <option value="25">25</option>
-                                    <option value="30">30</option>
-                                    <option value="35">35</option>
-                                    <option value="40">40</option>
-                                    <option value="45">45</option>
-                                    <option value="50">50</option>
-                                    <option value="55">55</option>
+                                    {{range $i := iterate 60}}<option value="{{$i}}">{{printf "%02d" $i}}</option>{{end}}
                                 </select>
                                 <div class="btn-group btn-group-sm ms-2">
                                     <button type="button" class="btn btn-outline-secondary time-adjust" data-target="start" data-delta="-15" title="Subtract 15 minutes">-15m</button>
@@ -513,18 +502,7 @@
                                 </select>
                                 <span class="align-self-center">:</span>
                                 <select class="form-select" id="scheduleEndMinute" style="width: 80px;">
-                                    <option value="0">00</option>
-                                    <option value="5">05</option>
-                                    <option value="10">10</option>
-                                    <option value="15">15</option>
-                                    <option value="20">20</option>
-                                    <option value="25">25</option>
-                                    <option value="30">30</option>
-                                    <option value="35">35</option>
-                                    <option value="40">40</option>
-                                    <option value="45">45</option>
-                                    <option value="50">50</option>
-                                    <option value="55">55</option>
+                                    {{range $i := iterate 60}}<option value="{{$i}}">{{printf "%02d" $i}}</option>{{end}}
                                 </select>
                                 <div class="btn-group btn-group-sm ms-2">
                                     <button type="button" class="btn btn-outline-secondary time-adjust" data-target="end" data-delta="-15" title="Subtract 15 minutes">-15m</button>
@@ -900,18 +878,7 @@
                             </select>
                             <span class="align-self-center">:</span>
                             <select class="form-select" id="editStartMinute" style="width: 80px;">
-                                <option value="0">00</option>
-                                <option value="5">05</option>
-                                <option value="10">10</option>
-                                <option value="15">15</option>
-                                <option value="20">20</option>
-                                <option value="25">25</option>
-                                <option value="30">30</option>
-                                <option value="35">35</option>
-                                <option value="40">40</option>
-                                <option value="45">45</option>
-                                <option value="50">50</option>
-                                <option value="55">55</option>
+                                {{range $i := iterate 60}}<option value="{{$i}}">{{printf "%02d" $i}}</option>{{end}}
                             </select>
                         </div>
                     </div>
@@ -923,18 +890,7 @@
                             </select>
                             <span class="align-self-center">:</span>
                             <select class="form-select" id="editEndMinute" style="width: 80px;">
-                                <option value="0">00</option>
-                                <option value="5">05</option>
-                                <option value="10">10</option>
-                                <option value="15">15</option>
-                                <option value="20">20</option>
-                                <option value="25">25</option>
-                                <option value="30">30</option>
-                                <option value="35">35</option>
-                                <option value="40">40</option>
-                                <option value="45">45</option>
-                                <option value="50">50</option>
-                                <option value="55">55</option>
+                                {{range $i := iterate 60}}<option value="{{$i}}">{{printf "%02d" $i}}</option>{{end}}
                             </select>
                         </div>
                     </div>
@@ -2622,14 +2578,11 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('scheduleStartDate').value = formatDateOnly(startDate);
         document.getElementById('scheduleEndDate').value = formatDateOnly(endDate);
 
-        // Set time inputs - snap to nearest 5 minutes
-        const startMinute = Math.round(startDate.getMinutes() / 5) * 5;
-        const endMinute = Math.round(endDate.getMinutes() / 5) * 5;
-
+        // Set time inputs
         document.getElementById('scheduleStartHour').value = startDate.getHours();
-        document.getElementById('scheduleStartMinute').value = startMinute >= 60 ? 55 : startMinute;
+        document.getElementById('scheduleStartMinute').value = startDate.getMinutes();
         document.getElementById('scheduleEndHour').value = endDate.getHours();
-        document.getElementById('scheduleEndMinute').value = endMinute >= 60 ? 55 : endMinute;
+        document.getElementById('scheduleEndMinute').value = endDate.getMinutes();
 
         // Update duration display
         updateDurationDisplay();
@@ -2691,9 +2644,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function setScheduleEndDateTime(dateTime) {
         document.getElementById('scheduleEndDate').value = formatDateOnly(dateTime);
         document.getElementById('scheduleEndHour').value = dateTime.getHours();
-        // Snap to nearest 5 minutes
-        const minute = Math.round(dateTime.getMinutes() / 5) * 5;
-        document.getElementById('scheduleEndMinute').value = minute >= 60 ? 55 : minute;
+        document.getElementById('scheduleEndMinute').value = dateTime.getMinutes();
     }
 
     function updateDurationDisplay() {
@@ -2732,8 +2683,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 current.setMinutes(current.getMinutes() + delta);
                 document.getElementById('scheduleStartDate').value = formatDateOnly(current);
                 document.getElementById('scheduleStartHour').value = current.getHours();
-                const minute = Math.round(current.getMinutes() / 5) * 5;
-                document.getElementById('scheduleStartMinute').value = minute >= 60 ? 55 : minute;
+                document.getElementById('scheduleStartMinute').value = current.getMinutes();
             } else {
                 const current = getScheduleEndDateTime();
                 current.setMinutes(current.getMinutes() + delta);
@@ -3473,12 +3423,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Set time inputs
         document.getElementById('editStartHour').value = startDate.getHours();
-        const startMin = Math.round(startDate.getMinutes() / 5) * 5;
-        document.getElementById('editStartMinute').value = startMin >= 60 ? 55 : startMin;
+        document.getElementById('editStartMinute').value = startDate.getMinutes();
 
         document.getElementById('editEndHour').value = endDate.getHours();
-        const endMin = Math.round(endDate.getMinutes() / 5) * 5;
-        document.getElementById('editEndMinute').value = endMin >= 60 ? 55 : endMin;
+        document.getElementById('editEndMinute').value = endDate.getMinutes();
 
         updateEditDurationDisplay();
 
