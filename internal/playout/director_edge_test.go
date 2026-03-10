@@ -40,7 +40,7 @@ func TestResolveRecurringAllTypes(t *testing.T) {
 			entry := baseEntry
 			entry.RecurrenceType = tt.recurrenceType
 			entry.RecurrenceDays = tt.recurrenceDays
-			got := matchesRecurringDay(entry, tt.day)
+			got := matchesRecurringDay(entry, tt.day, time.UTC)
 			if got != tt.want {
 				t.Errorf("matchesRecurringDay(%s, %s) = %v, want %v",
 					tt.recurrenceType, tt.day, got, tt.want)
@@ -64,7 +64,7 @@ func TestRecurrenceEndDateBoundary(t *testing.T) {
 	t.Run("EndDate=today plays", func(t *testing.T) {
 		entry := baseEntry
 		entry.RecurrenceEndDate = &todayDate
-		_, _, ok := resolveRecurringOccurrenceWindow(entry, today)
+		_, _, ok := resolveRecurringOccurrenceWindow(entry, today, time.UTC)
 		if !ok {
 			t.Fatal("expected occurrence when EndDate=today")
 		}
@@ -73,7 +73,7 @@ func TestRecurrenceEndDateBoundary(t *testing.T) {
 	t.Run("EndDate=yesterday stops", func(t *testing.T) {
 		entry := baseEntry
 		entry.RecurrenceEndDate = &yesterdayDate
-		_, _, ok := resolveRecurringOccurrenceWindow(entry, today)
+		_, _, ok := resolveRecurringOccurrenceWindow(entry, today, time.UTC)
 		if ok {
 			t.Fatal("expected no occurrence when EndDate=yesterday")
 		}
@@ -82,7 +82,7 @@ func TestRecurrenceEndDateBoundary(t *testing.T) {
 	t.Run("EndDate=nil plays forever", func(t *testing.T) {
 		entry := baseEntry
 		entry.RecurrenceEndDate = nil
-		_, _, ok := resolveRecurringOccurrenceWindow(entry, today)
+		_, _, ok := resolveRecurringOccurrenceWindow(entry, today, time.UTC)
 		if !ok {
 			t.Fatal("expected occurrence when EndDate=nil")
 		}
@@ -99,7 +99,7 @@ func TestResolveRecurringWeekendSkip(t *testing.T) {
 		RecurrenceType: models.RecurrenceWeekdays,
 	}
 
-	_, _, ok := resolveRecurringOccurrenceWindow(entry, now)
+	_, _, ok := resolveRecurringOccurrenceWindow(entry, now, time.UTC)
 	if ok {
 		t.Fatal("expected no occurrence on Saturday for weekdays recurrence")
 	}
@@ -114,7 +114,7 @@ func TestResolveRecurringZeroDuration(t *testing.T) {
 		RecurrenceType: models.RecurrenceDaily,
 	}
 
-	_, _, ok := resolveRecurringOccurrenceWindow(entry, now)
+	_, _, ok := resolveRecurringOccurrenceWindow(entry, now, time.UTC)
 	if ok {
 		t.Fatal("expected no occurrence when EndsAt == StartsAt (zero duration)")
 	}
@@ -141,7 +141,7 @@ func TestResolveEntryForNowTimeWindows(t *testing.T) {
 				StartsAt: base,
 				EndsAt:   time.Date(2026, 3, 2, 15, 0, 0, 0, time.UTC),
 			}
-			_, _, _, ok := resolveEntryForNow(entry, tt.now)
+			_, _, _, ok := resolveEntryForNow(entry, tt.now, time.UTC)
 			if ok != tt.want {
 				t.Errorf("resolveEntryForNow(now=%v) ok = %v, want %v", tt.now, ok, tt.want)
 			}
@@ -158,7 +158,7 @@ func TestResolveEntryForNowPlaybackKey(t *testing.T) {
 			RecurrenceType: models.RecurrenceDaily,
 		}
 		now := time.Date(2026, 3, 2, 10, 0, 1, 0, time.UTC)
-		_, key, _, ok := resolveEntryForNow(entry, now)
+		_, key, _, ok := resolveEntryForNow(entry, now, time.UTC)
 		if !ok {
 			t.Fatal("expected resolve")
 		}
@@ -176,7 +176,7 @@ func TestResolveEntryForNowPlaybackKey(t *testing.T) {
 			EndsAt:   time.Date(2026, 3, 2, 11, 0, 0, 0, time.UTC),
 		}
 		now := time.Date(2026, 3, 2, 10, 0, 1, 0, time.UTC)
-		_, key, _, ok := resolveEntryForNow(entry, now)
+		_, key, _, ok := resolveEntryForNow(entry, now, time.UTC)
 		if !ok {
 			t.Fatal("expected resolve")
 		}
@@ -278,7 +278,7 @@ func TestMatchesRecurringDay(t *testing.T) {
 				StartsAt:       tt.startsAt,
 				RecurrenceDays: tt.recurrenceDays,
 			}
-			got := matchesRecurringDay(entry, tt.day)
+			got := matchesRecurringDay(entry, tt.day, time.UTC)
 			if got != tt.want {
 				t.Errorf("matchesRecurringDay() = %v, want %v", got, tt.want)
 			}

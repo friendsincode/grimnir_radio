@@ -83,6 +83,11 @@ type cachedCrossfadeConfig struct {
 	loadedAt time.Time
 }
 
+type cachedStationTimezone struct {
+	loc      *time.Location
+	loadedAt time.Time
+}
+
 type cachedScheduleSnapshot struct {
 	entries  []models.ScheduleEntry
 	loadedAt time.Time
@@ -122,6 +127,9 @@ type Director struct {
 	xfadeCfgMu    sync.Mutex
 	xfadeCfgCache map[string]cachedCrossfadeConfig // stationID -> config
 
+	tzMu    sync.Mutex
+	tzCache map[string]cachedStationTimezone
+
 	scheduleMu    sync.Mutex
 	scheduleCache cachedScheduleSnapshot
 
@@ -150,6 +158,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.
 		webrtcCache:   make(map[string]cachedWebRTCPort),
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
 		xfadeCfgCache: make(map[string]cachedCrossfadeConfig),
+		tzCache:       make(map[string]cachedStationTimezone),
 		scheduleCache: cachedScheduleSnapshot{dirty: true},
 		icyPollers:    make(map[string]webstream.MetadataPoller),
 	}
@@ -224,7 +233,8 @@ func (d *Director) tick(ctx context.Context) error {
 	}
 
 	for _, rawEntry := range entries {
-		entry, playKey, playUntil, ok := resolveEntryForNow(rawEntry, now)
+		loc := d.getStationTimezone(ctx, rawEntry.StationID)
+		entry, playKey, playUntil, ok := resolveEntryForNow(rawEntry, now, loc)
 		if !ok {
 			continue
 		}
@@ -437,6 +447,34 @@ func (d *Director) getCrossfadeConfig(ctx context.Context, stationID string) cro
 	return cfg
 }
 
+func (d *Director) getStationTimezone(ctx context.Context, stationID string) *time.Location {
+	const ttl = 5 * time.Minute
+	now := time.Now()
+
+	d.tzMu.Lock()
+	if cached, ok := d.tzCache[stationID]; ok && now.Sub(cached.loadedAt) < ttl {
+		loc := cached.loc
+		d.tzMu.Unlock()
+		return loc
+	}
+	d.tzMu.Unlock()
+
+	var station models.Station
+	loc := time.UTC
+	if err := d.db.WithContext(ctx).Select("id", "timezone").First(&station, "id = ?", stationID).Error; err == nil {
+		if station.Timezone != "" {
+			if l, err := time.LoadLocation(station.Timezone); err == nil {
+				loc = l
+			}
+		}
+	}
+
+	d.tzMu.Lock()
+	d.tzCache[stationID] = cachedStationTimezone{loc: loc, loadedAt: now}
+	d.tzMu.Unlock()
+	return loc
+}
+
 func effectiveCrossfade(entry models.ScheduleEntry, stationCfg crossfadeConfig) crossfadeConfig {
 	// Default: station config.
 	out := stationCfg
@@ -492,7 +530,7 @@ func effectiveCrossfade(entry models.ScheduleEntry, stationCfg crossfadeConfig) 
 	return out
 }
 
-func resolveEntryForNow(entry models.ScheduleEntry, now time.Time) (models.ScheduleEntry, string, time.Time, bool) {
+func resolveEntryForNow(entry models.ScheduleEntry, now time.Time, loc *time.Location) (models.ScheduleEntry, string, time.Time, bool) {
 	startWindow := now.Add(-2 * time.Second)
 	endWindow := now
 
@@ -503,7 +541,7 @@ func resolveEntryForNow(entry models.ScheduleEntry, now time.Time) (models.Sched
 		return entry, playbackKey(entry.ID, entry.StartsAt), entry.EndsAt, true
 	}
 
-	occStart, occEnd, ok := resolveRecurringOccurrenceWindow(entry, now)
+	occStart, occEnd, ok := resolveRecurringOccurrenceWindow(entry, now, loc)
 	if !ok {
 		return models.ScheduleEntry{}, "", time.Time{}, false
 	}
@@ -518,7 +556,7 @@ func playbackKey(entryID string, startsAt time.Time) string {
 	return fmt.Sprintf("%s@%s", entryID, startsAt.UTC().Format(time.RFC3339Nano))
 }
 
-func resolveRecurringOccurrenceWindow(entry models.ScheduleEntry, now time.Time) (time.Time, time.Time, bool) {
+func resolveRecurringOccurrenceWindow(entry models.ScheduleEntry, now time.Time, loc *time.Location) (time.Time, time.Time, bool) {
 	if entry.RecurrenceType == models.RecurrenceNone || entry.IsInstance {
 		return time.Time{}, time.Time{}, false
 	}
@@ -528,31 +566,42 @@ func resolveRecurringOccurrenceWindow(entry models.ScheduleEntry, now time.Time)
 		return time.Time{}, time.Time{}, false
 	}
 
-	now = now.UTC()
-	templateStart := entry.StartsAt.UTC()
+	// Resolve the "wall clock" time the user intended using the station's timezone.
+	// This makes recurring entries DST-aware: "5 AM Tuesdays" always means 5 AM local time,
+	// not 5 AM UTC (which would drift by 1 hour after each DST transition).
+	localTemplateStart := entry.StartsAt.In(loc)
+
+	// Compute candidate days in local timezone so day boundaries are correct
+	// (avoids off-by-one near midnight in non-UTC stations).
+	nowLocal := now.In(loc)
 	startWindow := now.Add(-2 * time.Second)
 	endWindow := now
 
 	candidateDays := []time.Time{
-		time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC),
-		time.Date(now.AddDate(0, 0, -1).Year(), now.AddDate(0, 0, -1).Month(), now.AddDate(0, 0, -1).Day(), 0, 0, 0, 0, time.UTC),
+		time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc),
+		time.Date(nowLocal.AddDate(0, 0, -1).Year(), nowLocal.AddDate(0, 0, -1).Month(), nowLocal.AddDate(0, 0, -1).Day(), 0, 0, 0, 0, loc),
 	}
 
 	var bestStart time.Time
 	var bestEnd time.Time
 	found := false
 
-	for _, day := range candidateDays {
-		occStart := time.Date(day.Year(), day.Month(), day.Day(), templateStart.Hour(), templateStart.Minute(), templateStart.Second(), templateStart.Nanosecond(), time.UTC)
+	for _, localDay := range candidateDays {
+		// Build the occurrence at the same wall-clock time in the local timezone.
+		// Go's time.Date handles DST transitions correctly (e.g. 2:30 AM on spring-forward
+		// night becomes 3:30 AM, preserving intent).
+		occStart := time.Date(localDay.Year(), localDay.Month(), localDay.Day(),
+			localTemplateStart.Hour(), localTemplateStart.Minute(), localTemplateStart.Second(),
+			localTemplateStart.Nanosecond(), loc)
 		occEnd := occStart.Add(duration)
 
-		if occStart.Before(templateStart) {
+		if occStart.Before(entry.StartsAt) {
 			continue
 		}
 		if entry.RecurrenceEndDate != nil && occurrenceDateAfter(occStart, *entry.RecurrenceEndDate) {
 			continue
 		}
-		if !matchesRecurringDay(entry, occStart.Weekday()) {
+		if !matchesRecurringDay(entry, localDay.Weekday(), loc) {
 			continue
 		}
 		if occStart.After(endWindow) || occEnd.Before(startWindow) {
@@ -580,14 +629,14 @@ func occurrenceDateAfter(a, b time.Time) bool {
 	return ad > bd
 }
 
-func matchesRecurringDay(entry models.ScheduleEntry, day time.Weekday) bool {
+func matchesRecurringDay(entry models.ScheduleEntry, day time.Weekday, loc *time.Location) bool {
 	switch entry.RecurrenceType {
 	case models.RecurrenceDaily:
 		return true
 	case models.RecurrenceWeekdays:
 		return day != time.Saturday && day != time.Sunday
 	case models.RecurrenceWeekly:
-		return day == entry.StartsAt.UTC().Weekday()
+		return day == entry.StartsAt.In(loc).Weekday()
 	case models.RecurrenceCustom:
 		if len(entry.RecurrenceDays) == 0 {
 			return true

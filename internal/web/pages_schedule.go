@@ -185,7 +185,7 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 	var recurringEntries []models.ScheduleEntry
 	_ = recurringQuery.Find(&recurringEntries).Error
 	for _, re := range recurringEntries {
-		entries = append(entries, h.expandRecurringEntry(re, now.Add(-24*time.Hour), end, instanceOverrides)...)
+		entries = append(entries, h.expandRecurringEntry(re, now.Add(-24*time.Hour), end, instanceOverrides, h.getStationTimezone(stationID))...)
 	}
 
 	filtered := make([]models.ScheduleEntry, 0, len(entries))
@@ -416,7 +416,7 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Expand recurring entries into virtual instances
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides)
+		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides, h.getStationTimezone(station.ID))
 		entries = append(entries, instances...)
 	}
 
@@ -729,55 +729,67 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(events)
 }
 
+func (h *Handler) getStationTimezone(stationID string) *time.Location {
+	var station models.Station
+	if err := h.db.Select("id", "timezone").First(&station, "id = ?", stationID).Error; err != nil {
+		return time.UTC
+	}
+	if station.Timezone == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(station.Timezone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
+
 // expandRecurringEntry generates virtual instances for a recurring entry within a date range
-func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, rangeEnd time.Time, overrides map[string]struct{}) []models.ScheduleEntry {
+func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, rangeEnd time.Time, overrides map[string]struct{}, loc *time.Location) []models.ScheduleEntry {
 	var instances []models.ScheduleEntry
 	duration := entry.EndsAt.Sub(entry.StartsAt)
+	localTemplateStart := entry.StartsAt.In(loc)
 
-	// Start from the original entry's date
-	current := entry.StartsAt
+	// Start from the original entry's date in local timezone
+	currentLocal := entry.StartsAt.In(loc)
+	currentLocal = time.Date(currentLocal.Year(), currentLocal.Month(), currentLocal.Day(),
+		localTemplateStart.Hour(), localTemplateStart.Minute(), localTemplateStart.Second(),
+		localTemplateStart.Nanosecond(), loc)
 
 	// If the entry starts before our range, find the first occurrence in range
-	for current.Before(rangeStart) {
-		current = h.nextOccurrence(entry, current)
-		if current.IsZero() {
+	for currentLocal.Before(rangeStart) {
+		currentLocal = h.nextOccurrenceLocal(entry, currentLocal, loc)
+		if currentLocal.IsZero() {
 			return instances
 		}
 	}
 
-	// Generate instances within range (limit to prevent infinite loops)
 	maxInstances := 100
-	for i := 0; i < maxInstances && !current.After(rangeEnd); i++ {
-		// Check if we've passed the recurrence end date
-		if entry.RecurrenceEndDate != nil && current.After(*entry.RecurrenceEndDate) {
+	for i := 0; i < maxInstances && !currentLocal.After(rangeEnd); i++ {
+		if entry.RecurrenceEndDate != nil && currentLocal.After(*entry.RecurrenceEndDate) {
 			break
 		}
-
-		// Check if this day matches the recurrence pattern
-		if h.matchesRecurrence(entry, current) {
-			if _, overridden := overrides[recurrenceInstanceKey(entry.ID, current)]; overridden {
-				current = h.nextOccurrence(entry, current)
-				if current.IsZero() {
+		if h.matchesRecurrence(entry, currentLocal) {
+			if _, overridden := overrides[recurrenceInstanceKey(entry.ID, currentLocal)]; overridden {
+				currentLocal = h.nextOccurrenceLocal(entry, currentLocal, loc)
+				if currentLocal.IsZero() {
 					break
 				}
 				continue
 			}
-
 			instance := entry
-			instance.ID = recurrenceInstanceKey(entry.ID, current)
-			instance.StartsAt = current
-			instance.EndsAt = current.Add(duration)
+			instance.ID = recurrenceInstanceKey(entry.ID, currentLocal)
+			instance.StartsAt = currentLocal
+			instance.EndsAt = currentLocal.Add(duration)
 			instance.IsInstance = true
 			instance.RecurrenceParentID = &entry.ID
 			instances = append(instances, instance)
 		}
-
-		current = h.nextOccurrence(entry, current)
-		if current.IsZero() {
+		currentLocal = h.nextOccurrenceLocal(entry, currentLocal, loc)
+		if currentLocal.IsZero() {
 			break
 		}
 	}
-
 	return instances
 }
 
@@ -804,6 +816,32 @@ func (h *Handler) nextOccurrence(entry models.ScheduleEntry, from time.Time) tim
 		return from.AddDate(0, 0, 1)
 	}
 	return time.Time{}
+}
+
+// nextOccurrenceLocal advances to the next occurrence in local timezone, preserving wall-clock time across DST.
+func (h *Handler) nextOccurrenceLocal(entry models.ScheduleEntry, from time.Time, loc *time.Location) time.Time {
+	// from is already in local timezone
+	var next time.Time
+	switch entry.RecurrenceType {
+	case models.RecurrenceDaily:
+		d := from.AddDate(0, 0, 1)
+		next = time.Date(d.Year(), d.Month(), d.Day(), from.Hour(), from.Minute(), from.Second(), from.Nanosecond(), loc)
+	case models.RecurrenceWeekdays:
+		d := from.AddDate(0, 0, 1)
+		for d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+			d = d.AddDate(0, 0, 1)
+		}
+		next = time.Date(d.Year(), d.Month(), d.Day(), from.Hour(), from.Minute(), from.Second(), from.Nanosecond(), loc)
+	case models.RecurrenceWeekly:
+		d := from.AddDate(0, 0, 7)
+		next = time.Date(d.Year(), d.Month(), d.Day(), from.Hour(), from.Minute(), from.Second(), from.Nanosecond(), loc)
+	case models.RecurrenceCustom:
+		d := from.AddDate(0, 0, 1)
+		next = time.Date(d.Year(), d.Month(), d.Day(), from.Hour(), from.Minute(), from.Second(), from.Nanosecond(), loc)
+	default:
+		return time.Time{}
+	}
+	return next
 }
 
 // matchesRecurrence checks if a date matches the recurrence pattern

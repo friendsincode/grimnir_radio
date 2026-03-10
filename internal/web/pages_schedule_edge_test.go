@@ -132,7 +132,7 @@ func TestExpandRecurringEntrySkipsOverridesAndRespectsEndDate(t *testing.T) {
 		recurrenceInstanceKey(entry.ID, time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC)): {},
 	}
 
-	instances := h.expandRecurringEntry(entry, rangeStart, rangeEnd, overrides)
+	instances := h.expandRecurringEntry(entry, rangeStart, rangeEnd, overrides, time.UTC)
 	if len(instances) != 1 {
 		t.Fatalf("expected 1 instance after override skip and midnight end date cap, got %d", len(instances))
 	}

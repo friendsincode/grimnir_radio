@@ -120,6 +120,18 @@
             syncCount();
         }
 
+        // Auto-select the browser's timezone on new station forms.
+        // On edit forms the stored timezone is already pre-selected by the server template.
+        const tzSelect = document.getElementById('timezone');
+        const isNew = {{if .Data.IsNew}}true{{else}}false{{end}};
+        if (isNew && tzSelect && typeof Intl !== 'undefined') {
+            const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (browserTz) {
+                const match = Array.from(tzSelect.options).find(o => o.value === browserTz);
+                if (match) match.selected = true;
+            }
+        }
+
         if (form) {
             form.addEventListener('htmx:responseError', function (evt) {
                 if (!alertBox) return;

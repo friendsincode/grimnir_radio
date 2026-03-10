@@ -938,7 +938,7 @@ func (h *Handler) PublicScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Expand recurring entries
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides)
+		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides, h.getStationTimezone(re.StationID))
 		entries = append(entries, instances...)
 	}
 
