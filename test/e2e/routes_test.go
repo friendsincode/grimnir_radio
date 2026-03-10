@@ -23,7 +23,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
@@ -693,23 +693,52 @@ func seedTestMedia(t *testing.T, db *gorm.DB, stationID string) {
 // Helper functions
 
 func setupTestDB(t *testing.T) *gorm.DB {
-	// Use a per-test in-memory database. With plain ":memory:", each new connection gets
-	// a different empty DB, which can cause "no such table" failures under concurrency.
-	// With shared-cache we must ensure each test uses a distinct DSN to avoid cross-test contamination.
-	dsn := fmt.Sprintf("file:grimnir_e2e_%d?mode=memory&cache=shared", time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		DisableForeignKeyConstraintWhenMigrating: true,
-	})
+	t.Helper()
+
+	// E2E tests require a PostgreSQL database. Set TEST_DB_DSN to enable them.
+	// In CI, the postgres service provides: host=localhost user=postgres password=postgres dbname=postgres sslmode=disable
+	adminDSN := os.Getenv("TEST_DB_DSN")
+	if adminDSN == "" {
+		t.Skip("TEST_DB_DSN not set; skipping E2E test (requires PostgreSQL)")
+	}
+
+	// Create a unique test database so parallel tests don't interfere.
+	dbName := fmt.Sprintf("grimnir_e2e_%d", time.Now().UnixNano())
+
+	adminDB, err := gorm.Open(postgres.Open(adminDSN), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open admin db: %v", err)
+	}
+	if err := adminDB.Exec("CREATE DATABASE " + dbName).Error; err != nil {
+		t.Fatalf("failed to create test db %q: %v", dbName, err)
+	}
+
+	// Replace dbname in DSN with the new test database.
+	testDSN := strings.ReplaceAll(adminDSN, "dbname=postgres", "dbname="+dbName)
+	if testDSN == adminDSN {
+		// If the DSN didn't contain "dbname=postgres", append it.
+		testDSN = adminDSN + " dbname=" + dbName
+	}
+
+	db, err := gorm.Open(postgres.Open(testDSN), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open test db: %v", err)
 	}
 
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("failed to get sql db: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+		// Drop the test database after the test finishes.
+		if err := adminDB.Exec("DROP DATABASE IF EXISTS " + dbName).Error; err != nil {
+			t.Logf("warning: failed to drop test db %q: %v", dbName, err)
+		}
+		adminSQLDB, _ := adminDB.DB()
+		if adminSQLDB != nil {
+			_ = adminSQLDB.Close()
+		}
+	})
 
 	// Migrate all tables
 	err = db.AutoMigrate(
@@ -2871,7 +2900,11 @@ func TestAnalyticsRoutes(t *testing.T) {
 
 // BenchmarkPageLoad benchmarks page loading times.
 func BenchmarkPageLoad(b *testing.B) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	adminDSN := os.Getenv("TEST_DB_DSN")
+	if adminDSN == "" {
+		adminDSN = "host=localhost user=postgres password=postgres dbname=postgres sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(adminDSN), &gorm.Config{})
 	if err != nil {
 		b.Fatalf("failed to open db: %v", err)
 	}
