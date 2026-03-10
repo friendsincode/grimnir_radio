@@ -1004,7 +1004,7 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 		RecurrenceType    *string        `json:"recurrence_type"`
 		RecurrenceDays    []int          `json:"recurrence_days"`
 		RecurrenceEndDate *string        `json:"recurrence_end_date"`
-		EditMode          string         `json:"edit_mode"` // "single" or "all"
+		EditMode          string         `json:"edit_mode"` // "single", "forward", or "all"
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -1071,6 +1071,84 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 				"source_id":   newEntry.SourceID,
 				"metadata":    newEntry.Metadata,
 				"event":       "create_instance",
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(newEntry)
+		return
+	}
+
+	// If editing this occurrence and all following, split the series at the instance date.
+	if instanceDate != "" && input.EditMode == "forward" {
+		splitDate, err := time.Parse("20060102", instanceDate)
+		if err != nil {
+			http.Error(w, "Invalid instance date", http.StatusBadRequest)
+			return
+		}
+
+		// Truncate the parent series so it stops before this occurrence.
+		entry.RecurrenceEndDate = &splitDate
+		if err := h.db.Save(&entry).Error; err != nil {
+			http.Error(w, "Failed to update parent entry", http.StatusInternalServerError)
+			return
+		}
+
+		// Create a new recurring entry from this occurrence forward.
+		newEntry := models.ScheduleEntry{
+			ID:             uuid.New().String(),
+			StationID:      station.ID,
+			MountID:        entry.MountID,
+			StartsAt:       input.StartsAt,
+			EndsAt:         input.EndsAt,
+			SourceType:     entry.SourceType,
+			SourceID:       entry.SourceID,
+			Metadata:       entry.Metadata,
+			RecurrenceType: entry.RecurrenceType,
+			RecurrenceDays: entry.RecurrenceDays,
+			IsInstance:     false,
+		}
+
+		if input.SourceType != nil {
+			newEntry.SourceType = *input.SourceType
+		}
+		if input.SourceID != nil {
+			newEntry.SourceID = *input.SourceID
+		}
+		if input.Metadata != nil {
+			newEntry.Metadata = input.Metadata
+		}
+		if input.RecurrenceType != nil {
+			newEntry.RecurrenceType = models.RecurrenceType(*input.RecurrenceType)
+		}
+		if input.RecurrenceDays != nil {
+			newEntry.RecurrenceDays = input.RecurrenceDays
+		}
+		if input.RecurrenceEndDate != nil {
+			if *input.RecurrenceEndDate == "" {
+				newEntry.RecurrenceEndDate = nil
+			} else if endDate, err := time.Parse("2006-01-02", *input.RecurrenceEndDate); err == nil {
+				newEntry.RecurrenceEndDate = &endDate
+			}
+		}
+		newEntry.SourceID = normalizeScheduleSourceID(newEntry.SourceType, newEntry.SourceID, newEntry.ID)
+
+		if err := h.db.Create(&newEntry).Error; err != nil {
+			http.Error(w, "Failed to create forward entry", http.StatusInternalServerError)
+			return
+		}
+
+		if h.eventBus != nil {
+			h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+				"entry_id":    newEntry.ID,
+				"station_id":  newEntry.StationID,
+				"mount_id":    newEntry.MountID,
+				"starts_at":   newEntry.StartsAt,
+				"ends_at":     newEntry.EndsAt,
+				"source_type": newEntry.SourceType,
+				"source_id":   newEntry.SourceID,
+				"metadata":    newEntry.Metadata,
+				"event":       "create_forward",
 			})
 		}
 
