@@ -756,12 +756,21 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 		localTemplateStart.Hour(), localTemplateStart.Minute(), localTemplateStart.Second(),
 		localTemplateStart.Nanosecond(), loc)
 
+	// Capture the wall-clock hour/minute from the template so DST transitions
+	// don't corrupt the time (e.g. advancing through spring-forward changes .Hour()).
+	templateHour := localTemplateStart.Hour()
+	templateMin := localTemplateStart.Minute()
+	normalizeToTemplate := func(t time.Time) time.Time {
+		return time.Date(t.Year(), t.Month(), t.Day(), templateHour, templateMin, 0, 0, loc)
+	}
+
 	// If the entry starts before our range, find the first occurrence in range
 	for currentLocal.Before(rangeStart) {
 		currentLocal = h.nextOccurrenceLocal(entry, currentLocal, loc)
 		if currentLocal.IsZero() {
 			return instances
 		}
+		currentLocal = normalizeToTemplate(currentLocal)
 	}
 
 	maxInstances := 100
@@ -775,6 +784,7 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 				if currentLocal.IsZero() {
 					break
 				}
+				currentLocal = normalizeToTemplate(currentLocal)
 				continue
 			}
 			instance := entry
@@ -789,6 +799,7 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 		if currentLocal.IsZero() {
 			break
 		}
+		currentLocal = normalizeToTemplate(currentLocal)
 	}
 	return instances
 }
