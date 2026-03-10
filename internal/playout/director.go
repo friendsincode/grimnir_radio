@@ -636,6 +636,15 @@ func matchesRecurringDay(entry models.ScheduleEntry, day time.Weekday, loc *time
 	case models.RecurrenceWeekdays:
 		return day != time.Saturday && day != time.Sunday
 	case models.RecurrenceWeekly:
+		if len(entry.RecurrenceDays) > 0 {
+			wd := int(day)
+			for _, d := range entry.RecurrenceDays {
+				if d == wd {
+					return true
+				}
+			}
+			return false
+		}
 		return day == entry.StartsAt.In(loc).Weekday()
 	case models.RecurrenceCustom:
 		if len(entry.RecurrenceDays) == 0 {

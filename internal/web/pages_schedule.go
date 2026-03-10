@@ -853,6 +853,15 @@ func (h *Handler) matchesRecurrence(entry models.ScheduleEntry, date time.Time) 
 		wd := date.Weekday()
 		return wd != time.Saturday && wd != time.Sunday
 	case models.RecurrenceWeekly:
+		if len(entry.RecurrenceDays) > 0 {
+			wd := int(date.Weekday())
+			for _, d := range entry.RecurrenceDays {
+				if d == wd {
+					return true
+				}
+			}
+			return false
+		}
 		// Same day of week as original
 		return date.Weekday() == entry.StartsAt.Weekday()
 	case models.RecurrenceCustom:
