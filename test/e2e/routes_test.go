@@ -63,7 +63,8 @@ func TestRoutes(t *testing.T) {
 	db := setupTestDB(t)
 
 	// Create test fixtures
-	setupTestFixtures(t, db)
+	ownerID := uuid.New().String()
+	setupTestFixtures(t, db, ownerID)
 
 	// Create a user (required to bypass setup redirect)
 	createTestUser(t, db, "test@example.com", "password123", models.PlatformRoleUser)
@@ -141,7 +142,7 @@ func TestAuthenticatedRoutes(t *testing.T) {
 	headless := os.Getenv("E2E_HEADLESS") != "false"
 
 	db := setupTestDB(t)
-	setupTestFixtures(t, db)
+	setupTestFixtures(t, db, uuid.New().String())
 
 	// Create admin user for testing (platform admin can access all routes)
 	adminUser := createTestUser(t, db, "admin@test.com", "password123", models.PlatformRoleAdmin)
@@ -257,7 +258,7 @@ func TestFormRoutes(t *testing.T) {
 	headless := os.Getenv("E2E_HEADLESS") != "false"
 
 	db := setupTestDB(t)
-	station := setupTestFixtures(t, db)
+	station := setupTestFixtures(t, db, uuid.New().String())
 	createTestUser(t, db, "admin@test.com", "password123", models.PlatformRoleAdmin)
 
 	handler := createTestHandler(t, db)
@@ -345,7 +346,7 @@ func TestFormRoutes(t *testing.T) {
 // TestTemplateRendering verifies all templates render without errors.
 func TestTemplateRendering(t *testing.T) {
 	db := setupTestDB(t)
-	setupTestFixtures(t, db)
+	setupTestFixtures(t, db, uuid.New().String())
 
 	handler := createTestHandler(t, db)
 
@@ -425,7 +426,7 @@ func TestLoginFlow(t *testing.T) {
 	headless := os.Getenv("E2E_HEADLESS") != "false"
 
 	db := setupTestDB(t)
-	setupTestFixtures(t, db)
+	setupTestFixtures(t, db, uuid.New().String())
 	// Create a regular user (not admin) for testing login flow
 	createTestUser(t, db, "test@example.com", "testpass123", models.PlatformRoleUser)
 
@@ -512,7 +513,7 @@ func TestWebDJConsole(t *testing.T) {
 	headless := os.Getenv("E2E_HEADLESS") != "false"
 
 	db := setupTestDB(t)
-	station := setupTestFixtures(t, db)
+	station := setupTestFixtures(t, db, uuid.New().String())
 	createTestUser(t, db, "admin@test.com", "password123", models.PlatformRoleAdmin)
 	seedTestMedia(t, db, station.ID)
 
@@ -801,10 +802,11 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func setupTestFixtures(t *testing.T, db *gorm.DB) *models.Station {
+func setupTestFixtures(t *testing.T, db *gorm.DB, ownerID string) *models.Station {
 	// Create a test station
 	station := &models.Station{
 		ID:          testStationUUID,
+		OwnerID:     ownerID,
 		Name:        "Test Station",
 		Description: "A test radio station",
 		Timezone:    "UTC",
@@ -832,14 +834,19 @@ func setupTestFixtures(t *testing.T, db *gorm.DB) *models.Station {
 // createTestUser creates a test user with the specified platform role.
 // Also creates a StationUser record linking them to the test station.
 func createTestUser(t *testing.T, db *gorm.DB, email, password string, platformRole models.PlatformRole) *models.User {
-	// Hash password
+	return createTestUserWithID(t, db, uuid.New().String(), email, password, platformRole)
+}
+
+// createTestUserWithID creates a test user with a pre-specified ID.
+func createTestUserWithID(t *testing.T, db *gorm.DB, id, email, password string, platformRole models.PlatformRole) *models.User {
+	t.Helper()
 	hashedPassword, err := bcryptHash(password)
 	if err != nil {
 		t.Fatalf("failed to hash password: %v", err)
 	}
 
 	user := &models.User{
-		ID:           uuid.New().String(),
+		ID:           id,
 		Email:        email,
 		Password:     hashedPassword,
 		PlatformRole: platformRole,
@@ -1017,8 +1024,10 @@ func readBody(t *testing.T, resp *http.Response) string {
 func setupRouteTest(t *testing.T) (string, string, string, *http.Client) {
 	t.Helper()
 	db := setupTestDB(t)
-	station := setupTestFixtures(t, db)
-	admin := createTestUser(t, db, "admin@test.com", "password123", models.PlatformRoleAdmin)
+	// Generate admin ID first so station can reference it as owner, then create both.
+	adminID := uuid.New().String()
+	station := setupTestFixtures(t, db, adminID)
+	admin := createTestUserWithID(t, db, adminID, "admin@test.com", "password123", models.PlatformRoleAdmin)
 	handler := createTestHandler(t, db)
 	r := chi.NewRouter()
 	handler.Routes(r)
@@ -1038,8 +1047,9 @@ func setupRouteTest(t *testing.T) (string, string, string, *http.Client) {
 func setupRouteTestWithDB(t *testing.T) (string, string, string, *http.Client, *gorm.DB) {
 	t.Helper()
 	db := setupTestDB(t)
-	station := setupTestFixtures(t, db)
-	admin := createTestUser(t, db, "admin@test.com", "password123", models.PlatformRoleAdmin)
+	adminID := uuid.New().String()
+	station := setupTestFixtures(t, db, adminID)
+	admin := createTestUserWithID(t, db, adminID, "admin@test.com", "password123", models.PlatformRoleAdmin)
 	handler := createTestHandler(t, db)
 	r := chi.NewRouter()
 	handler.Routes(r)
