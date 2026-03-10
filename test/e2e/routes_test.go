@@ -21,6 +21,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
@@ -30,6 +31,12 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/web"
+)
+
+// testStationUUID and testMountUUID are stable UUIDs used as fixture IDs across helpers.
+const (
+	testStationUUID = "11111111-1111-1111-1111-111111111111"
+	testMountUUID   = "22222222-2222-2222-2222-222222222222"
 )
 
 // createTestHandler creates a web handler with minimal dependencies for testing
@@ -650,7 +657,7 @@ func seedTestMedia(t *testing.T, db *gorm.DB, stationID string) {
 	t.Helper()
 	media := []models.MediaItem{
 		{
-			ID:            "media-test-1",
+			ID:            uuid.New().String(),
 			StationID:     stationID,
 			Title:         "Test Track Alpha",
 			Artist:        "DJ Test",
@@ -661,7 +668,7 @@ func seedTestMedia(t *testing.T, db *gorm.DB, stationID string) {
 			AnalysisState: models.AnalysisComplete,
 		},
 		{
-			ID:            "media-test-2",
+			ID:            uuid.New().String(),
 			StationID:     stationID,
 			Title:         "Test Track Beta",
 			Artist:        "MC Demo",
@@ -672,7 +679,7 @@ func seedTestMedia(t *testing.T, db *gorm.DB, stationID string) {
 			AnalysisState: models.AnalysisComplete,
 		},
 		{
-			ID:            "media-test-3",
+			ID:            uuid.New().String(),
 			StationID:     stationID,
 			Title:         "Ambient Waves",
 			Artist:        "DJ Test",
@@ -797,7 +804,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 func setupTestFixtures(t *testing.T, db *gorm.DB) *models.Station {
 	// Create a test station
 	station := &models.Station{
-		ID:          "test-station-1",
+		ID:          testStationUUID,
 		Name:        "Test Station",
 		Description: "A test radio station",
 		Timezone:    "UTC",
@@ -809,7 +816,7 @@ func setupTestFixtures(t *testing.T, db *gorm.DB) *models.Station {
 
 	// Create a mount
 	mount := &models.Mount{
-		ID:        "test-mount-1",
+		ID:        testMountUUID,
 		StationID: station.ID,
 		Name:      "Main Stream",
 		URL:       "http://localhost:8000/stream",
@@ -832,7 +839,7 @@ func createTestUser(t *testing.T, db *gorm.DB, email, password string, platformR
 	}
 
 	user := &models.User{
-		ID:           fmt.Sprintf("user-%s", strings.Replace(email, "@", "-", -1)),
+		ID:           uuid.New().String(),
 		Email:        email,
 		Password:     hashedPassword,
 		PlatformRole: platformRole,
@@ -844,9 +851,9 @@ func createTestUser(t *testing.T, db *gorm.DB, email, password string, platformR
 
 	// Link user to test station (required for dashboard access)
 	stationUser := &models.StationUser{
-		ID:        fmt.Sprintf("su-%s", user.ID),
+		ID:        uuid.New().String(),
 		UserID:    user.ID,
-		StationID: "test-station-1",
+		StationID: testStationUUID,
 		Role:      models.StationRoleAdmin,
 	}
 	// Ignore error if station doesn't exist yet
@@ -1060,7 +1067,7 @@ func TestSmartBlockCRUDRoutes(t *testing.T) {
 
 	// Create a smart block fixture
 	block := models.SmartBlock{
-		ID:          "sb-test-1",
+		ID:          uuid.New().String(),
 		StationID:   stationID,
 		Name:        "Test Block",
 		Description: "A test smart block",
@@ -1176,7 +1183,7 @@ func TestPlaylistCRUDRoutes(t *testing.T) {
 	baseURL, userID, stationID, client, db := setupRouteTestWithDB(t)
 
 	playlist := models.Playlist{
-		ID:        "pl-test-1",
+		ID:        uuid.New().String(),
 		StationID: stationID,
 		Name:      "Test Playlist",
 	}
@@ -1286,7 +1293,7 @@ func TestClockCRUDRoutes(t *testing.T) {
 	baseURL, userID, stationID, client, db := setupRouteTestWithDB(t)
 
 	clock := models.ClockHour{
-		ID:        "clk-test-1",
+		ID:        uuid.New().String(),
 		StationID: stationID,
 		Name:      "Test Clock",
 		StartHour: 0,
@@ -1366,7 +1373,7 @@ func TestWebstreamCRUDRoutes(t *testing.T) {
 	baseURL, userID, stationID, client, db := setupRouteTestWithDB(t)
 
 	ws := models.Webstream{
-		ID:        "ws-test-1",
+		ID:        uuid.New().String(),
 		StationID: stationID,
 		Name:      "Test Webstream",
 		URLs:      []string{"http://example.com/stream"},
@@ -1454,7 +1461,7 @@ func TestMediaCRUDRoutes(t *testing.T) {
 	baseURL, userID, stationID, client, db := setupRouteTestWithDB(t)
 
 	media := models.MediaItem{
-		ID:            "media-test-1",
+		ID:            uuid.New().String(),
 		StationID:     stationID,
 		Title:         "Test Track",
 		Artist:        "Test Artist",
@@ -1561,10 +1568,10 @@ func TestRecordingRoutes(t *testing.T) {
 	baseURL, userID, stationID, client, db := setupRouteTestWithDB(t)
 
 	recording := models.Recording{
-		ID:        "rec-test-1",
+		ID:        uuid.New().String(),
 		StationID: stationID,
 		UserID:    userID,
-		MountID:   "test-mount-1",
+		MountID:   testMountUUID,
 		Title:     "Test Recording",
 		Status:    models.RecordingStatusComplete,
 		Format:    models.RecordingFormatFLAC,
@@ -1607,7 +1614,7 @@ func TestRecordingRoutes(t *testing.T) {
 	// POST start (will fail without media engine but should be wired)
 	t.Run("start", func(t *testing.T) {
 		resp := authPost(t, client, baseURL, "/dashboard/recordings/start", userID, stationID,
-			"mount_id=test-mount-1&title=New+Recording")
+			"mount_id="+testMountUUID+"&title=New+Recording")
 		readBody(t, resp)
 		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
 			t.Errorf("expected route to be wired, got %d", resp.StatusCode)
@@ -1643,10 +1650,10 @@ func TestScheduleEntryRoutes(t *testing.T) {
 
 	// Create a schedule entry fixture
 	entry := models.ScheduleEntry{
-		ID:         "sched-test-1",
+		ID:         uuid.New().String(),
 		StationID:  stationID,
 		SourceType: "playlist",
-		SourceID:   "pl-test-1",
+		SourceID:   uuid.New().String(),
 		StartsAt:   time.Now(),
 		EndsAt:     time.Now().Add(time.Hour),
 	}
@@ -1794,7 +1801,7 @@ func TestProfileRoutes(t *testing.T) {
 
 	// Create an API key fixture for delete test
 	apiKey := models.APIKey{
-		ID:        "apikey-test-1",
+		ID:        uuid.New().String(),
 		UserID:    userID,
 		Name:      "Test Key",
 		KeyHash:   "test-key-hash",
@@ -1945,17 +1952,17 @@ func TestPublicDetailRoutes(t *testing.T) {
 		t.Skip("skipping in short mode")
 	}
 
-	baseURL, _, stationID, client, db := setupRouteTestWithDB(t)
+	baseURL, adminUserID, stationID, client, db := setupRouteTestWithDB(t)
 
 	// Update the test station to have a shortcode for public landing
-	db.Model(&models.Station{}).Where("id = ?", "test-station-1").Update("shortcode", "testfm")
+	db.Model(&models.Station{}).Where("id = ?", stationID).Update("shortcode", "testfm")
 
 	// Create a public recording for archive detail
 	recording := models.Recording{
-		ID:         "rec-public-1",
+		ID:         uuid.New().String(),
 		StationID:  stationID,
-		UserID:     "user-admin-test.com",
-		MountID:    "test-mount-1",
+		UserID:     adminUserID,
+		MountID:    testMountUUID,
 		Title:      "Public Recording",
 		Status:     models.RecordingStatusComplete,
 		Format:     models.RecordingFormatFLAC,
@@ -2083,26 +2090,31 @@ func TestArchiveShowFilter(t *testing.T) {
 		t.Skip("skipping in short mode")
 	}
 
-	baseURL, _, _, client, db := setupRouteTestWithDB(t)
+	baseURL, _, stationID, client, db := setupRouteTestWithDB(t)
 
-	stationID := "test-station-1"
 	// Make station public so archive is visible
 	db.Model(&models.Station{}).Where("id = ?", stationID).Updates(map[string]any{
 		"public": true, "approved": true,
 	})
 
 	// Create archive media
-	db.Create(&models.MediaItem{ID: "af-m1", StationID: stationID, Title: "Playlist Track", Artist: "Artist1", ShowInArchive: true})
-	db.Create(&models.MediaItem{ID: "af-m2", StationID: stationID, Title: "Rock Track", Artist: "Artist2", Genre: "Rock", ShowInArchive: true})
-	db.Create(&models.MediaItem{ID: "af-m3", StationID: stationID, Title: "Unfiltered Track", Artist: "Artist3", ShowInArchive: true})
+	afM1ID := uuid.New().String()
+	afM2ID := uuid.New().String()
+	afM3ID := uuid.New().String()
+	afPl1ID := uuid.New().String()
+	afPi1ID := uuid.New().String()
+	afSb1ID := uuid.New().String()
+	db.Create(&models.MediaItem{ID: afM1ID, StationID: stationID, Title: "Playlist Track", Artist: "Artist1", ShowInArchive: true})
+	db.Create(&models.MediaItem{ID: afM2ID, StationID: stationID, Title: "Rock Track", Artist: "Artist2", Genre: "Rock", ShowInArchive: true})
+	db.Create(&models.MediaItem{ID: afM3ID, StationID: stationID, Title: "Unfiltered Track", Artist: "Artist3", ShowInArchive: true})
 
-	// Create playlist containing only af-m1
-	db.Create(&models.Playlist{ID: "af-pl1", StationID: stationID, Name: "Test Show Playlist"})
-	db.Create(&models.PlaylistItem{ID: "af-pi1", PlaylistID: "af-pl1", MediaID: "af-m1", Position: 0})
+	// Create playlist containing only afM1ID
+	db.Create(&models.Playlist{ID: afPl1ID, StationID: stationID, Name: "Test Show Playlist"})
+	db.Create(&models.PlaylistItem{ID: afPi1ID, PlaylistID: afPl1ID, MediaID: afM1ID, Position: 0})
 
 	// Create smart block matching Rock genre
 	db.Create(&models.SmartBlock{
-		ID: "af-sb1", StationID: stationID, Name: "Rock Smart Block",
+		ID: afSb1ID, StationID: stationID, Name: "Rock Smart Block",
 		Rules: map[string]any{"genre": "Rock"}, Sequence: map[string]any{"mode": "random"},
 	})
 
@@ -2127,7 +2139,7 @@ func TestArchiveShowFilter(t *testing.T) {
 	})
 
 	t.Run("playlist filter returns correct media", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/archive?show=playlist:af-pl1")
+		resp, err := client.Get(baseURL + "/archive?show=playlist:" + afPl1ID)
 		if err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
@@ -2147,7 +2159,7 @@ func TestArchiveShowFilter(t *testing.T) {
 	})
 
 	t.Run("smart block filter returns correct media", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/archive?show=smartblock:af-sb1")
+		resp, err := client.Get(baseURL + "/archive?show=smartblock:" + afSb1ID)
 		if err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
@@ -2164,7 +2176,7 @@ func TestArchiveShowFilter(t *testing.T) {
 	})
 
 	t.Run("show filter with clear button", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/archive?show=playlist:af-pl1")
+		resp, err := client.Get(baseURL + "/archive?show=playlist:" + afPl1ID)
 		if err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
@@ -2185,7 +2197,7 @@ func TestAdminRoutes(t *testing.T) {
 
 	// Create extra fixtures for admin tests
 	media := models.MediaItem{
-		ID:            "admin-media-1",
+		ID:            uuid.New().String(),
 		StationID:     stationID,
 		Title:         "Admin Track",
 		Artist:        "Admin Artist",
@@ -2385,7 +2397,7 @@ func TestStationManagementRoutes(t *testing.T) {
 
 	// Create a second station for edit/update/delete
 	station2 := models.Station{
-		ID:       "station-2",
+		ID:       uuid.New().String(),
 		Name:     "Second Station",
 		Timezone: "UTC",
 		Active:   true,
@@ -2402,7 +2414,7 @@ func TestStationManagementRoutes(t *testing.T) {
 		{"station select", "/dashboard/stations/select"},
 		{"mounts list", "/dashboard/stations/" + stationID + "/mounts"},
 		{"mount new", "/dashboard/stations/" + stationID + "/mounts/new"},
-		{"mount edit", "/dashboard/stations/" + stationID + "/mounts/test-mount-1"},
+		{"mount edit", "/dashboard/stations/" + stationID + "/mounts/" + testMountUUID},
 	}
 
 	for _, tc := range getRoutes {
@@ -2457,7 +2469,7 @@ func TestStationManagementRoutes(t *testing.T) {
 
 	// PUT update mount
 	t.Run("update mount", func(t *testing.T) {
-		resp := authPut(t, client, baseURL, "/dashboard/stations/"+stationID+"/mounts/test-mount-1", userID, stationID,
+		resp := authPut(t, client, baseURL, "/dashboard/stations/"+stationID+"/mounts/"+testMountUUID, userID, stationID,
 			"name=Updated+Mount&url=http%3A%2F%2Flocalhost%3A8000%2Fstream&format=mp3")
 		readBody(t, resp)
 		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
@@ -2467,7 +2479,7 @@ func TestStationManagementRoutes(t *testing.T) {
 
 	// DELETE mount
 	t.Run("delete mount", func(t *testing.T) {
-		resp := authDelete(t, client, baseURL, "/dashboard/stations/"+stationID+"/mounts/test-mount-1", userID, stationID)
+		resp := authDelete(t, client, baseURL, "/dashboard/stations/"+stationID+"/mounts/"+testMountUUID, userID, stationID)
 		readBody(t, resp)
 		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
 			t.Errorf("expected route to be wired, got %d", resp.StatusCode)
@@ -2494,7 +2506,7 @@ func TestStationUserAndSettingsRoutes(t *testing.T) {
 
 	// Create a station user for edit/update/delete tests
 	stationUser := models.StationUser{
-		ID:        "su-dj-1",
+		ID:        uuid.New().String(),
 		UserID:    userID,
 		StationID: stationID,
 		Role:      models.StationRoleDJ,
@@ -2694,14 +2706,14 @@ func TestShowRoutes(t *testing.T) {
 	baseURL, userID, stationID, client, db := setupRouteTestWithDB(t)
 
 	show := models.Show{
-		ID:        "show-test-1",
+		ID:        uuid.New().String(),
 		StationID: stationID,
 		Name:      "Test Show",
 	}
 	db.Create(&show)
 
 	showInstance := models.ShowInstance{
-		ID:        "si-test-1",
+		ID:        uuid.New().String(),
 		ShowID:    show.ID,
 		StationID: stationID,
 		StartsAt:  time.Now().Add(time.Hour),
@@ -2809,14 +2821,14 @@ func TestWebDJRoutes(t *testing.T) {
 	baseURL, userID, stationID, client, db := setupRouteTestWithDB(t)
 
 	playlist := models.Playlist{
-		ID:        "wdj-pl-1",
+		ID:        uuid.New().String(),
 		StationID: stationID,
 		Name:      "WebDJ Playlist",
 	}
 	db.Create(&playlist)
 
 	media := models.MediaItem{
-		ID:            "wdj-media-1",
+		ID:            uuid.New().String(),
 		StationID:     stationID,
 		Title:         "WebDJ Track",
 		Duration:      3 * time.Minute,
