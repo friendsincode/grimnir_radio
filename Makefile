@@ -116,11 +116,11 @@ run-media:
 # Frontend testing targets
 test-e2e:
 	@echo "Running E2E frontend tests..."
-	@E2E_HEADLESS=true $(GO) test $(GOFLAGS) -v ./test/e2e/...
+	@E2E_HEADLESS=true TEST_DB_DSN="host=localhost user=postgres password=postgres dbname=postgres sslmode=disable" $(GO) test $(GOFLAGS) -v ./test/e2e/...
 
 test-frontend: test-e2e
 
 # Test all routes are working (quick HTTP check without browser)
 test-routes:
 	@echo "Running route tests..."
-	@$(GO) test $(GOFLAGS) -v -run TestTemplateRendering ./test/e2e/...
+	@TEST_DB_DSN="host=localhost user=postgres password=postgres dbname=postgres sslmode=disable" $(GO) test $(GOFLAGS) -v -run TestTemplateRendering ./test/e2e/...
