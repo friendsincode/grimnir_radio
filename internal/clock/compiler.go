@@ -180,7 +180,7 @@ func selectClockHour(clockHours []models.ClockHour, instant time.Time, loc *time
 	hour := local.Hour()
 
 	for i := range clockHours {
-		if clockWindowApplies(clockHours[i], hour) {
+		if len(clockHours[i].Slots) > 0 && clockWindowApplies(clockHours[i], hour) {
 			return &clockHours[i]
 		}
 	}
