@@ -333,8 +333,8 @@ func (s *Service) slotAlreadyScheduled(ctx context.Context, stationID string, pl
 	err := s.db.WithContext(ctx).
 		Model(&models.ScheduleEntry{}).
 		Where("station_id = ?", stationID).
-		Where("starts_at = ?", plan.StartsAt).
 		Where("mount_id = ?", mountID).
+		Where("starts_at < ? AND ends_at > ?", plan.EndsAt, plan.StartsAt).
 		Count(&count).Error
 	if err != nil {
 		return false, err
