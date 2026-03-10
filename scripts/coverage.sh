@@ -12,7 +12,7 @@ COVERAGE_EXCLUDE_REGEX="${COVERAGE_EXCLUDE_REGEX:-/test/e2e}"
 export GOCACHE="${GOCACHE:-$ROOT_DIR/.gocache}"
 export GOMODCACHE="${GOMODCACHE:-$ROOT_DIR/.gomodcache}"
 
-mapfile -t packages < <(go list ./... | rg -v "$COVERAGE_EXCLUDE_REGEX" || true)
+mapfile -t packages < <(go list ./... | grep -v "$COVERAGE_EXCLUDE_REGEX" || true)
 if [ "${#packages[@]}" -eq 0 ]; then
   echo "No packages selected for coverage."
   exit 1
