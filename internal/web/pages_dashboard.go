@@ -162,7 +162,7 @@ func (h *Handler) loadDashboardUpcomingEntries(stationID string, from time.Time,
 		Find(&recurringEntries)
 
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, from, to, instanceOverrides)
+		instances := h.expandRecurringEntry(re, from, to, instanceOverrides, h.getStationTimezone(stationID))
 		entries = append(entries, instances...)
 	}
 
@@ -612,7 +612,7 @@ func (h *Handler) loadExpectedCurrentSchedule(r *http.Request, stationID, mountI
 			stationID, mountID).
 		Find(&recurring).Error
 	for _, re := range recurring {
-		for _, inst := range h.expandRecurringEntry(re, now.Add(-24*time.Hour), now.Add(24*time.Hour), instanceOverrides) {
+		for _, inst := range h.expandRecurringEntry(re, now.Add(-24*time.Hour), now.Add(24*time.Hour), instanceOverrides, h.getStationTimezone(stationID)) {
 			if inst.StartsAt.Before(now) && inst.EndsAt.After(now) {
 				entries = append(entries, inst)
 			}
