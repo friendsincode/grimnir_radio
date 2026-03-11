@@ -2528,13 +2528,21 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		}
 
 	case "smart_block":
-		// Smart blocks stop at end
+		// Smart blocks regenerate when the sequence is exhausted.
 		nextPos := state.Position + 1
 		if nextPos >= state.TotalItems {
-			d.logger.Debug().
+			d.logger.Info().
 				Str("entry", entry.ID).
 				Str("source", state.SourceID).
-				Msg("smart block sequence complete")
+				Msg("smart block sequence complete, regenerating")
+			// Clear active and played state so the next tick picks this entry up fresh.
+			playKey := playbackKey(entry.ID, entry.StartsAt)
+			d.mu.Lock()
+			delete(d.active, entry.MountID)
+			delete(d.played, playKey)
+			d.mu.Unlock()
+			// Remove the exhausted persisted state so we don't resume from an invalid position.
+			_ = d.db.Where("mount_id = ?", entry.MountID).Delete(&models.MountPlayoutState{}).Error
 			return
 		}
 		if len(state.Items) > nextPos {
