@@ -149,6 +149,14 @@ func buildPlansForStation(clockHours []models.ClockHour, start time.Time, horizo
 	// hours that fall within the same clock window.
 	var webstreamEnd time.Time
 
+	// slotLastEnd tracks the latest planned EndsAt per slot ID so that
+	// multi-hour duration slots (e.g. a 2-hour smart block inside a 2-hour
+	// clock window) are only planned ONCE. Without this, the compiler emits
+	// a plan at 10:00 AND 11:00 for a 10–12 window with a 2h smart block,
+	// and when the block only partially fills the slot the scheduler creates
+	// a second overlapping batch of entries at 11:00.
+	slotLastEnd := make(map[string]time.Time)
+
 	for cursor.Before(end) {
 		clockHour := selectClockHour(clockHours, cursor, loc)
 		if clockHour != nil && len(clockHour.Slots) > 0 {
@@ -165,6 +173,18 @@ func buildPlansForStation(clockHours []models.ClockHour, start time.Time, horizo
 				}
 				if plan.SlotType == string(models.SlotTypeWebstream) && plan.EndsAt.After(webstreamEnd) {
 					webstreamEnd = plan.EndsAt
+				}
+				// Skip non-webstream plans whose start time falls within the
+				// coverage of a previous plan for the SAME slot. This prevents
+				// the 11:00 plan of a 2-hour smart-block slot from firing when
+				// the 10:00 plan already created (partial) entries.
+				if plan.SlotType != string(models.SlotTypeWebstream) {
+					if lastEnd, ok := slotLastEnd[plan.SlotID]; ok && plan.StartsAt.Before(lastEnd) {
+						continue
+					}
+					if plan.EndsAt.After(slotLastEnd[plan.SlotID]) {
+						slotLastEnd[plan.SlotID] = plan.EndsAt
+					}
 				}
 				plans = append(plans, plan)
 			}

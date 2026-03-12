@@ -15,6 +15,58 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// TestCompileMultiHourSmartBlockDedup verifies that a smart-block slot with a
+// duration longer than one hour is only planned ONCE per clock window.
+// Regression test for the bug where the 11:00 plan for a 10–12 window with a
+// 2-hour smart block would be emitted even after the 10:00 plan was generated,
+// causing the scheduler to create a second batch of entries at 11:00 when the
+// smart block only partially filled the slot.
+func TestCompileMultiHourSmartBlockDedup(t *testing.T) {
+	db := newPlannerTestDB(t)
+	planner := NewPlanner(db, zerolog.Nop())
+
+	stationID := "station-sb-dedup"
+	if err := db.Create(&models.Station{ID: stationID, Name: "Dedup", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	// 2-hour clock window (10-12) with a single 2-hour smart block slot
+	if err := db.Create(&models.ClockHour{
+		ID:        "clock-sb",
+		StationID: stationID,
+		Name:      "Show",
+		StartHour: 10,
+		EndHour:   12,
+		Slots: []models.ClockSlot{{
+			ID:          "slot-sb",
+			ClockHourID: "clock-sb",
+			Position:    0,
+			Offset:      0,
+			Type:        models.SlotTypeSmartBlock,
+			// 2-hour duration — same as the clock window
+			Payload: map[string]any{"smart_block_id": "sb1", "duration_ms": float64(7200000)},
+		}},
+	}).Error; err != nil {
+		t.Fatalf("create clock: %v", err)
+	}
+
+	start := time.Date(2026, 3, 12, 10, 0, 0, 0, time.UTC)
+	plans, err := planner.Compile(stationID, start, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	// Should only generate ONE plan (at 10:00), not two (10:00 and 11:00).
+	if len(plans) != 1 {
+		t.Fatalf("plans len = %d, want 1 (multi-hour slot must not be planned twice per window)", len(plans))
+	}
+	if !plans[0].StartsAt.Equal(time.Date(2026, 3, 12, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("plan.StartsAt = %v, want 10:00", plans[0].StartsAt)
+	}
+	if plans[0].Duration != 2*time.Hour {
+		t.Errorf("plan.Duration = %v, want 2h", plans[0].Duration)
+	}
+}
+
 func TestCompileFullDayClock(t *testing.T) {
 	db := newPlannerTestDB(t)
 	planner := NewPlanner(db, zerolog.Nop())
