@@ -18,6 +18,14 @@
         <a href="/dashboard/media/duplicates" class="btn btn-outline-secondary">
             <i class="bi bi-files me-2"></i>Find Duplicates
         </a>
+        <button class="btn {{if .Data.ShowDuplicates}}btn-warning{{else}}btn-outline-warning{{end}}"
+                onclick="toggleDuplicatesFilter()"
+                title="Show only duplicate tracks">
+            <i class="bi bi-copy me-1"></i>Duplicates
+            {{if gt .Data.DuplicateCount 0}}
+            <span class="badge bg-dark ms-1">{{.Data.DuplicateCount}}</span>
+            {{end}}
+        </button>
         <a href="/dashboard/media/genres" class="btn btn-outline-secondary">
             <i class="bi bi-tags me-2"></i>Manage Genres
         </a>
@@ -104,8 +112,9 @@
                     </select>
                 </div>
             </div>
-            <!-- Hidden per_page field to preserve page size -->
+            <!-- Hidden fields to preserve filter state -->
             <input type="hidden" name="per_page" value="{{.Data.PerPage}}">
+            <input type="hidden" name="duplicates" value="{{if .Data.ShowDuplicates}}1{{else}}0{{end}}">
         </form>
     </div>
 </div>
@@ -157,7 +166,17 @@
 <!-- Results (HTMX target for partial swaps) -->
 <div class="card" id="mediaResults">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span>{{.Data.Total}} items</span>
+        <div class="d-flex align-items-center gap-3">
+            <span>{{.Data.Total}} items</span>
+            {{if .Data.ShowDuplicates}}
+            <div class="alert alert-warning alert-sm py-1 px-2 mb-0 d-inline-flex align-items-center gap-2">
+                <i class="bi bi-copy"></i>
+                Showing duplicates only &mdash; <strong>{{.Data.DuplicateCount}}</strong> groups
+                <a href="/dashboard/media" class="ms-1 text-warning-emphasis fw-semibold"
+                   hx-get="/dashboard/media" hx-target="#mediaResults" hx-swap="innerHTML" hx-push-url="true">Clear</a>
+            </div>
+            {{end}}
+        </div>
         <div class="btn-group btn-group-sm" id="viewToggle">
             <button class="btn btn-outline-secondary active" data-view="table" title="Table view">
                 <i class="bi bi-list-ul"></i>
@@ -234,6 +253,9 @@
                         {{if .Explicit}}
                         <span class="badge bg-warning text-dark" title="Explicit content">E</span>
                         {{end}}
+                        {{if and .ContentHash (index $.Data.DupHashSet .ContentHash)}}
+                        <span class="badge bg-danger ms-1" title="Duplicate exists">Dup</span>
+                        {{end}}
                     </td>
                     <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{if .Artist}}{{.Artist}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
                     <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{if .Album}}{{.Album}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
@@ -304,6 +326,9 @@
                     {{if .Explicit}}
                     <span class="badge bg-warning text-dark position-absolute top-0 end-0 m-2">E</span>
                     {{end}}
+                    {{if and .ContentHash (index $.Data.DupHashSet .ContentHash)}}
+                    <span class="badge bg-danger position-absolute top-0 start-0 m-2" title="Duplicate exists">Dup</span>
+                    {{end}}
                 </div>
                 <div class="card-body p-2">
                     <h6 class="card-title mb-1 text-truncate" title="{{.Title}}">{{.Title}}</h6>
@@ -338,7 +363,7 @@
             <ul class="pagination pagination-sm mb-0 justify-content-center">
                 {{if gt .Data.Page 1}}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{sub .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&artist={{.Data.Artist}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}&per_page={{.Data.PerPage}}">
+                    <a class="page-link" href="?page={{sub .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&artist={{.Data.Artist}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}&per_page={{.Data.PerPage}}{{if .Data.ShowDuplicates}}&duplicates=1{{end}}">
                         <i class="bi bi-chevron-left"></i>
                     </a>
                 </li>
@@ -351,7 +376,7 @@
                 <li class="page-item disabled"><span class="page-link">...</span></li>
                 {{else}}
                 <li class="page-item {{if eq . $.Data.Page}}active{{end}}">
-                    <a class="page-link" href="?page={{.}}&q={{$.Data.Query}}&genre={{$.Data.Genre}}&artist={{$.Data.Artist}}&sort={{$.Data.SortBy}}&order={{$.Data.SortOrder}}&per_page={{$.Data.PerPage}}">
+                    <a class="page-link" href="?page={{.}}&q={{$.Data.Query}}&genre={{$.Data.Genre}}&artist={{$.Data.Artist}}&sort={{$.Data.SortBy}}&order={{$.Data.SortOrder}}&per_page={{$.Data.PerPage}}{{if $.Data.ShowDuplicates}}&duplicates=1{{end}}">
                         {{.}}
                     </a>
                 </li>
@@ -360,7 +385,7 @@
 
                 {{if lt .Data.Page .Data.TotalPages}}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{add .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&artist={{.Data.Artist}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}&per_page={{.Data.PerPage}}">
+                    <a class="page-link" href="?page={{add .Data.Page 1}}&q={{.Data.Query}}&genre={{.Data.Genre}}&artist={{.Data.Artist}}&sort={{.Data.SortBy}}&order={{.Data.SortOrder}}&per_page={{.Data.PerPage}}{{if .Data.ShowDuplicates}}&duplicates=1{{end}}">
                         <i class="bi bi-chevron-right"></i>
                     </a>
                 </li>
@@ -374,6 +399,21 @@
 </div>
 
 <script>
+function toggleDuplicatesFilter() {
+    const url = new URL(window.location.href);
+    const isDup = url.searchParams.get('duplicates') === '1';
+    if (isDup) {
+        url.searchParams.delete('duplicates');
+    } else {
+        url.searchParams.set('duplicates', '1');
+    }
+    url.searchParams.set('page', '1');
+    // Sync hidden field so other htmx triggers preserve state
+    const field = document.querySelector('#mediaFilterForm input[name="duplicates"]');
+    if (field) field.value = url.searchParams.get('duplicates') || '0';
+    htmx.ajax('GET', '/dashboard/media' + url.search, {target: '#mediaResults', swap: 'innerHTML', pushUrl: true});
+}
+
 let playlistsLoaded = false;
 
 function getSelectedIds() {

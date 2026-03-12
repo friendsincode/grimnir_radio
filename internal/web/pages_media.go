@@ -322,6 +322,8 @@ func (h *Handler) MediaList(w http.ResponseWriter, r *http.Request) {
 		sortOrder = "desc"
 	}
 
+	showDuplicates := r.URL.Query().Get("duplicates") == "1"
+
 	var media []models.MediaItem
 	var total int64
 
@@ -338,6 +340,24 @@ func (h *Handler) MediaList(w http.ResponseWriter, r *http.Request) {
 	// Artist filter
 	if artist != "" {
 		dbQuery = dbQuery.Where("artist = ?", artist)
+	}
+
+	// Fetch duplicate hashes station-wide (independent of current search filters).
+	var dupHashes []string
+	h.db.Model(&models.MediaItem{}).
+		Select("content_hash").
+		Where("station_id = ? AND content_hash != ''", station.ID).
+		Group("content_hash").
+		Having("COUNT(*) > 1").
+		Pluck("content_hash", &dupHashes)
+
+	dupHashSet := make(map[string]bool, len(dupHashes))
+	for _, ch := range dupHashes {
+		dupHashSet[ch] = true
+	}
+
+	if showDuplicates && len(dupHashes) > 0 {
+		dbQuery = dbQuery.Where("content_hash IN ?", dupHashes)
 	}
 
 	// Use Session clones to avoid Count mutating query state
@@ -375,19 +395,22 @@ func (h *Handler) MediaList(w http.ResponseWriter, r *http.Request) {
 	pageNumbers := buildPageNumbers(page, totalPages)
 
 	data := map[string]any{
-		"Media":       media,
-		"Total":       total,
-		"Page":        page,
-		"PerPage":     perPage,
-		"TotalPages":  totalPages,
-		"PageNumbers": pageNumbers,
-		"Query":       query,
-		"Genre":       genre,
-		"Artist":      artist,
-		"SortBy":      sortBy,
-		"SortOrder":   sortOrder,
-		"Genres":      genres,
-		"Artists":     artists,
+		"Media":          media,
+		"Total":          total,
+		"Page":           page,
+		"PerPage":        perPage,
+		"TotalPages":     totalPages,
+		"PageNumbers":    pageNumbers,
+		"Query":          query,
+		"Genre":          genre,
+		"Artist":         artist,
+		"SortBy":         sortBy,
+		"SortOrder":      sortOrder,
+		"Genres":         genres,
+		"Artists":        artists,
+		"ShowDuplicates": showDuplicates,
+		"DupHashSet":     dupHashSet,
+		"DuplicateCount": int64(len(dupHashes)),
 	}
 
 	// If HTMX request, render just the results partial.
