@@ -58,10 +58,9 @@ The main application binary handling all business logic and API requests.
 ```go
 internal/
 ├── api/           # HTTP handlers
-├── scheduler/     # Schedule generation
+├── scheduler/     # Schedule generation (smart block compilation)
 ├── executor/      # Playback execution
 ├── priority/      # Priority management
-├── smartblock/    # Rule-based playlists
 ├── auth/          # Authentication
 └── eventbus/      # Event distribution
 ```
@@ -146,7 +145,7 @@ executor_states  # Per-station playback state
 **Configuration:**
 ```bash
 # Filesystem
-GRIMNIR_MEDIA_ROOT=/var/lib/grimnir-radio/media
+GRIMNIR_MEDIA_ROOT=/var/lib/grimnir/media
 
 # S3
 GRIMNIR_S3_BUCKET=my-media

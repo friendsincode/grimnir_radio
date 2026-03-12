@@ -797,9 +797,9 @@ Before deploying to production:
 ## Resources
 
 - **Documentation:** [docs/](../docs/)
-- **API Reference:** [API_REFERENCE.md](API_REFERENCE.md)
+- **API Reference:** [wiki/API-Reference.md](../wiki/API-Reference.md)
 - **Migration Guide:** [MIGRATION.md](MIGRATION.md)
-- **Architecture:** [ARCHITECTURE_ROADMAP.md](ARCHITECTURE_ROADMAP.md)
+- **Architecture:** [ARCHITECTURE_NOTES.md](ARCHITECTURE_NOTES.md)
 - **GitHub Issues:** https://github.com/friendsincode/grimnir_radio/issues
 - **Docker Hub:** (TBD)
 

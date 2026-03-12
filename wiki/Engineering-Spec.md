@@ -1,6 +1,13 @@
 # Grimnir Radio — Software Engineering Spec
 
-**Version:** 0.0.1-alpha
+> **⚠️ ARCHIVED — This document was written at v0.0.1-alpha and is severely out of date.**
+> The system shipped as v1.0.0 on 2026-01-22 and is currently at v1.33.0.
+> For current architecture and developer guidance see:
+> - [Architecture Overview](Architecture) — component diagram and data flows
+> - [CLAUDE.md](https://github.com/friendsincode/grimnir_radio/blob/main/CLAUDE.md) — authoritative developer reference
+> - [API Reference](API-Reference) — current REST API
+
+**Version:** 0.0.1-alpha (archived)
 **Architecture:** Go-Based Broadcast Automation Platform (Liquidsoap Replacement)
 
 This document describes the architecture, design decisions, and technical specifications for Grimnir Radio, aligned with the vision of a modern broadcast automation system that combines the strengths of AzuraCast and LibreTime while replacing Liquidsoap with a more reliable, observable, and controllable media pipeline.

@@ -1,7 +1,7 @@
 # Grimnir Radio - Migration Guide
 
-**Version:** 1.0
-**Last Updated:** 2026-01-22
+**Version:** 1.33.0
+**Last Updated:** 2026-03-12
 
 This guide covers migrating from AzuraCast and LibreTime to Grimnir Radio.
 
@@ -29,35 +29,37 @@ Grimnir Radio provides migration tools to help you transition from existing broa
 
 ### Prerequisites
 
-1. Grimnir Radio installed and database configured
+1. Grimnir Radio installed and running
 2. For AzuraCast: Backup tarball file (.tar.gz)
 3. For LibreTime: Database credentials and network access
 
-### Basic Import (AzuraCast)
+### Web UI (Recommended)
+
+The primary migration interface is the built-in web wizard:
+
+1. Log in as admin
+2. Navigate to **Settings → Migrations**
+3. Select your source system and follow the prompts
+
+The wizard provides live progress, error reporting, and a review step before committing changes.
+
+### CLI (Alternative)
+
+The binary also accepts `import` subcommands for scripted/headless workflows:
 
 ```bash
-# Dry run (preview only)
+# AzuraCast dry run
 grimnirradio import azuracast --backup /path/to/azuracast-backup.tar.gz --dry-run
 
-# Full import
+# Full AzuraCast import
 grimnirradio import azuracast --backup /path/to/azuracast-backup.tar.gz
-```
 
-### Basic Import (LibreTime)
-
-```bash
-# Dry run (preview only)
+# LibreTime dry run
 grimnirradio import libretime \
   --db-host localhost \
   --db-user airtime \
   --db-password secretpassword \
   --dry-run
-
-# Full import
-grimnirradio import libretime \
-  --db-host localhost \
-  --db-user airtime \
-  --db-password secretpassword
 ```
 
 ---
@@ -236,7 +238,7 @@ For automated workflows or web UI integration, use the REST API.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/migrations \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "source_type": "azuracast",
@@ -266,14 +268,14 @@ Response:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/migrations/{job_id}/start \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 ```
 
 ### Check Progress
 
 ```bash
 curl http://localhost:8080/api/v1/migrations/{job_id} \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 ```
 
 Response:
@@ -299,21 +301,21 @@ Response:
 
 ```bash
 curl http://localhost:8080/api/v1/migrations \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 ```
 
 ### Cancel Running Job
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/migrations/{job_id}/cancel \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 ```
 
 ### Delete Migration Job
 
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/migrations/{job_id} \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-API-Key: $API_KEY"
 ```
 
 ### Real-Time Progress via WebSocket

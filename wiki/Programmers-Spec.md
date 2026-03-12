@@ -1,6 +1,13 @@
 # Grimnir Radio — Programmer's Spec
 
-**Version:** 0.0.1-alpha
+> **⚠️ ARCHIVED — This document was written at v0.0.1-alpha and is severely out of date.**
+> The system shipped as v1.0.0 on 2026-01-22 and is currently at v1.33.0.
+> Several package names and file paths listed here no longer exist.
+> For current developer guidance see:
+> - [CLAUDE.md](https://github.com/friendsincode/grimnir_radio/blob/main/CLAUDE.md) — authoritative developer reference
+> - [Architecture Overview](Architecture) — component diagram and data flows
+
+**Version:** 0.0.1-alpha (archived)
 **Architecture:** Go-Based Broadcast Automation Platform (Liquidsoap Replacement)
 
 This document is for developers working on Grimnir Radio. It clearly separates **✓ IMPLEMENTED** features from **⏳ PLANNED** features and provides practical guidance for working with the codebase.

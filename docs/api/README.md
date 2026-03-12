@@ -24,7 +24,7 @@ API keys have configurable expiration (30 days, 90 days, 180 days, or 1 year max
 
 ### Public Endpoints (No Auth Required)
 
-- `GET /health` - Health check
+- `GET /healthz` - Health check
 - `GET /public/stations` - List public stations
 - `GET /analytics/now-playing` - Get currently playing track
 - `GET /analytics/listeners` - Get listener count

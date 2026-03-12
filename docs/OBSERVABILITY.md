@@ -1,7 +1,7 @@
 # Grimnir Radio - Observability Guide
 
-**Version:** 1.0
-**Last Updated:** 2026-01-22
+**Version:** 1.33.0
+**Last Updated:** 2026-03-12
 
 This guide covers monitoring, metrics, tracing, and debugging for Grimnir Radio in production environments.
 
@@ -66,7 +66,7 @@ Grimnir Radio provides comprehensive observability through:
 All Grimnir Radio instances expose Prometheus metrics at:
 
 ```
-GET http://localhost:8080/metrics
+GET http://localhost:9000/metrics
 ```
 
 ### Metric Categories
@@ -626,5 +626,5 @@ Create separate dashboards for:
 
 ---
 
-**Version:** 1.0
-**Last Updated:** 2026-01-22
+**Version:** 1.33.0
+**Last Updated:** 2026-03-12

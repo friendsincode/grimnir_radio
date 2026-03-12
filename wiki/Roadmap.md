@@ -1,11 +1,11 @@
 # Grimnir Radio Roadmap
 
-**Current Version:** 1.7.0
-**Last Updated:** 2026-02-01
+**Current Version:** 1.33.0
+**Last Updated:** 2026-03-12
 
 ---
 
-## Version 1.7.0 (Current Release)
+## Version 1.33.0 (Current Release)
 
 ### Core Features (Complete)
 - Core radio automation functionality
@@ -91,6 +91,9 @@ Implement audio fingerprinting to detect true duplicate audio files regardless o
 
 ## Recent Releases
 
+### 1.33.0 (2026-03-12)
+- Duplicate filter toggle in media library (inline "Dup" badges, bulk-delete workflow)
+
 ### 1.7.0 (2026-02-01)
 - Complete Phase 8 Advanced Scheduling
 - 50+ new API endpoints
@@ -99,7 +102,7 @@ Implement audio fingerprinting to detect true duplicate audio files regardless o
 - Underwriting management
 
 ### 1.3.0 (2026-02-01)
-- API key authentication (replaced JWT login)
+- API key authentication (alongside JWT for web UI)
 - API key management UI
 
 ### 1.0.0 (2026-01-22)

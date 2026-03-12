@@ -32,7 +32,7 @@ GRIMNIR_JWT_SIGNING_KEY=your-secret-key-here  # Required! Use strong random stri
 
 **Filesystem (default):**
 ```bash
-GRIMNIR_MEDIA_ROOT=/var/lib/grimnir-radio/media
+GRIMNIR_MEDIA_ROOT=/var/lib/grimnir/media
 ```
 
 **S3-Compatible:**
@@ -97,13 +97,17 @@ GRIMNIR_TRACING_SAMPLE_RATE=0.1          # Sample 10% of traces
 ### Scheduler
 
 ```bash
-GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES=2880  # 48 hours (default)
+GRIMNIR_SCHEDULER_LOOKAHEAD=48h          # Lookahead window (default: 48h)
+GRIMNIR_SCHEDULER_TICK_INTERVAL=30s      # Generation tick interval (default: 30s)
 ```
 
 ### Media Engine
 
 ```bash
-MEDIAENGINE_GRPC_ADDR=localhost:9091   # Media engine gRPC address
+# Control Plane — address of the media engine gRPC server
+GRIMNIR_MEDIA_ENGINE_GRPC_ADDR=localhost:9091
+
+# Media Engine process — its own bind/port settings
 MEDIAENGINE_GRPC_BIND=0.0.0.0          # Media engine bind address
 MEDIAENGINE_GRPC_PORT=9091             # Media engine gRPC port
 ```
@@ -128,13 +132,13 @@ GRIMNIR_HTTP_PORT=8080
 GRIMNIR_DB_BACKEND=postgres
 GRIMNIR_DB_DSN=postgres://grimnir:password@localhost:5432/grimnir_radio?sslmode=disable
 GRIMNIR_JWT_SIGNING_KEY=$(openssl rand -base64 32)
-GRIMNIR_MEDIA_ROOT=/var/lib/grimnir-radio/media
+GRIMNIR_MEDIA_ROOT=/var/lib/grimnir/media
 GRIMNIR_REDIS_ADDR=localhost:6379
 ```
 
-### YAML Configuration (Future)
+### YAML Configuration
 
-YAML configuration support is planned for version 1.2.0.
+Grimnir Radio is configured exclusively via environment variables. YAML configuration is not supported.
 
 ## Docker Compose Configuration
 

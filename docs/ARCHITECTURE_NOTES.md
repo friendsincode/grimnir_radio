@@ -93,7 +93,7 @@ The old playout system (`internal/playout/pipeline.go`) launched GStreamer proce
 ### Configuration
 
 **Control Plane Environment Variables:**
-- `MEDIAENGINE_GRPC_ADDR`: Media engine address (default: `localhost:9091`)
+- `GRIMNIR_MEDIA_ENGINE_GRPC_ADDR`: Media engine address (default: `localhost:9091`)
 
 **Media Engine Environment Variables:**
 - `MEDIAENGINE_GRPC_BIND`: Bind address (default: `0.0.0.0`)
@@ -122,4 +122,3 @@ The media engine should start before the control plane and both should be superv
 - Multiple media engines per control plane (station sharding)
 - Media engine pools with load balancing
 - Remote media engines for distributed deployment
-- WebRTC integration for browser-based live input
