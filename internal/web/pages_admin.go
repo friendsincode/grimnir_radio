@@ -1527,18 +1527,23 @@ func adminRemapMediaReferences(tx *gorm.DB, oldIDs []string, newID string) error
 		)
 	}
 
-	// WebDJSession: best-effort JSON update for deck states
-	for _, oldID := range oldIDs {
-		tx.Exec(
-			`UPDATE web_dj_sessions SET deck_a_state = jsonb_set(deck_a_state, '{media_id}', to_jsonb(?::text))
-			 WHERE deck_a_state->>'media_id' = ?`,
-			newID, oldID,
-		)
-		tx.Exec(
-			`UPDATE web_dj_sessions SET deck_b_state = jsonb_set(deck_b_state, '{media_id}', to_jsonb(?::text))
-			 WHERE deck_b_state->>'media_id' = ?`,
-			newID, oldID,
-		)
+	// WebDJSession: best-effort JSON update for deck states.
+	// Guard with an existence check so a missing table doesn't abort the transaction.
+	var wdjExists int64
+	tx.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'web_dj_sessions'`).Scan(&wdjExists)
+	if wdjExists > 0 {
+		for _, oldID := range oldIDs {
+			tx.Exec(
+				`UPDATE web_dj_sessions SET deck_a_state = jsonb_set(deck_a_state, '{media_id}', to_jsonb(?::text))
+				 WHERE deck_a_state->>'media_id' = ?`,
+				newID, oldID,
+			)
+			tx.Exec(
+				`UPDATE web_dj_sessions SET deck_b_state = jsonb_set(deck_b_state, '{media_id}', to_jsonb(?::text))
+				 WHERE deck_b_state->>'media_id' = ?`,
+				newID, oldID,
+			)
+		}
 	}
 
 	return nil

@@ -88,17 +88,19 @@
                 </div>
                 <div class="card-body">
                     <dl class="row mb-0">
+                        {{if $media.Format}}
                         <dt class="col-5 text-body-secondary">Format</dt>
                         <dd class="col-7">{{$media.Format}}</dd>
+                        {{end}}
 
                         {{if $media.Bitrate}}
                         <dt class="col-5 text-body-secondary">Bitrate</dt>
                         <dd class="col-7">{{$media.Bitrate}} kbps</dd>
                         {{end}}
 
-                        {{if $media.SampleRate}}
+                        {{if $media.Samplerate}}
                         <dt class="col-5 text-body-secondary">Sample Rate</dt>
-                        <dd class="col-7">{{$media.SampleRate}} Hz</dd>
+                        <dd class="col-7">{{$media.Samplerate}} Hz</dd>
                         {{end}}
 
                         <dt class="col-5 text-body-secondary">Size</dt>

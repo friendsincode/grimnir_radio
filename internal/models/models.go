@@ -521,6 +521,18 @@ type MediaItem struct {
 	UpdatedAt      time.Time
 }
 
+// Format returns the audio format derived from the file path extension (e.g. "mp3", "flac").
+func (m *MediaItem) Format() string {
+	p := m.StorageKey
+	if p == "" {
+		p = m.Path
+	}
+	if idx := strings.LastIndex(p, "."); idx >= 0 {
+		return strings.ToUpper(p[idx+1:])
+	}
+	return ""
+}
+
 // BeforeCreate ensures AnalysisState is never blank on insert.
 func (m *MediaItem) BeforeCreate(tx *gorm.DB) error {
 	if m.AnalysisState == "" {
