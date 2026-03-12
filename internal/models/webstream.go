@@ -78,16 +78,16 @@ func (ws *Webstream) GetPrimaryURL() string {
 }
 
 // GetCurrentURL returns the currently active URL.
+// Always derived from URLs[CurrentIndex] so edits to the URL list are
+// immediately reflected without needing to update the cached CurrentURL field.
 func (ws *Webstream) GetCurrentURL() string {
-	// Validate CurrentIndex is in bounds; reset if stale (e.g. URLs edited)
-	if ws.CurrentIndex >= len(ws.URLs) {
+	if len(ws.URLs) == 0 {
+		return ""
+	}
+	if ws.CurrentIndex < 0 || ws.CurrentIndex >= len(ws.URLs) {
 		ws.CurrentIndex = 0
-		ws.CurrentURL = ws.GetPrimaryURL()
 	}
-	if ws.CurrentURL != "" {
-		return ws.CurrentURL
-	}
-	return ws.GetPrimaryURL()
+	return ws.URLs[ws.CurrentIndex]
 }
 
 // GetNextFailoverURL returns the next URL in the failover chain.

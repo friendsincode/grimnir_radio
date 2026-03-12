@@ -144,6 +144,15 @@ func (s *Service) UpdateWebstream(ctx context.Context, id string, updates map[st
 		return fmt.Errorf("query webstream: %w", err)
 	}
 
+	// When the URL list changes, reset current_url/current_index so the
+	// health checker and relay use the new primary URL immediately.
+	if raw, ok := updates["urls"]; ok {
+		if urls, ok := raw.([]string); ok && len(urls) > 0 {
+			updates["current_url"] = urls[0]
+			updates["current_index"] = 0
+		}
+	}
+
 	if err := s.db.WithContext(ctx).Model(&ws).Updates(updates).Error; err != nil {
 		return fmt.Errorf("update webstream: %w", err)
 	}
