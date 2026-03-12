@@ -75,26 +75,16 @@ Once Grimnir Radio is running, create your first station:
 
 ### 1. Create an Admin User
 
-```bash
-# Using the CLI
-./grimnirradio user create \
-  --email admin@example.com \
-  --password yourpassword \
-  --role admin
-```
+On first start, Grimnir Radio detects an empty database and redirects all requests to the setup wizard at `http://localhost:8080/setup`. Complete the form to create the initial admin account — no CLI or database access needed.
 
-### 2. Get an API Token
+### 2. Get an API Key
+
+Log in via the web UI, go to your **Profile → API Keys**, and generate a key. Use it in API requests:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "admin@example.com",
-    "password": "yourpassword"
-  }'
+curl http://localhost:8080/api/v1/stations \
+  -H "X-API-Key: gr_your-api-key-here"
 ```
-
-Save the returned JWT token for subsequent requests.
 
 ### 3. Create a Station
 
