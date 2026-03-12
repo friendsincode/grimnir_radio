@@ -1,6 +1,6 @@
 # Grimnir Radio API Reference
 
-**Version:** 1.7.0
+**Version:** 1.33.0
 
 **Base URL:** `https://your-instance.com/api/v1`
 
@@ -67,7 +67,7 @@ This section provides detailed documentation for all API endpoints.
 - [Webhooks](#webhooks)
 - [Events (WebSocket)](#events-websocket)
 - [Health](#health)
-- [⏳ Planned Endpoints (Future Architecture)](#-planned-endpoints-future-architecture)
+- [Additional Endpoints](#additional-endpoints)
   - [Priority Management](#priority-management)
   - [Executor State](#executor-state)
   - [DSP Graphs](#dsp-graphs)
@@ -1143,7 +1143,7 @@ ws.onmessage = (event) => {
 
 ## Health
 
-### GET /api/v1/health
+### GET /healthz
 
 API health check endpoint.
 
@@ -1158,9 +1158,9 @@ API health check endpoint.
 
 ---
 
-## ⏳ Planned Endpoints (Future Architecture)
+## Additional Endpoints
 
-The following endpoints are **NOT YET IMPLEMENTED** but are planned as part of the multi-process architecture (API Gateway, Planner, Executor Pool, Media Engine). See `docs/ARCHITECTURE_ROADMAP.md` for implementation timeline.
+The following endpoints are **implemented** as part of the multi-process architecture (Executor Pool, Priority System, Media Engine).
 
 ---
 
@@ -1988,9 +1988,7 @@ Get migration job status and results.
 
 ---
 
-## ⏳ Planned Data Models (Future Architecture)
-
-The following data models are **NOT YET IMPLEMENTED** but are planned as part of the multi-process architecture.
+## Data Models
 
 ---
 

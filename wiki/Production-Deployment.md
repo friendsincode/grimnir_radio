@@ -1,7 +1,7 @@
 # Grimnir Radio Production Deployment Guide
 
-**Version:** 1.0
-**Last Updated:** 2026-01-22
+**Version:** 1.33.0
+**Last Updated:** 2026-03-12
 **Target Platforms:** Docker Compose, Kubernetes, Bare Metal
 
 This guide covers deploying Grimnir Radio to production environments with best practices for security, reliability, and performance.
@@ -213,22 +213,7 @@ docker compose logs grimnir | grep migration
 
 #### 7. Create Admin User
 
-```bash
-# Access the database
-docker compose exec postgres psql -U grimnir -d grimnir
-
-# Create admin user (execute in psql)
-INSERT INTO users (id, username, email, password_hash, role, active)
-VALUES (
-  gen_random_uuid()::text,
-  'admin',
-  'admin@example.com',
-  '$2a$10$YourBcryptHashHere',  -- Generate with: htpasswd -bnBC 10 "" password | tr -d ':\n'
-  'admin',
-  true
-);
-\q
-```
+On first start, Grimnir Radio detects an empty database and redirects to the setup wizard at `http://localhost:8080/setup`. Complete the web form to create the initial admin account. No manual database access is needed.
 
 #### 8. Verify Deployment
 
@@ -405,9 +390,9 @@ sudo systemctl restart redis-server
 #### Build and Install Grimnir Radio
 
 ```bash
-# Install Go 1.22
-wget https://go.dev/dl/go1.22.0.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.22.0.linux-amd64.tar.gz
+# Install Go 1.24
+wget https://go.dev/dl/go1.24.0.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.24.0.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 
 # Clone and build
@@ -1108,6 +1093,6 @@ docker run -d \
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** 2026-01-22
-**License:** MIT
+**Document Version:** 1.33.0
+**Last Updated:** 2026-03-12
+**License:** GNU AGPL v3.0-or-later
