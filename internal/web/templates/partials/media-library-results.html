@@ -1,7 +1,17 @@
 {{define "partials/media-library-results"}}
 <!-- Results header -->
 <div class="card-header d-flex justify-content-between align-items-center">
-    <span>{{.Total}} items</span>
+    <div class="d-flex align-items-center gap-3">
+        <span>{{.Total}} items</span>
+        {{if .ShowDuplicates}}
+        <div class="alert alert-warning alert-sm py-1 px-2 mb-0 d-inline-flex align-items-center gap-2">
+            <i class="bi bi-copy"></i>
+            Showing duplicates only &mdash; <strong>{{.DuplicateCount}}</strong> groups
+            <a href="/dashboard/media" class="ms-1 text-warning-emphasis fw-semibold"
+               hx-get="/dashboard/media" hx-target="#mediaResults" hx-swap="innerHTML" hx-push-url="true">Clear</a>
+        </div>
+        {{end}}
+    </div>
     <div class="btn-group btn-group-sm" id="viewToggle">
         <button class="btn btn-outline-secondary active" data-view="table" title="Table view">
             <i class="bi bi-list-ul"></i>
@@ -78,6 +88,9 @@
                     {{if .Explicit}}
                     <span class="badge bg-warning text-dark" title="Explicit content">E</span>
                     {{end}}
+                    {{if and .ContentHash (index $.DupHashSet .ContentHash)}}
+                    <span class="badge bg-danger ms-1" title="Duplicate exists">Dup</span>
+                    {{end}}
                 </td>
                 <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{if .Artist}}{{.Artist}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
                 <td onclick="window.location='/dashboard/media/{{.ID}}'" style="cursor: pointer;">{{if .Album}}{{.Album}}{{else}}<span class="text-body-secondary">-</span>{{end}}</td>
@@ -145,6 +158,9 @@
                 {{if .Explicit}}
                 <span class="badge bg-warning text-dark position-absolute top-0 end-0 m-2">E</span>
                 {{end}}
+                {{if and .ContentHash (index $.DupHashSet .ContentHash)}}
+                <span class="badge bg-danger position-absolute top-0 start-0 m-2" title="Duplicate exists">Dup</span>
+                {{end}}
             </div>
             <div class="card-body p-2">
                 <h6 class="card-title mb-1 text-truncate" title="{{.Title}}">{{.Title}}</h6>
@@ -173,8 +189,8 @@
         <ul class="pagination pagination-sm mb-0 justify-content-center">
             {{if gt .Page 1}}
             <li class="page-item">
-                <a class="page-link" href="?page={{sub .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}"
-                   hx-get="/dashboard/media?page={{sub .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}"
+                <a class="page-link" href="?page={{sub .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}{{if .ShowDuplicates}}&duplicates=1{{end}}"
+                   hx-get="/dashboard/media?page={{sub .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}{{if .ShowDuplicates}}&duplicates=1{{end}}"
                    hx-target="#mediaResults" hx-swap="innerHTML" hx-push-url="true">
                     <i class="bi bi-chevron-left"></i>
                 </a>
@@ -188,8 +204,8 @@
             <li class="page-item disabled"><span class="page-link">...</span></li>
             {{else}}
             <li class="page-item {{if eq . $.Page}}active{{end}}">
-                <a class="page-link" href="?page={{.}}&q={{$.Query}}&genre={{$.Genre}}&artist={{$.Artist}}&sort={{$.SortBy}}&order={{$.SortOrder}}&per_page={{$.PerPage}}"
-                   hx-get="/dashboard/media?page={{.}}&q={{$.Query}}&genre={{$.Genre}}&artist={{$.Artist}}&sort={{$.SortBy}}&order={{$.SortOrder}}&per_page={{$.PerPage}}"
+                <a class="page-link" href="?page={{.}}&q={{$.Query}}&genre={{$.Genre}}&artist={{$.Artist}}&sort={{$.SortBy}}&order={{$.SortOrder}}&per_page={{$.PerPage}}{{if $.ShowDuplicates}}&duplicates=1{{end}}"
+                   hx-get="/dashboard/media?page={{.}}&q={{$.Query}}&genre={{$.Genre}}&artist={{$.Artist}}&sort={{$.SortBy}}&order={{$.SortOrder}}&per_page={{$.PerPage}}{{if $.ShowDuplicates}}&duplicates=1{{end}}"
                    hx-target="#mediaResults" hx-swap="innerHTML" hx-push-url="true">
                     {{.}}
                 </a>
@@ -199,8 +215,8 @@
 
             {{if lt .Page .TotalPages}}
             <li class="page-item">
-                <a class="page-link" href="?page={{add .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}"
-                   hx-get="/dashboard/media?page={{add .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}"
+                <a class="page-link" href="?page={{add .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}{{if .ShowDuplicates}}&duplicates=1{{end}}"
+                   hx-get="/dashboard/media?page={{add .Page 1}}&q={{.Query}}&genre={{.Genre}}&artist={{.Artist}}&sort={{.SortBy}}&order={{.SortOrder}}&per_page={{.PerPage}}{{if .ShowDuplicates}}&duplicates=1{{end}}"
                    hx-target="#mediaResults" hx-swap="innerHTML" hx-push-url="true">
                     <i class="bi bi-chevron-right"></i>
                 </a>
