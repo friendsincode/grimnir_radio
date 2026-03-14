@@ -232,56 +232,7 @@ func (h *Handler) AdminStationDelete(w http.ResponseWriter, r *http.Request) {
 
 	// Delete in transaction to ensure consistency
 	err := h.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleEntry{}).Error; err != nil {
-			return err
-		}
-
-		var clockHourIDs []string
-		tx.Model(&models.ClockHour{}).Where("station_id = ?", id).Pluck("id", &clockHourIDs)
-		if len(clockHourIDs) > 0 {
-			if err := tx.Where("clock_hour_id IN ?", clockHourIDs).Delete(&models.ClockSlot{}).Error; err != nil {
-				return err
-			}
-		}
-
-		if err := tx.Where("station_id = ?", id).Delete(&models.ClockHour{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("station_id = ?", id).Delete(&models.Clock{}).Error; err != nil {
-			return err
-		}
-
-		var playlistIDs []string
-		tx.Model(&models.Playlist{}).Where("station_id = ?", id).Pluck("id", &playlistIDs)
-		if len(playlistIDs) > 0 {
-			if err := tx.Where("playlist_id IN ?", playlistIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
-				return err
-			}
-		}
-		if err := tx.Where("station_id = ?", id).Delete(&models.Playlist{}).Error; err != nil {
-			return err
-		}
-
-		if err := tx.Where("station_id = ?", id).Delete(&models.SmartBlock{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("station_id = ?", id).Delete(&models.MediaItem{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("station_id = ?", id).Delete(&models.Webstream{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("station_id = ?", id).Delete(&models.Mount{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("station_id = ?", id).Delete(&models.StationUser{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("station_id = ?", id).Delete(&models.PlayHistory{}).Error; err != nil {
-			return err
-		}
-
-		return tx.Delete(&station).Error
+		return cascadeDeleteStation(tx, id, &station)
 	})
 	if err != nil {
 		h.logger.Error().Err(err).Str("station_id", id).Msg("failed to delete station from admin")

@@ -248,80 +248,7 @@ func (h *Handler) StationDelete(w http.ResponseWriter, r *http.Request) {
 
 	// Delete in transaction to ensure consistency
 	err := h.db.Transaction(func(tx *gorm.DB) error {
-		// Delete schedule entries
-		if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleEntry{}).Error; err != nil {
-			return err
-		}
-
-		// Delete clock slots (via clock hours)
-		var clockHourIDs []string
-		tx.Model(&models.ClockHour{}).Where("station_id = ?", id).Pluck("id", &clockHourIDs)
-		if len(clockHourIDs) > 0 {
-			if err := tx.Where("clock_hour_id IN ?", clockHourIDs).Delete(&models.ClockSlot{}).Error; err != nil {
-				return err
-			}
-		}
-
-		// Delete clock hours
-		if err := tx.Where("station_id = ?", id).Delete(&models.ClockHour{}).Error; err != nil {
-			return err
-		}
-
-		// Delete clocks
-		if err := tx.Where("station_id = ?", id).Delete(&models.Clock{}).Error; err != nil {
-			return err
-		}
-
-		// Delete playlist items (via playlists)
-		var playlistIDs []string
-		tx.Model(&models.Playlist{}).Where("station_id = ?", id).Pluck("id", &playlistIDs)
-		if len(playlistIDs) > 0 {
-			if err := tx.Where("playlist_id IN ?", playlistIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
-				return err
-			}
-		}
-
-		// Delete playlists
-		if err := tx.Where("station_id = ?", id).Delete(&models.Playlist{}).Error; err != nil {
-			return err
-		}
-
-		// Delete smart blocks
-		if err := tx.Where("station_id = ?", id).Delete(&models.SmartBlock{}).Error; err != nil {
-			return err
-		}
-
-		// Delete media items
-		if err := tx.Where("station_id = ?", id).Delete(&models.MediaItem{}).Error; err != nil {
-			return err
-		}
-
-		// Delete webstreams
-		if err := tx.Where("station_id = ?", id).Delete(&models.Webstream{}).Error; err != nil {
-			return err
-		}
-
-		// Delete mounts
-		if err := tx.Where("station_id = ?", id).Delete(&models.Mount{}).Error; err != nil {
-			return err
-		}
-
-		// Delete station users
-		if err := tx.Where("station_id = ?", id).Delete(&models.StationUser{}).Error; err != nil {
-			return err
-		}
-
-		// Delete play history
-		if err := tx.Where("station_id = ?", id).Delete(&models.PlayHistory{}).Error; err != nil {
-			return err
-		}
-
-		// Finally delete the station
-		if err := tx.Delete(&station).Error; err != nil {
-			return err
-		}
-
-		return nil
+		return cascadeDeleteStation(tx, id, &station)
 	})
 
 	if err != nil {
@@ -342,6 +269,209 @@ func (h *Handler) StationDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/dashboard/stations", http.StatusSeeOther)
+}
+
+// cascadeDeleteStation deletes a station and all its associated data within a transaction.
+// Call this inside db.Transaction(). station must already be fetched.
+func cascadeDeleteStation(tx *gorm.DB, id string, station *models.Station) error {
+	// --- leaf records first (no dependents) ---
+
+	// Schedule entries
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleEntry{}).Error; err != nil {
+		return err
+	}
+	// Schedule rules, templates, versions
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleRule{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleTemplate{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleVersion{}).Error; err != nil {
+		return err
+	}
+
+	// Shows and instances
+	if err := tx.Where("station_id = ?", id).Delete(&models.ShowInstance{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.Show{}).Error; err != nil {
+		return err
+	}
+
+	// DJ self-service
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleRequest{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.DJAvailability{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleLock{}).Error; err != nil {
+		return err
+	}
+
+	// Webhooks
+	var webhookTargetIDs []string
+	tx.Model(&models.WebhookTarget{}).Where("station_id = ?", id).Pluck("id", &webhookTargetIDs)
+	if len(webhookTargetIDs) > 0 {
+		if err := tx.Where("target_id IN ?", webhookTargetIDs).Delete(&models.WebhookLog{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.WebhookTarget{}).Error; err != nil {
+		return err
+	}
+
+	// Analytics
+	if err := tx.Where("station_id = ?", id).Delete(&models.ListenerSample{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleAnalytics{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleAnalyticsDaily{}).Error; err != nil {
+		return err
+	}
+
+	// Syndication
+	if err := tx.Where("station_id = ?", id).Delete(&models.NetworkSubscription{}).Error; err != nil {
+		return err
+	}
+
+	// Underwriting
+	var obligationIDs []string
+	tx.Model(&models.UnderwritingObligation{}).Where("station_id = ?", id).Pluck("id", &obligationIDs)
+	if len(obligationIDs) > 0 {
+		if err := tx.Where("obligation_id IN ?", obligationIDs).Delete(&models.UnderwritingSpot{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.UnderwritingObligation{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.Sponsor{}).Error; err != nil {
+		return err
+	}
+
+	// Landing page
+	if err := tx.Where("station_id = ?", id).Delete(&models.LandingPageAsset{}).Error; err != nil {
+		return err
+	}
+	var landingPageIDs []string
+	tx.Model(&models.LandingPage{}).Where("station_id = ?", id).Pluck("id", &landingPageIDs)
+	if len(landingPageIDs) > 0 {
+		if err := tx.Where("landing_page_id IN ?", landingPageIDs).Delete(&models.LandingPageVersion{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.LandingPage{}).Error; err != nil {
+		return err
+	}
+
+	// Recordings
+	var recordingIDs []string
+	tx.Model(&models.Recording{}).Where("station_id = ?", id).Pluck("id", &recordingIDs)
+	if len(recordingIDs) > 0 {
+		if err := tx.Where("recording_id IN ?", recordingIDs).Delete(&models.RecordingChapter{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.Recording{}).Error; err != nil {
+		return err
+	}
+
+	// Clocks and clock slots
+	var clockHourIDs []string
+	tx.Model(&models.ClockHour{}).Where("station_id = ?", id).Pluck("id", &clockHourIDs)
+	if len(clockHourIDs) > 0 {
+		if err := tx.Where("clock_hour_id IN ?", clockHourIDs).Delete(&models.ClockSlot{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.ClockHour{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.Clock{}).Error; err != nil {
+		return err
+	}
+
+	// Playlists
+	var playlistIDs []string
+	tx.Model(&models.Playlist{}).Where("station_id = ?", id).Pluck("id", &playlistIDs)
+	if len(playlistIDs) > 0 {
+		if err := tx.Where("playlist_id IN ?", playlistIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.Playlist{}).Error; err != nil {
+		return err
+	}
+
+	// Smart blocks
+	if err := tx.Where("station_id = ?", id).Delete(&models.SmartBlock{}).Error; err != nil {
+		return err
+	}
+
+	// Media items
+	if err := tx.Where("station_id = ?", id).Delete(&models.MediaItem{}).Error; err != nil {
+		return err
+	}
+
+	// Runtime state tables
+	if err := tx.Where("station_id = ?", id).Delete(&models.PlayoutQueueItem{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.MountPlayoutState{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.AnalysisJob{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.PrioritySource{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.ExecutorState{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.LiveSession{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.WebDJSession{}).Error; err != nil {
+		return err
+	}
+
+	// Webstreams
+	if err := tx.Where("station_id = ?", id).Delete(&models.Webstream{}).Error; err != nil {
+		return err
+	}
+
+	// Mounts
+	if err := tx.Where("station_id = ?", id).Delete(&models.Mount{}).Error; err != nil {
+		return err
+	}
+
+	// Station groups
+	var groupIDs []string
+	tx.Model(&models.StationGroup{}).Where("station_id = ?", id).Pluck("id", &groupIDs)
+	if len(groupIDs) > 0 {
+		if err := tx.Where("group_id IN ?", groupIDs).Delete(&models.StationGroupMember{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.StationGroup{}).Error; err != nil {
+		return err
+	}
+
+	// Station users and play history
+	if err := tx.Where("station_id = ?", id).Delete(&models.StationUser{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("station_id = ?", id).Delete(&models.PlayHistory{}).Error; err != nil {
+		return err
+	}
+
+	// Finally delete the station itself
+	return tx.Delete(station).Error
 }
 
 func (h *Handler) renderStationFormError(w http.ResponseWriter, r *http.Request, station models.Station, isNew bool, message string) {
