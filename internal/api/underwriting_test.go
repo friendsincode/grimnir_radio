@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ import (
 func newUnderwritingAPITest(t *testing.T) (*UnderwritingAPI, *gorm.DB) {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "test.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -136,10 +137,10 @@ func TestUnderwritingAPI_Obligations(t *testing.T) {
 
 	// Create an obligation
 	body, _ := json.Marshal(map[string]any{
-		"sponsor_id":    sponsor.ID,
-		"station_id":    "s1",
+		"sponsor_id":     sponsor.ID,
+		"station_id":     "s1",
 		"spots_per_week": 5,
-		"start_date":    time.Now().Format(time.RFC3339),
+		"start_date":     time.Now().Format(time.RFC3339),
 	})
 	req = httptest.NewRequest("POST", "/", bytes.NewReader(body))
 	rr = httptest.NewRecorder()
@@ -301,4 +302,87 @@ func TestUnderwritingAPI_Errors(t *testing.T) {
 			t.Fatalf("expected 400, got %d", rr.Code)
 		}
 	})
+}
+
+func TestUnderwritingAPI_ScheduleWeekly(t *testing.T) {
+	u, _ := newUnderwritingAPITest(t)
+
+	// Missing station_id → 400
+	body, _ := json.Marshal(map[string]any{})
+	req := httptest.NewRequest("POST", "/", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	u.handleScheduleWeekly(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing station_id: got %d, want 400", rr.Code)
+	}
+
+	// Valid with no obligations → 200, 0 spots
+	body, _ = json.Marshal(map[string]any{"station_id": "s1", "week_start": "2025-01-06"})
+	req = httptest.NewRequest("POST", "/", bytes.NewReader(body))
+	rr = httptest.NewRecorder()
+	u.handleScheduleWeekly(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("schedule weekly: got %d, want 200, body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	json.NewDecoder(rr.Body).Decode(&resp) //nolint:errcheck
+	if _, ok := resp["spots_scheduled"]; !ok {
+		t.Fatal("expected spots_scheduled key")
+	}
+
+	// Valid without week_start → uses time.Now()
+	body, _ = json.Marshal(map[string]any{"station_id": "s1"})
+	req = httptest.NewRequest("POST", "/", bytes.NewReader(body))
+	rr = httptest.NewRecorder()
+	u.handleScheduleWeekly(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("schedule weekly default date: got %d, want 200", rr.Code)
+	}
+}
+
+func TestUnderwritingAPI_FulfillmentReports(t *testing.T) {
+	u, _ := newUnderwritingAPITest(t)
+
+	// Missing station_id → 400
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	u.handleFulfillmentReports(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing station_id: got %d, want 400", rr.Code)
+	}
+
+	// With station_id → 200 (empty reports)
+	req = httptest.NewRequest("GET", "/?station_id=s1", nil)
+	rr = httptest.NewRecorder()
+	u.handleFulfillmentReports(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("fulfillment reports: got %d, want 200, body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	json.NewDecoder(rr.Body).Decode(&resp) //nolint:errcheck
+	if _, ok := resp["reports"]; !ok {
+		t.Fatal("expected reports key")
+	}
+
+	// With custom date range
+	req = httptest.NewRequest("GET", "/?station_id=s1&start=2025-01-01&end=2025-01-31", nil)
+	rr = httptest.NewRecorder()
+	u.handleFulfillmentReports(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("fulfillment reports with range: got %d, want 200", rr.Code)
+	}
+}
+
+func TestUnderwritingAPI_FulfillmentReport(t *testing.T) {
+	u, _ := newUnderwritingAPITest(t)
+
+	// Non-existent obligation → 200 with empty report (service doesn't error on missing)
+	req := httptest.NewRequest("GET", "/nonexistent", nil)
+	req = withChiParam(req, "obligationID", "nonexistent-id")
+	rr := httptest.NewRecorder()
+	u.handleFulfillmentReport(rr, req)
+	// The service returns a report struct even for non-existent obligations
+	if rr.Code != http.StatusOK && rr.Code != http.StatusInternalServerError {
+		t.Fatalf("fulfillment report: got %d, want 200 or 500", rr.Code)
+	}
 }

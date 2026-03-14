@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -25,7 +26,7 @@ import (
 func newSyndicationAPITest(t *testing.T) (*SyndicationAPI, *gorm.DB) {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "test.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -284,4 +285,31 @@ func TestSyndicationAPI_Errors(t *testing.T) {
 			t.Fatalf("expected 404, got %d", rr.Code)
 		}
 	})
+}
+
+func TestSyndicationAPI_Materialize(t *testing.T) {
+	s, _ := newSyndicationAPITest(t)
+
+	// Missing station_id → 400
+	body, _ := json.Marshal(map[string]any{})
+	req := httptest.NewRequest("POST", "/", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handleMaterialize(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing station_id: got %d, want 400", rr.Code)
+	}
+
+	// Valid with no subscriptions → 200, 0 instances
+	body, _ = json.Marshal(map[string]any{"station_id": "s1", "start": "2025-01-06", "end": "2025-01-13"})
+	req = httptest.NewRequest("POST", "/", bytes.NewReader(body))
+	rr = httptest.NewRecorder()
+	s.handleMaterialize(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("materialize: got %d, want 200, body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	json.NewDecoder(rr.Body).Decode(&resp) //nolint:errcheck
+	if _, ok := resp["instances_created"]; !ok {
+		t.Fatal("expected instances_created key")
+	}
 }
