@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	defaultICYPollInterval = 15 * time.Second
+	defaultICYPollInterval = 5 * time.Second
 	icyReadTimeout         = 10 * time.Second
 	// Maximum bytes of audio data to read before the metadata block.
 	// We read exactly icy-metaint bytes then parse the metadata.
@@ -95,6 +95,14 @@ func (p *ICYPoller) Stop() {
 // SetURL updates the stream URL (e.g. after failover).
 func (p *ICYPoller) SetURL(url string) {
 	p.url = url
+}
+
+// FetchOnce performs a single synchronous ICY metadata fetch and returns the
+// result. It does not update internal state or publish events — it is used by
+// the director to seed the initial now-playing payload before the background
+// polling loop starts.
+func (p *ICYPoller) FetchOnce(ctx context.Context) (title, artist string, err error) {
+	return p.parseICYMetadata(ctx, p.url)
 }
 
 func (p *ICYPoller) poll(ctx context.Context) {
