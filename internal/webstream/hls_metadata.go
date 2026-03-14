@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultHLSPollInterval = 15 * time.Second
+	defaultHLSPollInterval = 5 * time.Second
 	hlsReadTimeout         = 10 * time.Second
 )
 
@@ -89,6 +89,14 @@ func (p *HLSPoller) Stop() {
 // SetURL updates the stream URL (e.g. after failover).
 func (p *HLSPoller) SetURL(url string) {
 	p.url = url
+}
+
+// FetchOnce performs a single synchronous HLS metadata fetch and returns the
+// result. It does not update internal state or publish events — it is used by
+// the director to seed the initial now-playing payload before the background
+// polling loop starts.
+func (p *HLSPoller) FetchOnce(ctx context.Context) (title, artist string, err error) {
+	return p.parseHLSMetadata(ctx, p.url)
 }
 
 func (p *HLSPoller) poll(ctx context.Context) {

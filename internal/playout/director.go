@@ -985,6 +985,24 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		return err
 	}
 
+	// Build metadata payload — seeded with "On Air" so the player shows
+	// something meaningful immediately. Real ICY/HLS metadata replaces this
+	// once the poller fetches it (either synchronously below or on first tick).
+	payload := map[string]any{
+		"webstream_id":   ws.ID,
+		"webstream_name": ws.Name,
+		"title":          "On Air",
+		"url":            currentURL,
+		"health_status":  ws.HealthStatus,
+	}
+
+	// Add custom metadata if override is enabled
+	if ws.OverrideMetadata && ws.CustomMetadata != nil {
+		for k, v := range ws.CustomMetadata {
+			payload[k] = v
+		}
+	}
+
 	// Launch metadata poller if passthrough is enabled
 	if ws.PassthroughMetadata && !ws.OverrideMetadata {
 		var poller webstream.MetadataPoller
@@ -1000,26 +1018,23 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		}
 		d.icyPollers[entry.MountID] = poller
 		d.icyPollerMu.Unlock()
+
+		// Try to fetch real stream metadata synchronously so the very first
+		// now-playing event carries the actual ICY title/artist rather than
+		// the generic "On Air" placeholder.
+		fetchCtx, fetchCancel := context.WithTimeout(ctx, 3*time.Second)
+		if title, artist, err := poller.FetchOnce(fetchCtx); err == nil && title != "" {
+			payload["title"] = title
+			payload["artist"] = artist
+			payload["icy_metadata"] = true
+		}
+		fetchCancel()
+
 		go poller.Start(ctx)
 	}
 
 	// Watch for pipeline crashes and attempt reconnection
 	go d.watchWebstreamPipeline(ctx, entry, ws)
-
-	// Build metadata payload
-	payload := map[string]any{
-		"webstream_id":   ws.ID,
-		"webstream_name": ws.Name,
-		"url":            currentURL,
-		"health_status":  ws.HealthStatus,
-	}
-
-	// Add custom metadata if override is enabled
-	if ws.OverrideMetadata && ws.CustomMetadata != nil {
-		for k, v := range ws.CustomMetadata {
-			payload[k] = v
-		}
-	}
 
 	if hasPrev && prev.MediaID != webstreamID {
 		d.bus.Publish(events.EventHealth, events.Payload{
