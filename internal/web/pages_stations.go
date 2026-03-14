@@ -7,8 +7,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -17,6 +19,16 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+// defaultMountURL derives a stream URL from the request host and mount name.
+// Format: https://host/live/{mountName}
+func defaultMountURL(r *http.Request, mountName string) string {
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s/live/%s", scheme, r.Host, mountName)
+}
 
 // StationsList renders the stations management page
 func (h *Handler) StationsList(w http.ResponseWriter, r *http.Request) {
@@ -124,6 +136,7 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		ID:         uuid.New().String(),
 		StationID:  station.ID,
 		Name:       mountName,
+		URL:        defaultMountURL(r, mountName),
 		Format:     "mp3",
 		Bitrate:    128,
 		Channels:   2,
@@ -547,11 +560,17 @@ func (h *Handler) MountCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mountName := strings.TrimSpace(r.FormValue("name"))
+	mountURL := strings.TrimSpace(r.FormValue("url"))
+	if mountURL == "" {
+		mountURL = defaultMountURL(r, models.GenerateMountName(mountName))
+	}
+
 	mount := models.Mount{
 		ID:         uuid.New().String(),
 		StationID:  stationID,
-		Name:       r.FormValue("name"),
-		URL:        r.FormValue("url"),
+		Name:       mountName,
+		URL:        mountURL,
 		Format:     r.FormValue("format"),
 		Bitrate:    parseIntOrDefault(r.FormValue("bitrate"), 128),
 		Channels:   parseIntOrDefault(r.FormValue("channels"), 2),
@@ -625,8 +644,11 @@ func (h *Handler) MountUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mount.Name = r.FormValue("name")
-	mount.URL = r.FormValue("url")
+	mount.Name = strings.TrimSpace(r.FormValue("name"))
+	mount.URL = strings.TrimSpace(r.FormValue("url"))
+	if mount.URL == "" {
+		mount.URL = defaultMountURL(r, models.GenerateMountName(mount.Name))
+	}
 	mount.Format = r.FormValue("format")
 	mount.Bitrate = parseIntOrDefault(r.FormValue("bitrate"), mount.Bitrate)
 	mount.Channels = parseIntOrDefault(r.FormValue("channels"), mount.Channels)

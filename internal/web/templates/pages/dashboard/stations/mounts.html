@@ -53,7 +53,12 @@
                         <strong>{{.Name}}</strong>
                     </td>
                     <td>
+                        {{if .URL}}
                         <code class="small">{{.URL}}</code>
+                        {{else}}
+                        <code class="small text-body-secondary">/live/{{.Name}}</code>
+                        <span class="badge bg-warning text-dark ms-1" title="No URL saved — edit to set one">no URL</span>
+                        {{end}}
                     </td>
                     <td>
                         <span class="badge bg-secondary">{{.Format}}</span>

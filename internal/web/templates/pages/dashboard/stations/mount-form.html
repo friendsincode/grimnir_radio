@@ -57,11 +57,11 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label">URL <span class="text-danger">*</span></label>
-                        <input type="url" class="form-control font-monospace" name="url"
-                               value="{{$mount.URL}}" required
-                               placeholder="https://stream.example.com/live.mp3">
-                        <div class="form-text">The public URL where listeners can tune in.</div>
+                        <label class="form-label">URL</label>
+                        <input type="url" class="form-control font-monospace" name="url" id="mountURL"
+                               value="{{$mount.URL}}"
+                               placeholder="Auto-generated from name">
+                        <div class="form-text">The public stream URL listeners use to tune in. Leave blank to auto-generate from the name.</div>
                     </div>
 
                     <div class="mb-3">
@@ -116,4 +116,28 @@
         </form>
     </div>
 </div>
+
+{{if $isNew}}
+<script>
+(function() {
+    var nameInput = document.querySelector('[name="name"]');
+    var urlInput  = document.getElementById('mountURL');
+    if (!nameInput || !urlInput) return;
+
+    function slugify(s) {
+        return s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    }
+
+    nameInput.addEventListener('input', function() {
+        if (urlInput.dataset.userEdited === 'true') return;
+        var slug = slugify(this.value);
+        urlInput.value = slug ? window.location.origin + '/live/' + slug : '';
+    });
+
+    urlInput.addEventListener('input', function() {
+        urlInput.dataset.userEdited = 'true';
+    });
+})();
+</script>
+{{end}}
 {{end}}

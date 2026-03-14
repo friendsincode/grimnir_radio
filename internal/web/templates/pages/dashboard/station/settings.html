@@ -189,7 +189,14 @@
                             {{range .Data.Mounts}}
                             <tr>
                                 <td><strong>{{.Name}}</strong></td>
-                                <td><code class="small">{{.URL}}</code></td>
+                                <td>
+                                    {{if .URL}}
+                                    <code class="small">{{.URL}}</code>
+                                    {{else}}
+                                    <code class="small text-body-secondary">/live/{{.Name}}</code>
+                                    <span class="badge bg-warning text-dark ms-1" title="Edit mount to set a full URL">no URL</span>
+                                    {{end}}
+                                </td>
                                 <td><span class="badge bg-secondary">{{.Format}}</span></td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
@@ -283,9 +290,9 @@
                     <dd class="mb-0">
                         {{range .Data.Mounts}}
                         <div class="d-flex align-items-center gap-2 mb-1">
-                            <code class="flex-grow-1 small text-truncate" title="{{.URL}}">{{.URL}}</code>
+                            <code class="flex-grow-1 small text-truncate" title="{{if .URL}}{{.URL}}{{else}}/live/{{.Name}}{{end}}">{{if .URL}}{{.URL}}{{else}}/live/{{.Name}}{{end}}</code>
                             <button class="btn btn-sm btn-outline-secondary flex-shrink-0 copy-url-btn"
-                                    data-url="{{.URL}}"
+                                    data-url="{{if .URL}}{{.URL}}{{else}}/live/{{.Name}}{{end}}"
                                     title="Copy {{.Name}} URL">
                                 <i class="bi bi-clipboard"></i>
                             </button>
