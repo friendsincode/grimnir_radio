@@ -34,22 +34,23 @@ func (WebDJSession) TableName() string {
 
 // DeckState represents the state of a single DJ deck.
 type DeckState struct {
-	MediaID    string     `json:"media_id,omitempty"`
-	Title      string     `json:"title,omitempty"`
-	Artist     string     `json:"artist,omitempty"`
-	DurationMS int64      `json:"duration_ms"`
-	PositionMS int64      `json:"position_ms"`
-	State      string     `json:"state"` // idle, loading, cued, playing, paused
-	BPM        float64    `json:"bpm,omitempty"`
-	Pitch      float64    `json:"pitch"`  // -8 to +8 percent
-	Volume     float64    `json:"volume"` // 0.0 to 1.0
-	HotCues    []CuePoint `json:"hot_cues,omitempty"`
-	LoopInMS   *int64     `json:"loop_in_ms,omitempty"`
-	LoopOutMS  *int64     `json:"loop_out_ms,omitempty"`
-	LoopActive bool       `json:"loop_active"`
-	EQHigh     float64    `json:"eq_high"` // -12 to +12 dB
-	EQMid      float64    `json:"eq_mid"`
-	EQLow      float64    `json:"eq_low"`
+	MediaID          string     `json:"media_id,omitempty"`
+	Title            string     `json:"title,omitempty"`
+	Artist           string     `json:"artist,omitempty"`
+	OriginalFilename string     `json:"original_filename,omitempty"`
+	DurationMS       int64      `json:"duration_ms"`
+	PositionMS       int64      `json:"position_ms"`
+	State            string     `json:"state"` // idle, loading, cued, playing, paused
+	BPM              float64    `json:"bpm,omitempty"`
+	Pitch            float64    `json:"pitch"`  // -8 to +8 percent
+	Volume           float64    `json:"volume"` // 0.0 to 1.0
+	HotCues          []CuePoint `json:"hot_cues,omitempty"`
+	LoopInMS         *int64     `json:"loop_in_ms,omitempty"`
+	LoopOutMS        *int64     `json:"loop_out_ms,omitempty"`
+	LoopActive       bool       `json:"loop_active"`
+	EQHigh           float64    `json:"eq_high"` // -12 to +12 dB
+	EQMid            float64    `json:"eq_mid"`
+	EQLow            float64    `json:"eq_low"`
 }
 
 // Value implements driver.Valuer for DeckState.

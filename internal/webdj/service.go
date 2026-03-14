@@ -472,19 +472,20 @@ func (s *Service) LoadTrack(ctx context.Context, req LoadTrackRequest) (*models.
 
 	// Create new deck state
 	deckState := models.DeckState{
-		MediaID:    mediaItem.ID,
-		Title:      mediaItem.Title,
-		Artist:     mediaItem.Artist,
-		DurationMS: mediaItem.Duration.Milliseconds(),
-		PositionMS: 0,
-		State:      string(models.DeckStateCued),
-		BPM:        mediaItem.BPM,
-		Pitch:      0,
-		Volume:     1.0,
-		HotCues:    make([]models.CuePoint, 0),
-		EQHigh:     0,
-		EQMid:      0,
-		EQLow:      0,
+		MediaID:          mediaItem.ID,
+		Title:            mediaItem.Title,
+		Artist:           mediaItem.Artist,
+		OriginalFilename: mediaItem.OriginalFilename,
+		DurationMS:       mediaItem.Duration.Milliseconds(),
+		PositionMS:       0,
+		State:            string(models.DeckStateCued),
+		BPM:              mediaItem.BPM,
+		Pitch:            0,
+		Volume:           1.0,
+		HotCues:          make([]models.CuePoint, 0),
+		EQHigh:           0,
+		EQMid:            0,
+		EQLow:            0,
 	}
 
 	// Pre-populate cue points from media analysis markers if available
