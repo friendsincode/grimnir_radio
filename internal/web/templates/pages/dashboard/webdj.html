@@ -17,78 +17,123 @@
 {{define "main"}}
 <div id="webdj-app" x-data="webdjConsole()" x-init="init()" data-station-id="{{.Station.ID}}">
 
-    <!-- Now Playing IRT Panel -->
-    <div class="card mb-3 dj-card">
-        <div class="card-header d-flex justify-content-between align-items-center dj-card-header">
-            <h6 class="mb-0"><i class="bi bi-broadcast me-2"></i>Now Playing (IRT)</h6>
-            <button class="btn btn-sm btn-outline-secondary" id="webdjIrtRefreshBtn"><i class="bi bi-arrow-clockwise"></i></button>
-        </div>
-        <div class="card-body">
-            <div id="webdjIrtNowPlaying" class="mb-3 text-body-secondary small">Loading current playback...</div>
-            <div id="webdjIrtUpcoming" class="irt-list"></div>
+    <!-- ============================================================ -->
+    <!-- SESSION START SCREEN                                         -->
+    <!-- ============================================================ -->
+    <div x-show="!sessionId" class="dj2-start-wrap">
+        <div class="dj2-start-card">
+            <div class="dj2-start-disc">
+                <i class="bi bi-disc"></i>
+            </div>
+            <div class="dj2-start-title">WEBDJ CONSOLE</div>
+            <p class="dj2-start-sub">
+                Start a WebDJ session to mix tracks in your browser.
+            </p>
+            {{if .Data.HasSession}}
+            <div class="dj2-start-notice">
+                <i class="bi bi-info-circle me-2"></i>
+                You have an active session. Click below to reconnect.
+            </div>
+            {{end}}
+            <button @click="startSession()" class="dj2-start-btn">
+                <i class="bi bi-play-circle me-2"></i>
+                {{if .Data.HasSession}}Resume Session{{else}}Start Session{{end}}
+            </button>
         </div>
     </div>
 
-    <!-- Session Start Screen -->
-    <div x-show="!sessionId" class="row justify-content-center">
-        <div class="col-lg-6">
-            <div class="card dj-card">
-                <div class="card-body text-center py-5">
-                    <div class="dj-start-icon mb-4">
-                        <i class="bi bi-disc"></i>
-                    </div>
-                    <h2 class="mb-3">WebDJ Console</h2>
-                    <p class="text-body-secondary mb-4">
-                        Start a WebDJ session to mix tracks in your browser.
-                    </p>
-                    {{if .Data.HasSession}}
-                    <div class="alert alert-info mb-4">
-                        <i class="bi bi-info-circle me-2"></i>
-                        You have an active session. Click below to reconnect.
-                    </div>
-                    {{end}}
-                    <button @click="startSession()" class="btn btn-primary btn-lg dj-start-btn">
-                        <i class="bi bi-play-circle me-2"></i>
-                        {{if .Data.HasSession}}Resume Session{{else}}Start Session{{end}}
-                    </button>
+    <!-- ============================================================ -->
+    <!-- MAIN DJ CONSOLE                                              -->
+    <!-- ============================================================ -->
+    <div x-show="sessionId" x-cloak class="dj2-surface">
+
+        <!-- ========================================================= -->
+        <!-- BROADCAST BAR                                              -->
+        <!-- ========================================================= -->
+        <div class="dj2-broadcast-bar" :class="{'dj2-on-air': isLive}">
+
+            <!-- Left: live status + mount/type selectors -->
+            <div class="dj2-bar-left">
+                <span class="dj2-live-dot" :class="{'dj2-live-dot--active': isLive}"></span>
+                <span class="dj2-onair-label" :class="{'dj2-onair-label--live': isLive}"
+                      x-text="isLive ? 'ON AIR' : 'OFF AIR'"></span>
+
+                <div class="dj2-bar-selects" x-show="!isLive">
+                    <select class="dj2-select" x-model="selectedMount">
+                        <option value="">Select mount...</option>
+                        {{range .Data.Mounts}}
+                        <option value="{{.ID}}">{{.Name}}</option>
+                        {{end}}
+                    </select>
+                    <select class="dj2-select dj2-select--narrow" x-model="inputType">
+                        <option value="webrtc">WebRTC</option>
+                        <option value="icecast">Icecast</option>
+                        <option value="rtp">RTP</option>
+                    </select>
+                </div>
+                <div x-show="isLive" class="dj2-bar-live-info">
+                    <span class="dj2-bar-live-to">Broadcasting to:</span>
+                    <span class="dj2-badge-danger" x-text="liveMountName"></span>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- Main DJ Console -->
-    <div x-show="sessionId" x-cloak>
+            <!-- Right: MIDI indicator + Go Live -->
+            <div class="dj2-bar-right">
 
-        <!-- ============================================================ -->
-        <!-- BROADCAST HEADER BAR                                         -->
-        <!-- ============================================================ -->
-        <div class="dj-broadcast-bar mb-3" :class="{'dj-on-air': isLive}">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="dj-live-dot" :class="{'active': isLive}"></span>
-                        <span class="fw-bold text-uppercase" :class="{'text-danger': isLive}" x-text="isLive ? 'ON AIR' : 'OFF AIR'"></span>
-                    </div>
-                    <div class="d-flex align-items-center gap-2" x-show="!isLive">
-                        <select class="form-select form-select-sm dj-select" x-model="selectedMount">
-                            <option value="">Select mount...</option>
-                            {{range .Data.Mounts}}
-                            <option value="{{.ID}}">{{.Name}}</option>
-                            {{end}}
-                        </select>
-                        <select class="form-select form-select-sm dj-select" style="width: 110px;" x-model="inputType">
-                            <option value="webrtc">WebRTC</option>
-                            <option value="icecast">Icecast</option>
-                            <option value="rtp">RTP</option>
-                        </select>
-                    </div>
-                    <div x-show="isLive" class="d-flex align-items-center gap-2">
-                        <span class="text-body-secondary small">Broadcasting to:</span>
-                        <span class="badge bg-danger" x-text="liveMountName"></span>
+                <!-- MIDI Status -->
+                <div class="dj2-midi-status" x-data="{ midiOpen: false }">
+                    <div class="dj2-midi-dot dj2-midi-dot--ready" id="midi-status-dot"></div>
+                    <span class="dj2-midi-label" id="midi-device-name">NO MIDI</span>
+                    <button class="dj2-midi-toggle-btn"
+                            data-midi-panel-toggle
+                            @click="midiOpen = !midiOpen"
+                            title="MIDI Settings">
+                        <i class="bi bi-usb-plug"></i>
+                    </button>
+
+                    <!-- MIDI Settings Panel -->
+                    <div class="dj2-midi-panel" x-show="midiOpen" x-cloak @click.outside="midiOpen = false">
+                        <div class="dj2-midi-panel-header">
+                            <span class="dj2-midi-panel-title">MIDI CONTROLLER</span>
+                            <button class="dj2-midi-panel-close" @click="midiOpen = false">✕</button>
+                        </div>
+
+                        <!-- Browser notice (hidden on supported browsers) -->
+                        <div class="dj2-midi-browser-notice" id="midi-browser-notice" style="display:none">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            MIDI requires Chrome, Brave, or Edge.
+                            <a href="https://www.google.com/chrome/" target="_blank" rel="noopener">Get Chrome</a>
+                        </div>
+
+                        <div id="midi-learn-section">
+                            <!-- Device list -->
+                            <div class="dj2-midi-section-label">CONNECTED DEVICES</div>
+                            <div id="midi-device-list" class="dj2-midi-device-list">
+                                <div class="dj2-midi-no-device">No MIDI devices connected</div>
+                            </div>
+
+                            <!-- Profile selector -->
+                            <div class="dj2-midi-section-label">CONTROLLER PROFILE</div>
+                            <select class="dj2-select dj2-select--full" id="midi-profile-select">
+                                <option>Generic MIDI</option>
+                            </select>
+
+                            <!-- MIDI Learn -->
+                            <div class="dj2-midi-section-label dj2-midi-section-label--learn">
+                                MIDI LEARN
+                                <button id="midi-clear-all-btn" class="dj2-midi-mini-btn dj2-midi-mini-btn--clear"
+                                        style="margin-left: auto;">CLEAR ALL</button>
+                            </div>
+                            <div id="midi-learn-list" class="dj2-midi-learn-list">
+                                <!-- populated by webdj-midi.js -->
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <button class="btn btn-sm px-4"
-                        :class="isLive ? 'btn-danger' : 'btn-success'"
+
+                <!-- Go Live button -->
+                <button class="dj2-golive-btn"
+                        :class="isLive ? 'dj2-golive-btn--off' : 'dj2-golive-btn--on'"
                         @click="toggleLive()"
                         :disabled="!isLive && !selectedMount">
                     <i class="bi bi-broadcast me-1"></i>
@@ -97,313 +142,342 @@
             </div>
         </div>
 
-        <!-- ============================================================ -->
-        <!-- DUAL DECK + MIXER AREA                                       -->
-        <!-- ============================================================ -->
-        <div class="dj-console mb-3">
-            <div class="row g-0">
+        <!-- ========================================================= -->
+        <!-- ENGINE: DECK A | MIXER | DECK B                           -->
+        <!-- ========================================================= -->
+        <div class="dj2-engine">
 
-                <!-- ==================== DECK A ==================== -->
-                <div class="col-lg-5 dj-deck dj-deck-a" :class="{'dj-deck-playing': deckA.state === 'playing'}">
+            <!-- ================ DECK A ================ -->
+            <div class="dj2-deck dj2-deck-a"
+                 :class="{'dj2-deck--playing': deckA.state === 'playing'}">
 
-                    <!-- Deck Header -->
-                    <div class="dj-deck-header">
-                        <span class="dj-deck-label dj-deck-label-a">A</span>
-                        <div class="dj-deck-status">
-                            <span class="badge dj-state-badge" :class="{
-                                'bg-success': deckA.state === 'playing',
-                                'bg-warning text-dark': deckA.state === 'paused' || deckA.state === 'cued',
-                                'bg-secondary': deckA.state === 'idle' || deckA.state === 'loading'
-                            }" x-text="deckA.state.toUpperCase()"></span>
-                        </div>
-                    </div>
+                <!-- Header -->
+                <div class="dj2-deck-header">
+                    <span class="dj2-deck-badge dj2-deck-badge-a">A</span>
+                    <span class="dj2-state-chip"
+                          :class="{
+                              'dj2-state-chip--playing': deckA.state === 'playing',
+                              'dj2-state-chip--paused':  deckA.state === 'paused' || deckA.state === 'cued',
+                              'dj2-state-chip--idle':    deckA.state === 'idle' || deckA.state === 'loading'
+                          }"
+                          x-text="deckA.state.toUpperCase()"></span>
+                </div>
 
-                    <!-- Waveform -->
-                    <div class="dj-waveform" @click="seekDeck('a', $event)">
-                        <canvas id="waveform-a" width="500" height="80"></canvas>
-                        <div class="dj-waveform-played" :style="'width: ' + (deckA.durationMs > 0 ? (deckA.positionMs / deckA.durationMs * 100) : 0) + '%'"></div>
-                        <div class="dj-waveform-cursor" :style="'left: ' + (deckA.durationMs > 0 ? (deckA.positionMs / deckA.durationMs * 100) : 0) + '%'"></div>
-                    </div>
+                <!-- VU Meter -->
+                <div class="dj2-vu dj2-vu-a" :class="{'dj2-vu--active': deckA.state === 'playing'}">
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                </div>
 
-                    <!-- Track Info -->
-                    <div class="dj-track-info">
-                        <div class="dj-track-title" x-text="deckA.title || 'No Track Loaded'"></div>
-                        <div class="dj-track-artist" x-text="deckA.artist || '---'"></div>
-                        <div class="dj-track-time">
-                            <span class="dj-time-current" x-text="formatMs(deckA.positionMs)">0:00</span>
-                            <span class="dj-time-sep">/</span>
-                            <span class="dj-time-total" x-text="formatMs(deckA.durationMs)">0:00</span>
-                            <span class="dj-bpm-badge" x-show="deckA.bpm" x-text="Number(deckA.bpm || 0).toFixed(1) + ' BPM'"></span>
-                        </div>
-                    </div>
+                <!-- Waveform -->
+                <div class="dj2-waveform dj2-waveform-a" @click="seekDeck('a', $event)">
+                    <canvas id="waveform-a" width="500" height="120"></canvas>
+                    <div class="dj2-waveform-played dj2-waveform-played-a"
+                         :style="'width: ' + (deckA.durationMs > 0 ? (deckA.positionMs / deckA.durationMs * 100) : 0) + '%'"></div>
+                    <div class="dj2-waveform-cursor dj2-waveform-cursor-a"
+                         :style="'left: ' + (deckA.durationMs > 0 ? (deckA.positionMs / deckA.durationMs * 100) : 0) + '%'"></div>
+                </div>
 
-                    <!-- Transport -->
-                    <div class="dj-transport">
-                        <button class="dj-btn dj-btn-transport" @click="seekDeck('a', null, 0)" title="Return to start">
-                            <i class="bi bi-skip-start-fill"></i>
-                        </button>
-                        <button class="dj-btn dj-btn-play" :class="{'dj-btn-active': deckA.state === 'playing'}"
-                                @click="togglePlay('a')" :disabled="!deckA.mediaId">
-                            <i class="bi" :class="deckA.state === 'playing' ? 'bi-pause-fill' : 'bi-play-fill'"></i>
-                        </button>
-                        <button class="dj-btn dj-btn-transport" @click="stopDeck('a')" :disabled="!deckA.mediaId" title="Stop / Cue">
-                            <i class="bi bi-stop-fill"></i>
-                        </button>
-                        <button class="dj-btn dj-btn-eject" @click="ejectDeck('a')" :disabled="!deckA.mediaId" title="Eject">
-                            <i class="bi bi-eject-fill"></i>
-                        </button>
-                    </div>
-
-                    <!-- Hot Cues -->
-                    <div class="dj-hotcues">
-                        <template x-for="i in 8" :key="i">
-                            <button class="dj-btn dj-btn-cue"
-                                    :class="getCueClass('a', i)"
-                                    @click="handleCue('a', i)"
-                                    @contextmenu.prevent="deleteCue('a', i)">
-                                <span x-text="i"></span>
-                            </button>
-                        </template>
-                    </div>
-
-                    <!-- Pitch Slider -->
-                    <div class="dj-pitch-section">
-                        <label class="dj-knob-label">PITCH <span x-text="Number(deckA.pitch || 0).toFixed(1) + '%'"></span></label>
-                        <input type="range" class="dj-range dj-pitch-range" min="-8" max="8" step="0.1"
-                               x-model.number="deckA.pitch" @input="setPitch('a', $event.target.value)">
+                <!-- Track Info -->
+                <div class="dj2-track-info">
+                    <div class="dj2-track-title" x-text="deckA.title || 'No Track Loaded'"></div>
+                    <div class="dj2-track-artist" x-text="deckA.artist || '---'"></div>
+                    <div class="dj2-track-time">
+                        <span class="dj2-time-current" x-text="formatMs(deckA.positionMs)">0:00</span>
+                        <span class="dj2-time-sep">/</span>
+                        <span class="dj2-time-total" x-text="formatMs(deckA.durationMs)">0:00</span>
+                        <span class="dj2-bpm-chip dj2-bpm-chip-a"
+                              x-show="deckA.bpm"
+                              x-text="Number(deckA.bpm || 0).toFixed(1) + ' BPM'"></span>
                     </div>
                 </div>
 
-                <!-- ==================== CENTER MIXER ==================== -->
-                <div class="col-lg-2 dj-mixer">
-                    <div class="dj-mixer-inner">
-
-                        <!-- Master Volume -->
-                        <div class="dj-mixer-section">
-                            <label class="dj-knob-label">MASTER</label>
-                            <div class="dj-fader-wrap">
-                                <input type="range" class="dj-range dj-fader" min="0" max="1" step="0.01" orient="vertical"
-                                       x-model.number="mixer.masterVolume" @input="setMasterVolume($event.target.value)">
-                            </div>
-                            <span class="dj-fader-value" x-text="Math.round(Number(mixer.masterVolume) * 100)"></span>
-                        </div>
-
-                        <div class="dj-mixer-divider"></div>
-
-                        <!-- EQ Section: Deck A | Deck B -->
-                        <div class="dj-eq-section">
-                            <div class="dj-eq-column">
-                                <label class="dj-knob-label">EQ A</label>
-                                <div class="dj-eq-group">
-                                    <div class="dj-eq-knob-wrap">
-                                        <span class="dj-eq-label">HI</span>
-                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
-                                               x-model.number="deckA.eqHigh" @input="setEQ('a')">
-                                    </div>
-                                    <div class="dj-eq-knob-wrap">
-                                        <span class="dj-eq-label">MID</span>
-                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
-                                               x-model.number="deckA.eqMid" @input="setEQ('a')">
-                                    </div>
-                                    <div class="dj-eq-knob-wrap">
-                                        <span class="dj-eq-label">LO</span>
-                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
-                                               x-model.number="deckA.eqLow" @input="setEQ('a')">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="dj-eq-column">
-                                <label class="dj-knob-label">EQ B</label>
-                                <div class="dj-eq-group">
-                                    <div class="dj-eq-knob-wrap">
-                                        <span class="dj-eq-label">HI</span>
-                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
-                                               x-model.number="deckB.eqHigh" @input="setEQ('b')">
-                                    </div>
-                                    <div class="dj-eq-knob-wrap">
-                                        <span class="dj-eq-label">MID</span>
-                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
-                                               x-model.number="deckB.eqMid" @input="setEQ('b')">
-                                    </div>
-                                    <div class="dj-eq-knob-wrap">
-                                        <span class="dj-eq-label">LO</span>
-                                        <input type="range" class="dj-range dj-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
-                                               x-model.number="deckB.eqLow" @input="setEQ('b')">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="dj-mixer-divider"></div>
-
-                        <!-- Channel Volume Faders -->
-                        <div class="dj-channel-faders">
-                            <div class="dj-channel-fader-wrap">
-                                <label class="dj-knob-label">VOL A</label>
-                                <input type="range" class="dj-range dj-fader" min="0" max="1" step="0.01" orient="vertical"
-                                       x-model.number="deckA.volume" @input="setVolume('a', $event.target.value)">
-                                <span class="dj-fader-value" x-text="Math.round(Number(deckA.volume) * 100)"></span>
-                            </div>
-                            <div class="dj-channel-fader-wrap">
-                                <label class="dj-knob-label">VOL B</label>
-                                <input type="range" class="dj-range dj-fader" min="0" max="1" step="0.01" orient="vertical"
-                                       x-model.number="deckB.volume" @input="setVolume('b', $event.target.value)">
-                                <span class="dj-fader-value" x-text="Math.round(Number(deckB.volume) * 100)"></span>
-                            </div>
-                        </div>
-
-                        <div class="dj-mixer-divider"></div>
-
-                        <!-- Crossfader -->
-                        <div class="dj-crossfader-section">
-                            <div class="dj-crossfader-labels">
-                                <span class="dj-deck-label-a">A</span>
-                                <label class="dj-knob-label">CROSSFADER</label>
-                                <span class="dj-deck-label-b">B</span>
-                            </div>
-                            <input type="range" class="dj-range dj-crossfader" min="0" max="1" step="0.01"
-                                   x-model.number="mixer.crossfader" @input="setCrossfader($event.target.value)">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ==================== DECK B ==================== -->
-                <div class="col-lg-5 dj-deck dj-deck-b" :class="{'dj-deck-playing': deckB.state === 'playing'}">
-
-                    <!-- Deck Header -->
-                    <div class="dj-deck-header">
-                        <span class="dj-deck-label dj-deck-label-b">B</span>
-                        <div class="dj-deck-status">
-                            <span class="badge dj-state-badge" :class="{
-                                'bg-success': deckB.state === 'playing',
-                                'bg-warning text-dark': deckB.state === 'paused' || deckB.state === 'cued',
-                                'bg-secondary': deckB.state === 'idle' || deckB.state === 'loading'
-                            }" x-text="deckB.state.toUpperCase()"></span>
-                        </div>
-                    </div>
-
-                    <!-- Waveform -->
-                    <div class="dj-waveform" @click="seekDeck('b', $event)">
-                        <canvas id="waveform-b" width="500" height="80"></canvas>
-                        <div class="dj-waveform-played dj-waveform-played-b" :style="'width: ' + (deckB.durationMs > 0 ? (deckB.positionMs / deckB.durationMs * 100) : 0) + '%'"></div>
-                        <div class="dj-waveform-cursor dj-waveform-cursor-b" :style="'left: ' + (deckB.durationMs > 0 ? (deckB.positionMs / deckB.durationMs * 100) : 0) + '%'"></div>
-                    </div>
-
-                    <!-- Track Info -->
-                    <div class="dj-track-info">
-                        <div class="dj-track-title" x-text="deckB.title || 'No Track Loaded'"></div>
-                        <div class="dj-track-artist" x-text="deckB.artist || '---'"></div>
-                        <div class="dj-track-time">
-                            <span class="dj-time-current" x-text="formatMs(deckB.positionMs)">0:00</span>
-                            <span class="dj-time-sep">/</span>
-                            <span class="dj-time-total" x-text="formatMs(deckB.durationMs)">0:00</span>
-                            <span class="dj-bpm-badge" x-show="deckB.bpm" x-text="Number(deckB.bpm || 0).toFixed(1) + ' BPM'"></span>
-                        </div>
-                    </div>
-
-                    <!-- Transport -->
-                    <div class="dj-transport">
-                        <button class="dj-btn dj-btn-transport" @click="seekDeck('b', null, 0)" title="Return to start">
-                            <i class="bi bi-skip-start-fill"></i>
-                        </button>
-                        <button class="dj-btn dj-btn-play" :class="{'dj-btn-active': deckB.state === 'playing'}"
-                                @click="togglePlay('b')" :disabled="!deckB.mediaId">
-                            <i class="bi" :class="deckB.state === 'playing' ? 'bi-pause-fill' : 'bi-play-fill'"></i>
-                        </button>
-                        <button class="dj-btn dj-btn-transport" @click="stopDeck('b')" :disabled="!deckB.mediaId" title="Stop / Cue">
-                            <i class="bi bi-stop-fill"></i>
-                        </button>
-                        <button class="dj-btn dj-btn-eject" @click="ejectDeck('b')" :disabled="!deckB.mediaId" title="Eject">
-                            <i class="bi bi-eject-fill"></i>
-                        </button>
-                    </div>
-
-                    <!-- Hot Cues -->
-                    <div class="dj-hotcues">
-                        <template x-for="i in 8" :key="i">
-                            <button class="dj-btn dj-btn-cue"
-                                    :class="getCueClass('b', i)"
-                                    @click="handleCue('b', i)"
-                                    @contextmenu.prevent="deleteCue('b', i)">
-                                <span x-text="i"></span>
-                            </button>
-                        </template>
-                    </div>
-
-                    <!-- Pitch Slider -->
-                    <div class="dj-pitch-section">
-                        <label class="dj-knob-label">PITCH <span x-text="Number(deckB.pitch || 0).toFixed(1) + '%'"></span></label>
-                        <input type="range" class="dj-range dj-pitch-range" min="-8" max="8" step="0.1"
-                               x-model.number="deckB.pitch" @input="setPitch('b', $event.target.value)">
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ============================================================ -->
-        <!-- MONITOR / HEADPHONE SECTION                                  -->
-        <!-- ============================================================ -->
-        <div class="dj-monitor-bar mb-3">
-            <div class="d-flex align-items-center justify-content-center flex-wrap gap-3">
-                <div class="d-flex align-items-center gap-2">
-                    <i class="bi bi-headphones dj-monitor-icon"></i>
-                    <span class="dj-knob-label">MONITOR</span>
-                </div>
-
-                <!-- CUE A / CUE B buttons -->
-                <div class="d-flex align-items-center gap-1">
-                    <button class="dj-btn dj-btn-cue-select"
-                            :class="{'dj-btn-cue-active-a': mixer.headphoneCueA}"
-                            @click="mixer.headphoneCueA = !mixer.headphoneCueA; setHeadphoneCue('a', mixer.headphoneCueA)">
-                        CUE A
+                <!-- Transport -->
+                <div class="dj2-transport">
+                    <button class="dj2-btn dj2-btn-transport"
+                            @click="seekDeck('a', null, 0)" title="Return to start">
+                        <i class="bi bi-skip-start-fill"></i>
                     </button>
-                    <button class="dj-btn dj-btn-cue-select"
-                            :class="{'dj-btn-cue-active-b': mixer.headphoneCueB}"
-                            @click="mixer.headphoneCueB = !mixer.headphoneCueB; setHeadphoneCue('b', mixer.headphoneCueB)">
-                        CUE B
+                    <button class="dj2-btn dj2-btn-play dj2-btn-play-a"
+                            :class="{'dj2-btn--active': deckA.state === 'playing'}"
+                            @click="togglePlay('a')" :disabled="!deckA.mediaId">
+                        <i class="bi" :class="deckA.state === 'playing' ? 'bi-pause-fill' : 'bi-play-fill'"></i>
+                    </button>
+                    <button class="dj2-btn dj2-btn-transport"
+                            @click="stopDeck('a')" :disabled="!deckA.mediaId" title="Stop / Cue">
+                        <i class="bi bi-stop-fill"></i>
+                    </button>
+                    <button class="dj2-btn dj2-btn-eject"
+                            @click="ejectDeck('a')" :disabled="!deckA.mediaId" title="Eject">
+                        <i class="bi bi-eject-fill"></i>
                     </button>
                 </div>
 
-                <div class="dj-monitor-sep"></div>
-
-                <!-- Cue/Mix slider -->
-                <div class="d-flex align-items-center gap-2">
-                    <span class="dj-monitor-label">CUE</span>
-                    <input type="range" class="dj-range dj-monitor-range" min="0" max="1" step="0.01"
-                           x-model.number="mixer.cueMixLevel" @input="setCueMixLevel($event.target.value)">
-                    <span class="dj-monitor-label">MIX</span>
+                <!-- Hot Cues -->
+                <div class="dj2-hotcues">
+                    <template x-for="i in 8" :key="i">
+                        <button :class="['dj2-cue-btn', 'dj2-cue-btn--' + i, ...getCueClass('a', i).split(' ')]"
+                                @click="handleCue('a', i)"
+                                @contextmenu.prevent="deleteCue('a', i)">
+                            <span x-text="i"></span>
+                        </button>
+                    </template>
                 </div>
 
-                <div class="dj-monitor-sep"></div>
-
-                <!-- Split toggle -->
-                <button class="dj-btn dj-btn-split" :class="{'dj-btn-split-active': mixer.cueSplit}"
-                        @click="mixer.cueSplit = !mixer.cueSplit; setCueSplit(mixer.cueSplit)">
-                    <i class="bi bi-layout-split me-1"></i>SPLIT
-                </button>
-
-                <div class="dj-monitor-sep"></div>
-
-                <!-- Headphone volume -->
-                <div class="d-flex align-items-center gap-2">
-                    <i class="bi bi-volume-up"></i>
-                    <input type="range" class="dj-range dj-monitor-range" min="0" max="1" step="0.01"
-                           x-model.number="mixer.headphoneVol" @input="setHeadphoneVolume($event.target.value)">
-                    <span class="dj-fader-value" x-text="Math.round(Number(mixer.headphoneVol) * 100)"></span>
+                <!-- Pitch -->
+                <div class="dj2-pitch-section">
+                    <label class="dj2-knob-label">PITCH <span x-text="Number(deckA.pitch || 0).toFixed(1) + '%'"></span></label>
+                    <input type="range" class="dj2-range dj2-pitch-range" min="-8" max="8" step="0.1"
+                           x-model.number="deckA.pitch" @input="setPitch('a', $event.target.value)">
                 </div>
             </div>
+
+            <!-- ================ CENTER MIXER ================ -->
+            <div class="dj2-mixer">
+
+                <!-- Master Volume -->
+                <div class="dj2-mixer-section">
+                    <label class="dj2-knob-label">MASTER</label>
+                    <div class="dj2-fader-wrap">
+                        <input type="range" class="dj2-range dj2-fader" min="0" max="1" step="0.01" orient="vertical"
+                               x-model.number="mixer.masterVolume" @input="setMasterVolume($event.target.value)">
+                    </div>
+                    <span class="dj2-fader-value" x-text="Math.round(Number(mixer.masterVolume) * 100)"></span>
+                </div>
+
+                <div class="dj2-mixer-divider"></div>
+
+                <!-- EQ A | EQ B -->
+                <div class="dj2-eq-section">
+                    <div class="dj2-eq-column">
+                        <label class="dj2-knob-label">EQ A</label>
+                        <div class="dj2-eq-group">
+                            <div class="dj2-eq-knob-wrap">
+                                <span class="dj2-eq-label">HI</span>
+                                <input type="range" class="dj2-range dj2-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                       x-model.number="deckA.eqHigh" @input="setEQ('a')">
+                            </div>
+                            <div class="dj2-eq-knob-wrap">
+                                <span class="dj2-eq-label">MID</span>
+                                <input type="range" class="dj2-range dj2-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                       x-model.number="deckA.eqMid" @input="setEQ('a')">
+                            </div>
+                            <div class="dj2-eq-knob-wrap">
+                                <span class="dj2-eq-label">LO</span>
+                                <input type="range" class="dj2-range dj2-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                       x-model.number="deckA.eqLow" @input="setEQ('a')">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dj2-eq-column">
+                        <label class="dj2-knob-label">EQ B</label>
+                        <div class="dj2-eq-group">
+                            <div class="dj2-eq-knob-wrap">
+                                <span class="dj2-eq-label">HI</span>
+                                <input type="range" class="dj2-range dj2-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                       x-model.number="deckB.eqHigh" @input="setEQ('b')">
+                            </div>
+                            <div class="dj2-eq-knob-wrap">
+                                <span class="dj2-eq-label">MID</span>
+                                <input type="range" class="dj2-range dj2-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                       x-model.number="deckB.eqMid" @input="setEQ('b')">
+                            </div>
+                            <div class="dj2-eq-knob-wrap">
+                                <span class="dj2-eq-label">LO</span>
+                                <input type="range" class="dj2-range dj2-eq-fader" min="-12" max="12" step="0.5" orient="vertical"
+                                       x-model.number="deckB.eqLow" @input="setEQ('b')">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dj2-mixer-divider"></div>
+
+                <!-- Channel Volume Faders -->
+                <div class="dj2-channel-faders">
+                    <div class="dj2-channel-fader-wrap">
+                        <label class="dj2-knob-label">VOL A</label>
+                        <input type="range" class="dj2-range dj2-fader" min="0" max="1" step="0.01" orient="vertical"
+                               x-model.number="deckA.volume" @input="setVolume('a', $event.target.value)">
+                        <span class="dj2-fader-value" x-text="Math.round(Number(deckA.volume) * 100)"></span>
+                    </div>
+                    <div class="dj2-channel-fader-wrap">
+                        <label class="dj2-knob-label">VOL B</label>
+                        <input type="range" class="dj2-range dj2-fader" min="0" max="1" step="0.01" orient="vertical"
+                               x-model.number="deckB.volume" @input="setVolume('b', $event.target.value)">
+                        <span class="dj2-fader-value" x-text="Math.round(Number(deckB.volume) * 100)"></span>
+                    </div>
+                </div>
+
+                <div class="dj2-mixer-divider"></div>
+
+                <!-- Crossfader -->
+                <div class="dj2-crossfader-section">
+                    <div class="dj2-crossfader-labels">
+                        <span class="dj2-xf-label-a">A</span>
+                        <label class="dj2-knob-label">XFADER</label>
+                        <span class="dj2-xf-label-b">B</span>
+                    </div>
+                    <input type="range" class="dj2-range dj2-crossfader" min="0" max="1" step="0.01"
+                           x-model.number="mixer.crossfader" @input="setCrossfader($event.target.value)">
+                </div>
+            </div>
+
+            <!-- ================ DECK B ================ -->
+            <div class="dj2-deck dj2-deck-b"
+                 :class="{'dj2-deck--playing': deckB.state === 'playing'}">
+
+                <!-- Header -->
+                <div class="dj2-deck-header">
+                    <span class="dj2-deck-badge dj2-deck-badge-b">B</span>
+                    <span class="dj2-state-chip"
+                          :class="{
+                              'dj2-state-chip--playing': deckB.state === 'playing',
+                              'dj2-state-chip--paused':  deckB.state === 'paused' || deckB.state === 'cued',
+                              'dj2-state-chip--idle':    deckB.state === 'idle' || deckB.state === 'loading'
+                          }"
+                          x-text="deckB.state.toUpperCase()"></span>
+                </div>
+
+                <!-- VU Meter -->
+                <div class="dj2-vu dj2-vu-b" :class="{'dj2-vu--active': deckB.state === 'playing'}">
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                    <div class="dj2-vu-seg"></div>
+                </div>
+
+                <!-- Waveform -->
+                <div class="dj2-waveform dj2-waveform-b" @click="seekDeck('b', $event)">
+                    <canvas id="waveform-b" width="500" height="120"></canvas>
+                    <div class="dj2-waveform-played dj2-waveform-played-b"
+                         :style="'width: ' + (deckB.durationMs > 0 ? (deckB.positionMs / deckB.durationMs * 100) : 0) + '%'"></div>
+                    <div class="dj2-waveform-cursor dj2-waveform-cursor-b"
+                         :style="'left: ' + (deckB.durationMs > 0 ? (deckB.positionMs / deckB.durationMs * 100) : 0) + '%'"></div>
+                </div>
+
+                <!-- Track Info -->
+                <div class="dj2-track-info">
+                    <div class="dj2-track-title" x-text="deckB.title || 'No Track Loaded'"></div>
+                    <div class="dj2-track-artist" x-text="deckB.artist || '---'"></div>
+                    <div class="dj2-track-time">
+                        <span class="dj2-time-current" x-text="formatMs(deckB.positionMs)">0:00</span>
+                        <span class="dj2-time-sep">/</span>
+                        <span class="dj2-time-total" x-text="formatMs(deckB.durationMs)">0:00</span>
+                        <span class="dj2-bpm-chip dj2-bpm-chip-b"
+                              x-show="deckB.bpm"
+                              x-text="Number(deckB.bpm || 0).toFixed(1) + ' BPM'"></span>
+                    </div>
+                </div>
+
+                <!-- Transport -->
+                <div class="dj2-transport">
+                    <button class="dj2-btn dj2-btn-transport"
+                            @click="seekDeck('b', null, 0)" title="Return to start">
+                        <i class="bi bi-skip-start-fill"></i>
+                    </button>
+                    <button class="dj2-btn dj2-btn-play dj2-btn-play-b"
+                            :class="{'dj2-btn--active': deckB.state === 'playing'}"
+                            @click="togglePlay('b')" :disabled="!deckB.mediaId">
+                        <i class="bi" :class="deckB.state === 'playing' ? 'bi-pause-fill' : 'bi-play-fill'"></i>
+                    </button>
+                    <button class="dj2-btn dj2-btn-transport"
+                            @click="stopDeck('b')" :disabled="!deckB.mediaId" title="Stop / Cue">
+                        <i class="bi bi-stop-fill"></i>
+                    </button>
+                    <button class="dj2-btn dj2-btn-eject"
+                            @click="ejectDeck('b')" :disabled="!deckB.mediaId" title="Eject">
+                        <i class="bi bi-eject-fill"></i>
+                    </button>
+                </div>
+
+                <!-- Hot Cues -->
+                <div class="dj2-hotcues">
+                    <template x-for="i in 8" :key="i">
+                        <button :class="['dj2-cue-btn', 'dj2-cue-btn--' + i, ...getCueClass('b', i).split(' ')]"
+                                @click="handleCue('b', i)"
+                                @contextmenu.prevent="deleteCue('b', i)">
+                            <span x-text="i"></span>
+                        </button>
+                    </template>
+                </div>
+
+                <!-- Pitch -->
+                <div class="dj2-pitch-section">
+                    <label class="dj2-knob-label">PITCH <span x-text="Number(deckB.pitch || 0).toFixed(1) + '%'"></span></label>
+                    <input type="range" class="dj2-range dj2-pitch-range" min="-8" max="8" step="0.1"
+                           x-model.number="deckB.pitch" @input="setPitch('b', $event.target.value)">
+                </div>
+            </div>
+        </div><!-- /dj2-engine -->
+
+        <!-- ========================================================= -->
+        <!-- MONITOR BAR                                                -->
+        <!-- ========================================================= -->
+        <div class="dj2-monitor-bar">
+            <i class="bi bi-headphones dj2-monitor-icon"></i>
+            <span class="dj2-knob-label">MONITOR</span>
+
+            <div class="dj2-monitor-sep"></div>
+
+            <button class="dj2-btn dj2-btn-cue-select"
+                    :class="{'dj2-btn-cue-active-a': mixer.headphoneCueA}"
+                    @click="mixer.headphoneCueA = !mixer.headphoneCueA; setHeadphoneCue('a', mixer.headphoneCueA)">
+                CUE A
+            </button>
+            <button class="dj2-btn dj2-btn-cue-select"
+                    :class="{'dj2-btn-cue-active-b': mixer.headphoneCueB}"
+                    @click="mixer.headphoneCueB = !mixer.headphoneCueB; setHeadphoneCue('b', mixer.headphoneCueB)">
+                CUE B
+            </button>
+
+            <div class="dj2-monitor-sep"></div>
+
+            <span class="dj2-monitor-label">CUE</span>
+            <input type="range" class="dj2-range dj2-monitor-range" min="0" max="1" step="0.01"
+                   x-model.number="mixer.cueMixLevel" @input="setCueMixLevel($event.target.value)">
+            <span class="dj2-monitor-label">MIX</span>
+
+            <div class="dj2-monitor-sep"></div>
+
+            <button class="dj2-btn dj2-btn-split" :class="{'dj2-btn-split-active': mixer.cueSplit}"
+                    @click="mixer.cueSplit = !mixer.cueSplit; setCueSplit(mixer.cueSplit)">
+                <i class="bi bi-layout-split me-1"></i>SPLIT
+            </button>
+
+            <div class="dj2-monitor-sep"></div>
+
+            <i class="bi bi-volume-up dj2-monitor-label"></i>
+            <input type="range" class="dj2-range dj2-monitor-range" min="0" max="1" step="0.01"
+                   x-model.number="mixer.headphoneVol" @input="setHeadphoneVolume($event.target.value)">
+            <span class="dj2-fader-value" x-text="Math.round(Number(mixer.headphoneVol) * 100)"></span>
         </div>
 
-        <!-- ============================================================ -->
-        <!-- MEDIA LIBRARY                                                -->
-        <!-- ============================================================ -->
-        <div class="card dj-card">
-            <div class="card-header dj-card-header d-flex justify-content-between align-items-center py-2">
-                <h6 class="mb-0"><i class="bi bi-collection me-2"></i>Library</h6>
+        <!-- ========================================================= -->
+        <!-- MEDIA LIBRARY                                              -->
+        <!-- ========================================================= -->
+        <div class="dj2-library-card">
+            <div class="dj2-library-header">
+                <span class="dj2-library-title"><i class="bi bi-collection me-2"></i>Library</span>
                 <div class="d-flex gap-2">
-                    <input type="text" class="form-control form-control-sm library-search dj-input" style="width: 200px;"
-                           placeholder="Search tracks..." x-model="searchQuery" @input.debounce.300ms="searchLibrary()">
-                    <select class="form-select form-select-sm dj-select" style="width: 150px;" x-model="selectedPlaylist" @change="searchLibrary()">
+                    <input type="text" class="dj2-input" style="width: 200px;"
+                           placeholder="Search tracks..."
+                           x-model="searchQuery" @input.debounce.300ms="searchLibrary()">
+                    <select class="dj2-select" style="width: 150px;" x-model="selectedPlaylist" @change="searchLibrary()">
                         <option value="">All Tracks</option>
                         {{range .Data.Playlists}}
                         <option value="{{.ID}}">{{.Name}}</option>
@@ -411,44 +485,46 @@
                     </select>
                 </div>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-                    <table class="table table-hover table-sm mb-0 dj-library-table">
-                        <thead class="sticky-top">
+            <div class="dj2-library-body">
+                <div class="dj2-library-scroll">
+                    <table class="dj2-library-table">
+                        <thead>
                             <tr>
-                                <th style="width: 40px;"></th>
+                                <th style="width:40px;"></th>
                                 <th>Title</th>
                                 <th>Artist</th>
                                 <th>Duration</th>
                                 <th>BPM</th>
-                                <th style="width: 90px;">Load</th>
+                                <th style="width:80px;">Load</th>
                             </tr>
                         </thead>
                         <tbody>
                             <template x-for="track in libraryTracks" :key="track.id">
-                                <tr class="dj-library-row" draggable="true"
+                                <tr class="dj2-library-row" draggable="true"
                                     @dragstart="startDrag($event, track)"
                                     @dblclick="loadTrack('a', track.id)">
                                     <td>
                                         <img :src="'/dashboard/webdj/media/' + track.id + '/artwork'"
-                                             class="rounded" style="width: 32px; height: 32px; object-fit: cover;">
+                                             class="dj2-artwork" alt="">
                                     </td>
                                     <td x-text="track.title"></td>
-                                    <td class="text-body-secondary" x-text="track.artist"></td>
+                                    <td class="dj2-lib-secondary" x-text="track.artist"></td>
                                     <td x-text="formatMs(track.duration_ms)"></td>
                                     <td x-text="track.bpm ? Number(track.bpm).toFixed(1) : '-'"></td>
                                     <td>
-                                        <div class="btn-group btn-group-sm">
-                                            <button class="dj-btn dj-btn-load dj-btn-load-a" @click="loadTrack('a', track.id)" title="Load to Deck A">A</button>
-                                            <button class="dj-btn dj-btn-load dj-btn-load-b" @click="loadTrack('b', track.id)" title="Load to Deck B">B</button>
+                                        <div class="dj2-load-group">
+                                            <button class="dj2-btn dj2-btn-load dj2-btn-load-a"
+                                                    @click="loadTrack('a', track.id)" title="Load to Deck A">A</button>
+                                            <button class="dj2-btn dj2-btn-load dj2-btn-load-b"
+                                                    @click="loadTrack('b', track.id)" title="Load to Deck B">B</button>
                                         </div>
                                     </td>
                                 </tr>
                             </template>
                             <tr x-show="libraryTracks.length === 0">
-                                <td colspan="6" class="text-center text-body-secondary py-4">
+                                <td colspan="6" class="dj2-lib-empty">
                                     <span x-show="!loading">No tracks found</span>
-                                    <span x-show="loading"><i class="bi bi-arrow-repeat dj-spin"></i> Loading...</span>
+                                    <span x-show="loading"><i class="bi bi-arrow-repeat dj2-spin"></i> Loading...</span>
                                 </td>
                             </tr>
                         </tbody>
@@ -456,640 +532,1052 @@
                 </div>
             </div>
         </div>
-    </div>
-</div>
+
+        <!-- ========================================================= -->
+        <!-- IRT PANEL — collapsed by default                          -->
+        <!-- ========================================================= -->
+        <div class="dj2-irt-section" x-data="{ irtOpen: false }">
+            <button class="dj2-irt-toggle" @click="irtOpen = !irtOpen">
+                <span><i class="bi bi-broadcast me-2"></i>Now Playing (IRT)</span>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="dj2-irt-refresh-btn"
+                            id="webdjIrtRefreshBtn"
+                            @click.stop="$el.dispatchEvent(new Event('irt-refresh'))">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <i class="bi" :class="irtOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                </div>
+            </button>
+            <div class="dj2-irt-body" x-show="irtOpen" x-cloak>
+                <div id="webdjIrtNowPlaying" class="dj2-irt-now mb-2">Loading current playback...</div>
+                <div id="webdjIrtUpcoming" class="irt-list"></div>
+            </div>
+        </div>
+
+    </div><!-- /dj2-surface -->
+</div><!-- /webdj-app -->
 
 <style>
 /* ================================================================
-   WebDJ Console - Professional DJ Styling
-   Uses BS5 CSS custom properties for theme compatibility
+   WebDJ Console dj2 — Professional Hardware Surface
+   Always-dark: overrides app theme intentionally.
+   Color palette:
+     Console bg  : #111111
+     Deck bg     : #161616
+     Mixer bg    : #0e0e0e
+     Deck A      : #3b8fff (blue)
+     Deck B      : #ff6b35 (orange)
+     Playing     : #4ade80 (green)
+     Paused/cued : #fbbf24 (amber)
    ================================================================ */
 
-/* ---- Base / Reset ---- */
 [x-cloak] { display: none !important; }
 
-.dj-card {
-    border-color: var(--bs-border-color);
-    background: var(--bs-body-bg);
-}
-.dj-card-header {
-    background: var(--bs-tertiary-bg);
-    border-bottom-color: var(--bs-border-color);
+/* ---- Surface (always dark wrapper) ---- */
+.dj2-surface {
+    background: #111111;
+    border-radius: 10px;
+    overflow: hidden;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: #e0e0e0;
 }
 
 /* ---- Start Screen ---- */
-.dj-start-icon {
+.dj2-start-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 3rem 1rem;
+}
+.dj2-start-card {
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 3rem 2.5rem;
+    text-align: center;
+    max-width: 420px;
+    width: 100%;
+}
+.dj2-start-disc {
     font-size: 4rem;
-    color: var(--bs-primary);
-    animation: dj-disc-spin 4s linear infinite;
+    color: #ff6b35;
+    animation: dj2-spin 4s linear infinite;
+    display: inline-block;
+    margin-bottom: 1.25rem;
 }
-@keyframes dj-disc-spin {
+@keyframes dj2-spin {
     from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    to   { transform: rotate(360deg); }
 }
-.dj-start-btn {
-    padding: 0.75rem 2.5rem;
-    font-size: 1.1rem;
-    border-radius: 2rem;
+.dj2-start-title {
+    font-family: ui-monospace, 'Courier New', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #ffffff;
+    margin-bottom: 0.75rem;
 }
+.dj2-start-sub {
+    color: #888;
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+}
+.dj2-start-notice {
+    background: rgba(59,143,255,0.12);
+    border: 1px solid rgba(59,143,255,0.3);
+    border-radius: 6px;
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+    color: #3b8fff;
+    margin-bottom: 1.25rem;
+}
+.dj2-start-btn {
+    background: #ff6b35;
+    color: #fff;
+    border: none;
+    border-radius: 30px;
+    padding: 0.7rem 2.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s;
+}
+.dj2-start-btn:hover { filter: brightness(1.15); }
 
 /* ---- Broadcast Bar ---- */
-.dj-broadcast-bar {
-    background: var(--bs-tertiary-bg);
-    border: 1px solid var(--bs-border-color);
-    border-radius: var(--bs-border-radius);
-    padding: 0.5rem 1rem;
+.dj2-broadcast-bar {
+    background: #0e0e0e;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 0 12px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     transition: border-color 0.3s, box-shadow 0.3s;
+    position: relative;
 }
-.dj-broadcast-bar.dj-on-air {
-    border-color: var(--bs-danger);
-    box-shadow: 0 0 12px rgba(220, 53, 69, 0.25);
+.dj2-on-air {
+    border-color: #dc2626 !important;
+    box-shadow: 0 0 14px rgba(220, 38, 38, 0.3);
 }
+.dj2-bar-left, .dj2-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.dj2-bar-selects { display: flex; gap: 6px; }
+.dj2-bar-live-info { display: flex; align-items: center; gap: 6px; }
+.dj2-bar-live-to { font-size: 0.72rem; color: #888; }
 
-.dj-live-dot {
-    width: 10px;
-    height: 10px;
+.dj2-live-dot {
+    width: 9px; height: 9px;
     border-radius: 50%;
-    background: var(--bs-secondary);
-    display: inline-block;
+    background: #444;
+    flex-shrink: 0;
     transition: background 0.3s;
 }
-.dj-live-dot.active {
-    background: var(--bs-danger);
-    animation: dj-pulse 1.2s ease-in-out infinite;
+.dj2-live-dot--active {
+    background: #dc2626;
+    animation: dj2-pulse 1.2s ease-in-out infinite;
 }
-@keyframes dj-pulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.6); }
-    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(220, 53, 69, 0); }
+@keyframes dj2-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220,38,38,.6); }
+    50%       { opacity: .7; box-shadow: 0 0 0 5px rgba(220,38,38,0); }
 }
 
-/* ---- Console Container ---- */
-.dj-console {
-    background: var(--bs-tertiary-bg);
-    border: 1px solid var(--bs-border-color);
-    border-radius: var(--bs-border-radius-lg);
+.dj2-onair-label {
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #666;
+}
+.dj2-onair-label--live { color: #dc2626; }
+
+.dj2-badge-danger {
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+}
+
+.dj2-golive-btn {
+    height: 28px;
+    padding: 0 14px;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: filter 0.15s;
+    white-space: nowrap;
+}
+.dj2-golive-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.dj2-golive-btn:hover:not(:disabled) { filter: brightness(1.15); }
+.dj2-golive-btn--on  { background: #16a34a; color: #fff; }
+.dj2-golive-btn--off { background: #dc2626; color: #fff; }
+
+/* ---- Engine grid ---- */
+.dj2-engine {
+    display: grid;
+    grid-template-columns: 1fr 155px 1fr;
+    gap: 0;
+    background: #0a0a0a;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
     overflow: hidden;
 }
 
 /* ---- Decks ---- */
-.dj-deck {
-    padding: 0.75rem;
-    background: var(--bs-body-bg);
+.dj2-deck {
+    background: #161616;
+    padding: 10px;
     transition: box-shadow 0.3s;
 }
-.dj-deck-playing {
-    box-shadow: inset 0 0 0 2px var(--bs-success);
-}
+.dj2-deck-a { border-right: 1px solid #222; }
+.dj2-deck-b { border-left:  1px solid #222; }
+.dj2-deck--playing { box-shadow: inset 0 0 0 2px #4ade80; }
 
-.dj-deck-header {
+.dj2-deck-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 0.5rem;
+    margin-bottom: 6px;
 }
-.dj-deck-label {
+.dj2-deck-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 26px; height: 26px;
     border-radius: 4px;
-    font-weight: 700;
+    font-weight: 800;
     font-size: 0.85rem;
     color: #fff;
 }
-.dj-deck-label-a { background: var(--bs-primary); }
-.dj-deck-label-b { background: var(--bs-danger); }
+.dj2-deck-badge-a { background: #3b8fff; }
+.dj2-deck-badge-b { background: #ff6b35; }
 
-.dj-state-badge {
-    font-size: 0.65rem;
-    letter-spacing: 0.05em;
+.dj2-state-chip {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid transparent;
+}
+.dj2-state-chip--playing {
+    color: #4ade80;
+    border-color: rgba(74,222,128,0.3);
+    background: rgba(74,222,128,0.1);
+}
+.dj2-state-chip--paused {
+    color: #fbbf24;
+    border-color: rgba(251,191,36,0.3);
+    background: rgba(251,191,36,0.08);
+}
+.dj2-state-chip--idle {
+    color: #555;
+    border-color: #2a2a2a;
+}
+
+/* ---- VU Meters ---- */
+.dj2-vu {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 20px;
+    padding: 0 2px;
+    margin-bottom: 6px;
+}
+.dj2-vu-seg {
+    flex: 1;
+    height: 4px;
+    border-radius: 1px;
+    background: #222;
+    /* color set by nth-child, used as CSS var in keyframe */
+}
+/* Segment colors by position */
+.dj2-vu-seg:nth-child(-n+6) { --vu-c: #4ade80; }
+.dj2-vu-seg:nth-child(7),
+.dj2-vu-seg:nth-child(8)    { --vu-c: #fbbf24; }
+.dj2-vu-seg:nth-child(9),
+.dj2-vu-seg:nth-child(10)   { --vu-c: #f87171; }
+
+/* Active: bounce animation with staggered delays */
+.dj2-vu--active .dj2-vu-seg:nth-child(1)  { animation: vu-bar 0.41s 0.00s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(2)  { animation: vu-bar 0.37s 0.05s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(3)  { animation: vu-bar 0.44s 0.02s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(4)  { animation: vu-bar 0.39s 0.08s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(5)  { animation: vu-bar 0.46s 0.03s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(6)  { animation: vu-bar 0.35s 0.06s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(7)  { animation: vu-bar-hi 0.52s 0.09s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(8)  { animation: vu-bar-hi 0.48s 0.12s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(9)  { animation: vu-bar-pk 0.70s 0.04s ease-in-out infinite alternate; }
+.dj2-vu--active .dj2-vu-seg:nth-child(10) { animation: vu-bar-pk 0.90s 0.07s ease-in-out infinite alternate; }
+
+@keyframes vu-bar {
+    from { height: 5px;  background: var(--vu-c); opacity: 0.8; }
+    to   { height: 18px; background: var(--vu-c); opacity: 1.0; }
+}
+@keyframes vu-bar-hi {
+    from { height: 3px;  background: var(--vu-c); opacity: 0.4; }
+    to   { height: 13px; background: var(--vu-c); opacity: 1.0; }
+}
+@keyframes vu-bar-pk {
+    from { height: 3px; background: #222; opacity: 0; }
+    to   { height: 9px; background: var(--vu-c); opacity: 1.0; }
 }
 
 /* ---- Waveform ---- */
-.dj-waveform {
+.dj2-waveform {
     position: relative;
-    height: 80px;
-    background: color-mix(in srgb, var(--bs-body-bg) 60%, black);
-    border-radius: 6px;
-    cursor: pointer;
+    height: 120px;
+    background: #0a0a0a;
+    border-radius: 5px;
+    cursor: crosshair;
     overflow: hidden;
-    margin-bottom: 0.5rem;
-    border: 1px solid var(--bs-border-color);
+    margin-bottom: 7px;
+    border: 1px solid #222;
 }
-.dj-waveform canvas {
+.dj2-waveform canvas {
     width: 100%;
     height: 100%;
     display: block;
 }
-.dj-waveform-played {
+.dj2-waveform-played {
     position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    background: rgba(13, 110, 253, 0.12);
+    top: 0; left: 0; bottom: 0;
     pointer-events: none;
+    transition: width 0.1s linear;
 }
-.dj-waveform-played-b {
-    background: rgba(220, 53, 69, 0.12);
-}
-.dj-waveform-cursor {
+.dj2-waveform-played-a { background: rgba(59,143,255,0.18); }
+.dj2-waveform-played-b { background: rgba(255,107,53,0.18); }
+
+.dj2-waveform-cursor {
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: 0; bottom: 0;
     width: 2px;
-    background: var(--bs-primary);
     pointer-events: none;
-    box-shadow: 0 0 4px var(--bs-primary);
 }
-.dj-waveform-cursor-b {
-    background: var(--bs-danger);
-    box-shadow: 0 0 4px var(--bs-danger);
+.dj2-waveform-cursor-a {
+    background: #3b8fff;
+    box-shadow: 0 0 6px rgba(59,143,255,0.8);
+}
+.dj2-waveform-cursor-b {
+    background: #ff6b35;
+    box-shadow: 0 0 6px rgba(255,107,53,0.8);
 }
 
 /* ---- Track Info ---- */
-.dj-track-info {
-    margin-bottom: 0.5rem;
-    min-height: 52px;
+.dj2-track-info {
+    margin-bottom: 7px;
+    min-height: 50px;
 }
-.dj-track-title {
-    font-weight: 600;
-    font-size: 0.9rem;
+.dj2-track-title {
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: #ffffff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.dj-track-artist {
-    font-size: 0.8rem;
-    color: var(--bs-secondary-color);
+.dj2-track-artist {
+    font-size: 0.78rem;
+    color: #777;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.dj-track-time {
+.dj2-track-time {
+    font-family: ui-monospace, 'Courier New', monospace;
     font-size: 0.78rem;
     margin-top: 2px;
     font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    gap: 2px;
 }
-.dj-time-current {
-    font-weight: 600;
-}
-.dj-time-sep {
-    color: var(--bs-secondary-color);
-    margin: 0 2px;
-}
-.dj-time-total {
-    color: var(--bs-secondary-color);
-}
-.dj-bpm-badge {
+.dj2-time-current { font-weight: 700; color: #e0e0e0; }
+.dj2-time-sep     { color: #444; }
+.dj2-time-total   { color: #666; }
+
+.dj2-bpm-chip {
     display: inline-block;
-    background: var(--bs-tertiary-bg);
-    border: 1px solid var(--bs-border-color);
+    padding: 1px 6px;
     border-radius: 3px;
-    padding: 0 4px;
-    margin-left: 6px;
-    font-size: 0.7rem;
-    font-weight: 600;
+    font-size: 0.67rem;
+    font-weight: 700;
+    margin-left: 8px;
+}
+.dj2-bpm-chip-a {
+    background: rgba(59,143,255,0.15);
+    color: #3b8fff;
+    border: 1px solid rgba(59,143,255,0.3);
+}
+.dj2-bpm-chip-b {
+    background: rgba(255,107,53,0.15);
+    color: #ff6b35;
+    border: 1px solid rgba(255,107,53,0.3);
 }
 
-/* ---- Buttons ---- */
-.dj-btn {
+/* ---- Buttons (base) ---- */
+.dj2-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--bs-border-color);
-    background: var(--bs-tertiary-bg);
-    color: var(--bs-body-color);
+    background: #232323;
+    border: 1px solid #333;
+    color: #ccc;
     cursor: pointer;
-    transition: all 0.15s;
     border-radius: 4px;
     font-size: 0.8rem;
+    transition: background 0.12s, color 0.12s;
 }
-.dj-btn:hover {
-    background: var(--bs-secondary-bg);
-}
-.dj-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
+.dj2-btn:hover:not(:disabled) { background: #2e2e2e; color: #fff; }
+.dj2-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* Transport */
-.dj-transport {
+.dj2-transport {
     display: flex;
     justify-content: center;
     gap: 4px;
-    margin-bottom: 0.5rem;
+    margin-bottom: 7px;
 }
-.dj-btn-transport {
-    width: 36px;
-    height: 36px;
-    font-size: 1rem;
-    border-radius: 6px;
+.dj2-btn-transport { width: 36px; height: 36px; font-size: 1rem; }
+.dj2-btn-play      { width: 48px; height: 36px; font-size: 1.1rem; }
+.dj2-btn-play-a { background: #16a34a; border-color: #16a34a; color: #fff; }
+.dj2-btn-play-a:hover:not(:disabled) { background: #15803d; color: #fff; }
+.dj2-btn-play-a.dj2-btn--active {
+    background: #d97706; border-color: #d97706; color: #000;
+    box-shadow: 0 0 8px rgba(217,119,6,0.5);
 }
-.dj-btn-play {
-    width: 48px;
-    height: 36px;
-    font-size: 1.1rem;
-    border-radius: 6px;
-    background: var(--bs-success);
-    border-color: var(--bs-success);
-    color: #fff;
+.dj2-btn-play-b { background: #16a34a; border-color: #16a34a; color: #fff; }
+.dj2-btn-play-b:hover:not(:disabled) { background: #15803d; color: #fff; }
+.dj2-btn-play-b.dj2-btn--active {
+    background: #d97706; border-color: #d97706; color: #000;
+    box-shadow: 0 0 8px rgba(217,119,6,0.5);
 }
-.dj-btn-play:hover {
-    filter: brightness(1.1);
-    background: var(--bs-success);
-    color: #fff;
-}
-.dj-btn-play.dj-btn-active {
-    background: var(--bs-warning);
-    border-color: var(--bs-warning);
-    color: #000;
-    box-shadow: 0 0 8px rgba(255, 193, 7, 0.5);
-}
-.dj-btn-eject {
-    width: 36px;
-    height: 36px;
-    font-size: 1rem;
-    border-radius: 6px;
-    color: var(--bs-danger);
-}
-.dj-btn-eject:hover {
-    background: var(--bs-danger);
-    color: #fff;
-}
+.dj2-btn-eject { width: 36px; height: 36px; font-size: 1rem; color: #dc2626; }
+.dj2-btn-eject:hover:not(:disabled) { background: #dc2626; color: #fff; }
 
 /* Hot Cues */
-.dj-hotcues {
+.dj2-hotcues {
     display: flex;
     justify-content: center;
     gap: 3px;
-    margin-bottom: 0.5rem;
+    margin-bottom: 7px;
 }
-.dj-btn-cue {
-    width: 26px;
-    height: 26px;
+.dj2-cue-btn {
+    width: 27px; height: 27px;
     padding: 0;
-    font-size: 0.7rem;
+    font-size: 0.68rem;
+    font-weight: 700;
     border-radius: 50%;
-    font-weight: 600;
+    border: 1px solid #333;
+    background: #1e1e1e;
+    color: #555;
+    cursor: pointer;
+    transition: all 0.12s;
 }
-.dj-btn-cue.has-cue,
-.dj-btn-cue.btn-warning {
-    background: var(--bs-warning) !important;
-    border-color: var(--bs-warning) !important;
-    color: #000 !important;
-    box-shadow: 0 0 4px rgba(255, 193, 7, 0.4);
-}
+.dj2-cue-btn:hover { background: #2a2a2a; color: #aaa; }
+
+/* 8 unique cue pad colors when .has-cue is set */
+.dj2-cue-btn--1.has-cue { background: #dc2626 !important; border-color: #dc2626 !important; color: #fff !important; box-shadow: 0 0 5px rgba(220,38,38,.5); }
+.dj2-cue-btn--2.has-cue { background: #ea580c !important; border-color: #ea580c !important; color: #fff !important; box-shadow: 0 0 5px rgba(234,88,12,.5); }
+.dj2-cue-btn--3.has-cue { background: #ca8a04 !important; border-color: #ca8a04 !important; color: #000 !important; box-shadow: 0 0 5px rgba(202,138,4,.5); }
+.dj2-cue-btn--4.has-cue { background: #16a34a !important; border-color: #16a34a !important; color: #fff !important; box-shadow: 0 0 5px rgba(22,163,74,.5); }
+.dj2-cue-btn--5.has-cue { background: #0891b2 !important; border-color: #0891b2 !important; color: #fff !important; box-shadow: 0 0 5px rgba(8,145,178,.5); }
+.dj2-cue-btn--6.has-cue { background: #3b8fff !important; border-color: #3b8fff !important; color: #fff !important; box-shadow: 0 0 5px rgba(59,143,255,.5); }
+.dj2-cue-btn--7.has-cue { background: #9333ea !important; border-color: #9333ea !important; color: #fff !important; box-shadow: 0 0 5px rgba(147,51,234,.5); }
+.dj2-cue-btn--8.has-cue { background: #db2777 !important; border-color: #db2777 !important; color: #fff !important; box-shadow: 0 0 5px rgba(219,39,119,.5); }
+/* btn-warning from getCueClass is harmless — has-cue wins via specificity */
 
 /* Pitch */
-.dj-pitch-section {
-    text-align: center;
-}
-.dj-pitch-range {
-    width: 100%;
-}
+.dj2-pitch-section { text-align: center; }
+.dj2-pitch-range   { width: 100%; }
 
 /* ---- Mixer Strip ---- */
-.dj-mixer {
-    background: color-mix(in srgb, var(--bs-tertiary-bg) 80%, black);
-    border-left: 1px solid var(--bs-border-color);
-    border-right: 1px solid var(--bs-border-color);
-    padding: 0.75rem 0.5rem;
-}
-.dj-mixer-inner {
+.dj2-mixer {
+    background: #0e0e0e;
+    padding: 10px 6px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
-    height: 100%;
+    gap: 8px;
 }
-.dj-mixer-section {
-    text-align: center;
-    width: 100%;
-}
-.dj-mixer-divider {
+.dj2-mixer-section { text-align: center; width: 100%; }
+.dj2-mixer-divider {
     width: 80%;
     height: 1px;
-    background: var(--bs-border-color);
+    background: linear-gradient(to right, transparent, #2a2a2a, transparent);
 }
 
-.dj-knob-label {
+.dj2-knob-label {
     display: block;
-    font-size: 0.65rem;
-    font-weight: 700;
+    font-size: 0.6rem;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--bs-secondary-color);
+    letter-spacing: 0.1em;
+    color: #555;
     margin-bottom: 2px;
 }
-
-/* Faders (vertical range inputs) */
-.dj-fader-wrap {
-    display: flex;
-    justify-content: center;
+.dj2-fader-value {
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: #555;
+    font-variant-numeric: tabular-nums;
 }
-.dj-fader {
+.dj2-fader-wrap { display: flex; justify-content: center; }
+
+/* Vertical faders */
+.dj2-fader {
     writing-mode: vertical-lr;
     direction: rtl;
     height: 80px;
     width: 28px;
 }
-.dj-fader-value {
-    font-size: 0.65rem;
-    font-weight: 600;
-    color: var(--bs-secondary-color);
-    font-variant-numeric: tabular-nums;
-}
-
-/* EQ Section */
-.dj-eq-section {
-    display: flex;
-    gap: 0.5rem;
-    width: 100%;
-}
-.dj-eq-column {
-    flex: 1;
-    text-align: center;
-}
-.dj-eq-group {
-    display: flex;
-    justify-content: center;
-    gap: 2px;
-}
-.dj-eq-knob-wrap {
+.dj2-eq-section { display: flex; gap: 4px; width: 100%; }
+.dj2-eq-column  { flex: 1; text-align: center; }
+.dj2-eq-group   { display: flex; justify-content: center; gap: 2px; }
+.dj2-eq-knob-wrap {
     display: flex;
     flex-direction: column;
     align-items: center;
 }
-.dj-eq-label {
-    font-size: 0.55rem;
+.dj2-eq-label {
+    font-size: 0.52rem;
     font-weight: 700;
     text-transform: uppercase;
-    color: var(--bs-secondary-color);
-    letter-spacing: 0.05em;
+    color: #444;
+    letter-spacing: 0.06em;
 }
-.dj-eq-fader {
+.dj2-eq-fader {
     writing-mode: vertical-lr;
     direction: rtl;
     height: 60px;
     width: 20px;
 }
 
-/* Channel Faders */
-.dj-channel-faders {
+.dj2-channel-faders {
     display: flex;
     justify-content: center;
-    gap: 1rem;
+    gap: 12px;
     width: 100%;
 }
-.dj-channel-fader-wrap {
+.dj2-channel-fader-wrap {
     display: flex;
     flex-direction: column;
     align-items: center;
+    gap: 2px;
 }
 
 /* Crossfader */
-.dj-crossfader-section {
-    width: 100%;
-    text-align: center;
-}
-.dj-crossfader-labels {
+.dj2-crossfader-section { width: 100%; text-align: center; }
+.dj2-crossfader-labels {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 4px;
+    padding: 0 2px;
     margin-bottom: 2px;
 }
-.dj-crossfader-labels .dj-deck-label-a,
-.dj-crossfader-labels .dj-deck-label-b {
-    font-size: 0.7rem;
-    font-weight: 700;
-}
-.dj-crossfader-labels .dj-deck-label-a { color: var(--bs-primary); }
-.dj-crossfader-labels .dj-deck-label-b { color: var(--bs-danger); }
-.dj-crossfader {
-    width: 100%;
-}
+.dj2-xf-label-a { font-size: 0.68rem; font-weight: 800; color: #3b8fff; }
+.dj2-xf-label-b { font-size: 0.68rem; font-weight: 800; color: #ff6b35; }
+.dj2-crossfader { width: 100%; }
 
-/* ---- Monitor Bar ---- */
-.dj-monitor-bar {
-    background: var(--bs-tertiary-bg);
-    border: 1px solid var(--bs-border-color);
-    border-radius: var(--bs-border-radius);
-    padding: 0.5rem 1rem;
-}
-.dj-monitor-icon {
-    font-size: 1.1rem;
-    color: var(--bs-secondary-color);
-}
-.dj-monitor-label {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: var(--bs-secondary-color);
-    letter-spacing: 0.05em;
-    white-space: nowrap;
-}
-.dj-monitor-range {
-    width: 100px;
-}
-.dj-monitor-sep {
-    width: 1px;
-    height: 24px;
-    background: var(--bs-border-color);
-}
-
-/* CUE select buttons */
-.dj-btn-cue-select {
-    padding: 4px 12px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    border-radius: 4px;
-}
-.dj-btn-cue-active-a {
-    background: var(--bs-primary) !important;
-    border-color: var(--bs-primary) !important;
-    color: #fff !important;
-    box-shadow: 0 0 6px rgba(13, 110, 253, 0.5);
-}
-.dj-btn-cue-active-b {
-    background: var(--bs-danger) !important;
-    border-color: var(--bs-danger) !important;
-    color: #fff !important;
-    box-shadow: 0 0 6px rgba(220, 53, 69, 0.5);
-}
-
-/* Split button */
-.dj-btn-split {
-    padding: 4px 12px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    border-radius: 4px;
-}
-.dj-btn-split-active {
-    background: var(--bs-info) !important;
-    border-color: var(--bs-info) !important;
-    color: #fff !important;
-    box-shadow: 0 0 6px rgba(13, 202, 240, 0.4);
-}
-
-/* ---- Range Input Styling ---- */
-.dj-range {
+/* ---- Range input styling ---- */
+.dj2-range {
     -webkit-appearance: none;
     appearance: none;
     background: transparent;
     cursor: pointer;
 }
-.dj-range::-webkit-slider-runnable-track {
-    background: var(--bs-secondary-bg);
+.dj2-range::-webkit-slider-runnable-track {
+    background: #2a2a2a;
     border-radius: 3px;
-    height: 6px;
+    height: 5px;
 }
-.dj-range::-webkit-slider-thumb {
+.dj2-range::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--bs-body-color);
-    border: 2px solid var(--bs-body-bg);
-    margin-top: -4px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    width: 12px;
+    height: 18px;
+    border-radius: 2px;
+    background: #cccccc;
+    border: 1px solid #444;
+    margin-top: -6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.5);
 }
-.dj-range::-moz-range-track {
-    background: var(--bs-secondary-bg);
+.dj2-range::-moz-range-track {
+    background: #2a2a2a;
     border-radius: 3px;
-    height: 6px;
+    height: 5px;
 }
-.dj-range::-moz-range-thumb {
+.dj2-range::-moz-range-thumb {
+    width: 12px;
+    height: 18px;
+    border-radius: 2px;
+    background: #cccccc;
+    border: 1px solid #444;
+    box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+/* Vertical fader track */
+.dj2-fader::-webkit-slider-runnable-track,
+.dj2-eq-fader::-webkit-slider-runnable-track { width: 5px; height: 100%; }
+.dj2-fader::-moz-range-track,
+.dj2-eq-fader::-moz-range-track             { width: 5px; height: 100%; }
+/* Pitch range — round thumb */
+.dj2-pitch-range::-webkit-slider-thumb {
+    border-radius: 50%;
     width: 14px;
     height: 14px;
+    margin-top: -5px;
+    background: #e0e0e0;
+}
+.dj2-pitch-range::-moz-range-thumb {
     border-radius: 50%;
-    background: var(--bs-body-color);
-    border: 2px solid var(--bs-body-bg);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    width: 14px;
+    height: 14px;
+}
+/* Crossfader — wider rectangular thumb */
+.dj2-crossfader::-webkit-slider-thumb {
+    width: 16px;
+    height: 22px;
+    border-radius: 3px;
+    margin-top: -9px;
+}
+.dj2-crossfader::-moz-range-thumb {
+    width: 16px;
+    height: 22px;
+    border-radius: 3px;
 }
 
-/* Vertical fader track overrides */
-.dj-fader::-webkit-slider-runnable-track,
-.dj-eq-fader::-webkit-slider-runnable-track {
-    width: 6px;
-    height: 100%;
+/* ---- Monitor Bar ---- */
+.dj2-monitor-bar {
+    background: #0e0e0e;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 6px 14px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
 }
-.dj-fader::-moz-range-track,
-.dj-eq-fader::-moz-range-track {
-    width: 6px;
-    height: 100%;
+.dj2-monitor-icon { font-size: 1rem; color: #555; }
+.dj2-monitor-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #555;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+.dj2-monitor-range { width: 90px; }
+.dj2-monitor-sep   { width: 1px; height: 20px; background: #2a2a2a; }
+
+/* CUE select buttons */
+.dj2-btn-cue-select {
+    padding: 3px 10px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    height: 26px;
+}
+.dj2-btn-cue-active-a {
+    background: #3b8fff !important;
+    border-color: #3b8fff !important;
+    color: #fff !important;
+    box-shadow: 0 0 6px rgba(59,143,255,.5);
+}
+.dj2-btn-cue-active-b {
+    background: #ff6b35 !important;
+    border-color: #ff6b35 !important;
+    color: #fff !important;
+    box-shadow: 0 0 6px rgba(255,107,53,.5);
+}
+.dj2-btn-split {
+    padding: 3px 10px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    height: 26px;
+}
+.dj2-btn-split-active {
+    background: #0e7490 !important;
+    border-color: #0e7490 !important;
+    color: #fff !important;
+    box-shadow: 0 0 6px rgba(14,116,144,.4);
 }
 
 /* ---- Library ---- */
-.dj-library-table thead {
-    background: var(--bs-tertiary-bg);
+.dj2-library-card {
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
 }
-.dj-library-table thead th {
-    font-size: 0.7rem;
+.dj2-library-header {
+    background: #0a0a0a;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 7px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+.dj2-library-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #aaa;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--bs-secondary-color);
-    font-weight: 700;
-    border-bottom-color: var(--bs-border-color);
+    letter-spacing: 0.08em;
 }
-.dj-library-row {
+.dj2-library-body { }
+.dj2-library-scroll { max-height: 280px; overflow-y: auto; }
+
+.dj2-library-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    color: #ccc;
+}
+.dj2-library-table thead {
+    background: #0d0d0d;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.dj2-library-table thead th {
+    padding: 5px 8px;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #444;
+    border-bottom: 1px solid #222;
+    white-space: nowrap;
+}
+.dj2-library-table tbody td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #1a1a1a;
+    vertical-align: middle;
+}
+.dj2-library-row {
     cursor: grab;
+    transition: background 0.1s;
 }
-.dj-library-row:active {
-    cursor: grabbing;
+.dj2-library-row:hover { background: rgba(59,143,255,0.08); }
+.dj2-library-row:active { cursor: grabbing; }
+.dj2-lib-secondary { color: #666; }
+.dj2-lib-empty {
+    text-align: center;
+    color: #555;
+    padding: 2rem;
 }
-.dj-btn-load {
-    padding: 2px 8px;
-    font-size: 0.7rem;
-    font-weight: 700;
+.dj2-artwork {
+    width: 30px; height: 30px;
+    object-fit: cover;
     border-radius: 3px;
+    display: block;
 }
-.dj-btn-load-a {
-    color: var(--bs-primary);
-    border-color: var(--bs-primary);
+
+.dj2-load-group { display: flex; gap: 2px; }
+.dj2-btn-load {
+    padding: 2px 7px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    border-radius: 3px;
+    height: 22px;
 }
-.dj-btn-load-a:hover {
-    background: var(--bs-primary);
-    color: #fff;
-}
-.dj-btn-load-b {
-    color: var(--bs-danger);
-    border-color: var(--bs-danger);
-}
-.dj-btn-load-b:hover {
-    background: var(--bs-danger);
-    color: #fff;
-}
+.dj2-btn-load-a { color: #3b8fff; border-color: #3b8fff; }
+.dj2-btn-load-a:hover:not(:disabled) { background: #3b8fff; color: #fff; }
+.dj2-btn-load-b { color: #ff6b35; border-color: #ff6b35; }
+.dj2-btn-load-b:hover:not(:disabled) { background: #ff6b35; color: #fff; }
 
 /* Form controls */
-.dj-input, .dj-select {
-    background: var(--bs-body-bg);
-    border-color: var(--bs-border-color);
-    color: var(--bs-body-color);
+.dj2-input, .dj2-select {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #ccc;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 0.78rem;
+    outline: none;
 }
+.dj2-input:focus, .dj2-select:focus { border-color: #3b8fff; }
+.dj2-select--narrow { width: 110px; }
+.dj2-select--full   { width: 100%; }
+
+/* ---- IRT Panel ---- */
+.dj2-irt-section {
+    background: #0e0e0e;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.dj2-irt-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: color 0.15s;
+}
+.dj2-irt-toggle:hover { color: #ccc; }
+.dj2-irt-body {
+    padding: 10px 12px 12px;
+    border-top: 1px solid #1e1e1e;
+}
+.dj2-irt-now {
+    font-size: 0.82rem;
+    color: #aaa;
+}
+.dj2-irt-refresh-btn {
+    background: transparent;
+    border: 1px solid #333;
+    color: #666;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.dj2-irt-refresh-btn:hover { color: #ccc; border-color: #555; }
+
+/* IRT list items (shared with JS rendering) */
+.irt-list .irt-item { border-bottom: 1px solid #1e1e1e; color: #bbb; }
+.irt-list .irt-item:last-child { border-bottom: 0; }
+.irt-now-pill { font-size: 0.65rem; }
+
+/* ---- MIDI Status & Panel ---- */
+.dj2-midi-status { position: relative; display: flex; align-items: center; gap: 6px; }
+
+.dj2-midi-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.dj2-midi-dot--off       { background: #444; }
+.dj2-midi-dot--ready     { background: #444; }
+.dj2-midi-dot--connected { background: #fbbf24; }
+.dj2-midi-dot--active    { background: #4ade80; animation: dj2-pulse 2s ease-in-out infinite; }
+
+.dj2-midi-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #666;
+    white-space: nowrap;
+}
+
+.dj2-midi-toggle-btn {
+    background: transparent;
+    border: 1px solid #333;
+    color: #666;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    line-height: 1;
+}
+.dj2-midi-toggle-btn:hover { color: #ccc; border-color: #555; }
+
+.dj2-midi-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 300px;
+    max-height: 480px;
+    overflow-y: auto;
+    background: #141414;
+    border: 1px solid #333;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.7);
+    z-index: 1000;
+    padding: 0;
+}
+.dj2-midi-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid #222;
+    position: sticky;
+    top: 0;
+    background: #141414;
+    z-index: 1;
+}
+.dj2-midi-panel-title {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: #888;
+}
+.dj2-midi-panel-close {
+    background: transparent;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 2px 4px;
+    transition: color 0.15s;
+}
+.dj2-midi-panel-close:hover { color: #ccc; }
+
+.dj2-midi-browser-notice {
+    margin: 10px 14px;
+    padding: 8px 10px;
+    background: rgba(251,191,36,0.1);
+    border: 1px solid rgba(251,191,36,0.3);
+    border-radius: 5px;
+    font-size: 0.75rem;
+    color: #fbbf24;
+}
+.dj2-midi-browser-notice a { color: #3b8fff; }
+
+.dj2-midi-section-label {
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #444;
+    padding: 8px 14px 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.dj2-midi-section-label--learn { border-top: 1px solid #1e1e1e; margin-top: 4px; }
+
+.dj2-midi-device-list { padding: 0 14px 8px; }
+.dj2-midi-no-device { color: #444; font-size: 0.75rem; padding: 4px 0; }
+.dj2-midi-device-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #1e1e1e;
+    font-size: 0.78rem;
+    color: #aaa;
+}
+.dj2-midi-device-item:last-child { border-bottom: none; }
+.dj2-midi-device-icon { font-size: 1rem; flex-shrink: 0; }
+.dj2-midi-device-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dj2-midi-mini-btn {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    color: #888;
+    border-radius: 3px;
+    padding: 2px 7px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
+}
+.dj2-midi-mini-btn:hover { background: #2a2a2a; color: #ccc; }
+.dj2-midi-mini-btn--learn {
+    background: rgba(59,143,255,0.1);
+    border-color: rgba(59,143,255,0.4);
+    color: #3b8fff;
+}
+.dj2-midi-mini-btn--learn:hover { background: rgba(59,143,255,0.2); }
+.dj2-midi-learn-active {
+    background: rgba(251,191,36,0.2) !important;
+    border-color: #fbbf24 !important;
+    color: #fbbf24 !important;
+    animation: dj2-pulse 0.7s ease-in-out infinite;
+}
+.dj2-midi-mini-btn--clear {
+    background: rgba(220,38,38,0.1);
+    border-color: rgba(220,38,38,0.3);
+    color: #dc2626;
+}
+.dj2-midi-mini-btn--clear:hover { background: rgba(220,38,38,0.2); }
+
+.dj2-midi-mapped-badge {
+    font-size: 0.62rem;
+    color: #4ade80;
+    background: rgba(74,222,128,0.1);
+    border: 1px solid rgba(74,222,128,0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: ui-monospace, monospace;
+}
+
+.dj2-midi-learn-list { padding: 0 14px 10px; }
+.dj2-midi-learn-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid #181818;
+    gap: 6px;
+}
+.dj2-midi-learn-row:last-child { border-bottom: none; }
+.dj2-midi-learn-label { font-size: 0.73rem; color: #888; flex: 1; }
+.dj2-midi-learn-controls { display: flex; align-items: center; gap: 4px; }
 
 /* ---- Utilities ---- */
-.dj-spin {
-    animation: dj-disc-spin 1s linear infinite;
-}
+.dj2-spin { animation: dj2-spin 1s linear infinite; }
 
-/* IRT list */
-.irt-list .irt-item { border-bottom: 1px solid var(--bs-border-color); }
-.irt-list .irt-item:last-child { border-bottom: 0; }
-.irt-now-pill { font-size: 0.68rem; }
-
-/* ---- Responsive: Stack decks vertically on narrow screens ---- */
-@media (max-width: 991.98px) {
-    .dj-mixer {
-        border-left: none;
-        border-right: none;
-        border-top: 1px solid var(--bs-border-color);
-        border-bottom: 1px solid var(--bs-border-color);
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+    .dj2-engine {
+        grid-template-columns: 1fr;
     }
-    .dj-mixer-inner {
+    .dj2-deck-a { border-right: none; border-bottom: 1px solid #222; }
+    .dj2-deck-b { border-left: none;  border-top:    1px solid #222; }
+    .dj2-mixer {
         flex-direction: row;
         flex-wrap: wrap;
         justify-content: center;
+        padding: 8px;
     }
-    .dj-mixer-divider {
-        width: 1px;
-        height: 40px;
-    }
-    .dj-fader {
+    .dj2-mixer-divider { width: 1px; height: 40px; }
+    .dj2-fader {
         writing-mode: horizontal-tb;
         direction: ltr;
         height: auto;
-        width: 100px;
+        width: 80px;
     }
-    .dj-eq-fader {
+    .dj2-eq-fader {
         writing-mode: horizontal-tb;
         direction: ltr;
         height: auto;
-        width: 60px;
+        width: 50px;
     }
-    .dj-eq-group {
-        flex-direction: column;
-    }
-    .dj-eq-knob-wrap {
-        flex-direction: row;
-        gap: 4px;
-    }
-    .dj-channel-faders {
-        flex-direction: row;
-    }
-    .dj-channel-fader-wrap {
-        flex-direction: row;
-        gap: 4px;
-        align-items: center;
-    }
+    .dj2-eq-group { flex-direction: column; }
+    .dj2-eq-knob-wrap { flex-direction: row; gap: 4px; }
+    .dj2-channel-faders { flex-direction: row; }
+    .dj2-channel-fader-wrap { flex-direction: row; gap: 4px; align-items: center; }
+    .dj2-monitor-bar { justify-content: flex-start; }
 }
 </style>
 
 <script src="/static/js/webdj.js"></script>
+<script src="/static/js/webdj-midi.js"></script>
 <script>
 (function() {
     const stationID = '{{.Station.ID}}';
@@ -1116,9 +1604,9 @@
             <div class="d-flex align-items-center justify-content-between">
                 <div>
                     <div class="fw-semibold">${escapeHtml(np.artist || 'Unknown Artist')} - ${escapeHtml(np.title || 'Unknown Title')}</div>
-                    <small class="text-body-secondary">${source}</small>
+                    <small style="color:#888">${source}</small>
                 </div>
-                <span class="badge bg-success">LIVE</span>
+                <span class="dj2-badge-danger">LIVE</span>
             </div>
         `;
     }
@@ -1127,7 +1615,7 @@
         const now = new Date();
         const sorted = (entries || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
         if (sorted.length === 0) {
-            return '<div class="text-body-secondary small">No scheduled entries in the next 6 hours.</div>';
+            return '<div style="color:#555;font-size:.8rem">No scheduled entries in the next 6 hours.</div>';
         }
         return sorted.map(entry => {
             const start = new Date(entry.start);
@@ -1145,7 +1633,7 @@
                 <div class="irt-item py-2 d-flex align-items-center justify-content-between gap-2">
                     <div class="flex-grow-1">
                         <div class="fw-medium">${escapeHtml(entry.title || entry.extendedProps?.source_name || 'Untitled')} ${nowPill}</div>
-                        <div class="small text-body-secondary">${source} • ${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}</div>
+                        <div class="small" style="color:#666">${source} • ${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}</div>
                     </div>
                     <div class="d-flex gap-1">${editBtn}${removeBtn}</div>
                 </div>
@@ -1168,7 +1656,7 @@
             nowPlayingEl.innerHTML = renderNowPlaying(np);
             upcomingEl.innerHTML = renderEntries(entries);
         } catch (err) {
-            nowPlayingEl.innerHTML = '<span class="text-danger">Failed to load IRT state.</span>';
+            nowPlayingEl.innerHTML = '<span style="color:#dc2626">Failed to load IRT state.</span>';
         }
     }
 
@@ -1189,6 +1677,7 @@
     };
 
     refreshBtn?.addEventListener('click', refreshWebDJIRTPanel);
+    document.addEventListener('irt-refresh', refreshWebDJIRTPanel);
     refreshWebDJIRTPanel();
     setInterval(refreshWebDJIRTPanel, 10000);
 })();
