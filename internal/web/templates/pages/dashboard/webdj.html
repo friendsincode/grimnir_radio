@@ -188,8 +188,8 @@
 
                 <!-- Track Info -->
                 <div class="dj2-track-info">
-                    <div class="dj2-track-title" x-text="deckA.title || 'No Track Loaded'"></div>
-                    <div class="dj2-track-artist" x-text="deckA.artist || '---'"></div>
+                    <div class="dj2-track-title" x-text="deckA.title || deckA.originalFilename || 'No Track Loaded'"></div>
+                    <div class="dj2-track-artist" x-text="deckA.artist || (deckA.title ? '' : '---')"></div>
                     <div class="dj2-track-time">
                         <span class="dj2-time-current" x-text="formatMs(deckA.positionMs)">0:00</span>
                         <span class="dj2-time-sep">/</span>
@@ -372,8 +372,8 @@
 
                 <!-- Track Info -->
                 <div class="dj2-track-info">
-                    <div class="dj2-track-title" x-text="deckB.title || 'No Track Loaded'"></div>
-                    <div class="dj2-track-artist" x-text="deckB.artist || '---'"></div>
+                    <div class="dj2-track-title" x-text="deckB.title || deckB.originalFilename || 'No Track Loaded'"></div>
+                    <div class="dj2-track-artist" x-text="deckB.artist || (deckB.title ? '' : '---')"></div>
                     <div class="dj2-track-time">
                         <span class="dj2-time-current" x-text="formatMs(deckB.positionMs)">0:00</span>
                         <span class="dj2-time-sep">/</span>
@@ -504,11 +504,17 @@
                                     @dragstart="startDrag($event, track)"
                                     @dblclick="loadTrack('a', track.id)">
                                     <td>
-                                        <img :src="'/dashboard/webdj/media/' + track.id + '/artwork'"
-                                             class="dj2-artwork" alt="">
+                                        <template x-if="track.has_artwork">
+                                            <img :src="'/dashboard/webdj/media/' + track.id + '/artwork'"
+                                                 class="dj2-artwork" alt=""
+                                                 onerror="this.parentNode.innerHTML='<div class=\'dj2-artwork-placeholder\'><i class=\'bi bi-music-note\'></i></div>'">
+                                        </template>
+                                        <template x-if="!track.has_artwork">
+                                            <div class="dj2-artwork-placeholder"><i class="bi bi-music-note"></i></div>
+                                        </template>
                                     </td>
-                                    <td x-text="track.title"></td>
-                                    <td class="dj2-lib-secondary" x-text="track.artist"></td>
+                                    <td x-text="track.title || track.original_filename || '—'"></td>
+                                    <td class="dj2-lib-secondary" x-text="track.artist || (track.title ? '' : 'untagged')"></td>
                                     <td x-text="formatMs(track.duration_ms)"></td>
                                     <td x-text="track.bpm ? Number(track.bpm).toFixed(1) : '-'"></td>
                                     <td>
@@ -1289,6 +1295,17 @@
     object-fit: cover;
     border-radius: 3px;
     display: block;
+}
+.dj2-artwork-placeholder {
+    width: 30px; height: 30px;
+    border-radius: 3px;
+    background: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #333;
+    font-size: 0.75rem;
 }
 
 .dj2-load-group { display: flex; gap: 2px; }

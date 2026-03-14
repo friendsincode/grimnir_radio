@@ -102,27 +102,29 @@ func (h *Handler) WebDJLibrarySearch(w http.ResponseWriter, r *http.Request) {
 
 	// Return JSON response
 	type mediaResult struct {
-		ID         string  `json:"id"`
-		Title      string  `json:"title"`
-		Artist     string  `json:"artist"`
-		Album      string  `json:"album"`
-		Genre      string  `json:"genre"`
-		DurationMS int     `json:"duration_ms"`
-		BPM        float64 `json:"bpm"`
-		HasArtwork bool    `json:"has_artwork"`
+		ID               string  `json:"id"`
+		Title            string  `json:"title"`
+		Artist           string  `json:"artist"`
+		Album            string  `json:"album"`
+		Genre            string  `json:"genre"`
+		DurationMS       int     `json:"duration_ms"`
+		BPM              float64 `json:"bpm"`
+		HasArtwork       bool    `json:"has_artwork"`
+		OriginalFilename string  `json:"original_filename"`
 	}
 
 	results := make([]mediaResult, len(media))
 	for i, m := range media {
 		results[i] = mediaResult{
-			ID:         m.ID,
-			Title:      m.Title,
-			Artist:     m.Artist,
-			Album:      m.Album,
-			Genre:      m.Genre,
-			DurationMS: int(m.Duration.Milliseconds()),
-			BPM:        m.BPM,
-			HasArtwork: len(m.Artwork) > 0,
+			ID:               m.ID,
+			Title:            m.Title,
+			Artist:           m.Artist,
+			Album:            m.Album,
+			Genre:            m.Genre,
+			DurationMS:       int(m.Duration.Milliseconds()),
+			BPM:              m.BPM,
+			HasArtwork:       len(m.Artwork) > 0,
+			OriginalFilename: m.OriginalFilename,
 		}
 	}
 
