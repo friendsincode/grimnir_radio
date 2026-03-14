@@ -1358,16 +1358,32 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    let currentCalendarView = 'timeGridWeek';
+    // Helper: shift a Date by N days without mutating it
+    function shiftDays(date, n) {
+        const d = new Date(date);
+        d.setDate(d.getDate() + n);
+        return d;
+    }
+
+    let currentCalendarView = 'slidingWeek';
     const calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: 'timeGridWeek',
+        initialView: 'slidingWeek',
+        views: {
+            // A 7-day timeGrid that does NOT snap to the week boundary so
+            // single-arrow navigation can slide one day at a time.
+            slidingWeek: {
+                type: 'timeGrid',
+                duration: { days: 7 },
+                buttonText: 'week'
+            }
+        },
         customButtons: {
             prevDay: {
                 icon: 'chevron-left',
                 hint: 'Previous day',
                 click: function() {
-                    if (currentCalendarView === 'timeGridWeek') {
-                        calendar.incrementDate({ days: -1 });
+                    if (currentCalendarView === 'slidingWeek') {
+                        calendar.gotoDate(shiftDays(calendar.view.activeStart, -1));
                     } else {
                         calendar.prev();
                     }
@@ -1377,8 +1393,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 icon: 'chevron-right',
                 hint: 'Next day',
                 click: function() {
-                    if (currentCalendarView === 'timeGridWeek') {
-                        calendar.incrementDate({ days: 1 });
+                    if (currentCalendarView === 'slidingWeek') {
+                        calendar.gotoDate(shiftDays(calendar.view.activeStart, 1));
                     } else {
                         calendar.next();
                     }
@@ -1388,21 +1404,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 icon: 'chevrons-left',
                 hint: 'Previous week',
                 click: function() {
-                    calendar.incrementDate({ weeks: -1 });
+                    if (currentCalendarView === 'slidingWeek') {
+                        calendar.gotoDate(shiftDays(calendar.view.activeStart, -7));
+                    } else {
+                        calendar.prev();
+                    }
                 }
             },
             nextWeek: {
                 icon: 'chevrons-right',
                 hint: 'Next week',
                 click: function() {
-                    calendar.incrementDate({ weeks: 1 });
+                    if (currentCalendarView === 'slidingWeek') {
+                        calendar.gotoDate(shiftDays(calendar.view.activeStart, 7));
+                    } else {
+                        calendar.next();
+                    }
                 }
             }
         },
         headerToolbar: {
             left: 'prevWeek,prevDay,nextDay,nextWeek today',
             center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+            right: 'dayGridMonth,slidingWeek,timeGridDay,listWeek'
         },
         slotMinTime: '00:00:00',
         slotMaxTime: '24:00:00',
@@ -1412,7 +1436,7 @@ document.addEventListener('DOMContentLoaded', function() {
         nowIndicator: true,
         navLinks: true, // Enable drill-down: month->week->day
         navLinkDayClick: 'timeGridDay', // Click day number goes to day view
-        navLinkWeekClick: 'timeGridWeek', // Click week number goes to week view
+        navLinkWeekClick: 'slidingWeek', // Click week number goes to week view
         editable: {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}true{{else}}false{{end}},
         eventResizableFromStart: true,
         selectable: {{if or (stationRoleAtLeast .StationRole "manager") (roleAtLeast .User "manager")}}true{{else}}false{{end}},
