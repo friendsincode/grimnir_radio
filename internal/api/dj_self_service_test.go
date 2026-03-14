@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -26,7 +27,7 @@ import (
 func newDJSelfServiceAPITest(t *testing.T) (*API, *gorm.DB) {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "test.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -268,6 +269,36 @@ func TestDJSelfService_ScheduleLock(t *testing.T) {
 	if got.LockBeforeDays != 14 {
 		t.Fatalf("expected persisted LockBeforeDays=14, got %d", got.LockBeforeDays)
 	}
+}
+
+func TestDJSelfService_GetUserAvailability(t *testing.T) {
+	a, _ := newDJSelfServiceAPITest(t)
+
+	t.Run("missing user_id", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		// No chi param for "userID" → ""
+		rr := httptest.NewRecorder()
+		a.handleGetUserAvailability(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", rr.Code)
+		}
+	})
+
+	t.Run("with user_id returns empty", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/u-other", nil)
+		req = withChiParam(req, "userID", "u-other")
+		rr := httptest.NewRecorder()
+		a.handleGetUserAvailability(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("got %d, want 200", rr.Code)
+		}
+		var resp map[string]any
+		json.NewDecoder(rr.Body).Decode(&resp) //nolint:errcheck
+		avail, _ := resp["availability"].([]any)
+		if len(avail) != 0 {
+			t.Fatalf("expected 0 entries, got %d", len(avail))
+		}
+	})
 }
 
 func TestDJSelfService_Errors(t *testing.T) {

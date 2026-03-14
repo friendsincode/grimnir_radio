@@ -38,6 +38,8 @@ func newAPIHandlersTest(t *testing.T) (*API, *gorm.DB) {
 		&models.ClockHour{},
 		&models.ClockSlot{},
 		&models.ScheduleEntry{},
+		&models.User{},
+		&models.MediaItem{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -484,4 +486,313 @@ func TestAPIHandlers_Errors(t *testing.T) {
 			t.Fatalf("expected 400, got %d", rr.Code)
 		}
 	})
+}
+
+func TestAPIHandlers_ThemePreference(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	// No auth → 401
+	req := httptest.NewRequest("POST", "/theme", bytes.NewReader([]byte(`{"theme":"daw-dark"}`)))
+	rr := httptest.NewRecorder()
+	a.handleSetThemePreference(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("no auth: got %d, want 401", rr.Code)
+	}
+
+	// Invalid theme → 400
+	req = httptest.NewRequest("POST", "/theme", bytes.NewReader([]byte(`{"theme":"invalid-theme"}`)))
+	req = withAdminClaims(req)
+	rr = httptest.NewRecorder()
+	a.handleSetThemePreference(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid theme: got %d, want 400", rr.Code)
+	}
+
+	// Valid theme → 204
+	req = httptest.NewRequest("POST", "/theme", bytes.NewReader([]byte(`{"theme":"daw-dark"}`)))
+	req = withAdminClaims(req)
+	rr = httptest.NewRecorder()
+	a.handleSetThemePreference(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("valid theme: got %d, want 204", rr.Code)
+	}
+
+	// Valid theme via form value
+	req = httptest.NewRequest("POST", "/theme?theme=broadcast", nil)
+	req = withAdminClaims(req)
+	rr = httptest.NewRecorder()
+	a.handleSetThemePreference(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("valid theme form: got %d, want 204", rr.Code)
+	}
+}
+
+func TestAPIHandlers_ClockSimulate(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	// Non-existent clock → 404
+	req := httptest.NewRequest("GET", "/", nil)
+	req = withAdminClaims(req)
+	req = withChiParam(req, "clockID", "nonexistent-id")
+	rr := httptest.NewRecorder()
+	a.handleClockSimulate(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("non-existent clock: got %d, want 404", rr.Code)
+	}
+}
+
+func TestAPIHandlers_ScheduleListValidation(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	// Missing station_id → 400
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	a.handleScheduleList(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing station_id: got %d, want 400", rr.Code)
+	}
+}
+
+func TestAPIHandlers_ScheduleRefreshValidation(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	// Invalid JSON → 400
+	req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte("invalid")))
+	rr := httptest.NewRecorder()
+	a.handleScheduleRefresh(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid json: got %d, want 400", rr.Code)
+	}
+
+	// Missing station_id → 400
+	req = httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{}`)))
+	rr = httptest.NewRecorder()
+	a.handleScheduleRefresh(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing station_id: got %d, want 400", rr.Code)
+	}
+}
+
+func TestAPIHandlers_SmartBlockMaterializeValidation(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	// Invalid JSON → 400
+	req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte("invalid")))
+	req = withChiParam(req, "blockID", "block1")
+	rr := httptest.NewRecorder()
+	a.handleSmartBlockMaterialize(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid json: got %d, want 400", rr.Code)
+	}
+
+	// Missing station_id → 400
+	req = httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{}`)))
+	req = withChiParam(req, "blockID", "block1")
+	rr = httptest.NewRecorder()
+	a.handleSmartBlockMaterialize(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing station_id: got %d, want 400", rr.Code)
+	}
+}
+
+func TestAPIHandlers_LiveHandover(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	// Invalid JSON → 400
+	req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte("invalid")))
+	rr := httptest.NewRecorder()
+	a.handleLiveHandover(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid json: got %d, want 400", rr.Code)
+	}
+
+	// Missing station_id → 400
+	req = httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{"mount_id":"m1"}`)))
+	rr = httptest.NewRecorder()
+	a.handleLiveHandover(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing station_id: got %d, want 400", rr.Code)
+	}
+
+	// Valid → 200
+	req = httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{"station_id":"s1","mount_id":"m1"}`)))
+	rr = httptest.NewRecorder()
+	a.handleLiveHandover(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("live handover: got %d, want 200, body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIHandlers_PlayoutValidation(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	t.Run("reload invalid json", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte("invalid")))
+		rr := httptest.NewRecorder()
+		a.handlePlayoutReload(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", rr.Code)
+		}
+	})
+
+	t.Run("reload missing mount_and_launch", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{"mount_id":""}`)))
+		rr := httptest.NewRecorder()
+		a.handlePlayoutReload(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", rr.Code)
+		}
+	})
+
+	t.Run("skip invalid json", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte("invalid")))
+		rr := httptest.NewRecorder()
+		a.handlePlayoutSkip(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", rr.Code)
+		}
+	})
+
+	t.Run("skip missing mount_id", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{}`)))
+		rr := httptest.NewRecorder()
+		a.handlePlayoutSkip(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", rr.Code)
+		}
+	})
+
+	t.Run("stop invalid json", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte("invalid")))
+		rr := httptest.NewRecorder()
+		a.handlePlayoutStop(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", rr.Code)
+		}
+	})
+
+	t.Run("stop missing mount_id", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{}`)))
+		rr := httptest.NewRecorder()
+		a.handlePlayoutStop(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", rr.Code)
+		}
+	})
+}
+
+func TestAPIHandlers_WebDJUnavailable(t *testing.T) {
+	a, _ := newAPIHandlersTest(t) // webdjAPI is nil
+
+	handlers := []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{"start-session", a.handleWebDJStartSession},
+		{"list-sessions", a.handleWebDJListSessions},
+		{"get-session", a.handleWebDJGetSession},
+		{"end-session", a.handleWebDJEndSession},
+		{"load-track", a.handleWebDJLoadTrack},
+		{"play", a.handleWebDJPlay},
+		{"pause", a.handleWebDJPause},
+		{"seek", a.handleWebDJSeek},
+		{"set-cue", a.handleWebDJSetCue},
+		{"delete-cue", a.handleWebDJDeleteCue},
+		{"eject", a.handleWebDJEject},
+		{"set-volume", a.handleWebDJSetVolume},
+		{"set-eq", a.handleWebDJSetEQ},
+		{"set-pitch", a.handleWebDJSetPitch},
+		{"set-crossfader", a.handleWebDJSetCrossfader},
+		{"set-master-volume", a.handleWebDJSetMasterVolume},
+		{"go-live", a.handleWebDJGoLive},
+		{"go-off-air", a.handleWebDJGoOffAir},
+		{"get-waveform", a.handleWebDJGetWaveform},
+	}
+
+	for _, h := range handlers {
+		t.Run(h.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/", nil)
+			rr := httptest.NewRecorder()
+			h.handler(rr, req)
+			if rr.Code != http.StatusServiceUnavailable {
+				t.Fatalf("%s: got %d, want 503", h.name, rr.Code)
+			}
+		})
+	}
+}
+
+func TestAPIHandlers_SystemStatus(t *testing.T) {
+	a, _ := newAPIHandlersTest(t) // nil analyzer and media
+
+	req := httptest.NewRequest("GET", "/system/status", nil)
+	rr := httptest.NewRecorder()
+	a.handleSystemStatus(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("system status: got %d, want 200", rr.Code)
+	}
+	var resp SystemStatus
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Database.Status != "ok" {
+		t.Fatalf("expected db status=ok, got %q", resp.Database.Status)
+	}
+	if resp.MediaEngine.Status != "unavailable" {
+		t.Fatalf("expected media_engine=unavailable (nil analyzer), got %q", resp.MediaEngine.Status)
+	}
+}
+
+func TestAPIHandlers_NotImplemented(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	a.notImplemented(rr, req)
+	if rr.Code != http.StatusNotImplemented {
+		t.Fatalf("not implemented: got %d, want 501", rr.Code)
+	}
+}
+
+func TestAPIHandlers_LogsNilBuffer(t *testing.T) {
+	a, _ := newAPIHandlersTest(t) // logBuffer is nil
+
+	handlers := []struct {
+		name    string
+		handler http.HandlerFunc
+		method  string
+	}{
+		{"system-logs", a.handleSystemLogs, "GET"},
+		{"log-components", a.handleLogComponents, "GET"},
+		{"log-stats", a.handleLogStats, "GET"},
+		{"clear-logs", a.handleClearLogs, "POST"},
+		{"station-logs", a.handleStationLogs, "GET"},
+		{"station-log-components", a.handleStationLogComponents, "GET"},
+		{"station-log-stats", a.handleStationLogStats, "GET"},
+	}
+
+	for _, h := range handlers {
+		t.Run(h.name, func(t *testing.T) {
+			req := httptest.NewRequest(h.method, "/", nil)
+			req = withChiParam(req, "stationID", "s1")
+			rr := httptest.NewRecorder()
+			h.handler(rr, req)
+			if rr.Code != http.StatusServiceUnavailable {
+				t.Fatalf("%s nil buffer: got %d, want 503", h.name, rr.Code)
+			}
+		})
+	}
+}
+
+func TestAPIHandlers_MediaGet(t *testing.T) {
+	a, _ := newAPIHandlersTest(t)
+
+	// Non-existent media → 404
+	req := httptest.NewRequest("GET", "/media/nonexistent", nil)
+	req = withAdminClaims(req)
+	req = withChiParam(req, "mediaID", "nonexistent-id")
+	rr := httptest.NewRecorder()
+	a.handleMediaGet(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("media get non-existent: got %d, want 404", rr.Code)
+	}
 }
