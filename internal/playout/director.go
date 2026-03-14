@@ -985,13 +985,14 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		return err
 	}
 
-	// Build metadata payload — seeded with "On Air" so the player shows
-	// something meaningful immediately. Real ICY/HLS metadata replaces this
-	// once the poller fetches it (either synchronously below or on first tick).
+	// Build metadata payload — seeded with "On Air" + the webstream name so
+	// the player shows something meaningful immediately. Real ICY/HLS metadata
+	// replaces title and artist once the poller resolves it.
 	payload := map[string]any{
 		"webstream_id":   ws.ID,
 		"webstream_name": ws.Name,
 		"title":          "On Air",
+		"artist":         ws.Name,
 		"url":            currentURL,
 		"health_status":  ws.HealthStatus,
 	}
