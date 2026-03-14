@@ -771,13 +771,40 @@ func (h *Handler) MediaDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get play history for this media (only from current station)
-	var history []models.PlayHistory
-	h.db.Where("media_id = ? AND station_id = ?", id, station.ID).Order("started_at DESC").Limit(20).Find(&history)
-
-	// Load mounts for queue actions
+	// Load mounts for queue actions and history display
 	var mounts []models.Mount
 	h.db.Where("station_id = ?", station.ID).Order("name ASC").Find(&mounts)
+
+	// Build mount name lookup
+	mountNames := make(map[string]string, len(mounts))
+	for _, m := range mounts {
+		mountNames[m.ID] = m.Name
+	}
+
+	// Get play history for this media (only from current station)
+	type historyRow struct {
+		StartedAt time.Time
+		MountName string
+		Duration  time.Duration
+	}
+	var rawHistory []models.PlayHistory
+	h.db.Where("media_id = ? AND station_id = ?", id, station.ID).Order("started_at DESC").Limit(20).Find(&rawHistory)
+	history := make([]historyRow, 0, len(rawHistory))
+	for _, ph := range rawHistory {
+		name := mountNames[ph.MountID]
+		if name == "" && ph.MountID != "" {
+			name = ph.MountID[:8] + "…"
+		}
+		dur := time.Duration(0)
+		if !ph.EndedAt.IsZero() && ph.EndedAt.After(ph.StartedAt) {
+			dur = ph.EndedAt.Sub(ph.StartedAt)
+		}
+		history = append(history, historyRow{
+			StartedAt: ph.StartedAt,
+			MountName: name,
+			Duration:  dur,
+		})
+	}
 
 	// Load usage references (playlists, schedule entries, clock slots)
 	usageMap := h.loadMediaUsage(r, station.ID, []string{id})

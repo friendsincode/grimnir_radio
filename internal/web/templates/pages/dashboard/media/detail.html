@@ -204,8 +204,8 @@
                         {{range .Data.History}}
                         <tr>
                             <td>{{formatTime .StartedAt}}</td>
-                            <td>{{.MountID}}</td>
-                            <td>{{formatDuration .Duration}}</td>
+                            <td>{{.MountName}}</td>
+                            <td>{{if .Duration}}{{formatDuration .Duration}}{{end}}</td>
                         </tr>
                         {{else}}
                         <tr>
