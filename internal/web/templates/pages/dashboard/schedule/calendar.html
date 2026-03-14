@@ -6,11 +6,11 @@
 <!-- FullCalendar 6.x includes CSS in JS bundle -->
 <style>
     #calendar {
-        height: calc(100vh - 280px);
+        height: calc(100vh - 190px);
         min-height: 500px;
     }
     .schedule-density-compact #calendar {
-        height: calc(100vh - 240px);
+        height: calc(100vh - 150px);
     }
     .fc-event {
         cursor: pointer;
@@ -1361,8 +1361,46 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentCalendarView = 'timeGridWeek';
     const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'timeGridWeek',
+        customButtons: {
+            prevDay: {
+                icon: 'chevron-left',
+                hint: 'Previous day',
+                click: function() {
+                    if (currentCalendarView === 'timeGridWeek') {
+                        calendar.incrementDate({ days: -1 });
+                    } else {
+                        calendar.prev();
+                    }
+                }
+            },
+            nextDay: {
+                icon: 'chevron-right',
+                hint: 'Next day',
+                click: function() {
+                    if (currentCalendarView === 'timeGridWeek') {
+                        calendar.incrementDate({ days: 1 });
+                    } else {
+                        calendar.next();
+                    }
+                }
+            },
+            prevWeek: {
+                icon: 'chevrons-left',
+                hint: 'Previous week',
+                click: function() {
+                    calendar.incrementDate({ weeks: -1 });
+                }
+            },
+            nextWeek: {
+                icon: 'chevrons-right',
+                hint: 'Next week',
+                click: function() {
+                    calendar.incrementDate({ weeks: 1 });
+                }
+            }
+        },
         headerToolbar: {
-            left: 'prev,next today',
+            left: 'prevWeek,prevDay,nextDay,nextWeek today',
             center: 'title',
             right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
         },
