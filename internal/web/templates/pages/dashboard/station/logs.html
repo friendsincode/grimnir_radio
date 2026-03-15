@@ -187,10 +187,10 @@
 #logTable td { vertical-align: middle; }
 .log-row-clickable { cursor: pointer; }
 .log-message {
-    max-width: 600px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 500px;
 }
 </style>
 
@@ -335,12 +335,43 @@ function renderLogs(entries) {
         if (entry.level === 'error') rowClass = 'table-danger';
         if (entry.level === 'warn') rowClass = 'table-warning';
 
+        // Build inline field chips for important context keys.
+        const SKIP_KEYS = new Set(['station', 'station_id', 'time', 'timestamp']);
+        const PRIORITY_KEYS = ['error', 'err', 'reason', 'details', 'action', 'mount_id', 'entry_id', 'media_id', 'source_type', 'state'];
+        const fields = entry.fields || {};
+        const chips = [];
+        // Show priority keys first.
+        for (const k of PRIORITY_KEYS) {
+            if (fields[k] !== undefined && fields[k] !== null && fields[k] !== '') {
+                const v = String(fields[k]);
+                const isErr = k === 'error' || k === 'err';
+                const label = escapeHtml(k);
+                const val = escapeHtml(v.length > 80 ? v.slice(0, 80) + '…' : v);
+                chips.push(`<span class="badge ${isErr ? 'bg-danger' : 'bg-secondary'} fw-normal me-1 text-wrap text-start" style="font-size:0.7rem;white-space:normal;max-width:100%"><strong>${label}:</strong> ${val}</span>`);
+            }
+        }
+        // Then any remaining non-skipped keys.
+        for (const k of Object.keys(fields)) {
+            if (SKIP_KEYS.has(k) || PRIORITY_KEYS.includes(k)) continue;
+            const v = fields[k];
+            if (v === null || v === undefined || v === '') continue;
+            const vs = typeof v === 'object' ? JSON.stringify(v) : String(v);
+            if (vs.length > 120) continue; // skip huge blobs inline
+            chips.push(`<span class="badge bg-secondary fw-normal me-1" style="font-size:0.7rem"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(vs.length > 60 ? vs.slice(0, 60) + '…' : vs)}</span>`);
+        }
+        const fieldsHtml = chips.length > 0
+            ? `<div class="mt-1 d-flex flex-wrap gap-1">${chips.join('')}</div>`
+            : '';
+
         return `
             <tr class="log-row-clickable ${rowClass}" onclick="showLogDetailByIndex(${idx})" title="Click to view details">
-                <td class="text-muted">${ts}</td>
+                <td class="text-muted text-nowrap">${ts}</td>
                 <td>${levelBadge}</td>
                 <td><code class="small">${escapeHtml(component)}</code></td>
-                <td class="log-message" title="${escapeHtml(entry.message)}">${message}</td>
+                <td>
+                    <div class="log-message" title="${escapeHtml(entry.message)}">${message}</div>
+                    ${fieldsHtml}
+                </td>
                 <td>
                     <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="showLogDetailByIndex(${idx}, event)">
                         <i class="bi bi-code"></i>

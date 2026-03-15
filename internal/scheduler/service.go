@@ -182,12 +182,27 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 
 	if len(plans) == 0 {
 		reason, details, action := s.explainNoPlans(ctx, stationID)
-		s.logger.Info().
-			Str("station", stationID).
-			Str("reason", reason).
-			Str("details", details).
-			Str("action", action).
-			Msg("no clock plans to generate")
+		// Stations running on manually-created schedule entries (not clock-template based)
+		// will always produce zero clock plans — that is expected and not an error.
+		// Only surface the warning when the station has no entries at all in the window.
+		var existingCount int64
+		s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+			Where("station_id = ? AND starts_at >= ? AND starts_at < ?", stationID, start, start.Add(s.lookahead)).
+			Count(&existingCount)
+		if existingCount > 0 {
+			s.logger.Debug().
+				Str("station_id", stationID).
+				Str("reason", reason).
+				Int64("existing_entries", existingCount).
+				Msg("no clock plans (station uses manual schedule entries)")
+		} else {
+			s.logger.Info().
+				Str("station", stationID).
+				Str("reason", reason).
+				Str("details", details).
+				Str("action", action).
+				Msg("no clock plans to generate")
+		}
 		// Do not return here — continue to direct smart block entry pass below.
 	}
 
