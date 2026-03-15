@@ -265,13 +265,30 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 		Title:    "Schedule Health Report",
 		Stations: h.LoadStations(r),
 		Data: map[string]any{
-			"Station":     station,
-			"Days":        days,
-			"WeekFrom":    weekFrom,
-			"WeekTo":      weekTo,
-			"GreenCount":  greenCount,
-			"YellowCount": yellowCount,
-			"RedCount":    redCount,
+			"Station":         station,
+			"Days":            days,
+			"WeekFrom":        weekFrom,
+			"WeekTo":          weekTo,
+			"GreenCount":      greenCount,
+			"YellowCount":     yellowCount,
+			"RedCount":        redCount,
+			"GeneratedAt":     now,
+			"LookaheadHours":  int(lookahead.Hours()),
+			"LookaheadCutoff": now.Add(lookahead),
 		},
 	})
+}
+
+// ScheduleRefreshReport triggers the scheduler for the current station then
+// redirects back to the report page.
+func (h *Handler) ScheduleRefreshReport(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Redirect(w, r, "/dashboard/stations/select", http.StatusSeeOther)
+		return
+	}
+	if h.scheduler != nil {
+		_ = h.scheduler.RefreshStation(r.Context(), station.ID)
+	}
+	http.Redirect(w, r, "/dashboard/schedule/report", http.StatusSeeOther)
 }
