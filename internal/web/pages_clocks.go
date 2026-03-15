@@ -284,6 +284,17 @@ func (h *Handler) ClockDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Delete future schedule entries generated from webstream/playlist slots in this clock.
+	h.db.Exec(`
+		DELETE FROM schedule_entries
+		WHERE station_id = ? AND starts_at > NOW()
+		  AND source_type IN ('webstream', 'playlist')
+		  AND source_id IN (
+		      SELECT payload->>'webstream_id' FROM clock_slots WHERE clock_hour_id = ? AND type = 'webstream'
+		      UNION
+		      SELECT payload->>'playlist_id' FROM clock_slots WHERE clock_hour_id = ? AND type = 'playlist'
+		  )`, station.ID, id, id)
+
 	// Delete slots first
 	h.db.Delete(&models.ClockSlot{}, "clock_hour_id = ?", id)
 

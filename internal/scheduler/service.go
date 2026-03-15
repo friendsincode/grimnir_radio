@@ -99,7 +99,8 @@ func (s *Service) tick(ctx context.Context) {
 	s.maybeCleanupOldEntries(ctx)
 }
 
-// maybeCleanupOldEntries deletes materialized schedule entries older than 7 days.
+// maybeCleanupOldEntries deletes materialized schedule entries older than 7 days
+// and sweeps for orphaned future entries whose source no longer exists.
 // Runs at most once per hour to avoid unnecessary DB churn.
 func (s *Service) maybeCleanupOldEntries(ctx context.Context) {
 	s.mu.Lock()
@@ -110,16 +111,36 @@ func (s *Service) maybeCleanupOldEntries(ctx context.Context) {
 	s.lastCleanup = time.Now()
 	s.mu.Unlock()
 
+	// 1. Delete old materialized instances (>7 days past).
 	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
 	result := s.db.WithContext(ctx).
 		Where("ends_at < ? AND is_instance = ?", cutoff, true).
 		Delete(&models.ScheduleEntry{})
 	if result.Error != nil {
 		s.logger.Warn().Err(result.Error).Msg("failed to clean up old schedule entries")
-		return
-	}
-	if result.RowsAffected > 0 {
+	} else if result.RowsAffected > 0 {
 		s.logger.Info().Int64("deleted", result.RowsAffected).Msg("cleaned up old materialized schedule entries")
+	}
+
+	// 2. Orphan sweep: delete future schedule entries whose source no longer exists.
+	// This is the safety net for anything deleted without cascading properly.
+	type orphanQuery struct {
+		sourceType string
+		sql        string
+	}
+	queries := []orphanQuery{
+		{"webstream", `DELETE FROM schedule_entries WHERE source_type = 'webstream' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM webstreams)`},
+		{"smart_block", `DELETE FROM schedule_entries WHERE source_type = 'smart_block' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM smart_blocks)`},
+		{"playlist", `DELETE FROM schedule_entries WHERE source_type = 'playlist' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM playlists)`},
+		{"media_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND is_instance = true AND metadata->>'smart_block_id' IS NOT NULL AND metadata->>'smart_block_id' NOT IN (SELECT id::text FROM smart_blocks)`},
+	}
+	for _, q := range queries {
+		res := s.db.WithContext(ctx).Exec(q.sql)
+		if res.Error != nil {
+			s.logger.Warn().Err(res.Error).Str("type", q.sourceType).Msg("orphan sweep failed")
+		} else if res.RowsAffected > 0 {
+			s.logger.Warn().Int64("deleted", res.RowsAffected).Str("source_type", q.sourceType).Msg("orphan sweep removed schedule entries with missing source")
+		}
 	}
 }
 

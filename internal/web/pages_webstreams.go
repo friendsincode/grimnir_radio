@@ -271,6 +271,11 @@ func (h *Handler) WebstreamDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remove any future schedule entries that were using this webstream.
+	h.db.Exec(`DELETE FROM schedule_entries WHERE source_type = 'webstream' AND source_id = ? AND station_id = ? AND starts_at > NOW()`, id, station.ID)
+	// Also remove webstream slots from clock templates referencing this webstream.
+	h.db.Exec(`DELETE FROM clock_slots WHERE type = 'webstream' AND payload->>'webstream_id' = ?`, id)
+
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/webstreams")
 		return
