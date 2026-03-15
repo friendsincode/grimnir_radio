@@ -119,6 +119,13 @@
                 </li>
 
                 <li class="nav-item">
+                    <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/schedule/report"}}active bg-primary text-white{{end}}" href="/dashboard/schedule/report" data-bs-toggle="tooltip" data-bs-placement="right" title="Schedule Report">
+                        <i class="bi bi-clipboard2-pulse"></i>
+                        <span class="sidebar-text ms-2">Schedule Report</span>
+                    </a>
+                </li>
+
+                <li class="nav-item">
                     <a class="nav-link rounded {{if isActive .CurrentPath "/dashboard/live"}}active bg-primary text-white{{end}}" href="/dashboard/live" data-bs-toggle="tooltip" data-bs-placement="right" title="Live DJ">
                         <i class="bi bi-broadcast"></i>
                         <span class="sidebar-text ms-2">Live DJ</span>

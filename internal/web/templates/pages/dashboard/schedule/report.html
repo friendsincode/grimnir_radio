@@ -1,0 +1,148 @@
+{{define "pages/dashboard/schedule/report"}}
+{{template "layouts/dashboard" .}}
+{{end}}
+
+{{define "breadcrumb"}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/dashboard/schedule">Schedule</a></li>
+        <li class="breadcrumb-item active">Health Report</li>
+    </ol>
+</nav>
+{{end}}
+
+{{define "main"}}
+{{$data := .Data}}
+{{$station := index $data "Station"}}
+{{$days := index $data "Days"}}
+{{$weekFrom := index $data "WeekFrom"}}
+{{$greenCount := index $data "GreenCount"}}
+{{$yellowCount := index $data "YellowCount"}}
+{{$redCount := index $data "RedCount"}}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-1"><i class="bi bi-clipboard2-pulse me-2"></i>Schedule Health Report</h4>
+        <div class="text-body-secondary small">7-day coverage overview for <strong>{{$station.Name}}</strong></div>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/dashboard/schedule" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-calendar3 me-1"></i>Back to Schedule
+        </a>
+    </div>
+</div>
+
+<!-- Legend -->
+<div class="d-flex gap-3 mb-3 small">
+    <span><i class="bi bi-circle-fill text-success"></i> Healthy (≥95% coverage, no issues)</span>
+    <span><i class="bi bi-circle-fill text-warning"></i> Warning (70–94% or mild underfill)</span>
+    <span><i class="bi bi-circle-fill text-danger"></i> Critical (&lt;70% or unresolved smart block)</span>
+</div>
+
+<!-- 7-Day Grid -->
+<div class="row row-cols-1 row-cols-md-7 g-2">
+{{range $i, $day := $days}}
+<div class="col">
+    <div class="card h-100 {{if eq $day.Health "red"}}border-danger{{else if eq $day.Health "yellow"}}border-warning{{else}}border-success{{end}}">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center
+            {{if eq $day.Health "red"}}bg-danger-subtle{{else if eq $day.Health "yellow"}}bg-warning-subtle{{else}}bg-success-subtle{{end}}">
+            <span class="fw-bold small">{{$day.Date.Format "Mon 2 Jan"}}</span>
+            <span>
+                {{if eq $day.Health "red"}}
+                    <i class="bi bi-exclamation-circle-fill text-danger" title="Critical"></i>
+                {{else if eq $day.Health "yellow"}}
+                    <i class="bi bi-exclamation-triangle-fill text-warning" title="Warning"></i>
+                {{else}}
+                    <i class="bi bi-check-circle-fill text-success" title="Healthy"></i>
+                {{end}}
+            </span>
+        </div>
+        <div class="card-body py-2 px-2">
+            <!-- Coverage bar -->
+            <div class="mb-2">
+                <div class="d-flex justify-content-between small text-body-secondary mb-1">
+                    <span>Coverage</span>
+                    <span>{{printf "%.0f" $day.CoveragePct}}%</span>
+                </div>
+                <div class="progress" style="height: 6px;">
+                    <div class="progress-bar
+                        {{if lt $day.CoveragePct 70.0}}bg-danger{{else if lt $day.CoveragePct 95.0}}bg-warning{{else}}bg-success{{end}}"
+                        role="progressbar"
+                        style="width: {{printf "%.0f" $day.CoveragePct}}%"
+                        aria-valuenow="{{printf "%.0f" $day.CoveragePct}}"
+                        aria-valuemin="0" aria-valuemax="100">
+                    </div>
+                </div>
+                <div class="small text-body-secondary mt-1">
+                    {{printf "%.1f" $day.ScheduledHours}}h / 24h
+                    {{if gt $day.GapHours 0.0}}
+                    <span class="text-danger">({{printf "%.1f" $day.GapHours}}h gap)</span>
+                    {{end}}
+                </div>
+            </div>
+
+            <!-- Entry count + play history -->
+            <div class="small text-body-secondary mb-2">
+                <i class="bi bi-calendar-event me-1"></i>{{$day.PlannedCount}} entries
+                {{if gt $day.PlayedCount 0}}
+                <br><i class="bi bi-music-note me-1"></i>{{$day.PlayedCount}} played
+                {{end}}
+            </div>
+
+            <!-- Smart block issues -->
+            {{if $day.SmartBlockIssues}}
+            <div class="border-top pt-2 mt-1">
+                <div class="small fw-bold text-danger mb-1"><i class="bi bi-magic me-1"></i>Smart Block Issues</div>
+                {{range $day.SmartBlockIssues}}
+                <div class="small mb-1 p-1 rounded bg-body-secondary">
+                    <div class="text-truncate fw-bold" title="{{.BlockName}}">{{.BlockName}}</div>
+                    <div class="text-body-secondary">{{.StartsAt.Format "15:04"}}–{{.EndsAt.Format "15:04"}}</div>
+                    {{if .Error}}
+                    <div class="text-danger"><i class="bi bi-x-circle me-1"></i>{{.Error}}</div>
+                    {{else}}
+                    <div class="{{if lt .FillPct 70.0}}text-danger{{else if lt .FillPct 95.0}}text-warning{{else}}text-success{{end}}">
+                        <i class="bi bi-pie-chart me-1"></i>Fill: {{printf "%.0f" .FillPct}}%
+                        {{if .Underfilled}}<span class="badge bg-warning text-dark ms-1">Underfilled</span>{{end}}
+                    </div>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{else}}
+<div class="col-12 text-center text-body-secondary py-5">
+    <i class="bi bi-calendar-x fs-1 d-block mb-2 opacity-50"></i>
+    No schedule data found for this week.
+</div>
+{{end}}
+</div>
+
+<!-- Summary row -->
+{{if $days}}
+<div class="card mt-4">
+    <div class="card-header">
+        <i class="bi bi-bar-chart me-2"></i>7-Day Summary
+    </div>
+    <div class="card-body">
+        <div class="row g-3 text-center">
+            <div class="col-4">
+                <div class="fs-3 fw-bold text-success">{{$greenCount}}</div>
+                <div class="text-body-secondary small">Healthy days</div>
+            </div>
+            <div class="col-4">
+                <div class="fs-3 fw-bold text-warning">{{$yellowCount}}</div>
+                <div class="text-body-secondary small">Warning days</div>
+            </div>
+            <div class="col-4">
+                <div class="fs-3 fw-bold text-danger">{{$redCount}}</div>
+                <div class="text-body-secondary small">Critical days</div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+{{end}}

@@ -102,6 +102,16 @@
                                    value="{{$block.Description}}" placeholder="What's this block for?">
                         </div>
                         <div class="col-md-6">
+                            <div class="form-check form-switch mt-2">
+                                {{$loopToFill := false}}{{with $rules}}{{with index . "loopToFill"}}{{$loopToFill = .}}{{end}}{{end}}
+                                <input class="form-check-input" type="checkbox" name="loop_to_fill" id="loopToFillPersist" {{if $loopToFill}}checked{{end}}>
+                                <label class="form-check-label" for="loopToFillPersist">
+                                    <i class="bi bi-repeat me-1"></i>Loop tracks to fill duration
+                                    <span class="text-body-secondary small">(saved)</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
                             <label class="form-label">Selection Mode</label>
                             <select class="form-select" name="sequence_mode">
                                 <option value="random" {{if eq (index $seq "mode") "random"}}selected{{end}}>Random</option>
@@ -632,9 +642,10 @@
             <div class="card-body py-2 border-bottom bg-body-tertiary">
                 <div class="d-flex justify-content-between align-items-center gap-3">
                     <div class="form-check form-switch mb-0">
-                        <input class="form-check-input" type="checkbox" id="loopTracks">
+                        {{$loopToFillPreview := false}}{{with $rules}}{{with index . "loopToFill"}}{{$loopToFillPreview = .}}{{end}}{{end}}
+                        <input class="form-check-input" type="checkbox" id="loopTracks" {{if $loopToFillPreview}}checked{{end}}>
                         <label class="form-check-label small" for="loopTracks">
-                            <i class="bi bi-repeat me-1"></i>Loop tracks to fill duration
+                            <i class="bi bi-repeat me-1"></i>Loop tracks (preview)
                         </label>
                     </div>
                     <div class="d-flex align-items-center gap-2">
@@ -1271,6 +1282,14 @@
                     query: existingRules.interstitials.query || '',
                 });
             }
+        }
+
+        // Restore loop-to-fill (sync persist checkbox with preview toggle)
+        if (existingRules.loopToFill) {
+            const loopPersist = document.getElementById('loopToFillPersist');
+            const loopPreview = document.getElementById('loopTracks');
+            if (loopPersist) loopPersist.checked = true;
+            if (loopPreview) loopPreview.checked = true;
         }
 
         // Restore bumpers

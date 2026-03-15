@@ -44,6 +44,7 @@ type GenerateRequest struct {
 	Duration     int64 // milliseconds
 	StationID    string
 	MountID      string
+	LoopToFill   bool // repeat tracks to reach target duration when candidates are exhausted
 }
 
 // SequenceItem is a planned track with cue data.
@@ -115,8 +116,11 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 			continue
 		}
 
+		// Determine loop-to-fill preference: request-time override OR saved definition.
+		loopToFill := req.LoopToFill || def.LoopToFill
+
 		rng := rand.New(rand.NewSource(req.Seed))
-		result := e.selectSequence(ctx, rng, candidates, relaxed, target)
+		result := e.selectSequence(ctx, rng, candidates, relaxed, target, loopToFill)
 		if len(result.Items) == 0 {
 			continue
 		}
@@ -328,6 +332,11 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 		if def.Bumpers.MaxPerGap < 1 {
 			def.Bumpers.MaxPerGap = 8
 		}
+	}
+
+	// Loop-to-fill preference from legacy flat rules key.
+	if v, ok := rules["loopToFill"].(bool); ok && v {
+		def.LoopToFill = true
 	}
 
 	if !separationEnabled {
@@ -718,7 +727,7 @@ func deriveEnergy(item models.MediaItem) float64 {
 	return 100
 }
 
-func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates []candidate, def Definition, targetMS int64) GenerateResult {
+func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates []candidate, def Definition, targetMS int64, loopToFill bool) GenerateResult {
 	remaining := make([]candidate, len(candidates))
 	copy(remaining, candidates)
 
@@ -731,8 +740,41 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 	var result GenerateResult
 	var cursor int64
 
+	// loopPassStartCursor tracks cursor position at the start of each loop refill.
+	// If a full refill pass makes no progress, we stop to prevent an infinite loop.
+	loopPassStartCursor := int64(-1)
+
 	curve := def.Sequence.Curve
-	for idx := 0; len(remaining) > 0 && cursor < targetMS; idx++ {
+	for idx := 0; cursor < targetMS; idx++ {
+		if len(remaining) == 0 {
+			if !loopToFill {
+				break
+			}
+			// Detect no-progress: if cursor hasn't advanced since the last refill, stop.
+			if loopPassStartCursor == cursor {
+				break
+			}
+			loopPassStartCursor = cursor
+
+			// Re-populate from the full candidate set for another pass.
+			remaining = make([]candidate, len(candidates))
+			copy(remaining, candidates)
+
+			// Avoid back-to-back repeat of the last played track.
+			if len(result.Items) > 0 {
+				lastID := result.Items[len(result.Items)-1].MediaID
+				for i, c := range remaining {
+					if c.Item.ID == lastID {
+						remaining = append(remaining[:i], remaining[i+1:]...)
+						break
+					}
+				}
+			}
+			if len(remaining) == 0 {
+				break
+			}
+		}
+
 		targetEnergy := 0.0
 		if len(curve) > 0 {
 			targetEnergy = curve[idx%len(curve)]

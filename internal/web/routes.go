@@ -234,6 +234,7 @@ func (h *Handler) Routes(r chi.Router) {
 				// Schedule
 				r.Route("/schedule", func(r chi.Router) {
 					r.Get("/", h.ScheduleCalendar)
+					r.Get("/report", h.ScheduleHealthReport)
 					r.Get("/events", h.ScheduleEvents)     // JSON for calendar
 					r.Get("/validate", h.ScheduleValidate) // JSON validation for calendar (web auth)
 					r.Get("/effective-preview", h.ScheduleEffectivePreview)

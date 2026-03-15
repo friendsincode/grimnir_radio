@@ -9,6 +9,13 @@
         height: calc(100vh - 190px);
         min-height: 500px;
     }
+    @keyframes track-playing-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+    }
+    .track-playing-pulse {
+        animation: track-playing-pulse 1.4s ease-in-out infinite;
+    }
     .schedule-density-compact #calendar {
         height: calc(100vh - 150px);
     }
@@ -2607,9 +2614,19 @@ document.addEventListener('DOMContentLoaded', function() {
             const titleHTML = track.media_id
                 ? `<a href="/dashboard/media/${encodeURIComponent(track.media_id)}" target="_blank" rel="noopener"><strong>${title}</strong></a>`
                 : `<strong>${title}</strong>`;
+
+            let statusIcon = '';
+            if (track.play_status === 'played') {
+                statusIcon = '<i class="bi bi-check-circle-fill text-success me-1" title="Played"></i>';
+            } else if (track.play_status === 'playing') {
+                statusIcon = '<i class="bi bi-play-circle-fill text-warning me-1 track-playing-pulse" title="Now playing"></i>';
+            } else if (track.play_status === 'upcoming') {
+                statusIcon = '<i class="bi bi-clock text-secondary me-1" title="Upcoming"></i>';
+            }
+
             html += `<div class="list-group-item py-1 px-2 d-flex justify-content-between">
                 <span class="text-truncate" style="max-width: 70%;">
-                    <span class="text-body-secondary me-1">${idx + 1}.</span>
+                    ${statusIcon}<span class="text-body-secondary me-1">${idx + 1}.</span>
                     ${titleHTML}
                     ${track.artist ? `<span class="text-body-secondary"> - ${escapeHtml(track.artist)}</span>` : ''}
                     ${track.is_bumper ? '<span class="badge bg-warning text-dark ms-2">Bumper</span>' : ''}

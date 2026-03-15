@@ -19,6 +19,7 @@ type Definition struct {
 	Duration   DurationPolicy  `json:"duration"`
 	Fallbacks  []FallbackRule  `json:"fallbacks"`
 	Bumpers    BumperConfig    `json:"bumpers"`
+	LoopToFill bool            `json:"loopToFill"`
 }
 
 // BumperConfig controls tail-fill with short tracks after the main sequence.
