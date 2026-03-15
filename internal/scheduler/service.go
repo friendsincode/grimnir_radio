@@ -266,8 +266,10 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 // into concrete media entries without this second pass.
 func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, stationID string, start time.Time) error {
 	var entries []models.ScheduleEntry
+	// Use ends_at > start so that in-progress slots (starts_at < now but not yet ended)
+	// are also caught, not just future slots.
 	err := s.db.WithContext(ctx).
-		Where("station_id = ? AND source_type = 'smart_block' AND starts_at >= ? AND starts_at <= ?",
+		Where("station_id = ? AND source_type = 'smart_block' AND ends_at > ? AND starts_at <= ?",
 			stationID, start, start.Add(s.lookahead)).
 		Find(&entries).Error
 	if err != nil {
