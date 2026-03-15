@@ -136,6 +136,9 @@ type Director struct {
 	// Metadata pollers (ICY or HLS), keyed by mount ID
 	icyPollerMu sync.Mutex
 	icyPollers  map[string]webstream.MetadataPoller
+
+	// lastPositionFlush tracks when we last wrote TrackPositionMS to DB for crash recovery.
+	lastPositionFlush time.Time
 }
 
 // NewDirector creates a playout director.
@@ -226,6 +229,12 @@ func (d *Director) Run(ctx context.Context) error {
 func (d *Director) tick(ctx context.Context) error {
 	now := time.Now().UTC()
 	d.prunePlayed(now)
+
+	// Periodically flush playback positions for crash-safe resume.
+	if time.Since(d.lastPositionFlush) >= 15*time.Second {
+		d.flushTrackPositions(ctx)
+		d.lastPositionFlush = now
+	}
 
 	entries, err := d.getScheduleSnapshot(ctx, now)
 	if err != nil {
@@ -1846,6 +1855,22 @@ func (d *Director) startWebstreamByID(ctx context.Context, entry models.Schedule
 func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, extraPayload map[string]any) error {
 	resume := d.computePlaybackResume(entry, media, extraPayload)
 
+	// Close out the previous track's play history with its actual end time and position.
+	var prevState models.MountPlayoutState
+	if err := d.db.WithContext(ctx).First(&prevState, "mount_id = ? AND station_id = ?", entry.MountID, entry.StationID).Error; err == nil && prevState.MediaID != "" {
+		d.closeCurrentPlayHistory(ctx, entry.StationID, entry.MountID, prevState.TrackPositionMS)
+	}
+
+	// Check for interrupted play resume; overrides schedule-based resume for non-crossfade path.
+	var resumeOffsetMS int64
+	if media.Duration > 0 {
+		if offset, ok := d.findResumeOffset(ctx, entry.StationID, entry.MountID, media.ID, media.Duration); ok {
+			d.logger.Info().Str("media_id", media.ID).Int64("resume_offset_ms", offset).
+				Msg("resuming interrupted track from cut position")
+			resumeOffsetMS = offset
+		}
+	}
+
 	// Build full path using media root
 	// Use path directly if absolute, otherwise join with mediaRoot
 	fullPath := media.Path
@@ -1991,24 +2016,29 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
 		d.xfadeMu.Unlock()
 
-		if resume.Offset > 0 {
+		// Prefer cut-position resume over schedule-based resume when available.
+		xfadeOffset := resume.Offset
+		if resumeOffsetMS > 0 {
+			xfadeOffset = time.Duration(resumeOffsetMS) * time.Millisecond
+		}
+		if xfadeOffset > 0 {
 			d.logger.Info().
 				Str("mount", entry.MountID).
 				Str("entry", entry.ID).
-				Float64("seek_seconds", resume.Offset.Seconds()).
+				Float64("seek_seconds", xfadeOffset.Seconds()).
 				Msg("resuming media from elapsed position")
 		}
 		fade := xfade.Duration
 		if !(xfade.Enabled && xfade.Duration > 0) {
 			fade = 0
 		}
-		if err := sess.Play(ctx, fullPath, fade, resume.Offset); err != nil {
+		if err := sess.Play(ctx, fullPath, fade, xfadeOffset); err != nil {
 			return fmt.Errorf("crossfade play: %w", err)
 		}
 	} else {
 		// Build single GStreamer pipeline for both HQ and LQ (using tee for perfect sync)
 		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort)
+		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort, resumeOffsetMS)
 		if err != nil {
 			return fmt.Errorf("build pipeline: %w", err)
 		}
@@ -2048,6 +2078,22 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 // This enables sequential playback and position persistence.
 func (d *Director) playMediaWithState(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, sourceType, sourceID string, position int, items []string, extraPayload map[string]any) error {
 	resume := d.computePlaybackResume(entry, media, extraPayload)
+
+	// Close out the previous track's play history with its actual end time and position.
+	var prevState models.MountPlayoutState
+	if err := d.db.WithContext(ctx).First(&prevState, "mount_id = ? AND station_id = ?", entry.MountID, entry.StationID).Error; err == nil && prevState.MediaID != "" {
+		d.closeCurrentPlayHistory(ctx, entry.StationID, entry.MountID, prevState.TrackPositionMS)
+	}
+
+	// Check for interrupted play resume; overrides schedule-based resume for non-crossfade path.
+	var resumeOffsetMS int64
+	if media.Duration > 0 {
+		if offset, ok := d.findResumeOffset(ctx, entry.StationID, entry.MountID, media.ID, media.Duration); ok {
+			d.logger.Info().Str("media_id", media.ID).Int64("resume_offset_ms", offset).
+				Msg("resuming interrupted track from cut position")
+			resumeOffsetMS = offset
+		}
+	}
 
 	// Build full path using media root
 	// Use path directly if absolute, otherwise join with mediaRoot
@@ -2193,25 +2239,30 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 		sess.SetOnTrackEnd(func() { d.handleTrackEnded(entry, mount.Name) })
 		d.xfadeMu.Unlock()
 
-		if resume.Offset > 0 {
+		// Prefer cut-position resume over schedule-based resume when available.
+		xfadeOffset := resume.Offset
+		if resumeOffsetMS > 0 {
+			xfadeOffset = time.Duration(resumeOffsetMS) * time.Millisecond
+		}
+		if xfadeOffset > 0 {
 			d.logger.Info().
 				Str("mount", entry.MountID).
 				Str("entry", entry.ID).
 				Str("source_type", sourceType).
 				Int("position", position).
-				Float64("seek_seconds", resume.Offset.Seconds()).
+				Float64("seek_seconds", xfadeOffset.Seconds()).
 				Msg("resuming stateful playout from elapsed position")
 		}
 		fade := xfade.Duration
 		if !(xfade.Enabled && xfade.Duration > 0) {
 			fade = 0
 		}
-		if err := sess.Play(ctx, fullPath, fade, resume.Offset); err != nil {
+		if err := sess.Play(ctx, fullPath, fade, xfadeOffset); err != nil {
 			return fmt.Errorf("crossfade play: %w", err)
 		}
 	} else {
 		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort)
+		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort, resumeOffsetMS)
 		if err != nil {
 			return fmt.Errorf("build pipeline: %w", err)
 		}
@@ -2329,7 +2380,8 @@ func (d *Director) buildBroadcastPipeline(filePath string, mount models.Mount) (
 // Uses tee to split decoded audio, encodes to HQ (fd=3) and LQ (fd=4) simultaneously.
 // If WebRTC is enabled, also outputs RTP/Opus to UDP for low-latency streaming.
 // This ensures all streams are perfectly synchronized from the same decode.
-func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Mount, hqBitrate, lqBitrate int, webrtcRTPPort int) (string, error) {
+// / seekOffsetMS: if > 0, seek to this position in the file before playback (for cut-position resume).
+func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Mount, hqBitrate, lqBitrate int, webrtcRTPPort int, seekOffsetMS int64) (string, error) {
 	// Determine format
 	format := mount.Format
 	if format == "" {
@@ -2385,11 +2437,18 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 		)
 	}
 
+	// Build seek element if resuming from a cut position.
+	seekElem := ""
+	if seekOffsetMS > 0 {
+		seekNS := seekOffsetMS * 1_000_000 // ms → ns
+		seekElem = fmt.Sprintf(" ! identity start-time=%d", seekNS)
+	}
+
 	pipeline := fmt.Sprintf(
-		`filesrc location=%q ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! tee name=t `+
+		`filesrc location=%q ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d%s ! tee name=t `+
 			`t. ! queue ! %s ! identity sync=true ! fdsink fd=3 `+
 			`t. ! queue ! %s ! identity sync=true ! fdsink fd=4%s`,
-		filePath, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
+		filePath, sampleRate, channels, seekElem, hqEncoder, lqEncoder, webrtcBranch,
 	)
 
 	d.logger.Debug().
@@ -2780,7 +2839,7 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 		}
 	} else {
 		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort)
+		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0)
 		if err != nil {
 			d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
 			return
@@ -2916,7 +2975,7 @@ func (d *Director) playQueuedTrack(entry models.ScheduleEntry, state playoutStat
 		}
 	} else {
 		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort)
+		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0)
 		if err != nil {
 			d.logger.Warn().Err(err).Msg("failed to build pipeline for queued track")
 			return
@@ -2967,7 +3026,7 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 		fullPath = filepath.Join(d.mediaRoot, media.Path)
 	}
 	webrtcPort := d.getWebRTCRTPPortForStation(context.Background(), entry.StationID)
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort)
+	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0)
 	if err != nil {
 		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
 		return
@@ -3181,6 +3240,93 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 
 	if err := d.db.Create(&history).Error; err != nil {
 		d.logger.Warn().Err(err).Msg("failed to record play history")
+	}
+}
+
+// closeCurrentPlayHistory finds the currently-playing history row for the mount and marks it as
+// interrupted when the cut happens meaningfully early (>30s before expected end). It records
+// cut_offset_ms so findResumeOffset can use it for the next play of the same track.
+func (d *Director) closeCurrentPlayHistory(ctx context.Context, stationID, mountID string, positionMS int64) {
+	now := time.Now()
+	var h models.PlayHistory
+	if err := d.db.WithContext(ctx).
+		Where("station_id = ? AND mount_id = ? AND ended_at > ? AND started_at < ?",
+			stationID, mountID, now, now).
+		Order("started_at DESC").First(&h).Error; err != nil {
+		return
+	}
+	// Only mark interrupted if cut meaningfully early (30s+ before expected end).
+	if now.Before(h.EndedAt.Add(-30 * time.Second)) {
+		if h.Metadata == nil {
+			h.Metadata = make(map[string]any)
+		}
+		h.Metadata["cut_offset_ms"] = positionMS
+		h.Metadata["was_interrupted"] = true
+		h.EndedAt = now
+		_ = d.db.WithContext(ctx).Save(&h)
+	}
+}
+
+// findResumeOffset returns the position (in ms) to resume a track from after an interruption.
+// It first checks MountPlayoutState (crash-safe, ±15s) then PlayHistory (exact cut position).
+// Returns (offset, true) when a valid resume point is found.
+func (d *Director) findResumeOffset(ctx context.Context, stationID, mountID, mediaID string, fullDuration time.Duration) (int64, bool) {
+	maxMS := fullDuration.Milliseconds() - 30000
+	if maxMS <= 0 {
+		return 0, false
+	}
+	// Strategy A: crash-safe position from MountPlayoutState (updated every ~15s).
+	var state models.MountPlayoutState
+	if err := d.db.WithContext(ctx).First(&state, "mount_id = ? AND station_id = ?", mountID, stationID).Error; err == nil {
+		if state.MediaID == mediaID && state.TrackPositionMS > 30000 &&
+			!state.TrackPositionAt.IsZero() && time.Since(state.TrackPositionAt) < 48*time.Hour &&
+			state.TrackPositionMS < maxMS {
+			return state.TrackPositionMS, true
+		}
+	}
+	// Strategy B: explicitly recorded cut offset in PlayHistory.
+	var h models.PlayHistory
+	if err := d.db.WithContext(ctx).
+		Where("station_id = ? AND media_id = ? AND started_at > ?",
+			stationID, mediaID, time.Now().Add(-48*time.Hour)).
+		Order("started_at DESC").First(&h).Error; err == nil {
+		if cutMS, ok := h.Metadata["cut_offset_ms"].(float64); ok && cutMS > 30000 && int64(cutMS) < maxMS {
+			return int64(cutMS), true
+		}
+	}
+	return 0, false
+}
+
+// flushTrackPositions writes the current wall-clock-derived playback positions for all active
+// tracks to MountPlayoutState so the director can resume from them after a crash.
+func (d *Director) flushTrackPositions(ctx context.Context) {
+	now := time.Now()
+
+	d.mu.Lock()
+	type mountPos struct {
+		stationID  string
+		positionMS int64
+	}
+	positions := make(map[string]mountPos, len(d.active))
+	for mountID, state := range d.active {
+		if state.MediaID == "" || state.Started.IsZero() {
+			continue
+		}
+		positionMS := now.Sub(state.Started).Milliseconds()
+		if positionMS < 0 {
+			positionMS = 0
+		}
+		positions[mountID] = mountPos{stationID: state.StationID, positionMS: positionMS}
+	}
+	d.mu.Unlock()
+
+	for mountID, mp := range positions {
+		_ = d.db.WithContext(ctx).Model(&models.MountPlayoutState{}).
+			Where("mount_id = ? AND station_id = ?", mountID, mp.stationID).
+			Updates(map[string]any{
+				"track_position_ms": mp.positionMS,
+				"track_position_at": now,
+			})
 	}
 }
 

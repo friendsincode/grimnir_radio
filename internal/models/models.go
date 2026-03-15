@@ -756,6 +756,11 @@ type MountPlayoutState struct {
 	StartedAt time.Time `gorm:"index"`
 	EndsAt    time.Time `gorm:"index"`
 	UpdatedAt time.Time `gorm:"index"`
+
+	// TrackPositionMS and TrackPositionAt track the last known playback position
+	// for crash-safe resume. Updated every ~15s by the playout director.
+	TrackPositionMS int64     `gorm:"default:0"`
+	TrackPositionAt time.Time `gorm:"index"`
 }
 
 // Playlist represents a static playlist of media items.
