@@ -89,6 +89,23 @@ func UpdateStationMetrics(db *gorm.DB) {
 	for _, pc := range playCounts {
 		PlayHistoryTotal.WithLabelValues(pc.StationID).Set(float64(pc.PlayCount))
 	}
+
+	// Interrupted plays in last 24h (tracks cut early, recorded with was_interrupted=true in metadata).
+	type stationInterrupted struct {
+		StationID      string
+		InterruptCount int64
+	}
+	var interruptedCounts []stationInterrupted
+	db.Table("play_histories").
+		Select("station_id, COUNT(*) as interrupt_count").
+		Where("started_at >= ? AND metadata->>'was_interrupted' = ?", cutoff, "true").
+		Group("station_id").
+		Scan(&interruptedCounts)
+
+	InterruptedPlays24hTotal.Reset()
+	for _, ic := range interruptedCounts {
+		InterruptedPlays24hTotal.WithLabelValues(ic.StationID).Set(float64(ic.InterruptCount))
+	}
 }
 
 // UpdateListenerMetrics resets the listener gauge and sets per-station values.

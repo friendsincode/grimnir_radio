@@ -362,6 +362,34 @@ var (
 	)
 )
 
+// Track resume (cut-position recovery) metrics
+var (
+	TrackResumesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "grimnir_track_resumes_total",
+			Help: "Total number of tracks resumed from a cut position (interrupted play recovery)",
+		},
+		[]string{"station_id", "strategy"},
+	)
+
+	TrackResumeOffsetSeconds = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "grimnir_track_resume_offset_seconds",
+			Help:    "Distribution of resume offsets (how far into the track playback was cut)",
+			Buckets: []float64{30, 60, 120, 300, 600, 1200, 1800, 3600},
+		},
+		[]string{"station_id"},
+	)
+
+	InterruptedPlays24hTotal = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_interrupted_plays_24h_total",
+			Help: "Number of tracks interrupted (cut early) in the last 24 hours per station",
+		},
+		[]string{"station_id"},
+	)
+)
+
 // Leader election metrics
 var (
 	LeaderElectionStatus = promauto.NewGaugeVec(
