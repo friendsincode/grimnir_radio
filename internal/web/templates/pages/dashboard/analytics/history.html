@@ -133,11 +133,12 @@
                     <th>Artist</th>
                     <th>Duration</th>
                     <th>Source</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
                 {{range $history}}
-                <tr>
+                <tr class="{{if .Restarted}}table-warning{{else if .Interrupted}}table-danger{{end}}">
                     <td>
                         <small>{{localTime .StartedAt}}</small>
                     </td>
@@ -149,11 +150,25 @@
                         {{if .Duration}}
                         <span class="badge bg-secondary">{{formatDuration .Duration}}</span>
                         {{end}}
+                        {{if and .FullRuntime (ne .FullRuntime .Duration)}}
+                        <span class="text-body-secondary small ms-1">/ {{formatDuration .FullRuntime}}</span>
+                        {{end}}
                     </td>
                     <td>
                         <span class="badge {{if eq .Source "automation"}}bg-primary{{else if eq .Source "live"}}bg-danger{{else}}bg-secondary{{end}}">
                             {{.Source}}
                         </span>
+                    </td>
+                    <td class="text-nowrap">
+                        {{if .Restarted}}
+                        <span class="badge bg-warning text-dark" title="This show was restarted after being interrupted">
+                            <i class="bi bi-arrow-repeat me-1"></i>Restart
+                        </span>
+                        {{else if .Interrupted}}
+                        <span class="badge bg-danger" title="This play was cut short — {{formatDuration .PlayedFor}} of {{formatDuration .FullRuntime}}">
+                            <i class="bi bi-scissors me-1"></i>Cut after {{formatDuration .PlayedFor}}
+                        </span>
+                        {{end}}
                     </td>
                 </tr>
                 {{end}}

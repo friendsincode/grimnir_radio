@@ -32,11 +32,16 @@ type listenerSeriesPoint struct {
 }
 
 type analyticsHistoryRow struct {
-	StartedAt time.Time
-	Title     string
-	Artist    string
-	Duration  time.Duration
-	Source    string
+	StartedAt   time.Time
+	EndedAt     time.Time
+	Title       string
+	Artist      string
+	Duration    time.Duration
+	FullRuntime time.Duration // expected full duration from media_item
+	Source      string
+	Restarted   bool          // true when this play is a restart of a previous interrupted play
+	Interrupted bool          // true when this play was cut short before its expected end
+	PlayedFor   time.Duration // how long it actually played before being cut (if interrupted)
 }
 
 // AnalyticsDashboard renders the main analytics page
@@ -188,9 +193,18 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 
 	history := make([]analyticsHistoryRow, 0, len(historyEntries))
 	for _, entry := range historyEntries {
-		duration := time.Duration(0)
+		actualDuration := time.Duration(0)
 		if !entry.EndedAt.IsZero() && entry.EndedAt.After(entry.StartedAt) {
-			duration = entry.EndedAt.Sub(entry.StartedAt)
+			actualDuration = entry.EndedAt.Sub(entry.StartedAt)
+		}
+
+		// Look up full expected runtime from media_item if we have a media_id
+		fullRuntime := actualDuration
+		if entry.MediaID != "" {
+			var mi struct{ Duration time.Duration }
+			if h.db.Raw("SELECT duration FROM media_items WHERE id = ?", entry.MediaID).Scan(&mi).Error == nil && mi.Duration > 0 {
+				fullRuntime = mi.Duration
+			}
 		}
 
 		source := "automation"
@@ -214,12 +228,52 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 		}
 
 		history = append(history, analyticsHistoryRow{
-			StartedAt: entry.StartedAt,
-			Title:     entry.Title,
-			Artist:    entry.Artist,
-			Duration:  duration,
-			Source:    source,
+			StartedAt:   entry.StartedAt,
+			EndedAt:     entry.EndedAt,
+			Title:       entry.Title,
+			Artist:      entry.Artist,
+			Duration:    actualDuration,
+			FullRuntime: fullRuntime,
+			Source:      source,
 		})
+	}
+
+	// Detect restarts and interruptions.
+	// history is DESC order: index 0 = newest, last index = oldest.
+	// For each entry, look forward (higher index = older) for the same title+artist
+	// played within its expected runtime window.
+	type trackKey struct{ title, artist string }
+	// Build a map: trackKey -> index of most-recent play of that track (in this page).
+	// A play at index i is a RESTART if the same track appears at index j > i
+	// (i.e. an older play) and history[j].StartedAt + history[j].FullRuntime > history[i].StartedAt
+	// meaning the older play hadn't finished before this one started.
+	for i := range history {
+		key := trackKey{history[i].Title, history[i].Artist}
+		if key.title == "" {
+			continue
+		}
+		// Look at older entries (higher index) for the same track
+		for j := i + 1; j < len(history); j++ {
+			if history[j].Title != key.title || history[j].Artist != key.artist {
+				continue
+			}
+			runtime := history[j].FullRuntime
+			if runtime <= 0 {
+				runtime = history[j].Duration
+			}
+			if runtime <= 0 {
+				break
+			}
+			expectedEnd := history[j].StartedAt.Add(runtime)
+			// Allow a 10s grace for normal back-to-back scheduling
+			if expectedEnd.After(history[i].StartedAt.Add(10 * time.Second)) {
+				// The older play (j) was cut short; the newer play (i) is a restart
+				history[i].Restarted = true
+				history[j].Interrupted = true
+				history[j].PlayedFor = history[i].StartedAt.Sub(history[j].StartedAt)
+			}
+			break
+		}
 	}
 
 	// Summary stats
