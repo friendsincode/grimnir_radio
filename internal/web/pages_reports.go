@@ -9,11 +9,26 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+// GapWindow describes an uncovered time range within a day.
+type GapWindow struct {
+	StartsAt time.Time
+	EndsAt   time.Time
+	Hours    float64
+}
+
+// TimelineSegment is one covered or gap slice of a 24-hour day for the visual bar.
+type TimelineSegment struct {
+	WidthPct float64
+	Covered  bool
+	Label    string // tooltip text e.g. "07:00–08:00 · smart_block"
+}
 
 // SmartBlockIssue describes a fill problem with a single smart block entry.
 type SmartBlockIssue struct {
@@ -35,6 +50,8 @@ type DayHealth struct {
 	GapHours         float64
 	CoveragePct      float64
 	SmartBlockIssues []SmartBlockIssue
+	GapWindows       []GapWindow
+	TimelineSegments []TimelineSegment
 	Health           string // "green" | "yellow" | "red"
 	PlayedCount      int    // actual plays from history (past days only)
 	PlannedCount     int    // number of scheduled entries
@@ -135,6 +152,9 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 			dayStart := weekFrom.Add(time.Duration(d) * 24 * time.Hour)
 			entries := entriesByDay[d]
 
+			// Sort entries by start time once; used for coverage, gaps, and timeline.
+			sort.Slice(entries, func(i, j int) bool { return entries[i].StartsAt.Before(entries[j].StartsAt) })
+
 			// Coverage calculation.
 			var scheduledSecs float64
 			for _, e := range entries {
@@ -150,6 +170,77 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 			coveragePct := scheduledHours / 24.0 * 100.0
 			if coveragePct > 100 {
 				coveragePct = 100
+			}
+
+			dayEnd := dayStart.Add(24 * time.Hour)
+
+			// Compute gap windows (gaps >= 15 min).
+			var gapWindows []GapWindow
+			{
+				cursor := dayStart
+				for _, e := range entries {
+					eStart := e.StartsAt
+					if eStart.Before(dayStart) {
+						eStart = dayStart
+					}
+					if eStart.After(cursor) && eStart.Sub(cursor) >= 15*time.Minute {
+						gapWindows = append(gapWindows, GapWindow{
+							StartsAt: cursor,
+							EndsAt:   eStart,
+							Hours:    eStart.Sub(cursor).Hours(),
+						})
+					}
+					if e.EndsAt.After(cursor) {
+						cursor = e.EndsAt
+					}
+				}
+				if cursor.Before(dayEnd) && dayEnd.Sub(cursor) >= 15*time.Minute {
+					gapWindows = append(gapWindows, GapWindow{
+						StartsAt: cursor,
+						EndsAt:   dayEnd,
+						Hours:    dayEnd.Sub(cursor).Hours(),
+					})
+				}
+			}
+
+			// Compute timeline segments for the visual bar.
+			var timelineSegments []TimelineSegment
+			{
+				cursor := dayStart
+				for _, e := range entries {
+					eStart := e.StartsAt
+					if eStart.Before(cursor) {
+						eStart = cursor
+					}
+					if eStart.After(cursor) {
+						gapDur := eStart.Sub(cursor)
+						timelineSegments = append(timelineSegments, TimelineSegment{
+							WidthPct: gapDur.Minutes() / 1440.0 * 100,
+							Covered:  false,
+							Label:    fmt.Sprintf("%s–%s · gap", cursor.Format("15:04"), eStart.Format("15:04")),
+						})
+					}
+					eEnd := e.EndsAt
+					if eEnd.After(eStart) {
+						covDur := eEnd.Sub(eStart)
+						timelineSegments = append(timelineSegments, TimelineSegment{
+							WidthPct: covDur.Minutes() / 1440.0 * 100,
+							Covered:  true,
+							Label:    fmt.Sprintf("%s–%s · %s", eStart.Format("15:04"), eEnd.Format("15:04"), e.SourceType),
+						})
+					}
+					if e.EndsAt.After(cursor) {
+						cursor = e.EndsAt
+					}
+				}
+				if cursor.Before(dayEnd) {
+					gapDur := dayEnd.Sub(cursor)
+					timelineSegments = append(timelineSegments, TimelineSegment{
+						WidthPct: gapDur.Minutes() / 1440.0 * 100,
+						Covered:  false,
+						Label:    fmt.Sprintf("%s–%s · gap", cursor.Format("15:04"), dayEnd.Format("15:04")),
+					})
+				}
 			}
 
 			// Smart block fill check — uses materialized entries, not engine.Generate().
@@ -239,6 +330,8 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 				GapHours:         gapHours,
 				CoveragePct:      coveragePct,
 				SmartBlockIssues: issues,
+				GapWindows:       gapWindows,
+				TimelineSegments: timelineSegments,
 				Health:           health,
 				PlayedCount:      int(playedByDay[d]),
 				PlannedCount:     len(entries),

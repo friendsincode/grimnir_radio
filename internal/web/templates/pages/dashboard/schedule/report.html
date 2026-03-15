@@ -24,11 +24,30 @@
 {{$lookaheadHours := index $data "LookaheadHours"}}
 {{$lookaheadCutoff := index $data "LookaheadCutoff"}}
 
+<style>
+.timeline-bar { height: 18px; border-radius: 4px; overflow: hidden; }
+.timeline-seg-gap {
+    background: repeating-linear-gradient(
+        -45deg,
+        #2b2b2b,
+        #2b2b2b 3px,
+        #1a1a1a 3px,
+        #1a1a1a 6px
+    );
+}
+.timeline-seg-covered { background: #198754; }
+details > summary { list-style: none; cursor: pointer; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::marker { display: none; }
+details[open] > summary .chevron { transform: rotate(90deg); }
+.chevron { transition: transform 0.15s ease; display: inline-block; }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="mb-1"><i class="bi bi-clipboard2-pulse me-2"></i>Schedule Health Report</h4>
         <div class="text-body-secondary small">
-            7-day coverage overview for <strong>{{$station.Name}}</strong>
+            7-day coverage for <strong>{{$station.Name}}</strong>
             &mdash; <span title="{{$generatedAt}}">as of {{$generatedAt.Format "15:04:05 UTC"}}</span>
             &mdash; scheduler lookahead: {{$lookaheadHours}}h
         </div>
@@ -45,148 +64,142 @@
     </div>
 </div>
 
-<!-- Legend -->
-<div class="d-flex gap-3 mb-3 small">
-    <span><i class="bi bi-circle-fill text-success"></i> Healthy (≥95% coverage, no issues)</span>
-    <span><i class="bi bi-circle-fill text-warning"></i> Warning (70–94% or mild underfill)</span>
-    <span><i class="bi bi-circle-fill text-danger"></i> Critical (&lt;70% or unresolved smart block)</span>
+<!-- Summary strip -->
+{{if $days}}
+<div class="d-flex gap-3 mb-3 align-items-center flex-wrap">
+    <span class="badge bg-success fs-6 px-3 py-2"><i class="bi bi-check-circle me-1"></i>{{$greenCount}} healthy</span>
+    <span class="badge bg-warning text-dark fs-6 px-3 py-2"><i class="bi bi-exclamation-triangle me-1"></i>{{$yellowCount}} warning</span>
+    <span class="badge bg-danger fs-6 px-3 py-2"><i class="bi bi-exclamation-circle me-1"></i>{{$redCount}} critical</span>
+    <span class="text-body-secondary small ms-auto"><i class="bi bi-circle-fill text-success me-1"></i>Covered &nbsp;<span class="timeline-seg-gap d-inline-block me-1" style="width:16px;height:10px;border-radius:2px;vertical-align:middle;"></span>Dead air</span>
 </div>
+{{end}}
 
-<!-- 7-Day Grid -->
-<div class="row row-cols-1 row-cols-md-7 g-2">
+<!-- Day panels -->
+<div class="d-flex flex-column gap-2">
 {{range $i, $day := $days}}
-<div class="col">
-    <div class="card h-100 {{if eq $day.Health "red"}}border-danger{{else if eq $day.Health "yellow"}}border-warning{{else}}border-success{{end}}">
-        <div class="card-header py-2 d-flex justify-content-between align-items-center
-            {{if eq $day.Health "red"}}bg-danger-subtle{{else if eq $day.Health "yellow"}}bg-warning-subtle{{else}}bg-success-subtle{{end}}">
-            <span class="fw-bold small">{{$day.Date.Format "Mon 2 Jan"}}</span>
-            <span>
-                {{if eq $day.Health "red"}}
-                    <i class="bi bi-exclamation-circle-fill text-danger" title="Critical"></i>
-                {{else if eq $day.Health "yellow"}}
-                    <i class="bi bi-exclamation-triangle-fill text-warning" title="Warning"></i>
-                {{else}}
-                    <i class="bi bi-check-circle-fill text-success" title="Healthy"></i>
+{{$isPast := lt ($day.Date.Unix) ($weekFrom.Unix)}}
+<details {{if not $isPast}}open{{end}} class="card border-{{if eq $day.Health "red"}}danger{{else if eq $day.Health "yellow"}}warning{{else}}success{{end}}">
+    <summary class="card-header py-2 px-3 d-flex align-items-center gap-2
+        {{if eq $day.Health "red"}}bg-danger-subtle{{else if eq $day.Health "yellow"}}bg-warning-subtle{{else}}bg-success-subtle{{end}}">
+        <span class="chevron text-body-secondary me-1"><i class="bi bi-chevron-right"></i></span>
+        {{if eq $day.Health "red"}}
+            <i class="bi bi-exclamation-circle-fill text-danger" title="Critical"></i>
+        {{else if eq $day.Health "yellow"}}
+            <i class="bi bi-exclamation-triangle-fill text-warning" title="Warning"></i>
+        {{else}}
+            <i class="bi bi-check-circle-fill text-success" title="Healthy"></i>
+        {{end}}
+        <span class="fw-bold">{{$day.Date.Format "Mon 2 Jan"}}</span>
+        <span class="badge {{if eq $day.Health "red"}}bg-danger{{else if eq $day.Health "yellow"}}bg-warning text-dark{{else}}bg-success{{end}} ms-1">
+            {{printf "%.0f" $day.CoveragePct}}% covered
+        </span>
+        <span class="text-body-secondary small ms-2">{{$day.PlannedCount}} entries</span>
+        {{if gt $day.GapHours 0.0}}
+        <span class="text-danger small ms-1">· {{printf "%.1f" $day.GapHours}}h dead air</span>
+        {{end}}
+        {{if gt $day.PlayedCount 0}}
+        <span class="text-body-secondary small ms-auto"><i class="bi bi-music-note me-1"></i>{{$day.PlayedCount}} played</span>
+        {{end}}
+    </summary>
+    <div class="card-body py-2 px-3">
+
+        <!-- Timeline bar -->
+        {{if $day.TimelineSegments}}
+        <div class="mb-1 d-flex align-items-center gap-2">
+            <span class="small text-body-secondary text-nowrap">00:00</span>
+            <div class="timeline-bar d-flex flex-grow-1">
+                {{range $day.TimelineSegments}}
+                <div class="{{if .Covered}}timeline-seg-covered{{else}}timeline-seg-gap{{end}}"
+                     style="width: {{printf "%.3f" .WidthPct}}%; min-width: 1px;"
+                     title="{{.Label}}"></div>
                 {{end}}
-            </span>
+            </div>
+            <span class="small text-body-secondary text-nowrap">24:00</span>
         </div>
-        <div class="card-body py-2 px-2">
-            <!-- Coverage bar -->
-            <div class="mb-2">
-                <div class="d-flex justify-content-between small text-body-secondary mb-1">
-                    <span>Coverage</span>
-                    <span>{{printf "%.0f" $day.CoveragePct}}%</span>
-                </div>
-                <div class="progress" style="height: 6px;">
-                    <div class="progress-bar
-                        {{if lt $day.CoveragePct 70.0}}bg-danger{{else if lt $day.CoveragePct 95.0}}bg-warning{{else}}bg-success{{end}}"
-                        role="progressbar"
-                        style="width: {{printf "%.0f" $day.CoveragePct}}%"
-                        aria-valuenow="{{printf "%.0f" $day.CoveragePct}}"
-                        aria-valuemin="0" aria-valuemax="100">
+        {{end}}
+
+        <!-- Gap windows (dead air detail) -->
+        {{if $day.GapWindows}}
+        <div class="mt-2 mb-1">
+            <div class="small fw-semibold text-danger mb-1"><i class="bi bi-exclamation-circle me-1"></i>Dead air:</div>
+            {{range $day.GapWindows}}
+            <div class="d-flex align-items-center gap-2 mb-1 ps-2">
+                <span class="small text-body-secondary text-nowrap">{{.StartsAt.Format "15:04"}} – {{.EndsAt.Format "15:04"}}</span>
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{printf "%.1f" .Hours}}h</span>
+                <a href="/dashboard/schedule?date={{.StartsAt.Format "2006-01-02"}}&amp;goto={{.StartsAt.Format "15:04"}}"
+                   class="btn btn-outline-primary btn-sm py-0 px-2 small">
+                    <i class="bi bi-calendar-plus me-1"></i>Add to schedule →
+                </a>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+
+        <!-- Smart block issues -->
+        {{if $day.SmartBlockIssues}}
+        <div class="border-top pt-2 mt-2">
+            <div class="small fw-bold mb-1 text-body-secondary">
+                <i class="bi bi-magic me-1"></i>Smart Block Issues
+            </div>
+            {{range $day.SmartBlockIssues}}
+            <div class="small mb-2 p-2 rounded
+                {{if .Pending}}bg-body-secondary{{else if .Error}}bg-danger-subtle{{else if .Underfilled}}bg-warning-subtle{{else}}bg-success-subtle{{end}}">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div>
+                        <span class="fw-semibold">{{.BlockName}}</span>
+                        <span class="text-body-secondary ms-2">{{.StartsAt.Format "15:04"}}–{{.EndsAt.Format "15:04"}}</span>
                     </div>
                 </div>
-                <div class="small text-body-secondary mt-1">
-                    {{printf "%.1f" $day.ScheduledHours}}h / 24h
-                    {{if gt $day.GapHours 0.0}}
-                    <span class="text-danger">({{printf "%.1f" $day.GapHours}}h gap)</span>
-                    <a href="/dashboard/schedule" class="ms-1 text-decoration-none" style="font-size:0.7rem" title="Open schedule to fill gap">
-                        <i class="bi bi-calendar-plus text-primary"></i>
+                {{if .Pending}}
+                <div class="text-body-secondary mt-1"><i class="bi bi-hourglass-split me-1"></i>Beyond {{$lookaheadHours}}h lookahead — not yet scheduled</div>
+                {{else if .Error}}
+                <div class="text-danger mt-1"><i class="bi bi-x-circle me-1"></i>{{.Error}}</div>
+                <div class="mt-1 d-flex flex-wrap gap-1">
+                    <a href="/dashboard/smart-blocks/{{.BlockID}}/edit" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem">
+                        <i class="bi bi-pencil me-1"></i>Edit block
                     </a>
-                    {{end}}
+                    <a href="/dashboard/smart-blocks/{{.BlockID}}/edit#loop" class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:0.75rem">
+                        <i class="bi bi-arrow-repeat me-1"></i>Enable loop
+                    </a>
+                    <a href="/dashboard/media" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem">
+                        <i class="bi bi-music-note-list me-1"></i>Add tracks
+                    </a>
                 </div>
-            </div>
-
-            <!-- Entry count + play history -->
-            <div class="small text-body-secondary mb-2">
-                <i class="bi bi-calendar-event me-1"></i>{{$day.PlannedCount}} entries
-                {{if gt $day.PlayedCount 0}}
-                <br><i class="bi bi-music-note me-1"></i>{{$day.PlayedCount}} played
+                {{else}}
+                <div class="mt-1 {{if lt .FillPct 70.0}}text-danger{{else if lt .FillPct 95.0}}text-warning{{else}}text-success{{end}}">
+                    <i class="bi bi-pie-chart me-1"></i>Fill: {{printf "%.0f" .FillPct}}%
+                    {{if .Underfilled}}<span class="badge bg-warning text-dark ms-1">Underfilled</span>{{end}}
+                </div>
+                {{if .Underfilled}}
+                <div class="mt-1 d-flex flex-wrap gap-1">
+                    <a href="/dashboard/smart-blocks/{{.BlockID}}/edit" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem">
+                        <i class="bi bi-pencil me-1"></i>Edit block
+                    </a>
+                    <a href="/dashboard/smart-blocks/{{.BlockID}}/edit#loop" class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:0.75rem">
+                        <i class="bi bi-arrow-repeat me-1"></i>Enable loop
+                    </a>
+                    <a href="/dashboard/media" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem">
+                        <i class="bi bi-music-note-list me-1"></i>Add tracks
+                    </a>
+                </div>
                 {{end}}
-            </div>
-
-            <!-- Smart block issues -->
-            {{if $day.SmartBlockIssues}}
-            <div class="border-top pt-2 mt-1">
-                <div class="small fw-bold mb-1 text-body-secondary">
-                    <i class="bi bi-magic me-1"></i>Smart Blocks
-                </div>
-                {{range $day.SmartBlockIssues}}
-                <div class="small mb-1 p-1 rounded
-                    {{if .Pending}}bg-body-secondary{{else if .Error}}bg-danger-subtle{{else if .Underfilled}}bg-warning-subtle{{else}}bg-success-subtle{{end}}">
-                    <div class="text-truncate fw-semibold" title="{{.BlockName}}">{{.BlockName}}</div>
-                    <div class="text-body-secondary">{{.StartsAt.Format "15:04"}}–{{.EndsAt.Format "15:04"}}</div>
-                    {{if .Pending}}
-                    <div class="text-body-secondary"><i class="bi bi-hourglass-split me-1"></i>Beyond {{$lookaheadHours}}h lookahead — not yet scheduled</div>
-                    {{else if .Error}}
-                    <div class="text-danger"><i class="bi bi-x-circle me-1"></i>{{.Error}}</div>
-                    <div class="mt-1 d-flex flex-wrap gap-1">
-                        <a href="/dashboard/smart-blocks/{{.BlockID}}/edit" class="btn btn-xs btn-outline-primary py-0 px-1" style="font-size:0.7rem">
-                            <i class="bi bi-pencil me-1"></i>Edit block
-                        </a>
-                        <a href="/dashboard/smart-blocks/{{.BlockID}}/edit#loop" class="btn btn-xs btn-outline-warning py-0 px-1" style="font-size:0.7rem">
-                            <i class="bi bi-arrow-repeat me-1"></i>Enable loop
-                        </a>
-                        <a href="/dashboard/media" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:0.7rem">
-                            <i class="bi bi-music-note-list me-1"></i>Add tracks
-                        </a>
-                    </div>
-                    {{else}}
-                    <div class="{{if lt .FillPct 70.0}}text-danger{{else if lt .FillPct 95.0}}text-warning{{else}}text-success{{end}}">
-                        <i class="bi bi-pie-chart me-1"></i>Fill: {{printf "%.0f" .FillPct}}%
-                        {{if .Underfilled}}<span class="badge bg-warning text-dark ms-1">Underfilled</span>{{end}}
-                    </div>
-                    {{if .Underfilled}}
-                    <div class="mt-1 d-flex flex-wrap gap-1">
-                        <a href="/dashboard/smart-blocks/{{.BlockID}}/edit" class="btn btn-xs btn-outline-primary py-0 px-1" style="font-size:0.7rem">
-                            <i class="bi bi-pencil me-1"></i>Edit block
-                        </a>
-                        <a href="/dashboard/smart-blocks/{{.BlockID}}/edit#loop" class="btn btn-xs btn-outline-warning py-0 px-1" style="font-size:0.7rem">
-                            <i class="bi bi-arrow-repeat me-1"></i>Enable loop
-                        </a>
-                        <a href="/dashboard/media" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:0.7rem">
-                            <i class="bi bi-music-note-list me-1"></i>Add tracks
-                        </a>
-                    </div>
-                    {{end}}
-                    {{end}}
-                </div>
                 {{end}}
             </div>
             {{end}}
         </div>
+        {{end}}
+
+        {{if and (not $day.GapWindows) (not $day.SmartBlockIssues)}}
+        <div class="small text-success mt-1"><i class="bi bi-check-circle me-1"></i>Full coverage — no issues detected.</div>
+        {{end}}
+
     </div>
-</div>
+</details>
 {{else}}
-<div class="col-12 text-center text-body-secondary py-5">
+<div class="text-center text-body-secondary py-5">
     <i class="bi bi-calendar-x fs-1 d-block mb-2 opacity-50"></i>
     No schedule data found for this week.
 </div>
 {{end}}
 </div>
-
-<!-- Summary row -->
-{{if $days}}
-<div class="card mt-4">
-    <div class="card-header">
-        <i class="bi bi-bar-chart me-2"></i>7-Day Summary
-    </div>
-    <div class="card-body">
-        <div class="row g-3 text-center">
-            <div class="col-4">
-                <div class="fs-3 fw-bold text-success">{{$greenCount}}</div>
-                <div class="text-body-secondary small">Healthy days</div>
-            </div>
-            <div class="col-4">
-                <div class="fs-3 fw-bold text-warning">{{$yellowCount}}</div>
-                <div class="text-body-secondary small">Warning days</div>
-            </div>
-            <div class="col-4">
-                <div class="fs-3 fw-bold text-danger">{{$redCount}}</div>
-                <div class="text-body-secondary small">Critical days</div>
-            </div>
-        </div>
-    </div>
-</div>
-{{end}}
 {{end}}
