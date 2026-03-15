@@ -21,13 +21,25 @@
 {{$fromValue := index $data "FromValue"}}
 {{$toValue := index $data "ToValue"}}
 {{$sourceFilter := index $data "SourceFilter"}}
+{{$searchQuery := index $data "SearchQuery"}}
 {{$uniqueTracks := index $data "UniqueTracks"}}
 {{$uniqueArtists := index $data "UniqueArtists"}}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i>Play History</h4>
-    <a href="/dashboard/analytics" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i>Back to Analytics
-    </a>
+    <div class="d-flex gap-2">
+        <a href="?" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</a>
+        <a href="/dashboard/analytics" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back to Analytics
+        </a>
+    </div>
+</div>
+
+<!-- Now Playing -->
+<div class="alert alert-dark d-flex align-items-center gap-3 mb-4 py-2">
+    <span class="text-success fw-bold text-nowrap"><i class="bi bi-broadcast me-1"></i>On Air Now:</span>
+    <span hx-get="/dashboard/analytics/now-playing" hx-trigger="load, every 15s" hx-swap="innerHTML">
+        <span class="text-body-secondary">Loading…</span>
+    </span>
 </div>
 
 <!-- Summary Stats -->
@@ -62,15 +74,19 @@
 <div class="card mb-4">
     <div class="card-body">
         <form method="GET" class="row g-3 align-items-end">
-            <div class="col-md-3">
+            <div class="col-md-4">
+                <label class="form-label">Search artist or title</label>
+                <input type="search" class="form-control" name="q" placeholder="e.g. GaryL, Road Less Traveled…" value="{{$searchQuery}}" autofocus>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label">From Date</label>
                 <input type="date" class="form-control" name="from" id="historyFrom" value="{{$fromValue}}">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">To Date</label>
                 <input type="date" class="form-control" name="to" id="historyTo" value="{{$toValue}}">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">Source</label>
                 <select class="form-select" name="source">
                     <option value="">All Sources</option>
@@ -81,9 +97,9 @@
                     <option value="webstream"{{if eq $sourceFilter "webstream"}} selected{{end}}>Webstream</option>
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <button type="submit" class="btn btn-primary w-100">
-                    <i class="bi bi-filter me-1"></i>Filter
+                    <i class="bi bi-search me-1"></i>Search
                 </button>
             </div>
         </form>
@@ -152,7 +168,7 @@
             <ul class="pagination justify-content-center mb-0">
                 {{if gt $page 1}}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{sub $page 1}}{{if $fromValue}}&from={{$fromValue}}{{end}}{{if $toValue}}&to={{$toValue}}{{end}}{{if $sourceFilter}}&source={{$sourceFilter}}{{end}}">Previous</a>
+                    <a class="page-link" href="?page={{sub $page 1}}{{if $fromValue}}&from={{$fromValue}}{{end}}{{if $toValue}}&to={{$toValue}}{{end}}{{if $sourceFilter}}&source={{$sourceFilter}}{{end}}{{if $searchQuery}}&q={{$searchQuery}}{{end}}">Previous</a>
                 </li>
                 {{end}}
                 <li class="page-item active">
@@ -160,7 +176,7 @@
                 </li>
                 {{if lt (mul $page $perPage) $total}}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{add $page 1}}{{if $fromValue}}&from={{$fromValue}}{{end}}{{if $toValue}}&to={{$toValue}}{{end}}{{if $sourceFilter}}&source={{$sourceFilter}}{{end}}">Next</a>
+                    <a class="page-link" href="?page={{add $page 1}}{{if $fromValue}}&from={{$fromValue}}{{end}}{{if $toValue}}&to={{$toValue}}{{end}}{{if $sourceFilter}}&source={{$sourceFilter}}{{end}}{{if $searchQuery}}&q={{$searchQuery}}{{end}}">Next</a>
                 </li>
                 {{end}}
             </ul>
