@@ -24,6 +24,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/smartblock"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/friendsincode/grimnir_radio/internal/webstream"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -1864,9 +1865,11 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 	// Check for interrupted play resume; overrides schedule-based resume for non-crossfade path.
 	var resumeOffsetMS int64
 	if media.Duration > 0 {
-		if offset, ok := d.findResumeOffset(ctx, entry.StationID, entry.MountID, media.ID, media.Duration); ok {
-			d.logger.Info().Str("media_id", media.ID).Int64("resume_offset_ms", offset).
+		if offset, strategy, ok := d.findResumeOffset(ctx, entry.StationID, entry.MountID, media.ID, media.Duration); ok {
+			d.logger.Info().Str("media_id", media.ID).Int64("resume_offset_ms", offset).Str("strategy", strategy).
 				Msg("resuming interrupted track from cut position")
+			telemetry.TrackResumesTotal.WithLabelValues(entry.StationID, strategy).Inc()
+			telemetry.TrackResumeOffsetSeconds.WithLabelValues(entry.StationID).Observe(float64(offset) / 1000.0)
 			resumeOffsetMS = offset
 		}
 	}
@@ -2088,9 +2091,11 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	// Check for interrupted play resume; overrides schedule-based resume for non-crossfade path.
 	var resumeOffsetMS int64
 	if media.Duration > 0 {
-		if offset, ok := d.findResumeOffset(ctx, entry.StationID, entry.MountID, media.ID, media.Duration); ok {
-			d.logger.Info().Str("media_id", media.ID).Int64("resume_offset_ms", offset).
+		if offset, strategy, ok := d.findResumeOffset(ctx, entry.StationID, entry.MountID, media.ID, media.Duration); ok {
+			d.logger.Info().Str("media_id", media.ID).Int64("resume_offset_ms", offset).Str("strategy", strategy).
 				Msg("resuming interrupted track from cut position")
+			telemetry.TrackResumesTotal.WithLabelValues(entry.StationID, strategy).Inc()
+			telemetry.TrackResumeOffsetSeconds.WithLabelValues(entry.StationID).Observe(float64(offset) / 1000.0)
 			resumeOffsetMS = offset
 		}
 	}
@@ -3269,11 +3274,11 @@ func (d *Director) closeCurrentPlayHistory(ctx context.Context, stationID, mount
 
 // findResumeOffset returns the position (in ms) to resume a track from after an interruption.
 // It first checks MountPlayoutState (crash-safe, ±15s) then PlayHistory (exact cut position).
-// Returns (offset, true) when a valid resume point is found.
-func (d *Director) findResumeOffset(ctx context.Context, stationID, mountID, mediaID string, fullDuration time.Duration) (int64, bool) {
+// Returns (offsetMS, strategy, true) when a valid resume point is found; strategy is "crash" or "cut".
+func (d *Director) findResumeOffset(ctx context.Context, stationID, mountID, mediaID string, fullDuration time.Duration) (int64, string, bool) {
 	maxMS := fullDuration.Milliseconds() - 30000
 	if maxMS <= 0 {
-		return 0, false
+		return 0, "", false
 	}
 	// Strategy A: crash-safe position from MountPlayoutState (updated every ~15s).
 	var state models.MountPlayoutState
@@ -3281,7 +3286,7 @@ func (d *Director) findResumeOffset(ctx context.Context, stationID, mountID, med
 		if state.MediaID == mediaID && state.TrackPositionMS > 30000 &&
 			!state.TrackPositionAt.IsZero() && time.Since(state.TrackPositionAt) < 48*time.Hour &&
 			state.TrackPositionMS < maxMS {
-			return state.TrackPositionMS, true
+			return state.TrackPositionMS, "crash", true
 		}
 	}
 	// Strategy B: explicitly recorded cut offset in PlayHistory.
@@ -3291,10 +3296,10 @@ func (d *Director) findResumeOffset(ctx context.Context, stationID, mountID, med
 			stationID, mediaID, time.Now().Add(-48*time.Hour)).
 		Order("started_at DESC").First(&h).Error; err == nil {
 		if cutMS, ok := h.Metadata["cut_offset_ms"].(float64); ok && cutMS > 30000 && int64(cutMS) < maxMS {
-			return int64(cutMS), true
+			return int64(cutMS), "cut", true
 		}
 	}
-	return 0, false
+	return 0, "", false
 }
 
 // flushTrackPositions writes the current wall-clock-derived playback positions for all active
