@@ -665,6 +665,7 @@ func (s *Service) createWebstreamEntry(ctx context.Context, stationID string, pl
 		EndsAt:     plan.EndsAt,
 		SourceType: "webstream",
 		SourceID:   webstreamID,
+		IsInstance: true,
 		Metadata: map[string]any{
 			"slot_type": string(models.SlotTypeWebstream),
 		},

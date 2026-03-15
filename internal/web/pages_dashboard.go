@@ -547,10 +547,10 @@ func (h *Handler) loadDashboardConfidenceData(r *http.Request, stationID string)
 		})
 	}
 
-	// Next scheduled entry (soonest future non-media entry).
+	// Next scheduled entry: next thing on the schedule, skipping auto-generated media track instances.
 	var nextEntry models.ScheduleEntry
 	if err := h.db.WithContext(r.Context()).
-		Where("station_id = ? AND starts_at > ? AND source_type != 'media'", stationID, time.Now()).
+		Where("station_id = ? AND starts_at > ? AND NOT (source_type = 'media' AND is_instance = true)", stationID, time.Now()).
 		Order("starts_at ASC").
 		First(&nextEntry).Error; err == nil {
 		data.NextEntry = &nextEntry
@@ -574,6 +574,15 @@ func (h *Handler) loadDashboardConfidenceData(r *http.Request, stationID string)
 			var stream models.Webstream
 			if err2 := h.db.WithContext(r.Context()).Select("id, name").First(&stream, "id = ?", nextEntry.SourceID).Error; err2 == nil {
 				data.NextEntryTitle = stream.Name
+			}
+		case "media":
+			var item models.MediaItem
+			if err2 := h.db.WithContext(r.Context()).Select("id, title, artist").First(&item, "id = ?", nextEntry.SourceID).Error; err2 == nil {
+				if item.Artist != "" {
+					data.NextEntryTitle = item.Artist + " – " + item.Title
+				} else {
+					data.NextEntryTitle = item.Title
+				}
 			}
 		case "live":
 			if name, ok := nextEntry.Metadata["session_name"].(string); ok && name != "" {
