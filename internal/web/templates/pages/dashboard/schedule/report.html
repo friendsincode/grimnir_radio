@@ -120,9 +120,6 @@
                     <div class="text-body-secondary"><i class="bi bi-hourglass-split me-1"></i>Beyond {{$lookaheadHours}}h lookahead — not yet scheduled</div>
                     {{else if .Error}}
                     <div class="text-danger"><i class="bi bi-x-circle me-1"></i>{{.Error}}</div>
-                    <div class="text-body-secondary mt-1" style="font-size:0.7rem">
-                        The scheduler ran but found no matching tracks. The block may have no content, or rules may filter everything out.
-                    </div>
                     <div class="mt-1 d-flex flex-wrap gap-1">
                         <a href="/dashboard/smart-blocks/{{.BlockID}}/edit" class="btn btn-xs btn-outline-primary py-0 px-1" style="font-size:0.7rem">
                             <i class="bi bi-pencil me-1"></i>Edit block

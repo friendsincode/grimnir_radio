@@ -236,6 +236,7 @@ func (h *Handler) SetRecordingService(svc *recording.Service) {
 func (h *Handler) loadTemplates() error {
 	funcMap := template.FuncMap{
 		"formatTime":         formatTime,
+		"localTime":          localTime,
 		"formatRFC3339UTC":   formatRFC3339UTC,
 		"timeago":            timeago,
 		"formatDuration":     formatDuration,
@@ -502,6 +503,14 @@ func (h *Handler) StaticHandler() http.Handler {
 
 func formatTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// localTime emits a <time> element whose datetime attribute is RFC3339 UTC.
+// A small JS snippet in the dashboard layout converts these to browser local time.
+func localTime(t time.Time) template.HTML {
+	iso := t.UTC().Format(time.RFC3339)
+	fallback := t.UTC().Format("2006-01-02 15:04:05") + " UTC"
+	return template.HTML(`<time class="local-time" datetime="` + iso + `">` + fallback + `</time>`)
 }
 
 func formatRFC3339UTC(t time.Time) string {
