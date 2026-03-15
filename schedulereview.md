@@ -281,4 +281,177 @@ The health field correctly detects constraint-relaxed blocks and emergency fallb
 
 ---
 
-*Report generated from static analysis of v1.36.5 source. No runtime profiling was performed.*
+## 9. Secondary Impact Analysis — BUG-1 Fix Cascade
+
+A follow-up deep-impact review of adding `IsInstance: true` to scheduler entries found three additional issues that must be fixed **in the same PR** or the `IsInstance` change will break the UI.
+
+### BUG-1a · HIGH — Calendar edit modal misfires on scheduler entries
+
+**File:** `internal/web/templates/pages/dashboard/schedule/calendar.html`, line 3467
+
+```javascript
+if (isRecurring || isInstance) {
+    recurringNotice.classList.remove('d-none');   // shows "edit this occurrence or all?" dialog
+    document.getElementById('editModeAll').checked = true;
+    document.getElementById('editRecurrenceSection').classList.remove('d-none');
+}
+```
+
+`isInstance` is `props.is_instance`. After adding `IsInstance: true` to scheduler entries, clicking any smart block track, playlist block, hard item, or stopset in the schedule calendar would show the recurring-event edit modal ("This is a recurring event — do you want to edit all future occurrences?"). These entries are not instances of recurring rules; they are scheduler-generated concrete entries.
+
+**Root cause:** The JS condition was written when `is_instance=true` meant only "saved override to a recurring rule." It needs a second signal to distinguish the two cases.
+
+**Fix:** Add `"recurrence_parent_id"` (string or empty string) to the `Extendedprops` map in the `ScheduleEvents` handler (`pages_schedule.go` lines 701–722). Update the JS condition to:
+```javascript
+if (isRecurring || (isInstance && props.recurrence_parent_id)) {
+```
+Scheduler entries have no `RecurrenceParentID` so `props.recurrence_parent_id` is empty/null — the modal does not fire. True recurring overrides have `RecurrenceParentID != nil` — the modal fires correctly.
+
+---
+
+### BUG-1b · HIGH — `scheduleStatusForPreview` and calendar health badge label scheduler entries as "Saved Override"
+
+**File:** `internal/web/pages_schedule.go`, lines 103 and 696
+
+```go
+// line 103
+if entry.IsInstance && !isVirtualRecurringInstance(entry) {
+    return "override", "Saved Override", "..."
+}
+
+// line 696
+} else if statusLabel == "" && entry.IsInstance && !isVirtualRecurringInstance(entry) {
+    statusLabel = "Saved Override"
+```
+
+`isVirtualRecurringInstance()` returns `false` for scheduler entries (they have no `RecurrenceParentID`). After adding `IsInstance: true`, every scheduler-generated entry would be classified as "Saved Override" in the schedule preview and the calendar health colouring. The status chip, tooltip, and health badge would all show incorrect information.
+
+**Fix:** Add `&& entry.RecurrenceParentID != nil` to both conditions:
+```go
+if entry.IsInstance && entry.RecurrenceParentID != nil && !isVirtualRecurringInstance(entry) {
+```
+
+---
+
+### BUG-1c · MEDIUM — Operator Confidence "Is Override" badge misfires; sort priority wrong
+
+**File:** `internal/web/pages_dashboard.go`, lines 675–676 and 732
+
+```go
+// Sort: is_instance=true entries always sort first
+if entries[i].IsInstance != entries[j].IsInstance {
+    return entries[i].IsInstance
+}
+
+// IsOverride directly mirrors IsInstance — drives yellow "override" badge
+IsOverride: entry.IsInstance,
+```
+
+After the fix, ALL scheduler entries have `IsInstance: true`. The sort no longer distinguishes "user-created recurring override" from "scheduler-generated entry" — both sort equally, falling through to a start-time comparison. More importantly, `IsOverride: entry.IsInstance` unconditionally fires the yellow "override" badge in the Operator Confidence widget for every scheduler-generated entry.
+
+**Fix:**
+```go
+// Sort: prefer true recurring overrides (RecurrenceParentID set) over plain scheduler instances
+if entries[i].IsInstance != entries[j].IsInstance {
+    return entries[i].IsInstance
+}
+isIOverride := entries[i].IsInstance && entries[i].RecurrenceParentID != nil
+isJOverride := entries[j].IsInstance && entries[j].RecurrenceParentID != nil
+if isIOverride != isJOverride {
+    return isIOverride
+}
+
+// IsOverride badge: only real recurring-event overrides
+IsOverride: entry.IsInstance && entry.RecurrenceParentID != nil,
+```
+
+---
+
+### BUG-1d · MEDIUM — Orphan sweep backlog: old `is_instance=false` entries never cleaned
+
+After adding `IsInstance: true` to new entries, the existing media orphan sweep (line 135) still requires `is_instance = true`:
+
+```sql
+DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW()
+  AND is_instance = true AND metadata->>'smart_block_id' IS NOT NULL
+  AND metadata->>'smart_block_id' NOT IN (SELECT id::text FROM smart_blocks)
+```
+
+All smart block media entries created before this fix have `is_instance = false`. If their smart block is deleted, this sweep misses them — they sit as orphaned future entries driving dead air. The fix is to **remove the `is_instance = true` requirement** from this sweep so it targets all smart-block-derived media entries regardless of when they were created:
+
+```sql
+DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW()
+  AND metadata->>'smart_block_id' IS NOT NULL
+  AND metadata->>'smart_block_id' NOT IN (SELECT id::text FROM smart_blocks)
+```
+
+---
+
+### BUG-1e · LOW — `pickRandomTrack` (emergency fallback) missing `IsInstance: true`
+
+**File:** `internal/scheduler/service.go`, lines 755–766
+
+Emergency fallback entries created by `pickRandomTrack()` when a smart block completely fails have no `IsInstance: true`. These are scheduler-generated ephemeral entries and should be subject to the same 7-day cleanup. The `emergency_fallback` metadata key is already set, so they are recognisable, but the cleanup query (`WHERE is_instance = true`) will never catch them without the flag.
+
+**Fix:** Add `IsInstance: true` to the `ScheduleEntry` literal in `pickRandomTrack`.
+
+---
+
+### Complete BUG-1 fix inventory (all 13 touch points)
+
+| # | File | Line(s) | Change |
+|---|---|---|---|
+| 1 | `scheduler/service.go` | `materializeSmartBlock` ~540 | add `IsInstance: true` |
+| 2 | `scheduler/service.go` | `createPlaylistEntry` ~583 | add `IsInstance: true` |
+| 3 | `scheduler/service.go` | `createHardItemEntry` ~612 | add `IsInstance: true` |
+| 4 | `scheduler/service.go` | `createStopsetEntry` ~640 | add `IsInstance: true` |
+| 5 | `scheduler/service.go` | `pickRandomTrack` ~755 | add `IsInstance: true` |
+| 6 | `scheduler/service.go` | orphan sweep media query ~135 | remove `AND is_instance = true` |
+| 7 | `web/pages_schedule.go` | line 103 | add `&& entry.RecurrenceParentID != nil` |
+| 8 | `web/pages_schedule.go` | line 696 | add `&& entry.RecurrenceParentID != nil` |
+| 9 | `web/pages_schedule.go` | `Extendedprops` map ~715 | add `"recurrence_parent_id"` key |
+| 10 | `web/pages_dashboard.go` | line 732 | `IsOverride: entry.IsInstance && entry.RecurrenceParentID != nil` |
+| 11 | `web/pages_dashboard.go` | sort ~675 | add `RecurrenceParentID != nil` tier to sort |
+| 12 | `web/templates/.../calendar.html` | line 3467 | `if (isRecurring \|\| (isInstance && props.recurrence_parent_id))` |
+| 13 | `internal/version/version.go` | — | bump to `1.36.6` |
+
+All 13 changes must ship together. Applying only the `service.go` changes without the UI guards will produce incorrect badges, wrong edit modals, and misleading status labels across the schedule and dashboard pages.
+
+---
+
+## 10. Updated Summary Table
+
+| Issue | Severity | Status | File(s) |
+|---|---|---|---|
+| BUG-1: `IsInstance=true` missing from scheduler entries | **CRITICAL** | Open | `scheduler/service.go` |
+| BUG-1a: Calendar edit modal misfires on scheduler entries | **HIGH** | Open (blocks BUG-1 fix) | `calendar.html` |
+| BUG-1b: "Saved Override" label on all scheduler entries | **HIGH** | Open (blocks BUG-1 fix) | `pages_schedule.go` |
+| BUG-1c: "Override" badge + wrong sort in Operator Confidence | **MEDIUM** | Open (blocks BUG-1 fix) | `pages_dashboard.go` |
+| BUG-1d: Orphan sweep misses pre-fix `is_instance=false` entries | **MEDIUM** | Open (part of BUG-1 fix) | `scheduler/service.go` |
+| BUG-1e: `pickRandomTrack` missing `IsInstance=true` | **LOW** | Open (part of BUG-1 fix) | `scheduler/service.go` |
+| BUG-2: Clock slot defaults to 1-minute when `duration_ms` missing | **HIGH** | Open | `clock/compiler.go` |
+| BUG-3: Hard-item/stopset silently skipped inside smart_block window | **HIGH** | Open | `scheduler/service.go` |
+| BUG-4: Duplicate entries from competing clock + direct smart_block | **MEDIUM** | Open | `scheduler/service.go` |
+| BUG-5: Media item deletion leaves hard-item schedule entries orphaned | **MEDIUM** | Open | media handler + sweep |
+| BUG-6: Mount deletion leaves schedule entries orphaned | **MEDIUM** | Open | mount handler |
+| BUG-7: Suppressed clock slots have no log or UI feedback | **LOW** | Open | `scheduler/service.go` |
+| `constraint_relaxed`/`emergency_fallback` flags not stored → health always green | **MEDIUM** | Open | `scheduler/service.go` |
+| Ghost `clock_hours` from imports (AzuraCast/LibreTime) | **MEDIUM** | Mitigated by orphan sweep | import pipeline |
+| Schedule calendar orphan check missing for `source_type='media'` | **LOW** | Open | `web/pages_schedule.go` |
+
+---
+
+## 11. Updated Fix Order
+
+1. **BUG-1 + BUG-1a–e together** — all 13 touch points in one PR. Cannot be split; the `service.go` change breaks the UI without the guards.
+2. **BUG-2** — Fix default duration fallback to use clock window span.
+3. **BUG-5** — Cascade delete from media item deletion; add media-orphan check; extend calendar orphan detection.
+4. **BUG-3** — Redesign slot processing so hard_item/stopset offsets constrain smart_block duration.
+5. **BUG-4** — Add `slotAlreadyScheduled` check inside `materializeDirectSmartBlockEntries`.
+6. **BUG-6** — Cascade delete on mount deletion.
+7. Store `constraint_relaxed` / `emergency_fallback` flags in entry Metadata.
+8. **BUG-7** — Add debug-level log for suppressed slots.
+
+---
+
+*Report updated 2026-03-15 after secondary impact analysis of BUG-1 fix cascade.*
