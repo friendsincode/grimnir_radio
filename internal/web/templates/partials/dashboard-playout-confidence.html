@@ -18,31 +18,35 @@
                         <span class="small text-body-secondary">{{if .CurrentMount.MountName}}{{.CurrentMount.MountName}}{{else}}{{.CurrentMount.MountID}}{{end}}</span>
                         {{end}}
                     </div>
-                    <div class="small mb-1">Heartbeat: <strong>{{formatTime .RuntimeState.LastHeartbeat}}</strong></div>
+                    <div class="small mb-1">Heartbeat: <strong>{{localTime .RuntimeState.LastHeartbeat}}</strong></div>
                     <div class="small mb-1">Buffer: <strong>{{.RuntimeState.BufferDepthMS}} ms</strong></div>
                     <div class="small mb-1">Underruns: <strong>{{.RuntimeState.UnderrunCount}}</strong></div>
                     <div class="small">Priority: <strong>{{.RuntimeState.CurrentPriority}}</strong></div>
+                    {{end}}
                     {{if .CurrentMount}}
-                    <hr>
+                    {{if .RuntimeState}}<hr>{{end}}
                     <div class="d-flex justify-content-between align-items-center mb-1">
-                        <div class="small text-body-secondary">Current Runtime Sequence</div>
+                        <div class="small text-body-secondary">Now Playing</div>
                         {{if .MismatchReasons}}<span class="badge bg-warning text-dark">Needs Review</span>{{end}}
                     </div>
+                    <div class="small mb-1">Mount: <strong>{{if .CurrentMount.MountName}}{{.CurrentMount.MountName}}{{else}}{{.CurrentMount.MountID}}{{end}}</strong></div>
                     <div class="small mb-1">Source: <strong>{{.CurrentMount.SourceType}}</strong></div>
                     <div class="small mb-1">Position: <strong>{{.CurrentMount.Position}}</strong>{{if gt .CurrentMount.TotalItems 0}} / {{.CurrentMount.TotalItems}}{{end}}</div>
-                    <div class="small">Window: <strong>{{formatTime .CurrentMount.StartedAt}}</strong> to <strong>{{formatTime .CurrentMount.EndsAt}}</strong></div>
+                    <div class="small">Window: <strong>{{localTime .CurrentMount.StartedAt}}</strong> → <strong>{{localTime .CurrentMount.EndsAt}}</strong></div>
                     {{if .CurrentMount.EntryID}}
                     <div class="mt-2">
                         <a class="btn btn-sm btn-outline-secondary" href="/dashboard/schedule?entry_details={{.CurrentMount.EntryID}}">Inspect runtime slot</a>
                     </div>
                     {{end}}
+                    {{else}}
+                    <div class="text-body-secondary small">No playout activity detected for this station yet.</div>
                     {{end}}
                     {{if .ExpectedMount}}
                     <hr>
                     <div class="small text-body-secondary mb-1">Expected Schedule</div>
                     <div class="small mb-1">Title: <strong>{{.ExpectedMount.Title}}</strong></div>
                     <div class="small mb-1">Source: <strong>{{.ExpectedMount.SourceType}}</strong>{{if .ExpectedMount.IsOverride}} <span class="badge bg-warning text-dark">override</span>{{end}}</div>
-                    <div class="small">Window: <strong>{{formatTime .ExpectedMount.StartsAt}}</strong> to <strong>{{formatTime .ExpectedMount.EndsAt}}</strong></div>
+                    <div class="small">Window: <strong>{{localTime .ExpectedMount.StartsAt}}</strong> → <strong>{{localTime .ExpectedMount.EndsAt}}</strong></div>
                     <div class="mt-2">
                         <a class="btn btn-sm btn-outline-secondary" href="/dashboard/schedule?entry_details={{.ExpectedMount.EntryID}}">Inspect expected slot</a>
                         <a class="btn btn-sm btn-outline-primary" href="/dashboard/schedule?edit_entry={{.ExpectedMount.EntryID}}">Edit expected slot</a>
@@ -57,9 +61,6 @@
                             {{end}}
                         </ul>
                     </div>
-                    {{end}}
-                    {{else}}
-                    <div class="text-body-secondary small">No executor state available for this station yet.</div>
                     {{end}}
                 </div>
             </div>
