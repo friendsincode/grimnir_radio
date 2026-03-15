@@ -41,6 +41,27 @@ details > summary::-webkit-details-marker { display: none; }
 details > summary::marker { display: none; }
 details[open] > summary .chevron { transform: rotate(90deg); }
 .chevron { transition: transform 0.15s ease; display: inline-block; }
+
+/* Health card headers — explicit rgba so they're visible on dark backgrounds */
+.health-header-red    { background: rgba(220, 53, 69, 0.22) !important; }
+.health-header-yellow { background: rgba(255, 193, 7, 0.18) !important; }
+.health-header-green  { background: rgba(25, 135, 84, 0.18) !important; }
+
+/* Smart block issue rows */
+.issue-error    { background: rgba(220, 53, 69, 0.15) !important; border-left: 3px solid #dc3545; }
+.issue-warning  { background: rgba(255, 193, 7, 0.12) !important; border-left: 3px solid #ffc107; }
+.issue-success  { background: rgba(25, 135, 84, 0.12) !important; border-left: 3px solid #198754; }
+.issue-pending  { background: rgba(108, 117, 125, 0.15) !important; border-left: 3px solid #6c757d; }
+
+/* Gap time badge — readable in dark mode */
+.gap-badge {
+    background: rgba(220, 53, 69, 0.20) !important;
+    color: #f28b94 !important;
+    border: 1px solid rgba(220, 53, 69, 0.45) !important;
+}
+
+/* Warning badge text — force black on yellow regardless of color-scheme */
+.badge-warning-solid { background-color: #ffc107 !important; color: #000 !important; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -68,7 +89,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 {{if $days}}
 <div class="d-flex gap-3 mb-3 align-items-center flex-wrap">
     <span class="badge bg-success fs-6 px-3 py-2"><i class="bi bi-check-circle me-1"></i>{{$greenCount}} healthy</span>
-    <span class="badge bg-warning text-dark fs-6 px-3 py-2"><i class="bi bi-exclamation-triangle me-1"></i>{{$yellowCount}} warning</span>
+    <span class="badge badge-warning-solid fs-6 px-3 py-2"><i class="bi bi-exclamation-triangle me-1"></i>{{$yellowCount}} warning</span>
     <span class="badge bg-danger fs-6 px-3 py-2"><i class="bi bi-exclamation-circle me-1"></i>{{$redCount}} critical</span>
     <span class="text-body-secondary small ms-auto"><i class="bi bi-circle-fill text-success me-1"></i>Covered &nbsp;<span class="timeline-seg-gap d-inline-block me-1" style="width:16px;height:10px;border-radius:2px;vertical-align:middle;"></span>Dead air</span>
 </div>
@@ -80,7 +101,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 {{$isPast := lt ($day.Date.Unix) ($weekFrom.Unix)}}
 <details {{if not $isPast}}open{{end}} class="card border-{{if eq $day.Health "red"}}danger{{else if eq $day.Health "yellow"}}warning{{else}}success{{end}}">
     <summary class="card-header py-2 px-3 d-flex align-items-center gap-2
-        {{if eq $day.Health "red"}}bg-danger-subtle{{else if eq $day.Health "yellow"}}bg-warning-subtle{{else}}bg-success-subtle{{end}}">
+        {{if eq $day.Health "red"}}health-header-red{{else if eq $day.Health "yellow"}}health-header-yellow{{else}}health-header-green{{end}}">
         <span class="chevron text-body-secondary me-1"><i class="bi bi-chevron-right"></i></span>
         {{if eq $day.Health "red"}}
             <i class="bi bi-exclamation-circle-fill text-danger" title="Critical"></i>
@@ -90,7 +111,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
             <i class="bi bi-check-circle-fill text-success" title="Healthy"></i>
         {{end}}
         <span class="fw-bold">{{$day.Date.Format "Mon 2 Jan"}}</span>
-        <span class="badge {{if eq $day.Health "red"}}bg-danger{{else if eq $day.Health "yellow"}}bg-warning text-dark{{else}}bg-success{{end}} ms-1">
+        <span class="badge {{if eq $day.Health "red"}}bg-danger{{else if eq $day.Health "yellow"}}badge-warning-solid{{else}}bg-success{{end}} ms-1">
             {{printf "%.0f" $day.CoveragePct}}% covered
         </span>
         <span class="text-body-secondary small ms-2">{{$day.PlannedCount}} entries</span>
@@ -125,7 +146,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
             {{range $day.GapWindows}}
             <div class="d-flex align-items-center gap-2 mb-1 ps-2">
                 <span class="small text-body-secondary text-nowrap">{{.StartsAt.Format "15:04"}} – {{.EndsAt.Format "15:04"}}</span>
-                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{printf "%.1f" .Hours}}h</span>
+                <span class="badge gap-badge">{{printf "%.1f" .Hours}}h</span>
                 <a href="/dashboard/schedule?date={{.StartsAt.Format "2006-01-02"}}&amp;goto={{.StartsAt.Format "15:04"}}"
                    class="btn btn-outline-primary btn-sm py-0 px-2 small">
                     <i class="bi bi-calendar-plus me-1"></i>Add to schedule →
@@ -143,7 +164,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
             </div>
             {{range $day.SmartBlockIssues}}
             <div class="small mb-2 p-2 rounded
-                {{if .Pending}}bg-body-secondary{{else if .Error}}bg-danger-subtle{{else if .Underfilled}}bg-warning-subtle{{else}}bg-success-subtle{{end}}">
+                {{if .Pending}}issue-pending{{else if .Error}}issue-error{{else if .Underfilled}}issue-warning{{else}}issue-success{{end}}">
                 <div class="d-flex align-items-start justify-content-between gap-2">
                     <div>
                         <span class="fw-semibold">{{.BlockName}}</span>
@@ -168,7 +189,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
                 {{else}}
                 <div class="mt-1 {{if lt .FillPct 70.0}}text-danger{{else if lt .FillPct 95.0}}text-warning{{else}}text-success{{end}}">
                     <i class="bi bi-pie-chart me-1"></i>Fill: {{printf "%.0f" .FillPct}}%
-                    {{if .Underfilled}}<span class="badge bg-warning text-dark ms-1">Underfilled</span>{{end}}
+                    {{if .Underfilled}}<span class="badge badge-warning-solid ms-1">Underfilled</span>{{end}}
                 </div>
                 {{if .Underfilled}}
                 <div class="mt-1 d-flex flex-wrap gap-1">
