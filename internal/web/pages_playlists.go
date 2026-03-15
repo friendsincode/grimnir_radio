@@ -354,6 +354,11 @@ func (h *Handler) PlaylistDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remove future schedule entries that were using this playlist.
+	h.db.Exec(`DELETE FROM schedule_entries WHERE source_type = 'playlist' AND source_id = ? AND station_id = ? AND starts_at > NOW()`, id, station.ID)
+	// Remove playlist slots from clock templates.
+	h.db.Exec(`DELETE FROM clock_slots WHERE type = 'playlist' AND payload->>'playlist_id' = ?`, id)
+
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/dashboard/playlists")
 		return
