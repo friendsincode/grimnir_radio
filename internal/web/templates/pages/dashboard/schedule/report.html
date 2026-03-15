@@ -78,6 +78,9 @@
                     {{printf "%.1f" $day.ScheduledHours}}h / 24h
                     {{if gt $day.GapHours 0.0}}
                     <span class="text-danger">({{printf "%.1f" $day.GapHours}}h gap)</span>
+                    <a href="/dashboard/schedule" class="ms-1 text-decoration-none" style="font-size:0.7rem" title="Open schedule to fill gap">
+                        <i class="bi bi-calendar-plus text-primary"></i>
+                    </a>
                     {{end}}
                 </div>
             </div>
@@ -93,18 +96,47 @@
             <!-- Smart block issues -->
             {{if $day.SmartBlockIssues}}
             <div class="border-top pt-2 mt-1">
-                <div class="small fw-bold text-danger mb-1"><i class="bi bi-magic me-1"></i>Smart Block Issues</div>
+                <div class="small fw-bold mb-1 text-body-secondary">
+                    <i class="bi bi-magic me-1"></i>Smart Blocks
+                </div>
                 {{range $day.SmartBlockIssues}}
-                <div class="small mb-1 p-1 rounded bg-body-secondary">
-                    <div class="text-truncate fw-bold" title="{{.BlockName}}">{{.BlockName}}</div>
+                <div class="small mb-1 p-1 rounded
+                    {{if .Pending}}bg-body-secondary{{else if .Error}}bg-danger-subtle{{else if .Underfilled}}bg-warning-subtle{{else}}bg-success-subtle{{end}}">
+                    <div class="text-truncate fw-semibold" title="{{.BlockName}}">{{.BlockName}}</div>
                     <div class="text-body-secondary">{{.StartsAt.Format "15:04"}}–{{.EndsAt.Format "15:04"}}</div>
-                    {{if .Error}}
+                    {{if .Pending}}
+                    <div class="text-body-secondary"><i class="bi bi-hourglass-split me-1"></i>Not yet materialized</div>
+                    {{else if .Error}}
                     <div class="text-danger"><i class="bi bi-x-circle me-1"></i>{{.Error}}</div>
+                    <div class="mt-1 d-flex flex-wrap gap-1">
+                        <a href="/dashboard/smart-blocks/{{.BlockID}}/edit" class="btn btn-xs btn-outline-primary py-0 px-1" style="font-size:0.7rem">
+                            <i class="bi bi-pencil me-1"></i>Edit block
+                        </a>
+                        <a href="/dashboard/smart-blocks/{{.BlockID}}/edit#loop" class="btn btn-xs btn-outline-warning py-0 px-1" style="font-size:0.7rem">
+                            <i class="bi bi-arrow-repeat me-1"></i>Enable loop
+                        </a>
+                        <a href="/dashboard/media" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:0.7rem">
+                            <i class="bi bi-music-note-list me-1"></i>Add tracks
+                        </a>
+                    </div>
                     {{else}}
                     <div class="{{if lt .FillPct 70.0}}text-danger{{else if lt .FillPct 95.0}}text-warning{{else}}text-success{{end}}">
                         <i class="bi bi-pie-chart me-1"></i>Fill: {{printf "%.0f" .FillPct}}%
                         {{if .Underfilled}}<span class="badge bg-warning text-dark ms-1">Underfilled</span>{{end}}
                     </div>
+                    {{if .Underfilled}}
+                    <div class="mt-1 d-flex flex-wrap gap-1">
+                        <a href="/dashboard/smart-blocks/{{.BlockID}}/edit" class="btn btn-xs btn-outline-primary py-0 px-1" style="font-size:0.7rem">
+                            <i class="bi bi-pencil me-1"></i>Edit block
+                        </a>
+                        <a href="/dashboard/smart-blocks/{{.BlockID}}/edit#loop" class="btn btn-xs btn-outline-warning py-0 px-1" style="font-size:0.7rem">
+                            <i class="bi bi-arrow-repeat me-1"></i>Enable loop
+                        </a>
+                        <a href="/dashboard/media" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:0.7rem">
+                            <i class="bi bi-music-note-list me-1"></i>Add tracks
+                        </a>
+                    </div>
+                    {{end}}
                     {{end}}
                 </div>
                 {{end}}
