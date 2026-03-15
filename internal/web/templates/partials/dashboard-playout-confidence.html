@@ -62,6 +62,18 @@
                         </ul>
                     </div>
                     {{end}}
+                    {{if .NextEntry}}
+                    <hr>
+                    <div class="small text-body-secondary mb-1">Up Next</div>
+                    <div class="small mb-1">
+                        <strong>{{localTime .NextEntry.StartsAt}}</strong>
+                        <span class="badge bg-secondary ms-1">{{.NextEntry.SourceType}}</span>
+                    </div>
+                    {{if .NextEntryTitle}}
+                    <div class="small text-truncate" title="{{.NextEntryTitle}}">{{.NextEntryTitle}}</div>
+                    {{end}}
+                    <div class="small text-body-secondary">Window: <strong>{{localTime .NextEntry.StartsAt}}</strong> → <strong>{{localTime .NextEntry.EndsAt}}</strong></div>
+                    {{end}}
                 </div>
             </div>
             <div class="col-xl-4">

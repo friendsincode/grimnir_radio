@@ -349,6 +349,8 @@ type DashboardConfidenceData struct {
 	MismatchReasons []string
 	QueuedByMount   []dashboardQueuedMount
 	RecentActions   []dashboardActionEntry
+	NextEntry       *models.ScheduleEntry
+	NextEntryTitle  string
 }
 
 type dashboardMountRuntime struct {
@@ -543,6 +545,45 @@ func (h *Handler) loadDashboardConfidenceData(r *http.Request, stationID string)
 			MountName: mountNames[mountID],
 			Items:     queueByMount[mountID],
 		})
+	}
+
+	// Next scheduled entry (soonest future non-media entry).
+	var nextEntry models.ScheduleEntry
+	if err := h.db.WithContext(r.Context()).
+		Where("station_id = ? AND starts_at > ? AND source_type != 'media'", stationID, time.Now()).
+		Order("starts_at ASC").
+		First(&nextEntry).Error; err == nil {
+		data.NextEntry = &nextEntry
+		switch nextEntry.SourceType {
+		case "smart_block":
+			var block models.SmartBlock
+			if err2 := h.db.WithContext(r.Context()).Select("id, name").First(&block, "id = ?", nextEntry.SourceID).Error; err2 == nil {
+				data.NextEntryTitle = block.Name
+			}
+		case "playlist":
+			var pl models.Playlist
+			if err2 := h.db.WithContext(r.Context()).Select("id, name").First(&pl, "id = ?", nextEntry.SourceID).Error; err2 == nil {
+				data.NextEntryTitle = pl.Name
+			}
+		case "clock_template":
+			var clock models.ClockHour
+			if err2 := h.db.WithContext(r.Context()).Select("id, name").First(&clock, "id = ?", nextEntry.SourceID).Error; err2 == nil {
+				data.NextEntryTitle = clock.Name
+			}
+		case "webstream":
+			var stream models.Webstream
+			if err2 := h.db.WithContext(r.Context()).Select("id, name").First(&stream, "id = ?", nextEntry.SourceID).Error; err2 == nil {
+				data.NextEntryTitle = stream.Name
+			}
+		case "live":
+			if name, ok := nextEntry.Metadata["session_name"].(string); ok && name != "" {
+				data.NextEntryTitle = name
+			} else {
+				data.NextEntryTitle = "Live Session"
+			}
+		default:
+			data.NextEntryTitle = nextEntry.SourceType
+		}
 	}
 
 	var logs []models.AuditLog
