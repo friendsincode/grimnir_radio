@@ -830,6 +830,31 @@ window.grimnirAttachCSRF = grimnirAttachCSRF;
 
 {{block "scripts" .}}{{end}}
 
+<script>
+// Convert UTC <time class="local-time" datetime="..."> elements to browser local time.
+(function() {
+    function formatLocal(d) {
+        return d.getFullYear() + '-' +
+            String(d.getMonth()+1).padStart(2,'0') + '-' +
+            String(d.getDate()).padStart(2,'0') + ' ' +
+            String(d.getHours()).padStart(2,'0') + ':' +
+            String(d.getMinutes()).padStart(2,'0') + ':' +
+            String(d.getSeconds()).padStart(2,'0');
+    }
+    function convertTimes() {
+        document.querySelectorAll('time.local-time[datetime]').forEach(function(el) {
+            if (el.dataset.converted) return;
+            var d = new Date(el.getAttribute('datetime'));
+            if (!isNaN(d)) { el.textContent = formatLocal(d); }
+            el.dataset.converted = '1';
+        });
+    }
+    document.addEventListener('DOMContentLoaded', convertTimes);
+    // Also run after HTMX swaps in new content
+    document.addEventListener('htmx:afterSwap', convertTimes);
+})();
+</script>
+
 </body>
 </html>
 {{end}}

@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -196,10 +197,9 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 
 				targetMS := targetDur.Milliseconds()
 				if fill.Cnt == 0 {
-					// Nothing materialized — treat as fully underfilled.
-					issue.FillPct = 0
 					issue.Underfilled = true
-					issue.Error = "No tracks materialized for this slot"
+					issue.Error = h.diagnoseMissingMaterialization(r, station.ID, e.SourceID, sbNames[e.SourceID])
+				} else if targetMS > 0 {
 				} else if targetMS > 0 {
 					issue.FillPct = float64(fill.TotalMS) / float64(targetMS) * 100.0
 					if issue.FillPct > 100 {
@@ -277,6 +277,45 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 			"LookaheadCutoff": now.Add(lookahead),
 		},
 	})
+}
+
+// diagnoseMissingMaterialization returns a human-readable explanation for why
+// a smart block slot has no materialized media entries.
+func (h *Handler) diagnoseMissingMaterialization(r *http.Request, stationID, blockID, blockName string) string {
+	// 1. Does the block still exist?
+	if blockName == "" || blockName == blockID {
+		// sbNames lookup failed — block may be deleted
+		var count int64
+		h.db.WithContext(r.Context()).Model(&models.SmartBlock{}).Where("id = ?", blockID).Count(&count)
+		if count == 0 {
+			return fmt.Sprintf("Smart block no longer exists (ID: %s) — remove this schedule entry", blockID)
+		}
+	}
+
+	// 2. How many media items are linked to this block (via its playlists)?
+	var totalTracks int64
+	h.db.WithContext(r.Context()).Raw(`
+		SELECT COUNT(DISTINCT mi.id)
+		FROM media_items mi
+		JOIN playlist_items pi ON pi.media_id = mi.id
+		JOIN smart_block_playlists sbp ON sbp.playlist_id = pi.playlist_id
+		WHERE sbp.smart_block_id = ? AND mi.analysis_state != 'failed' AND mi.duration > 0
+	`, blockID).Scan(&totalTracks)
+
+	if totalTracks == 0 {
+		// Check if there are any playlists at all
+		var playlistCount int64
+		h.db.WithContext(r.Context()).Raw(
+			`SELECT COUNT(*) FROM smart_block_playlists WHERE smart_block_id = ?`, blockID,
+		).Scan(&playlistCount)
+		if playlistCount == 0 {
+			return fmt.Sprintf("Block \"%s\" has no playlists assigned — add a playlist with tracks", blockName)
+		}
+		return fmt.Sprintf("Block \"%s\" has %d playlist(s) but 0 eligible tracks — check that tracks are analyzed and not marked failed", blockName, playlistCount)
+	}
+
+	// 3. Tracks exist but still nothing materialized — scheduler hasn't run yet for this slot.
+	return fmt.Sprintf("Block \"%s\" has %d eligible track(s) but scheduler has not materialized this slot yet — click Re-run Scheduler", blockName, totalTracks)
 }
 
 // ScheduleRefreshReport triggers the scheduler for the current station then
