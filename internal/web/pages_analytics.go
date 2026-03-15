@@ -137,6 +137,7 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 	fromValue := strings.TrimSpace(r.URL.Query().Get("from"))
 	toValue := strings.TrimSpace(r.URL.Query().Get("to"))
 	sourceFilter := strings.TrimSpace(r.URL.Query().Get("source"))
+	searchQuery := strings.TrimSpace(r.URL.Query().Get("q"))
 
 	query := h.db.Model(&models.PlayHistory{}).Where("station_id = ?", station.ID)
 
@@ -150,6 +151,12 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 		if t, err := time.Parse("2006-01-02", to); err == nil {
 			query = query.Where("started_at <= ?", t.Add(24*time.Hour))
 		}
+	}
+
+	// Artist / title search
+	if searchQuery != "" {
+		like := "%" + searchQuery + "%"
+		query = query.Where("title ILIKE ? OR artist ILIKE ?", like, like)
 	}
 
 	// Source type filter
@@ -236,6 +243,7 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 			"FromValue":     fromValue,
 			"ToValue":       toValue,
 			"SourceFilter":  sourceFilter,
+			"SearchQuery":   searchQuery,
 			"UniqueTracks":  uniqueTracks,
 			"UniqueArtists": uniqueArtists,
 		},
