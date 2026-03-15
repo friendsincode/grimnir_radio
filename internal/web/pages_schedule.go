@@ -1789,9 +1789,35 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			// Cross-reference PlayHistory to determine played/playing/upcoming status.
+			var historyRows []models.PlayHistory
+			h.db.Where("station_id = ? AND started_at >= ? AND started_at < ?",
+				entry.StationID, entry.StartsAt, entry.EndsAt).
+				Order("started_at ASC").
+				Find(&historyRows)
+			playedSet := make(map[string]time.Time, len(historyRows))
+			for _, ph := range historyRows {
+				if ph.MediaID != "" {
+					playedSet[ph.MediaID] = ph.StartedAt
+				}
+			}
+			now := time.Now().UTC()
+
 			tracks := make([]map[string]any, 0, len(result.Items))
 			for _, item := range result.Items {
 				media := mediaByID[item.MediaID]
+				trackStart := entry.StartsAt.Add(time.Duration(item.StartsAtMS) * time.Millisecond)
+				trackEnd := entry.StartsAt.Add(time.Duration(item.EndsAtMS) * time.Millisecond)
+
+				var playStatus string
+				if _, played := playedSet[item.MediaID]; played {
+					playStatus = "played"
+				} else if !now.Before(trackStart) && now.Before(trackEnd) {
+					playStatus = "playing"
+				} else {
+					playStatus = "upcoming"
+				}
+
 				tracks = append(tracks, map[string]any{
 					"media_id":    item.MediaID,
 					"title":       media.Title,
@@ -1800,6 +1826,7 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 					"starts_at_s": item.StartsAtMS / 1000,
 					"ends_at_s":   item.EndsAtMS / 1000,
 					"is_bumper":   item.IsBumper,
+					"play_status": playStatus,
 				})
 			}
 

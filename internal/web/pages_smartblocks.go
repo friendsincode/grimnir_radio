@@ -1979,6 +1979,11 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 		}
 	}
 
+	// Loop-to-fill preference (persisted per smart block)
+	if r.FormValue("loop_to_fill") == "on" {
+		rules["loopToFill"] = true
+	}
+
 	// Fallbacks (dynamic fields)
 	if r.FormValue("fallbacks_enabled") == "on" {
 		rules["fallbacksEnabled"] = true
