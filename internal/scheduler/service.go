@@ -256,6 +256,12 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 				return err
 			}
 			if alreadyScheduled {
+				s.logger.Debug().
+					Str("station", stationID).
+					Str("slot_id", plan.SlotID).
+					Str("slot_type", plan.SlotType).
+					Time("starts_at", plan.StartsAt).
+					Msg("clock slot suppressed: window already scheduled")
 				continue
 			}
 		}
@@ -554,8 +560,31 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		return err
 	}
 
+	// Detect whether constraints were relaxed during generation.
+	constraintRelaxed := false
+	for _, w := range result.Warnings {
+		if len(w) >= len("constraint_relaxed:") && w[:len("constraint_relaxed:")] == "constraint_relaxed:" {
+			constraintRelaxed = true
+			s.logger.Warn().
+				Str("smart_block", blockID).
+				Str("station", stationID).
+				Str("warning", w).
+				Msg("smart block generated with relaxed constraints")
+			break
+		}
+	}
+
 	entries := make([]models.ScheduleEntry, 0, len(result.Items))
 	for _, item := range result.Items {
+		meta := map[string]any{
+			"smart_block_id": blockID,
+			"intro_end":      item.IntroEnd,
+			"outro_in":       item.OutroIn,
+			"energy":         item.Energy,
+		}
+		if constraintRelaxed {
+			meta["constraint_relaxed"] = true
+		}
 		entry := models.ScheduleEntry{
 			ID:         uuid.NewString(),
 			StationID:  stationID,
@@ -565,12 +594,7 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 			SourceType: "media",
 			SourceID:   item.MediaID,
 			IsInstance: true,
-			Metadata: map[string]any{
-				"smart_block_id": blockID,
-				"intro_end":      item.IntroEnd,
-				"outro_in":       item.OutroIn,
-				"energy":         item.Energy,
-			},
+			Metadata:   meta,
 		}
 		entries = append(entries, entry)
 	}
