@@ -672,6 +672,11 @@ func (h *Handler) loadExpectedCurrentSchedule(r *http.Request, stationID, mountI
 		return nil
 	}
 	sort.Slice(entries, func(i, j int) bool {
+		iIsOverride := entries[i].IsInstance && entries[i].RecurrenceParentID != nil
+		jIsOverride := entries[j].IsInstance && entries[j].RecurrenceParentID != nil
+		if iIsOverride != jIsOverride {
+			return iIsOverride
+		}
 		if entries[i].IsInstance != entries[j].IsInstance {
 			return entries[i].IsInstance
 		}
@@ -729,7 +734,7 @@ func (h *Handler) loadExpectedCurrentSchedule(r *http.Request, stationID, mountI
 		MountName:  mountNames[entry.MountID],
 		StartsAt:   entry.StartsAt,
 		EndsAt:     entry.EndsAt,
-		IsOverride: entry.IsInstance,
+		IsOverride: entry.IsInstance && entry.RecurrenceParentID != nil,
 	}
 }
 

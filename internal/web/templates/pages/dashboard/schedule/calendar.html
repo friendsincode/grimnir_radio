@@ -3464,7 +3464,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Show/hide recurring notice
         const recurringNotice = document.getElementById('editRecurringNotice');
-        if (isRecurring || isInstance) {
+        if (isRecurring || (isInstance && props.recurrence_parent_id)) {
             recurringNotice.classList.remove('d-none');
             document.getElementById('editModeAll').checked = true;
             document.getElementById('editRecurrenceSection').classList.remove('d-none');
