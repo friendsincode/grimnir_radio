@@ -28,9 +28,18 @@
         <i class="bi bi-clock-history me-2"></i>
         {{if $isNew}}New Clock Template{{else}}Edit Clock Template{{end}}
     </h4>
-    <a href="/dashboard/clocks" class="btn btn-outline-secondary">
-        <i class="bi bi-x me-1"></i>Cancel
-    </a>
+    <div class="d-flex gap-2">
+        {{if not $isNew}}
+        <button type="button" class="btn btn-outline-danger"
+                hx-delete="/dashboard/clocks/{{$clock.ID}}"
+                hx-confirm="Delete this clock template? This cannot be undone.">
+            <i class="bi bi-trash me-1"></i>Delete
+        </button>
+        {{end}}
+        <a href="/dashboard/clocks" class="btn btn-outline-secondary">
+            <i class="bi bi-x me-1"></i>Cancel
+        </a>
+    </div>
 </div>
 
 <div class="alert alert-info">
