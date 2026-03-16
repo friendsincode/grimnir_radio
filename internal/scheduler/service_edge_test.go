@@ -15,43 +15,84 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
-func TestDuplicatePreventionSameSlotNotScheduledTwice(t *testing.T) {
+func TestHardItemNotBlockedBySmartBlockMediaEntries(t *testing.T) {
+	// BUG-3: a hard_item slot must not be silently dropped because smart_block
+	// materialization already filled the same time window with media entries.
 	svc, db := newMaterializationTestService(t)
 	ctx := context.Background()
 
-	stationID := "station-dup"
-	mountID := "mount-dup"
+	stationID := "station-bug3"
+	mountID := "mount-bug3"
+	mediaID := "media-hard-item"
 	createTestMount(t, db, stationID, mountID)
 
 	startsAt := time.Now().UTC().Add(time.Minute).Truncate(time.Second)
 
-	// Pre-create an entry
+	// Simulate smart_block having materialized a track that spans the same window.
 	if err := db.Create(&models.ScheduleEntry{
-		ID:         "existing-entry",
+		ID:         "sb-entry",
 		StationID:  stationID,
 		MountID:    mountID,
-		StartsAt:   startsAt,
-		EndsAt:     startsAt.Add(3 * time.Minute),
+		StartsAt:   startsAt.Add(-5 * time.Minute),
+		EndsAt:     startsAt.Add(5 * time.Minute),
 		SourceType: "media",
-		SourceID:   "media-1",
+		SourceID:   "media-from-smart-block",
+		IsInstance: true,
 	}).Error; err != nil {
-		t.Fatalf("create existing entry: %v", err)
+		t.Fatalf("create smart_block entry: %v", err)
 	}
 
+	// A hard_item at the same time should still be scheduled.
 	plan := clock.SlotPlan{
-		SlotID:   "slot-dup",
+		SlotID:   "slot-hard-item",
 		StartsAt: startsAt,
 		EndsAt:   startsAt.Add(3 * time.Minute),
 		SlotType: string(models.SlotTypeHardItem),
-		Payload:  map[string]any{"mount_id": mountID, "media_id": "media-2"},
+		Payload:  map[string]any{"mount_id": mountID, "media_id": mediaID},
 	}
 
-	already, err := svc.slotAlreadyScheduled(ctx, stationID, plan)
-	if err != nil {
-		t.Fatalf("slotAlreadyScheduled: %v", err)
+	if err := svc.createHardItemEntry(ctx, stationID, plan); err != nil {
+		t.Fatalf("createHardItemEntry: %v", err)
 	}
-	if !already {
-		t.Fatal("expected slotAlreadyScheduled to return true for same StartsAt+MountID")
+
+	var entries []models.ScheduleEntry
+	db.Where("source_id = ?", mediaID).Find(&entries)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 hard_item entry, got %d", len(entries))
+	}
+}
+
+func TestHardItemIdempotency(t *testing.T) {
+	// Calling createHardItemEntry twice for the same slot should create only
+	// one entry (second call is a no-op).
+	svc, db := newMaterializationTestService(t)
+	ctx := context.Background()
+
+	stationID := "station-hi-idem"
+	mountID := "mount-hi-idem"
+	mediaID := "media-hi-idem"
+	createTestMount(t, db, stationID, mountID)
+
+	startsAt := time.Now().UTC().Add(time.Minute).Truncate(time.Second)
+	plan := clock.SlotPlan{
+		SlotID:   "slot-hi-idem",
+		StartsAt: startsAt,
+		EndsAt:   startsAt.Add(3 * time.Minute),
+		SlotType: string(models.SlotTypeHardItem),
+		Payload:  map[string]any{"mount_id": mountID, "media_id": mediaID},
+	}
+
+	if err := svc.createHardItemEntry(ctx, stationID, plan); err != nil {
+		t.Fatalf("first createHardItemEntry: %v", err)
+	}
+	if err := svc.createHardItemEntry(ctx, stationID, plan); err != nil {
+		t.Fatalf("second createHardItemEntry: %v", err)
+	}
+
+	var count int64
+	db.Model(&models.ScheduleEntry{}).Where("source_id = ?", mediaID).Count(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 entry after two calls, got %d", count)
 	}
 }
 
