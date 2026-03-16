@@ -96,7 +96,7 @@ func TestCloseCurrentPlayHistory_MetadataWrittenOnInterruption(t *testing.T) {
 
 	// Simulate the mutation that closeCurrentPlayHistory applies.
 	h.Metadata = map[string]any{
-		"cut_offset_ms":  positionMS,
+		"cut_offset_ms":   positionMS,
 		"was_interrupted": true,
 	}
 	h.EndedAt = now
@@ -116,7 +116,7 @@ func TestCloseCurrentPlayHistory_MetadataWrittenOnInterruption(t *testing.T) {
 		t.Error("was_interrupted should be true in metadata after interruption")
 	}
 	// ended_at should now be approximately now, not the original future time.
-	if loaded.EndedAt.After(now.Add(5 * time.Second)) || loaded.EndedAt.Before(now.Add(-5*time.Second)) {
+	if loaded.EndedAt.After(now.Add(5*time.Second)) || loaded.EndedAt.Before(now.Add(-5*time.Second)) {
 		t.Errorf("ended_at = %v, expected near %v after interruption", loaded.EndedAt, now)
 	}
 }
@@ -494,8 +494,8 @@ func TestPrunePlayed_RemovesExpiredKeys(t *testing.T) {
 	// prunePlayed removes entries where endsAt + 30min < now.
 	// So "stale" must have ended > 30 minutes ago.
 	d.played["stale"] = now.Add(-31 * time.Minute) // ended 31 minutes ago: stale
-	d.played["recent"] = now.Add(-1 * time.Minute)  // ended 1 minute ago: still within 30min buffer
-	d.played["future"] = now.Add(5 * time.Minute)   // hasn't ended yet: keep
+	d.played["recent"] = now.Add(-1 * time.Minute) // ended 1 minute ago: still within 30min buffer
+	d.played["future"] = now.Add(5 * time.Minute)  // hasn't ended yet: keep
 
 	d.prunePlayed(now)
 
@@ -620,7 +620,7 @@ func TestRecordPlayHistory_LiveDJTitle(t *testing.T) {
 func TestRecordPlayHistory_EndedAtUsesMediaDuration(t *testing.T) {
 	d := newCoverageDirector(t, &models.MediaItem{})
 	mediaID := uuid.NewString()
-	dur := 3 * time.Minute + 42*time.Second
+	dur := 3*time.Minute + 42*time.Second
 	media := models.MediaItem{
 		ID:            mediaID,
 		StationID:     uuid.NewString(),

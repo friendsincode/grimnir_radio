@@ -542,9 +542,9 @@ func TestMaterializeSmartBlock_BumperLimitReachedInMetadata(t *testing.T) {
 	// the entries manually and call db.Create to confirm the metadata contract.
 	now := time.Now().UTC().Truncate(time.Second)
 	meta := map[string]any{
-		"smart_block_id":    "sb-1",
+		"smart_block_id":       "sb-1",
 		"bumper_limit_reached": true,
-		"sequence_exhausted":  true,
+		"sequence_exhausted":   true,
 	}
 	entry := models.ScheduleEntry{
 		ID:         uuid.NewString(),
@@ -591,8 +591,8 @@ func TestMaterializeSmartBlock_ConstraintRelaxedLevelInMetadata(t *testing.T) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	meta := map[string]any{
-		"smart_block_id":          "sb-cr",
-		"constraint_relaxed":      true,
+		"smart_block_id":           "sb-cr",
+		"constraint_relaxed":       true,
 		"constraint_relaxed_level": 2,
 	}
 	entry := models.ScheduleEntry{
@@ -641,7 +641,7 @@ func TestMaterializeSmartBlock_FallbackBlockIDInMetadata(t *testing.T) {
 	fallbackID := uuid.NewString()
 	now := time.Now().UTC().Truncate(time.Second)
 	meta := map[string]any{
-		"smart_block_id":  "sb-fb",
+		"smart_block_id":    "sb-fb",
 		"fallback_block_id": fallbackID,
 	}
 	entry := models.ScheduleEntry{

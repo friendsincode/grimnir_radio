@@ -168,8 +168,8 @@ func TestHandlePlaylistsList_AdminSeesAll(t *testing.T) {
 func TestHandlePlaylistsList_StationFilter(t *testing.T) {
 	a, db := newCatchAllAPI(t)
 
-	db.Create(&models.Playlist{ID: "pl-f1", StationID: "st-abc", Name: "Filtered"})   //nolint:errcheck
-	db.Create(&models.Playlist{ID: "pl-f2", StationID: "st-xyz", Name: "Other"}) //nolint:errcheck
+	db.Create(&models.Playlist{ID: "pl-f1", StationID: "st-abc", Name: "Filtered"}) //nolint:errcheck
+	db.Create(&models.Playlist{ID: "pl-f2", StationID: "st-xyz", Name: "Other"})    //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/playlists?station_id=st-abc", nil)
 	req = withAdminClaims(req)

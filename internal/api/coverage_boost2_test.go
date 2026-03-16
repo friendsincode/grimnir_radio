@@ -297,7 +297,7 @@ func TestHandleClocksCreate_MissingRequired(t *testing.T) {
 func TestHandleClocksList_WithStationIDFilter(t *testing.T) {
 	a, db := newBoost2LiveAPI(t)
 
-	db.Create(&models.Station{ID: "st-clf-1", Name: "Filter Clock Station", Timezone: "UTC"}) //nolint:errcheck
+	db.Create(&models.Station{ID: "st-clf-1", Name: "Filter Clock Station", Timezone: "UTC"})   //nolint:errcheck
 	db.Create(&models.ClockHour{ID: "ch-clf-1", StationID: "st-clf-1", Name: "Morning Filter"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/clocks?station_id=st-clf-1", nil)
@@ -328,7 +328,7 @@ func TestHandleClocksList_WithStationIDFilter(t *testing.T) {
 func TestHandleSmartBlocksList_WithStationIDFilter(t *testing.T) {
 	a, db := newBoost2LiveAPI(t)
 
-	db.Create(&models.Station{ID: "st-sbf-1", Name: "SB Filter", Timezone: "UTC"}) //nolint:errcheck
+	db.Create(&models.Station{ID: "st-sbf-1", Name: "SB Filter", Timezone: "UTC"})         //nolint:errcheck
 	db.Create(&models.SmartBlock{ID: "sb-sbf-1", StationID: "st-sbf-1", Name: "My Block"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/smart-blocks?station_id=st-sbf-1", nil)
@@ -359,7 +359,7 @@ func TestHandleSmartBlocksList_WithStationIDFilter(t *testing.T) {
 func TestHandlePlaylistsList_WithStationIDFilter(t *testing.T) {
 	a, db := newBoost2LiveAPI(t)
 
-	db.Create(&models.Station{ID: "st-plf-1", Name: "PL Filter", Timezone: "UTC"}) //nolint:errcheck
+	db.Create(&models.Station{ID: "st-plf-1", Name: "PL Filter", Timezone: "UTC"})          //nolint:errcheck
 	db.Create(&models.Playlist{ID: "pl-plf-1", StationID: "st-plf-1", Name: "My Playlist"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/playlists?station_id=st-plf-1", nil)
@@ -467,7 +467,7 @@ func TestHandleClockSimulate_AdminClaimsNilScheduler(t *testing.T) {
 	a, db := newBoost2LiveAPI(t)
 
 	db.Create(&models.Station{ID: "st-cs-admin-1", Name: "CS Admin", Timezone: "UTC"}) //nolint:errcheck
-	db.Create(&models.ClockHour{ //nolint:errcheck
+	db.Create(&models.ClockHour{                                                       //nolint:errcheck
 		ID:        "ch-cs-admin-1",
 		StationID: "st-cs-admin-1",
 		Name:      "Test Clock",
@@ -525,7 +525,7 @@ func TestHandlePlaylistsList_NoClaims(t *testing.T) {
 func TestHandleSmartBlocksList_NoClaims(t *testing.T) {
 	a, db := newBoost2LiveAPI(t)
 
-	db.Create(&models.Station{ID: "st-sbnc-1", Name: "NC SB Station", Timezone: "UTC"})       //nolint:errcheck
+	db.Create(&models.Station{ID: "st-sbnc-1", Name: "NC SB Station", Timezone: "UTC"})        //nolint:errcheck
 	db.Create(&models.SmartBlock{ID: "sb-nc-1", StationID: "st-sbnc-1", Name: "No Claims SB"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/smart-blocks", nil)
@@ -546,7 +546,7 @@ func TestHandleSmartBlocksList_NoClaims(t *testing.T) {
 func TestHandleClocksList_NoClaims(t *testing.T) {
 	a, db := newBoost2LiveAPI(t)
 
-	db.Create(&models.Station{ID: "st-clnc-1", Name: "NC Clock Station", Timezone: "UTC"})  //nolint:errcheck
+	db.Create(&models.Station{ID: "st-clnc-1", Name: "NC Clock Station", Timezone: "UTC"})   //nolint:errcheck
 	db.Create(&models.ClockHour{ID: "ch-nc-1", StationID: "st-clnc-1", Name: "No Claims C"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/clocks", nil)

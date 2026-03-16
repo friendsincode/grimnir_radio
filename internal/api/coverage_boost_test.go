@@ -38,9 +38,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	logbuffer "github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	webdjsvc "github.com/friendsincode/grimnir_radio/internal/webdj"
-	logbuffer "github.com/friendsincode/grimnir_radio/internal/logbuffer"
 )
 
 // newBoostTestAPI creates an API with a full schema for boost tests.
@@ -559,7 +559,7 @@ func TestHandleClocksCreate_InvalidJSONBoost(t *testing.T) {
 func TestHandlePlaylistsList_AdminNoFilter(t *testing.T) {
 	a, db := newBoostTestAPI(t)
 
-	db.Create(&models.Station{ID: "st-pl-boost-1", Name: "Boost PL", Timezone: "UTC"}) //nolint:errcheck
+	db.Create(&models.Station{ID: "st-pl-boost-1", Name: "Boost PL", Timezone: "UTC"})          //nolint:errcheck
 	db.Create(&models.Playlist{ID: "pl-boost-1", StationID: "st-pl-boost-1", Name: "Playlist"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/playlists", nil)
@@ -588,7 +588,7 @@ func TestHandlePlaylistsList_AdminNoFilter(t *testing.T) {
 func TestHandleSmartBlocksList_AdminNoFilter(t *testing.T) {
 	a, db := newBoostTestAPI(t)
 
-	db.Create(&models.Station{ID: "st-sb-boost-1", Name: "SB Boost", Timezone: "UTC"}) //nolint:errcheck
+	db.Create(&models.Station{ID: "st-sb-boost-1", Name: "SB Boost", Timezone: "UTC"})         //nolint:errcheck
 	db.Create(&models.SmartBlock{ID: "sb-boost-1", StationID: "st-sb-boost-1", Name: "Block"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/smart-blocks", nil)
@@ -609,7 +609,7 @@ func TestHandleSmartBlocksList_AdminNoFilter(t *testing.T) {
 func TestHandleClocksList_AdminNoFilter(t *testing.T) {
 	a, db := newBoostTestAPI(t)
 
-	db.Create(&models.Station{ID: "st-cl-boost-1", Name: "CL Boost", Timezone: "UTC"}) //nolint:errcheck
+	db.Create(&models.Station{ID: "st-cl-boost-1", Name: "CL Boost", Timezone: "UTC"})        //nolint:errcheck
 	db.Create(&models.ClockHour{ID: "ch-boost-2", StationID: "st-cl-boost-1", Name: "Clock"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/clocks", nil)

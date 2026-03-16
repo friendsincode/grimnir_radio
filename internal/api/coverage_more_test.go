@@ -263,7 +263,7 @@ func TestHandleClocksList_AdminEmptyResult(t *testing.T) {
 func TestHandleClocksList_StationFilter(t *testing.T) {
 	a, db := newMoreTestAPI(t)
 
-	db.Create(&models.ClockHour{ID: "ch-1", StationID: "st-clk-1", Name: "Hour 1", StartHour: 8, EndHour: 9})  //nolint:errcheck
+	db.Create(&models.ClockHour{ID: "ch-1", StationID: "st-clk-1", Name: "Hour 1", StartHour: 8, EndHour: 9})   //nolint:errcheck
 	db.Create(&models.ClockHour{ID: "ch-2", StationID: "st-clk-2", Name: "Hour 2", StartHour: 10, EndHour: 11}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/clocks?station_id=st-clk-1", nil)
@@ -1077,7 +1077,7 @@ func TestHandleSetThemePreference_ValidTheme(t *testing.T) {
 	a, db := newMoreTestAPI(t)
 
 	// Create users table
-	db.AutoMigrate(&models.User{}) //nolint:errcheck
+	db.AutoMigrate(&models.User{})                                  //nolint:errcheck
 	db.Create(&models.User{ID: "u-admin", Email: "admin@test.com"}) //nolint:errcheck
 
 	body, _ := json.Marshal(map[string]any{"theme": "daw-dark"})
@@ -1162,7 +1162,7 @@ func TestHandleSmartBlocksCreate_Success(t *testing.T) {
 func TestHandleSmartBlocksList_NonAdminWithStation(t *testing.T) {
 	a, db := newMoreTestAPI(t)
 
-	db.Create(&models.Station{ID: "st-nab-1", Name: "Non-Admin Station", Timezone: "UTC"})         //nolint:errcheck
+	db.Create(&models.Station{ID: "st-nab-1", Name: "Non-Admin Station", Timezone: "UTC"})          //nolint:errcheck
 	db.Create(&models.StationUser{ID: "su-nab-1", StationID: "st-nab-1", UserID: "u-station-user"}) //nolint:errcheck
 	db.Create(&models.SmartBlock{ID: "sb-nab-1", StationID: "st-nab-1", Name: "Station Block"})     //nolint:errcheck
 
@@ -1186,7 +1186,7 @@ func TestHandleSmartBlocksList_NonAdminWithStation(t *testing.T) {
 func TestHandlePlaylistsList_NonAdminWithStation(t *testing.T) {
 	a, db := newMoreTestAPI(t)
 
-	db.Create(&models.Station{ID: "st-nab-2", Name: "Non-Admin Pl Station", Timezone: "UTC"})       //nolint:errcheck
+	db.Create(&models.Station{ID: "st-nab-2", Name: "Non-Admin Pl Station", Timezone: "UTC"})        //nolint:errcheck
 	db.Create(&models.StationUser{ID: "su-nab-2", StationID: "st-nab-2", UserID: "u-station-user2"}) //nolint:errcheck
 	db.Create(&models.Playlist{ID: "pl-nab-1", StationID: "st-nab-2", Name: "My Playlist"})          //nolint:errcheck
 
