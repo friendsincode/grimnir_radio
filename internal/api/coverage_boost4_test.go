@@ -78,10 +78,10 @@ func TestLogValidationSummary_NilResult(t *testing.T) {
 func TestLogValidationSummary_NoOverlaps(t *testing.T) {
 	a := &API{logger: zerolog.Nop()}
 	result := &models.ValidationResult{
-		Valid:   true,
-		Errors:  []models.ValidationViolation{},
+		Valid:    true,
+		Errors:   []models.ValidationViolation{},
 		Warnings: []models.ValidationViolation{},
-		Info:    []models.ValidationViolation{},
+		Info:     []models.ValidationViolation{},
 	}
 	// Should log "no overlaps" and return
 	a.logValidationSummary("st-1", time.Now(), time.Now().Add(time.Hour), result)

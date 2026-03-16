@@ -41,8 +41,8 @@ import (
 	schedulesvc "github.com/friendsincode/grimnir_radio/internal/schedule"
 	syndicationsvc "github.com/friendsincode/grimnir_radio/internal/syndication"
 	underwritingsvc "github.com/friendsincode/grimnir_radio/internal/underwriting"
-	webhookssvc "github.com/friendsincode/grimnir_radio/internal/webhooks"
 	webdjsvc "github.com/friendsincode/grimnir_radio/internal/webdj"
+	webhookssvc "github.com/friendsincode/grimnir_radio/internal/webhooks"
 )
 
 // newRoutesTestDB creates an in-memory SQLite DB for route tests.
@@ -93,12 +93,12 @@ func TestNew_ConstructorCoverage(t *testing.T) {
 	a := New(
 		db,
 		[]byte("test-secret"),
-		nil,  // scheduler
-		nil,  // analyzer
-		nil,  // media
-		nil,  // live
-		nil,  // webstreamSvc
-		nil,  // playout
+		nil, // scheduler
+		nil, // analyzer
+		nil, // media
+		nil, // live
+		nil, // webstreamSvc
+		nil, // playout
 		prioritySvc,
 		stateMgr,
 		auditSvc,

@@ -83,8 +83,8 @@ func TestHandleStationsList_ReturnsArray(t *testing.T) {
 func TestHandleStationsList_WithStations(t *testing.T) {
 	a, db := newValidationTestAPI(t)
 
-	db.Create(&models.Station{ID: "st-list-1", Name: "Radio One", Timezone: "UTC"})   //nolint:errcheck
-	db.Create(&models.Station{ID: "st-list-2", Name: "Radio Two", Timezone: "UTC"})   //nolint:errcheck
+	db.Create(&models.Station{ID: "st-list-1", Name: "Radio One", Timezone: "UTC"}) //nolint:errcheck
+	db.Create(&models.Station{ID: "st-list-2", Name: "Radio Two", Timezone: "UTC"}) //nolint:errcheck
 
 	req := httptest.NewRequest("GET", "/stations", nil)
 	rr := httptest.NewRecorder()

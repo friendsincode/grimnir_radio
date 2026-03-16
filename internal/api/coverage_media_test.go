@@ -297,12 +297,12 @@ func TestHandleMountsCreate_HappyPath(t *testing.T) {
 	a, _ := newMediaTestAPI(t)
 
 	body, _ := json.Marshal(map[string]any{
-		"name":        "Main MP3 Stream",
-		"url":         "/main.mp3",
-		"format":      "mp3",
+		"name":         "Main MP3 Stream",
+		"url":          "/main.mp3",
+		"format":       "mp3",
 		"bitrate_kbps": 128,
-		"channels":    2,
-		"sample_rate": 44100,
+		"channels":     2,
+		"sample_rate":  44100,
 	})
 	req := httptest.NewRequest("POST", "/", bytes.NewReader(body))
 	req = withAdminClaims(req)
