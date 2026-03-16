@@ -442,6 +442,87 @@ func TestClockWindowApplies(t *testing.T) {
 	}
 }
 
+func TestCompileSlotFillsWindowWhenNoDuration(t *testing.T) {
+	// A single smart_block slot with no duration_ms should fill the entire
+	// clock window rather than default to 1 minute (BUG-2).
+	db := newPlannerTestDB(t)
+	planner := NewPlanner(db, zerolog.Nop())
+
+	stationID := "station-fill"
+	if err := db.Create(&models.Station{ID: stationID, Name: "Fill", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	// 2-hour clock (10-12), single smart_block slot with no duration_ms
+	if err := db.Create(&models.ClockHour{
+		ID: "clock-fill", StationID: stationID, Name: "Fill",
+		StartHour: 10, EndHour: 12,
+		Slots: []models.ClockSlot{{
+			ID: "slot-fill", ClockHourID: "clock-fill", Position: 0, Offset: 0,
+			Type: models.SlotTypeSmartBlock, Payload: map[string]any{"smart_block_id": "sb1"},
+		}},
+	}).Error; err != nil {
+		t.Fatalf("create clock: %v", err)
+	}
+
+	start := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	plans, err := planner.Compile(stationID, start, 2*time.Hour)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	// Each hourly tick produces one plan; the 2-hour window yields 2 plans.
+	if len(plans) != 2 {
+		t.Fatalf("plans len = %d, want 2 (one plan per hourly tick)", len(plans))
+	}
+	for i, p := range plans {
+		if p.Duration <= time.Minute {
+			t.Errorf("plan[%d].Duration = %v, want > 1m (should fill available time, not 1-min placeholder)", i, p.Duration)
+		}
+	}
+}
+
+func TestCompileMultiSlotGapFill(t *testing.T) {
+	// Two slots: first has no duration_ms, second has an explicit duration.
+	// The first slot should fill from its offset to the second slot's offset.
+	db := newPlannerTestDB(t)
+	planner := NewPlanner(db, zerolog.Nop())
+
+	stationID := "station-gap"
+	if err := db.Create(&models.Station{ID: stationID, Name: "Gap", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.ClockHour{
+		ID: "clock-gap", StationID: stationID, Name: "Gap",
+		StartHour: 10, EndHour: 12,
+		Slots: []models.ClockSlot{
+			// slot A: no duration, should fill to slot B at +45m
+			{ID: "slot-a", ClockHourID: "clock-gap", Position: 0, Offset: 0,
+				Type: models.SlotTypeSmartBlock, Payload: map[string]any{"smart_block_id": "sb1"}},
+			// slot B: explicit 15m stopset
+			{ID: "slot-b", ClockHourID: "clock-gap", Position: 1, Offset: 45 * time.Minute,
+				Type: models.SlotTypeStopset, Payload: map[string]any{"stopset_id": "ss1", "duration_ms": float64(900000)}},
+		},
+	}).Error; err != nil {
+		t.Fatalf("create clock: %v", err)
+	}
+
+	start := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	plans, err := planner.Compile(stationID, start, time.Hour)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(plans) != 2 {
+		t.Fatalf("plans len = %d, want 2", len(plans))
+	}
+	// Slot A should fill from 10:00 to 10:45 (45 min gap to slot B)
+	if plans[0].Duration != 45*time.Minute {
+		t.Errorf("slot A duration = %v, want 45m", plans[0].Duration)
+	}
+	// Slot B should be 15 min
+	if plans[1].Duration != 15*time.Minute {
+		t.Errorf("slot B duration = %v, want 15m", plans[1].Duration)
+	}
+}
+
 func TestClockSpan(t *testing.T) {
 	tests := []struct {
 		name               string

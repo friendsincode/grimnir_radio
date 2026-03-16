@@ -103,7 +103,7 @@ func buildPlansWithSpan(clockHour models.ClockHour, start time.Time, horizon tim
 	end := start.Add(horizon)
 
 	for cursor.Before(end) {
-		for _, slot := range slots {
+		for i, slot := range slots {
 			planStart := cursor.Add(slot.Offset)
 			if planStart.Before(start) {
 				continue
@@ -111,12 +111,31 @@ func buildPlansWithSpan(clockHour models.ClockHour, start time.Time, horizon tim
 
 			duration := slotPayloadDuration(slot.Payload)
 			if duration <= 0 {
-				// Webstreams are continuous; use the provided span
-				// so the schedule entry covers the clock window.
 				if slot.Type == models.SlotTypeWebstream {
+					// Webstreams are continuous; use the provided span
+					// so the schedule entry covers the clock window.
 					duration = webstreamSpan
 				} else {
-					duration = time.Minute
+					// Fill to the next slot's start, capped at the remaining
+					// horizon for this tick (horizon - offset). This ensures
+					// smart_block/playlist slots without an explicit duration_ms
+					// fill the available time (e.g. 1 hour) rather than
+					// getting a 1-minute placeholder, while keeping each
+					// per-hour plan within 1-hour boundaries so the multi-hour
+					// dedup in buildPlansForStation is not incorrectly triggered.
+					maxFill := horizon - slot.Offset
+					if i+1 < len(slots) {
+						if gap := slots[i+1].Offset - slot.Offset; gap > 0 && gap < maxFill {
+							duration = gap
+						} else {
+							duration = maxFill
+						}
+					} else {
+						duration = maxFill
+					}
+					if duration <= 0 {
+						duration = horizon
+					}
 				}
 			}
 
