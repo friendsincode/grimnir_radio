@@ -132,7 +132,11 @@ func (s *Service) maybeCleanupOldEntries(ctx context.Context) {
 		{"webstream", `DELETE FROM schedule_entries WHERE source_type = 'webstream' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM webstreams)`},
 		{"smart_block", `DELETE FROM schedule_entries WHERE source_type = 'smart_block' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM smart_blocks)`},
 		{"playlist", `DELETE FROM schedule_entries WHERE source_type = 'playlist' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM playlists)`},
-		{"media_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND metadata->>'smart_block_id' IS NOT NULL AND metadata->>'smart_block_id' NOT IN (SELECT id::text FROM smart_blocks)`},
+		// media_sb_orphan: clock-generated media entries whose parent smart_block was deleted.
+		{"media_sb_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND metadata->>'smart_block_id' IS NOT NULL AND metadata->>'smart_block_id' NOT IN (SELECT id::text FROM smart_blocks)`},
+		// media_item_orphan: any future media entry (hard_item or direct) whose actual media
+		// item no longer exists — safety net for any deletion path that may have missed the cascade.
+		{"media_item_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND source_id IS NOT NULL AND source_id != '' AND source_id NOT IN (SELECT id FROM media_items)`},
 	}
 	for _, q := range queries {
 		res := s.db.WithContext(ctx).Exec(q.sql)
