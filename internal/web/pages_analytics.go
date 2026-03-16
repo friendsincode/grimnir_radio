@@ -32,16 +32,19 @@ type listenerSeriesPoint struct {
 }
 
 type analyticsHistoryRow struct {
-	StartedAt   time.Time
-	EndedAt     time.Time
-	Title       string
-	Artist      string
-	Duration    time.Duration
-	FullRuntime time.Duration // expected full duration from media_item
-	Source      string
-	Restarted   bool          // true when this play is a restart of a previous interrupted play
-	Interrupted bool          // true when this play was cut short before its expected end
-	PlayedFor   time.Duration // how long it actually played before being cut (if interrupted)
+	StartedAt      time.Time
+	EndedAt        time.Time
+	Title          string
+	Artist         string
+	Duration       time.Duration
+	FullRuntime    time.Duration // expected full duration from media_item
+	Source         string
+	Restarted      bool          // true when this play is a restart of a previous interrupted play
+	Interrupted    bool          // true when this play was cut short before its expected end
+	PlayedFor      time.Duration // how long it actually played before being cut (if interrupted)
+	CutOffsetMS    int64         // where this play was cut (from Metadata["cut_offset_ms"]); 0 if unknown
+	ResumedFromMS  int64         // where playback resumed from (populated on Restarted rows)
+	ResumeStrategy string        // "cut" or "crash" (populated on Restarted rows)
 }
 
 // AnalyticsDashboard renders the main analytics page
@@ -227,6 +230,12 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 			source = "automation"
 		}
 
+		var cutOffsetMS int64
+		if entry.Metadata != nil {
+			if v, ok := entry.Metadata["cut_offset_ms"].(float64); ok {
+				cutOffsetMS = int64(v)
+			}
+		}
 		history = append(history, analyticsHistoryRow{
 			StartedAt:   entry.StartedAt,
 			EndedAt:     entry.EndedAt,
@@ -235,6 +244,7 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 			Duration:    actualDuration,
 			FullRuntime: fullRuntime,
 			Source:      source,
+			CutOffsetMS: cutOffsetMS,
 		})
 	}
 
@@ -271,6 +281,14 @@ func (h *Handler) AnalyticsHistory(w http.ResponseWriter, r *http.Request) {
 				history[i].Restarted = true
 				history[j].Interrupted = true
 				history[j].PlayedFor = history[i].StartedAt.Sub(history[j].StartedAt)
+				// Surface resume context: where did the restart pick up from?
+				if history[j].CutOffsetMS > 0 {
+					history[i].ResumedFromMS = history[j].CutOffsetMS
+					history[i].ResumeStrategy = "cut"
+				} else {
+					// No saved cut position — playback likely resumed from a crash flush.
+					history[i].ResumeStrategy = "crash"
+				}
 			}
 			break
 		}

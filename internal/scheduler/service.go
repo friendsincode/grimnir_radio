@@ -10,6 +10,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -262,6 +264,9 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 					Str("slot_type", plan.SlotType).
 					Time("starts_at", plan.StartsAt).
 					Msg("clock slot suppressed: window already scheduled")
+				// Record suppression so the health report can distinguish intentional
+				// suppression from configuration gaps.
+				s.recordSlotSuppression(ctx, stationID, plan)
 				continue
 			}
 		}
@@ -560,30 +565,53 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		return err
 	}
 
-	// Detect whether constraints were relaxed during generation.
-	constraintRelaxed := false
+	// Extract metadata from generation warnings and result flags.
+	var constraintLevel int
+	var fallbackBlockID string
 	for _, w := range result.Warnings {
-		if len(w) >= len("constraint_relaxed:") && w[:len("constraint_relaxed:")] == "constraint_relaxed:" {
-			constraintRelaxed = true
+		const crPrefix = "constraint_relaxed:"
+		const fbPrefix = "used_fallback:"
+		switch {
+		case strings.HasPrefix(w, crPrefix):
+			lvl, err := strconv.Atoi(w[len(crPrefix):])
+			if err == nil && lvl > 0 {
+				constraintLevel = lvl
+			}
 			s.logger.Warn().
 				Str("smart_block", blockID).
 				Str("station", stationID).
-				Str("warning", w).
+				Int("level", constraintLevel).
 				Msg("smart block generated with relaxed constraints")
-			break
+		case strings.HasPrefix(w, fbPrefix):
+			fallbackBlockID = w[len(fbPrefix):]
+			s.logger.Warn().
+				Str("smart_block", blockID).
+				Str("station", stationID).
+				Str("fallback_block_id", fallbackBlockID).
+				Msg("smart block using fallback chain")
 		}
 	}
 
 	entries := make([]models.ScheduleEntry, 0, len(result.Items))
-	for _, item := range result.Items {
+	for i, item := range result.Items {
 		meta := map[string]any{
 			"smart_block_id": blockID,
 			"intro_end":      item.IntroEnd,
 			"outro_in":       item.OutroIn,
 			"energy":         item.Energy,
 		}
-		if constraintRelaxed {
-			meta["constraint_relaxed"] = true
+		if constraintLevel > 0 {
+			meta["constraint_relaxed"] = true // legacy boolean kept for calendar check
+			meta["constraint_relaxed_level"] = constraintLevel
+		}
+		if fallbackBlockID != "" {
+			meta["fallback_block_id"] = fallbackBlockID
+		}
+		if result.BumperLimitReached {
+			meta["bumper_limit_reached"] = true
+		}
+		if result.Exhausted && i == 0 {
+			meta["sequence_exhausted"] = true
 		}
 		entry := models.ScheduleEntry{
 			ID:         uuid.NewString(),
@@ -847,6 +875,31 @@ func (s *Service) pickRandomTrack(ctx context.Context, stationID, mountID string
 		Msg("using emergency fallback track to prevent dead air")
 
 	return s.db.WithContext(ctx).Create(&entry).Error
+}
+
+// recordSlotSuppression persists a suppression marker so the health report can
+// distinguish intentional window pre-fill from configuration gaps. Errors are
+// non-critical and logged at debug level only.
+func (s *Service) recordSlotSuppression(ctx context.Context, stationID string, plan clock.SlotPlan) {
+	// Idempotent: skip if an identical record already exists for this slot+time.
+	var existing int64
+	if err := s.db.WithContext(ctx).
+		Model(&models.ScheduleSuppression{}).
+		Where("station_id = ? AND slot_id = ? AND starts_at = ?", stationID, plan.SlotID, plan.StartsAt).
+		Count(&existing).Error; err != nil || existing > 0 {
+		return
+	}
+	sup := models.ScheduleSuppression{
+		ID:        uuid.NewString(),
+		StationID: stationID,
+		SlotID:    plan.SlotID,
+		SlotType:  plan.SlotType,
+		StartsAt:  plan.StartsAt,
+		Reason:    "window_pre_filled",
+	}
+	if err := s.db.WithContext(ctx).Create(&sup).Error; err != nil {
+		s.logger.Debug().Err(err).Str("station", stationID).Str("slot_id", plan.SlotID).Msg("failed to record slot suppression")
+	}
 }
 
 func stringValue(value any) string {

@@ -32,29 +32,34 @@ type TimelineSegment struct {
 
 // SmartBlockIssue describes a fill problem with a single smart block entry.
 type SmartBlockIssue struct {
-	EntryID     string
-	BlockID     string
-	BlockName   string
-	StartsAt    time.Time
-	EndsAt      time.Time
-	FillPct     float64
-	Underfilled bool
-	Pending     bool // true when entry is beyond materialization lookahead
-	Error       string
+	EntryID                string
+	BlockID                string
+	BlockName              string
+	StartsAt               time.Time
+	EndsAt                 time.Time
+	FillPct                float64
+	Underfilled            bool
+	Pending                bool // true when entry is beyond materialization lookahead
+	Error                  string
+	FallbackBlockName      string // non-empty when a fallback block was used
+	ConstraintRelaxedLevel int    // 0=none, 1=artist sep, 2=quotas, 3=excludes
+	BumperLimitReached     bool
+	SequenceExhausted      bool
 }
 
 // DayHealth holds the computed health for a single station day.
 type DayHealth struct {
-	Date             time.Time
-	ScheduledHours   float64
-	GapHours         float64
-	CoveragePct      float64
-	SmartBlockIssues []SmartBlockIssue
-	GapWindows       []GapWindow
-	TimelineSegments []TimelineSegment
-	Health           string // "green" | "yellow" | "red"
-	PlayedCount      int    // actual plays from history (past days only)
-	PlannedCount     int    // number of scheduled entries
+	Date                time.Time
+	ScheduledHours      float64
+	GapHours            float64
+	CoveragePct         float64
+	SmartBlockIssues    []SmartBlockIssue
+	GapWindows          []GapWindow
+	TimelineSegments    []TimelineSegment
+	Health              string // "green" | "yellow" | "red"
+	PlayedCount         int    // actual plays from history (past days only)
+	PlannedCount        int    // number of scheduled entries
+	SuppressedSlotCount int    // clock slots intentionally skipped (window pre-filled)
 }
 
 // ScheduleHealthReport renders the 7-day schedule health report.
@@ -94,6 +99,19 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 	for _, e := range allEntries {
 		if e.SourceType == "smart_block" {
 			sbIDSet[e.SourceID] = struct{}{}
+		}
+	}
+	// Also collect fallback block IDs referenced in materialized media entries.
+	var fbRows []struct{ FallbackBlockID string }
+	h.db.WithContext(r.Context()).
+		Model(&models.ScheduleEntry{}).
+		Select("DISTINCT metadata->>'fallback_block_id' AS fallback_block_id").
+		Where("station_id = ? AND source_type = 'media' AND starts_at >= ? AND starts_at < ? AND metadata->>'fallback_block_id' IS NOT NULL AND metadata->>'fallback_block_id' != ''",
+			station.ID, weekFrom, weekTo).
+		Scan(&fbRows)
+	for _, row := range fbRows {
+		if row.FallbackBlockID != "" {
+			sbIDSet[row.FallbackBlockID] = struct{}{}
 		}
 	}
 	sbNames := make(map[string]string)
@@ -275,13 +293,22 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 
 				// Fast check: query materialized media entries for this slot.
 				type fillResult struct {
-					TotalMS int64
-					Cnt     int64
+					TotalMS            int64
+					Cnt                int64
+					FallbackBlockID    string
+					ConstraintLevel    int
+					BumperLimitReached bool
+					SequenceExhausted  bool
 				}
 				var fill fillResult
 				h.db.WithContext(r.Context()).
 					Model(&models.ScheduleEntry{}).
-					Select("COALESCE(SUM(EXTRACT(EPOCH FROM (ends_at - starts_at)) * 1000), 0) AS total_ms, COUNT(*) AS cnt").
+					Select(`COALESCE(SUM(EXTRACT(EPOCH FROM (ends_at - starts_at)) * 1000), 0) AS total_ms,
+						COUNT(*) AS cnt,
+						MAX(NULLIF(metadata->>'fallback_block_id', '')) AS fallback_block_id,
+						COALESCE(MAX(CASE WHEN metadata->>'constraint_relaxed_level' IS NOT NULL AND metadata->>'constraint_relaxed_level' != '' THEN CAST(metadata->>'constraint_relaxed_level' AS int) END), 0) AS constraint_level,
+						COALESCE(bool_or(metadata->>'bumper_limit_reached' = 'true'), false) AS bumper_limit_reached,
+						COALESCE(bool_or(metadata->>'sequence_exhausted' = 'true'), false) AS sequence_exhausted`).
 					Where("station_id = ? AND source_type = 'media' AND metadata->>'smart_block_id' = ? AND starts_at >= ? AND starts_at < ?",
 						station.ID, e.SourceID, e.StartsAt, e.EndsAt).
 					Scan(&fill)
@@ -291,15 +318,26 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 					issue.Underfilled = true
 					issue.Error = h.diagnoseMissingMaterialization(r, station.ID, e.SourceID, sbNames[e.SourceID])
 				} else if targetMS > 0 {
-				} else if targetMS > 0 {
 					issue.FillPct = float64(fill.TotalMS) / float64(targetMS) * 100.0
 					if issue.FillPct > 100 {
 						issue.FillPct = 100
 					}
 					issue.Underfilled = issue.FillPct < 95
 				}
+				// Populate visibility metadata from fill result.
+				if fill.FallbackBlockID != "" {
+					issue.FallbackBlockName = sbNames[fill.FallbackBlockID]
+					if issue.FallbackBlockName == "" {
+						issue.FallbackBlockName = fill.FallbackBlockID
+					}
+				}
+				issue.ConstraintRelaxedLevel = fill.ConstraintLevel
+				issue.BumperLimitReached = fill.BumperLimitReached
+				issue.SequenceExhausted = fill.SequenceExhausted
 
-				if issue.Underfilled || issue.Error != "" {
+				hasVisibilityInfo := issue.FallbackBlockName != "" || issue.ConstraintRelaxedLevel > 0 ||
+					issue.BumperLimitReached || issue.SequenceExhausted
+				if issue.Underfilled || issue.Error != "" || hasVisibilityInfo {
 					issues = append(issues, issue)
 				}
 			}
@@ -324,17 +362,25 @@ func (h *Handler) ScheduleHealthReport(w http.ResponseWriter, r *http.Request) {
 				health = "yellow"
 			}
 
+			// Count intentionally suppressed clock slots for this day.
+			var suppressedCount int64
+			h.db.WithContext(r.Context()).
+				Model(&models.ScheduleSuppression{}).
+				Where("station_id = ? AND starts_at >= ? AND starts_at < ?", station.ID, dayStart, dayEnd).
+				Count(&suppressedCount)
+
 			days[d] = DayHealth{
-				Date:             dayStart,
-				ScheduledHours:   scheduledHours,
-				GapHours:         gapHours,
-				CoveragePct:      coveragePct,
-				SmartBlockIssues: issues,
-				GapWindows:       gapWindows,
-				TimelineSegments: timelineSegments,
-				Health:           health,
-				PlayedCount:      int(playedByDay[d]),
-				PlannedCount:     len(entries),
+				Date:                dayStart,
+				ScheduledHours:      scheduledHours,
+				GapHours:            gapHours,
+				CoveragePct:         coveragePct,
+				SmartBlockIssues:    issues,
+				GapWindows:          gapWindows,
+				TimelineSegments:    timelineSegments,
+				Health:              health,
+				PlayedCount:         int(playedByDay[d]),
+				PlannedCount:        len(entries),
+				SuppressedSlotCount: int(suppressedCount),
 			}
 		}(d)
 	}
