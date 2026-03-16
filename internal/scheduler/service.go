@@ -216,7 +216,8 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 		// Only surface the warning when the station has no entries at all in the window.
 		var existingCount int64
 		s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
-			Where("station_id = ? AND starts_at >= ? AND starts_at < ?", stationID, start, start.Add(s.lookahead)).
+			Where("station_id = ? AND ((starts_at >= ? AND starts_at < ?) OR (recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false AND (recurrence_end_date IS NULL OR recurrence_end_date >= ?)))",
+				stationID, start, start.Add(s.lookahead), start).
 			Count(&existingCount)
 		if existingCount > 0 {
 			s.logger.Debug().
@@ -327,15 +328,34 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 // only processes clock-template-derived plans, so these entries would never be materialized
 // into concrete media entries without this second pass.
 func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, stationID string, start time.Time) error {
+	// -- Pass 1: non-recurring entries whose window overlaps [start, start+lookahead] --
 	var entries []models.ScheduleEntry
 	// Use ends_at > start so that in-progress slots (starts_at < now but not yet ended)
 	// are also caught, not just future slots.
 	err := s.db.WithContext(ctx).
-		Where("station_id = ? AND source_type = 'smart_block' AND ends_at > ? AND starts_at <= ?",
+		Where("station_id = ? AND source_type = 'smart_block' AND (recurrence_type = '' OR recurrence_type IS NULL) AND ends_at > ? AND starts_at <= ?",
 			stationID, start, start.Add(s.lookahead)).
 		Find(&entries).Error
 	if err != nil {
 		return err
+	}
+
+	// -- Pass 2: recurring parent entries — expand to current occurrences in the window --
+	// Recurring entries have ends_at from their original creation week, so the
+	// ends_at > now filter above permanently misses them on subsequent weeks.
+	var recurringParents []models.ScheduleEntry
+	if err := s.db.WithContext(ctx).
+		Where("station_id = ? AND source_type = 'smart_block' AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false AND (recurrence_end_date IS NULL OR recurrence_end_date >= ?)",
+			stationID, start).
+		Find(&recurringParents).Error; err != nil {
+		return err
+	}
+
+	loc := s.getStationLocation(ctx, stationID)
+	end := start.Add(s.lookahead)
+	for _, parent := range recurringParents {
+		occurrences := expandRecurringSmartBlock(parent, start, end, loc)
+		entries = append(entries, occurrences...)
 	}
 
 	for _, entry := range entries {
@@ -383,6 +403,105 @@ func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, statio
 		}
 	}
 	return nil
+}
+
+// expandRecurringSmartBlock returns cloned schedule entries with StartsAt/EndsAt set to each
+// occurrence of the recurring parent entry that overlaps the [start, end] window.
+func expandRecurringSmartBlock(entry models.ScheduleEntry, start, end time.Time, loc *time.Location) []models.ScheduleEntry {
+	duration := entry.EndsAt.Sub(entry.StartsAt)
+	if duration <= 0 {
+		return nil
+	}
+
+	templateStart := entry.StartsAt.In(loc)
+
+	// Walk day-by-day starting one day before `start` to catch in-progress blocks that
+	// began before the window opened (e.g. a 14-hour block that started at 5AM yesterday).
+	startLocal := start.In(loc)
+	cursor := time.Date(startLocal.Year(), startLocal.Month(), startLocal.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -1)
+	endDay := end.In(loc)
+
+	var results []models.ScheduleEntry
+	for !cursor.After(endDay) {
+		if recurringDayMatches(entry, cursor.Weekday()) {
+			occStart := time.Date(cursor.Year(), cursor.Month(), cursor.Day(),
+				templateStart.Hour(), templateStart.Minute(), templateStart.Second(),
+				templateStart.Nanosecond(), loc)
+			occEnd := occStart.Add(duration)
+
+			// Occurrence must not precede the original creation date.
+			if occStart.Before(entry.StartsAt) {
+				cursor = cursor.AddDate(0, 0, 1)
+				continue
+			}
+			// Respect recurrence end date.
+			if entry.RecurrenceEndDate != nil && occStart.After(*entry.RecurrenceEndDate) {
+				cursor = cursor.AddDate(0, 0, 1)
+				continue
+			}
+			// Only include occurrences that overlap the requested window.
+			if !occEnd.Before(start) && !occStart.After(end) {
+				occ := entry
+				occ.StartsAt = occStart
+				occ.EndsAt = occEnd
+				results = append(results, occ)
+			}
+		}
+		cursor = cursor.AddDate(0, 0, 1)
+	}
+	return results
+}
+
+// recurringDayMatches reports whether the recurring entry applies to the given weekday.
+// Mirrors matchesRecurringDay in internal/playout/director.go.
+func recurringDayMatches(entry models.ScheduleEntry, day time.Weekday) bool {
+	switch entry.RecurrenceType {
+	case models.RecurrenceDaily:
+		return true
+	case models.RecurrenceWeekdays:
+		return day != time.Saturday && day != time.Sunday
+	case models.RecurrenceWeekly:
+		if len(entry.RecurrenceDays) > 0 {
+			wd := int(day)
+			for _, d := range entry.RecurrenceDays {
+				if d == wd {
+					return true
+				}
+			}
+			return false
+		}
+		// Fallback: repeat on the same weekday as the original entry.
+		return day == entry.StartsAt.UTC().Weekday()
+	case models.RecurrenceCustom:
+		if len(entry.RecurrenceDays) == 0 {
+			return true
+		}
+		wd := int(day)
+		for _, d := range entry.RecurrenceDays {
+			if d == wd {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// getStationLocation returns the *time.Location for a station's configured timezone.
+// Falls back to UTC on any error.
+func (s *Service) getStationLocation(ctx context.Context, stationID string) *time.Location {
+	var station models.Station
+	if err := s.db.WithContext(ctx).Select("timezone").Where("id = ?", stationID).First(&station).Error; err != nil {
+		return time.UTC
+	}
+	if station.Timezone == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(station.Timezone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 func (s *Service) validatePlanPayload(stationID string, plan clock.SlotPlan) bool {
