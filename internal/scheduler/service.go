@@ -236,13 +236,22 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 			continue
 		}
 
-		alreadyScheduled, err := s.slotAlreadyScheduled(ctx, stationID, plan)
-		if err != nil {
-			telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "check_scheduled").Inc()
-			return err
-		}
-		if alreadyScheduled {
-			continue
+		// Hard items and stopsets are pinned to specific clock offsets and must
+		// not be gated by the broad overlap check used for smart_block/playlist
+		// (which would see smart_block-generated media entries and incorrectly
+		// report "already scheduled"). They manage their own idempotency inside
+		// their create functions.
+		isPinned := plan.SlotType == string(models.SlotTypeHardItem) ||
+			plan.SlotType == string(models.SlotTypeStopset)
+		if !isPinned {
+			alreadyScheduled, err := s.slotAlreadyScheduled(ctx, stationID, plan)
+			if err != nil {
+				telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "check_scheduled").Inc()
+				return err
+			}
+			if alreadyScheduled {
+				continue
+			}
 		}
 
 		switch plan.SlotType {
@@ -611,6 +620,19 @@ func (s *Service) createHardItemEntry(ctx context.Context, stationID string, pla
 		})
 		return nil
 	}
+	// Idempotency: an exact-time match on source_type+source_id is sufficient
+	// because hard items have deterministic clock-offset start times that
+	// smart_block-generated media entries never share exactly.
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND mount_id = ? AND source_type = 'media' AND source_id = ? AND starts_at = ?",
+			stationID, mountID, mediaID, plan.StartsAt).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
 	entry := models.ScheduleEntry{
 		ID:         uuid.NewString(),
 		StationID:  stationID,
@@ -637,6 +659,20 @@ func (s *Service) createStopsetEntry(ctx context.Context, stationID string, plan
 	}
 	if mountID == "" {
 		s.logger.Warn().Str("slot", plan.SlotID).Str("station", stationID).Msg("no mount found for stopset entry")
+		return nil
+	}
+
+	// Idempotency: check for an existing stopset/playlist-sourced entry at
+	// this exact time (safe because smart_block never creates 'stopset' or
+	// dedicated 'playlist' stopset entries).
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND mount_id = ? AND source_type IN ('stopset','playlist') AND starts_at = ?",
+			stationID, mountID, plan.StartsAt).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
 		return nil
 	}
 
