@@ -386,6 +386,65 @@ func TestScheduleStationOvernightClock(t *testing.T) {
 	}
 }
 
+func TestDirectSmartBlockNotDuplicatedWhenClockAlreadyMaterialized(t *testing.T) {
+	// BUG-4: when a clock slot materialises smart_block A and a direct
+	// source_type='smart_block' entry exists for smart_block B in the same
+	// window, materializeDirectSmartBlockEntries must not create a second
+	// batch of overlapping tracks.
+	svc, db := newIntegrationTestService(t)
+	ctx := context.Background()
+
+	stationID := "station-bug4"
+	mountID := "mount-bug4"
+	setupIntegrationStation(t, db, stationID, mountID)
+
+	start := time.Now().UTC().Truncate(time.Hour).Add(time.Hour)
+
+	// Simulate clock-A having already produced media entries in the window.
+	for i := 0; i < 3; i++ {
+		s := start.Add(time.Duration(i) * 20 * time.Minute)
+		if err := db.Create(&models.ScheduleEntry{
+			ID:         "clock-entry-" + string(rune('0'+i)),
+			StationID:  stationID,
+			MountID:    mountID,
+			StartsAt:   s,
+			EndsAt:     s.Add(20 * time.Minute),
+			SourceType: "media",
+			SourceID:   "media-" + string(rune('a'+i)),
+			IsInstance: true,
+		}).Error; err != nil {
+			t.Fatalf("create clock entry %d: %v", i, err)
+		}
+	}
+
+	// Direct smart_block-B entry covering the same window.
+	if err := db.Create(&models.ScheduleEntry{
+		ID:         "direct-sb-entry",
+		StationID:  stationID,
+		MountID:    mountID,
+		StartsAt:   start,
+		EndsAt:     start.Add(time.Hour),
+		SourceType: "smart_block",
+		SourceID:   "sb-b",
+		IsInstance: false,
+	}).Error; err != nil {
+		t.Fatalf("create direct sb entry: %v", err)
+	}
+
+	if err := svc.materializeDirectSmartBlockEntries(ctx, stationID, start.Add(-time.Minute)); err != nil {
+		t.Fatalf("materializeDirectSmartBlockEntries: %v", err)
+	}
+
+	// Only the 3 clock-A entries should exist; block B must not add more.
+	var count int64
+	db.Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND source_type = 'media'", stationID).
+		Count(&count)
+	if count != 3 {
+		t.Fatalf("expected 3 media entries (clock only), got %d (block-B was incorrectly materialized)", count)
+	}
+}
+
 func TestScheduleStationMissingMountGracefulSkip(t *testing.T) {
 	svc, db := newIntegrationTestService(t)
 	ctx := context.Background()
