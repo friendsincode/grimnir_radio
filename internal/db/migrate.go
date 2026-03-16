@@ -101,6 +101,9 @@ func Migrate(database *gorm.DB) error {
 		// Orphan media tracking
 		&models.OrphanMedia{},
 
+		// Schedule visibility (v1.38)
+		&models.ScheduleSuppression{},
+
 		// WebDJ console
 		&models.WebDJSession{},
 		&models.WaveformCache{},

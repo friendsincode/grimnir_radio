@@ -161,8 +161,9 @@
                     </td>
                     <td class="text-nowrap">
                         {{if .Restarted}}
-                        <span class="badge bg-warning text-dark" title="This show was restarted after being interrupted">
-                            <i class="bi bi-arrow-repeat me-1"></i>Restart
+                        <span class="badge bg-warning text-dark"
+                            title="{{if .ResumedFromMS}}Resumed from {{formatDurationMs .ResumedFromMS}} ({{.ResumeStrategy}} recovery){{else}}This play was restarted after being interrupted{{end}}">
+                            <i class="bi bi-arrow-repeat me-1"></i>Restart{{if .ResumedFromMS}} from {{formatDurationMs .ResumedFromMS}}{{end}}
                         </span>
                         {{else if .Interrupted}}
                         <span class="badge bg-danger" title="This play was cut short — {{formatDuration .PlayedFor}} of {{formatDuration .FullRuntime}}">

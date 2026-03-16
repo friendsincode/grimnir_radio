@@ -1809,6 +1809,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 <dt class="col-4">Duration</dt>
                 <dd class="col-8">${formatDuration((event.end - event.start) / 1000)}</dd>
             </dl>
+            ${props.import_source ? `
+            <div class="mb-2">
+                <span class="badge bg-secondary text-uppercase me-1">
+                    <i class="bi bi-box-arrow-in-down me-1"></i>Imported from ${escapeHtml(props.import_source)}
+                </span>
+                ${props.import_source_id ? `<span class="text-body-secondary small">ID: ${escapeHtml(props.import_source_id)}</span>` : ''}
+            </div>` : ''}
         `;
 
         if (props.runtime_mismatch) {

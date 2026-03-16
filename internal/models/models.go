@@ -688,6 +688,19 @@ type ScheduleEntry struct {
 	UpdatedAt time.Time
 }
 
+// ScheduleSuppression records clock slots that were skipped because the window
+// was already covered by another source. Used by the health report to distinguish
+// intentional suppression from configuration gaps.
+type ScheduleSuppression struct {
+	ID        string    `gorm:"type:uuid;primaryKey"`
+	StationID string    `gorm:"type:uuid;index:idx_suppression_station_time"`
+	SlotID    string    `gorm:"type:varchar(255)"`
+	SlotType  string    `gorm:"type:varchar(32)"`
+	StartsAt  time.Time `gorm:"index:idx_suppression_station_time"`
+	Reason    string    `gorm:"type:varchar(255)"`
+	CreatedAt time.Time
+}
+
 // PlayHistory stores executed playout events.
 type PlayHistory struct {
 	ID         string         `gorm:"type:uuid;primaryKey" json:"id"`

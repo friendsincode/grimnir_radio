@@ -676,10 +676,32 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 				health = "yellow"
 				statusLabel = "Fallback Active"
 				statusReason = "This block is running with emergency fallback metadata."
+			} else if fbID, ok := entry.Metadata["fallback_block_id"].(string); ok && fbID != "" {
+				health = "yellow"
+				statusLabel = "Fallback Active"
+				statusReason = "Content is playing from a fallback smart block."
 			} else if _, ok := entry.Metadata["constraint_relaxed"]; ok {
 				health = "yellow"
 				statusLabel = "Constraint Relaxed"
-				statusReason = "Rules had to be relaxed to build this block."
+				level := 0
+				if v, ok := entry.Metadata["constraint_relaxed_level"]; ok {
+					switch lv := v.(type) {
+					case float64:
+						level = int(lv)
+					case int:
+						level = lv
+					}
+				}
+				switch level {
+				case 1:
+					statusReason = "Artist separation rules were disabled."
+				case 2:
+					statusReason = "Quota rules were ignored."
+				case 3:
+					statusReason = "Exclude rules were removed."
+				default:
+					statusReason = "Rules had to be relaxed to build this block."
+				}
 			}
 		}
 		if entry.StartsAt.Before(nowUTC) && entry.EndsAt.After(nowUTC) {
@@ -705,14 +727,16 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 			End:       entry.EndsAt.Format(time.RFC3339),
 			ClassName: className,
 			Extendedprops: map[string]any{
-				"source_type":  entry.SourceType,
-				"source_id":    entry.SourceID,
-				"source_label": sourceLabel,
-				"source_name":  title,
-				"mount_id":     entry.MountID,
-				"metadata":     entry.Metadata,
-				"recurrence":   recurrenceInfo,
-				"is_instance":  entry.IsInstance,
+				"source_type":      entry.SourceType,
+				"source_id":        entry.SourceID,
+				"source_label":     sourceLabel,
+				"source_name":      title,
+				"mount_id":         entry.MountID,
+				"metadata":         entry.Metadata,
+				"recurrence":       recurrenceInfo,
+				"is_instance":      entry.IsInstance,
+				"import_source":    entry.ImportSource,
+				"import_source_id": entry.ImportSourceID,
 				"recurrence_parent_id": func() string {
 					if entry.RecurrenceParentID != nil {
 						return *entry.RecurrenceParentID

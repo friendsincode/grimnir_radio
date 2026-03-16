@@ -139,6 +139,14 @@ details[open] > summary .chevron { transform: rotate(90deg); }
         </div>
         {{end}}
 
+        <!-- Suppressed clock slots note -->
+        {{if gt $day.SuppressedSlotCount 0}}
+        <div class="mt-2 mb-1 small text-body-secondary">
+            <i class="bi bi-info-circle me-1"></i>
+            {{$day.SuppressedSlotCount}} clock slot{{if gt $day.SuppressedSlotCount 1}}s{{end}} skipped — window{{if gt $day.SuppressedSlotCount 1}}s{{end}} pre-filled by another source.
+        </div>
+        {{end}}
+
         <!-- Gap windows (dead air detail) -->
         {{if $day.GapWindows}}
         <div class="mt-2 mb-1">
@@ -191,6 +199,24 @@ details[open] > summary .chevron { transform: rotate(90deg); }
                     <i class="bi bi-pie-chart me-1"></i>Fill: {{printf "%.0f" .FillPct}}%
                     {{if .Underfilled}}<span class="badge badge-warning-solid ms-1">Underfilled</span>{{end}}
                 </div>
+                {{if .FallbackBlockName}}
+                <div class="mt-1 text-warning"><i class="bi bi-arrow-left-right me-1"></i>Fallback Active — playing from <strong>{{.FallbackBlockName}}</strong></div>
+                {{end}}
+                {{if gt .ConstraintRelaxedLevel 0}}
+                <div class="mt-1 text-warning">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    {{if eq .ConstraintRelaxedLevel 1}}Artist separation rules were disabled.
+                    {{else if eq .ConstraintRelaxedLevel 2}}Quota rules were ignored.
+                    {{else if eq .ConstraintRelaxedLevel 3}}Exclude rules were removed.
+                    {{else}}Rules had to be relaxed to build this block.{{end}}
+                </div>
+                {{end}}
+                {{if .BumperLimitReached}}
+                <div class="mt-1 text-warning"><i class="bi bi-music-note me-1"></i>Bumper track limit reached — add more bumper tracks or increase the limit.</div>
+                {{end}}
+                {{if .SequenceExhausted}}
+                <div class="mt-1 text-body-secondary"><i class="bi bi-arrow-repeat me-1"></i>Library exhausted — full rotation completed.</div>
+                {{end}}
                 {{if .Underfilled}}
                 <div class="mt-1 d-flex flex-wrap gap-1">
                     <a href="/dashboard/smart-blocks/{{.BlockID}}/edit" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem">
