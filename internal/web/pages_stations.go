@@ -675,7 +675,12 @@ func (h *Handler) MountDelete(w http.ResponseWriter, r *http.Request) {
 	stationID := chi.URLParam(r, "stationID")
 	id := chi.URLParam(r, "id")
 
-	if err := h.db.Delete(&models.Mount{}, "id = ?", id).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		// Cascade: remove future schedule entries that target this mount so they
+		// don't silently pile up as orphans after the mount is gone.
+		tx.Exec(`DELETE FROM schedule_entries WHERE mount_id = ? AND starts_at > NOW()`, id)
+		return tx.Delete(&models.Mount{}, "id = ?", id).Error
+	}); err != nil {
 		http.Error(w, "Failed to delete mount", http.StatusInternalServerError)
 		return
 	}
