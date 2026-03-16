@@ -132,7 +132,7 @@ func (s *Service) maybeCleanupOldEntries(ctx context.Context) {
 		{"webstream", `DELETE FROM schedule_entries WHERE source_type = 'webstream' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM webstreams)`},
 		{"smart_block", `DELETE FROM schedule_entries WHERE source_type = 'smart_block' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM smart_blocks)`},
 		{"playlist", `DELETE FROM schedule_entries WHERE source_type = 'playlist' AND starts_at > NOW() AND source_id NOT IN (SELECT id FROM playlists)`},
-		{"media_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND is_instance = true AND metadata->>'smart_block_id' IS NOT NULL AND metadata->>'smart_block_id' NOT IN (SELECT id::text FROM smart_blocks)`},
+		{"media_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND metadata->>'smart_block_id' IS NOT NULL AND metadata->>'smart_block_id' NOT IN (SELECT id::text FROM smart_blocks)`},
 	}
 	for _, q := range queries {
 		res := s.db.WithContext(ctx).Exec(q.sql)
@@ -545,6 +545,7 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 			EndsAt:     plan.StartsAt.Add(time.Duration(item.EndsAtMS) * time.Millisecond),
 			SourceType: "media",
 			SourceID:   item.MediaID,
+			IsInstance: true,
 			Metadata: map[string]any{
 				"smart_block_id": blockID,
 				"intro_end":      item.IntroEnd,
@@ -588,6 +589,7 @@ func (s *Service) createPlaylistEntry(ctx context.Context, stationID string, pla
 		EndsAt:     plan.EndsAt,
 		SourceType: "playlist",
 		SourceID:   playlistID,
+		IsInstance: true,
 		Metadata:   plan.Payload,
 	}
 	return s.db.WithContext(ctx).Create(&entry).Error
@@ -617,6 +619,7 @@ func (s *Service) createHardItemEntry(ctx context.Context, stationID string, pla
 		EndsAt:     plan.EndsAt,
 		SourceType: "media",
 		SourceID:   mediaID,
+		IsInstance: true,
 		Metadata: map[string]any{
 			"slot_type": string(models.SlotTypeHardItem),
 		},
@@ -644,6 +647,7 @@ func (s *Service) createStopsetEntry(ctx context.Context, stationID string, plan
 		StartsAt:   plan.StartsAt,
 		EndsAt:     plan.EndsAt,
 		SourceType: "stopset",
+		IsInstance: true,
 		Metadata: map[string]any{
 			"slot_type": string(models.SlotTypeStopset),
 		},
@@ -760,6 +764,7 @@ func (s *Service) pickRandomTrack(ctx context.Context, stationID, mountID string
 		EndsAt:     plan.StartsAt.Add(dur),
 		SourceType: "media",
 		SourceID:   item.ID,
+		IsInstance: true,
 		Metadata: map[string]any{
 			"emergency_fallback": true,
 		},

@@ -100,7 +100,7 @@ func scheduleStatusForPreview(entry models.ScheduleEntry, runtimeMismatch bool, 
 	if runtimeMismatch {
 		return "mismatch", runtimeMismatchLabel, "The active playout state does not match this saved schedule block."
 	}
-	if entry.IsInstance && !isVirtualRecurringInstance(entry) {
+	if entry.IsInstance && entry.RecurrenceParentID != nil && !isVirtualRecurringInstance(entry) {
 		return "override", "Saved Override", "This occurrence was changed separately from the main recurring rule."
 	}
 	if isVirtualRecurringInstance(entry) {
@@ -693,7 +693,7 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		if runtimeMismatch {
 			statusLabel = runtimeMismatchLabel
 			statusReason = "The active playout state does not match the saved schedule block."
-		} else if statusLabel == "" && entry.IsInstance && !isVirtualRecurringInstance(entry) {
+		} else if statusLabel == "" && entry.IsInstance && entry.RecurrenceParentID != nil && !isVirtualRecurringInstance(entry) {
 			statusLabel = "Saved Override"
 			statusReason = "This occurrence was changed separately from the main recurring rule."
 		}
@@ -705,14 +705,20 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 			End:       entry.EndsAt.Format(time.RFC3339),
 			ClassName: className,
 			Extendedprops: map[string]any{
-				"source_type":             entry.SourceType,
-				"source_id":               entry.SourceID,
-				"source_label":            sourceLabel,
-				"source_name":             title,
-				"mount_id":                entry.MountID,
-				"metadata":                entry.Metadata,
-				"recurrence":              recurrenceInfo,
-				"is_instance":             entry.IsInstance,
+				"source_type":  entry.SourceType,
+				"source_id":    entry.SourceID,
+				"source_label": sourceLabel,
+				"source_name":  title,
+				"mount_id":     entry.MountID,
+				"metadata":     entry.Metadata,
+				"recurrence":   recurrenceInfo,
+				"is_instance":  entry.IsInstance,
+				"recurrence_parent_id": func() string {
+					if entry.RecurrenceParentID != nil {
+						return *entry.RecurrenceParentID
+					}
+					return ""
+				}(),
 				"orphaned":                orphaned,
 				"health":                  health,
 				"runtime_mismatch":        runtimeMismatch,
