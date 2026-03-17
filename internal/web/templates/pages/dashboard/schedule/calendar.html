@@ -1345,6 +1345,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function hideAllContextMenus() {
         calendarContextMenu.classList.remove('show');
         eventContextMenu.classList.remove('show');
+        calendar.unselect();
     }
 
     function showContextMenu(menu, x, y) {
