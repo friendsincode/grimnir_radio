@@ -385,8 +385,13 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		endTime = time.Now().Add(48 * time.Hour)
 	}
 
-	// Fetch non-recurring entries and instances within range
-	query := h.db.Where("station_id = ? AND starts_at >= ? AND starts_at <= ? AND (recurrence_type = '' OR recurrence_type IS NULL OR is_instance = true)",
+	// Fetch non-recurring entries and instances within range.
+	// Exclude scheduler-generated media track instances (source_type='media', is_instance=true,
+	// recurrence_parent_id IS NULL) — those are internal playout details, not calendar events.
+	query := h.db.Where(
+		"station_id = ? AND starts_at >= ? AND starts_at <= ?"+
+			" AND (recurrence_type = '' OR recurrence_type IS NULL OR is_instance = true)"+
+			" AND NOT (source_type = 'media' AND is_instance = true AND recurrence_parent_id IS NULL)",
 		station.ID, startTime, endTime)
 
 	if mountID != "" {
