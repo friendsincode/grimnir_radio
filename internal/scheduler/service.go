@@ -364,15 +364,15 @@ func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, statio
 			mountID = s.getDefaultMountID(ctx, stationID)
 		}
 
-		// Check if already covered: any media entry already occupies this
-		// window on this mount (regardless of which smart_block produced it).
-		// Using a source-agnostic check prevents a second smart_block from
-		// being materialized on top of content the clock already placed
-		// (BUG-4: direct entry + clock overlap producing duplicate tracks).
+		// Check if already covered: any media entry already occupies this window,
+		// regardless of which mount or smart_block produced it. The mount-agnostic
+		// check is critical for recurring entries — clock-generated media entries
+		// may be on a different mount than the parent recurring entry, so filtering
+		// by mount_id would miss them and cause double-materialization.
 		var count int64
 		if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
-			Where("station_id = ? AND mount_id = ? AND source_type = 'media' AND starts_at >= ? AND starts_at < ?",
-				stationID, mountID, entry.StartsAt, entry.EndsAt).
+			Where("station_id = ? AND source_type = 'media' AND starts_at >= ? AND starts_at < ?",
+				stationID, entry.StartsAt, entry.EndsAt).
 			Count(&count).Error; err != nil {
 			return err
 		}
