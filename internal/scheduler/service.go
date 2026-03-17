@@ -743,6 +743,16 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 			IsInstance: true,
 			Metadata:   meta,
 		}
+		// Enforce slot boundary: skip tracks that start outside the window;
+		// trim tracks whose tail overflows into the next block.
+		if !plan.EndsAt.IsZero() {
+			if !entry.StartsAt.Before(plan.EndsAt) {
+				continue // starts at or after block end — skip entirely
+			}
+			if entry.EndsAt.After(plan.EndsAt) {
+				entry.EndsAt = plan.EndsAt // trim tail to boundary
+			}
+		}
 		entries = append(entries, entry)
 	}
 

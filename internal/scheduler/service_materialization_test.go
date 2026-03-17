@@ -13,6 +13,7 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/clock"
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/friendsincode/grimnir_radio/internal/smartblock"
 	"github.com/rs/zerolog"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -128,6 +129,108 @@ func TestCreateStopsetEntryPrefersPlaylistSource(t *testing.T) {
 	}
 	if got, _ := entry.Metadata["slot_type"].(string); got != string(models.SlotTypeStopset) {
 		t.Fatalf("metadata.slot_type = %q, want %q", got, string(models.SlotTypeStopset))
+	}
+}
+
+func TestMaterializeSmartBlock_TracksClippedToSlotBoundary(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.Mount{},
+		&models.ScheduleEntry{},
+		&models.MediaItem{},
+		&models.Playlist{},
+		&models.PlaylistItem{},
+		&models.SmartBlock{},
+		&models.PlayHistory{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	const (
+		stationID = "station-clip"
+		mountID   = "mount-clip"
+		blockID   = "sb-clip"
+		mediaID   = "media-clip-long"
+	)
+
+	createTestMount(t, db, stationID, mountID)
+
+	// One 90-minute track — longer than the 60-minute slot.
+	track := models.MediaItem{
+		ID:            mediaID,
+		StationID:     stationID,
+		Title:         "Long Track",
+		Duration:      90 * time.Minute,
+		AnalysisState: models.AnalysisComplete,
+	}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatalf("create media item: %v", err)
+	}
+
+	pl := models.Playlist{ID: "pl-clip", StationID: stationID, Name: "Clip Test Playlist"}
+	if err := db.Create(&pl).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	pi := models.PlaylistItem{ID: "pi-clip", PlaylistID: pl.ID, MediaID: mediaID, Position: 0}
+	if err := db.Create(&pi).Error; err != nil {
+		t.Fatalf("create playlist item: %v", err)
+	}
+
+	sb := models.SmartBlock{
+		ID:        blockID,
+		StationID: stationID,
+		Name:      "Clip Test Block",
+		Rules: map[string]any{
+			"targetMinutes":    90,
+			"durationAccuracy": 2,
+			"sourcePlaylists":  []string{pl.ID},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smart block: %v", err)
+	}
+
+	eng := smartblock.New(db, zerolog.Nop())
+	svc := &Service{
+		db:     db,
+		engine: eng,
+		logger: zerolog.Nop(),
+	}
+
+	slotStart := time.Date(2026, 3, 17, 5, 0, 0, 0, time.UTC)
+	slotEnd := slotStart.Add(60 * time.Minute)
+	plan := clock.SlotPlan{
+		SlotID:   "slot-clip",
+		StartsAt: slotStart,
+		EndsAt:   slotEnd,
+		Duration: 60 * time.Minute,
+		SlotType: string(models.SlotTypeSmartBlock),
+		Payload: map[string]any{
+			"mount_id":       mountID,
+			"smart_block_id": blockID,
+		},
+	}
+
+	if err := svc.materializeSmartBlock(context.Background(), stationID, plan); err != nil {
+		t.Fatalf("materializeSmartBlock returned error: %v", err)
+	}
+
+	var entries []models.ScheduleEntry
+	if err := db.Find(&entries).Error; err != nil {
+		t.Fatalf("load entries: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected at least one schedule entry")
+	}
+	for _, e := range entries {
+		if e.EndsAt.After(slotEnd) {
+			t.Errorf("entry %s ends_at %v exceeds slot boundary %v", e.ID, e.EndsAt, slotEnd)
+		}
 	}
 }
 
