@@ -33,6 +33,7 @@ func newIntegrationTestService(t *testing.T) (*Service, *gorm.DB) {
 		&models.ClockSlot{},
 		&models.Mount{},
 		&models.ScheduleEntry{},
+		&models.ScheduleSuppression{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
