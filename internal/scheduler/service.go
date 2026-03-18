@@ -369,15 +369,18 @@ func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, statio
 		// check is critical for recurring entries — clock-generated media entries
 		// may be on a different mount than the parent recurring entry, so filtering
 		// by mount_id would miss them and cause double-materialization.
+		// Use a full overlap check (not just starts_at range) so that a track
+		// which starts before this slot's boundary but ends during it is also
+		// detected — preventing a spurious 23514 constraint violation.
 		var count int64
 		if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
-			Where("station_id = ? AND source_type = 'media' AND starts_at >= ? AND starts_at < ?",
-				stationID, entry.StartsAt, entry.EndsAt).
+			Where("station_id = ? AND source_type = 'media' AND starts_at < ? AND ends_at > ?",
+				stationID, entry.EndsAt, entry.StartsAt).
 			Count(&count).Error; err != nil {
 			return err
 		}
 		if count > 0 {
-			continue // Window already materialized; skip.
+			continue // Window already materialized or conflicting; skip.
 		}
 
 		plan := clock.SlotPlan{

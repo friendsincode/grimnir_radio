@@ -255,6 +255,9 @@ BEGIN
     WHERE se.station_id = NEW.station_id
       AND se.id <> NEW.id
       AND tstzrange(se.starts_at, se.ends_at, '[)') && tstzrange(NEW.starts_at, NEW.ends_at, '[)')
+      -- Allow media/webstream instances to coexist with their smart_block parent
+      -- template entry (which occupies the same time window as its first occurrence).
+      AND NOT (NEW.is_instance = true AND se.is_instance = false AND se.source_type = 'smart_block')
   ) THEN
     RAISE EXCEPTION 'overlapping programming is not allowed for station %', NEW.station_id
       USING ERRCODE = '23514';
