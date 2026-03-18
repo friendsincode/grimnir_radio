@@ -9,6 +9,7 @@ package webstream
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -27,6 +28,7 @@ type HealthChecker struct {
 	logger           zerolog.Logger
 	stopCh           chan struct{}
 	consecutiveFails int
+	httpClient       *http.Client
 
 	// failoverEligibleAt is the earliest time a failover may fire.
 	// Set when consecutive failures reach the threshold; actual failover
@@ -42,6 +44,14 @@ func NewHealthChecker(webstreamID string, db *gorm.DB, bus *events.Bus, logger z
 		bus:         bus,
 		logger:      logger.With().Str("webstream_id", webstreamID).Logger(),
 		stopCh:      make(chan struct{}),
+		httpClient: &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 3 {
+					return fmt.Errorf("too many redirects")
+				}
+				return nil
+			},
+		},
 	}
 }
 
@@ -61,10 +71,22 @@ func (hc *HealthChecker) Run(ctx context.Context) {
 		interval = 30 * time.Second // Default to 30 seconds if not set
 		hc.logger.Warn().Dur("default_interval", interval).Msg("health check interval not set, using default")
 	}
+
+	// Spread checkers across the interval window to avoid a thundering-herd
+	// CPU spike when all checkers start simultaneously on service boot.
+	jitter := time.Duration(rand.Int63n(int64(interval)))
+	select {
+	case <-ctx.Done():
+		return
+	case <-hc.stopCh:
+		return
+	case <-time.After(jitter):
+	}
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Run initial health check immediately
+	// Run initial health check after jitter delay
 	hc.performHealthCheck(&ws)
 
 	for {
@@ -357,18 +379,8 @@ func (hc *HealthChecker) checkURL(url, method string, timeout time.Duration) err
 	req.Header.Set("User-Agent", "Grimnir-Radio/1.0")
 	req.Header.Set("Icy-MetaData", "1")
 
-	client := &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Allow up to 3 redirects
-			if len(via) >= 3 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
-	}
-
-	resp, err := client.Do(req)
+	hc.httpClient.Timeout = timeout
+	resp, err := hc.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
