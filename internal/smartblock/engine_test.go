@@ -777,6 +777,80 @@ func TestGenerate_BumpersRespectMaxPerGap(t *testing.T) {
 // search for shorter tracks rather than stopping prematurely (fixing the gap issue
 // where a 2-hour slot got only 1 hour of content because the first post-amtest pick
 // was a long track).
+// TestGenerate_LongTrackClampedWhenNothingFits verifies that when all remaining
+// tracks are longer than the residual slot time, the engine picks one anyway and
+// clamps its EndsAtMS to the slot boundary rather than leaving a silence gap.
+func TestGenerate_LongTrackClampedWhenNothingFits(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-clamp"
+	// Two long tracks — both longer than the 60-min slot. Engine must pick one
+	// and clamp its EndsAtMS to targetMS.
+	media := []models.MediaItem{
+		{ID: "long-a", StationID: stationID, Title: "Long A", Artist: "A", Duration: 90 * time.Minute, AnalysisState: models.AnalysisComplete},
+		{ID: "long-b", StationID: stationID, Title: "Long B", Artist: "B", Duration: 120 * time.Minute, AnalysisState: models.AnalysisComplete},
+	}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	pl := models.Playlist{ID: "pl-clamp", StationID: stationID, Name: "All Long"}
+	if err := db.Create(&pl).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	pli := []models.PlaylistItem{
+		{ID: "pli-la", PlaylistID: pl.ID, MediaID: "long-a", Position: 0},
+		{ID: "pli-lb", PlaylistID: pl.ID, MediaID: "long-b", Position: 1},
+	}
+	if err := db.Create(&pli).Error; err != nil {
+		t.Fatalf("create playlist items: %v", err)
+	}
+
+	sb := models.SmartBlock{
+		ID:        "sb-clamp",
+		StationID: stationID,
+		Name:      "Clamp Test",
+		Rules: map[string]any{
+			"sourcePlaylists": []string{pl.ID},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smart block: %v", err)
+	}
+
+	target := int64(60 * time.Minute / time.Millisecond)
+	eng := New(db, zerolog.Nop())
+	res, err := eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         42,
+		Duration:     target,
+		StationID:    stationID,
+		MountID:      "mount-clamp",
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if len(res.Items) == 0 {
+		t.Fatal("expected at least one item; got none (silence gap)")
+	}
+	last := res.Items[len(res.Items)-1]
+	if last.EndsAtMS > target {
+		t.Errorf("last track EndsAtMS %d exceeds slot target %d ms", last.EndsAtMS, target)
+	}
+	if last.EndsAtMS != target {
+		t.Errorf("expected last track clamped to %d ms; got %d ms", target, last.EndsAtMS)
+	}
+}
+
 func TestGenerate_ShorterTracksUsedWhenLongTrackWontFit(t *testing.T) {
 	t.Parallel()
 
@@ -840,18 +914,22 @@ func TestGenerate_ShorterTracksUsedWhenLongTrackWontFit(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	ids := make(map[string]bool)
+	itemMap := make(map[string]SequenceItem)
 	for _, item := range res.Items {
-		ids[item.MediaID] = true
+		itemMap[item.MediaID] = item
 	}
 
-	if !ids["medium-1"] {
+	if _, ok := itemMap["medium-1"]; !ok {
 		t.Errorf("expected medium-1 to be included")
 	}
-	if !ids["short-1"] {
+	if _, ok := itemMap["short-1"]; !ok {
 		t.Errorf("expected short-1 to be included when it fits the remaining time")
 	}
-	if ids["long-1"] {
-		t.Errorf("long-1 should not be placed because it exceeds remaining slot time")
+	// long-1 may be placed last and clamped to the slot boundary — that is
+	// correct behaviour. If it appears, verify it doesn't overflow.
+	if item, ok := itemMap["long-1"]; ok {
+		if item.EndsAtMS > target {
+			t.Errorf("long-1 EndsAtMS %d overflows slot target %d ms", item.EndsAtMS, target)
+		}
 	}
 }
