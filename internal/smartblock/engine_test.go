@@ -771,3 +771,87 @@ func TestGenerate_BumpersRespectMaxPerGap(t *testing.T) {
 		t.Fatalf("expected bumper_limit_reached warning, got %+v", res.Warnings)
 	}
 }
+
+// TestGenerate_ShorterTracksUsedWhenLongTrackWontFit verifies that when a randomly
+// selected track would overshoot the remaining slot time, the engine continues to
+// search for shorter tracks rather than stopping prematurely (fixing the gap issue
+// where a 2-hour slot got only 1 hour of content because the first post-amtest pick
+// was a long track).
+func TestGenerate_ShorterTracksUsedWhenLongTrackWontFit(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-fitpick"
+	// One medium track + one track too long for the remainder + one short track.
+	media := []models.MediaItem{
+		{ID: "medium-1", StationID: stationID, Title: "Medium", Artist: "A", Duration: 50 * time.Minute, AnalysisState: models.AnalysisComplete},
+		{ID: "long-1", StationID: stationID, Title: "Long", Artist: "B", Duration: 80 * time.Minute, AnalysisState: models.AnalysisComplete},
+		{ID: "short-1", StationID: stationID, Title: "Short", Artist: "C", Duration: 5 * time.Minute, AnalysisState: models.AnalysisComplete},
+	}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	pl := models.Playlist{ID: "pl-fitpick", StationID: stationID, Name: "Mix"}
+	if err := db.Create(&pl).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	pli := []models.PlaylistItem{
+		{ID: "pli-m1", PlaylistID: pl.ID, MediaID: "medium-1", Position: 0},
+		{ID: "pli-l1", PlaylistID: pl.ID, MediaID: "long-1", Position: 1},
+		{ID: "pli-s1", PlaylistID: pl.ID, MediaID: "short-1", Position: 2},
+	}
+	if err := db.Create(&pli).Error; err != nil {
+		t.Fatalf("create playlist items: %v", err)
+	}
+
+	sb := models.SmartBlock{
+		ID:        "sb-fitpick",
+		StationID: stationID,
+		Name:      "Fit Pick Test",
+		Rules: map[string]any{
+			"sourcePlaylists": []string{pl.ID},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smart block: %v", err)
+	}
+
+	// Target: 60 minutes. After placing medium-1 (50 min), 10 min remain.
+	// long-1 (80 min) does not fit. short-1 (5 min) does fit.
+	// With the fix, short-1 must be placed; without it the sequence would stop at 50 min.
+	target := int64(60 * time.Minute / time.Millisecond)
+	eng := New(db, zerolog.Nop())
+	res, err := eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         42,
+		Duration:     target,
+		StationID:    stationID,
+		MountID:      "mount-fitpick",
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	ids := make(map[string]bool)
+	for _, item := range res.Items {
+		ids[item.MediaID] = true
+	}
+
+	if !ids["medium-1"] {
+		t.Errorf("expected medium-1 to be included")
+	}
+	if !ids["short-1"] {
+		t.Errorf("expected short-1 to be included when it fits the remaining time")
+	}
+	if ids["long-1"] {
+		t.Errorf("long-1 should not be placed because it exceeds remaining slot time")
+	}
+}

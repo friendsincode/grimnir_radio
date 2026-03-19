@@ -780,24 +780,41 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 			targetEnergy = curve[idx%len(curve)]
 		}
 
-		selectedIdx := selectCandidate(rng, remaining, quotaState, targetEnergy)
+		// When partially filling a slot (cursor > 0), only pick from tracks
+		// that fit the remaining time window. This prevents a single "bad pick"
+		// of a too-long track from stopping the sequence when shorter tracks are
+		// still available in the pool.
+		pickFrom := remaining
+		if cursor > 0 {
+			maxDurMS := targetMS + tolerance - cursor
+			var fitting []candidate
+			for _, c := range remaining {
+				d := c.Item.Duration
+				if d <= 0 {
+					d = 3 * time.Minute
+				}
+				if d.Milliseconds() <= maxDurMS {
+					fitting = append(fitting, c)
+				}
+			}
+			if len(fitting) == 0 {
+				break // No tracks fit the remaining time window.
+			}
+			pickFrom = fitting
+		}
+
+		selectedIdx := selectCandidate(rng, pickFrom, quotaState, targetEnergy)
 		if selectedIdx == -1 {
 			break
 		}
 
-		sel := remaining[selectedIdx]
+		sel := pickFrom[selectedIdx]
 		dur := sel.Item.Duration
 		if dur <= 0 {
 			dur = 3 * time.Minute
 		}
 
 		durMS := dur.Milliseconds()
-
-		// If adding this track would overshoot the target beyond tolerance,
-		// stop here — the current fill is close enough.
-		if cursor+durMS > targetMS+tolerance && cursor > 0 {
-			break
-		}
 
 		item := SequenceItem{
 			MediaID:    sel.Item.ID,
@@ -812,7 +829,13 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 		cursor += durMS
 		quotaState.observe(sel.Item, sel.Tags)
 
-		remaining = append(remaining[:selectedIdx], remaining[selectedIdx+1:]...)
+		// Remove selected track from remaining (pickFrom may be a filtered subset).
+		for i, c := range remaining {
+			if c.Item.ID == sel.Item.ID {
+				remaining = append(remaining[:i], remaining[i+1:]...)
+				break
+			}
+		}
 	}
 
 	result.TotalMS = cursor
