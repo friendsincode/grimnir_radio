@@ -780,10 +780,10 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 			targetEnergy = curve[idx%len(curve)]
 		}
 
-		// When partially filling a slot (cursor > 0), only pick from tracks
-		// that fit the remaining time window. This prevents a single "bad pick"
-		// of a too-long track from stopping the sequence when shorter tracks are
-		// still available in the pool.
+		// Prefer tracks that fit the remaining time window. If none fit, fall
+		// back to the full pool — the selected track will be clamped to the slot
+		// boundary and the executor will hard-cut it. This eliminates silence
+		// gaps caused by all remaining tracks being longer than the residual time.
 		pickFrom := remaining
 		if cursor > 0 {
 			maxDurMS := targetMS + tolerance - cursor
@@ -797,10 +797,11 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 					fitting = append(fitting, c)
 				}
 			}
-			if len(fitting) == 0 {
-				break // No tracks fit the remaining time window.
+			if len(fitting) > 0 {
+				pickFrom = fitting
 			}
-			pickFrom = fitting
+			// If no fitting tracks, pickFrom stays as remaining and the
+			// selected track's EndsAtMS will be clamped to targetMS below.
 		}
 
 		selectedIdx := selectCandidate(rng, pickFrom, quotaState, targetEnergy)
@@ -815,18 +816,22 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 		}
 
 		durMS := dur.Milliseconds()
+		endsAtMS := cursor + durMS
+		if endsAtMS > targetMS {
+			endsAtMS = targetMS // clamp to slot boundary; executor hard-cuts
+		}
 
 		item := SequenceItem{
 			MediaID:    sel.Item.ID,
 			StartsAtMS: cursor,
-			EndsAtMS:   cursor + durMS,
+			EndsAtMS:   endsAtMS,
 			IntroEnd:   sel.Item.CuePoints.IntroEnd,
 			OutroIn:    sel.Item.CuePoints.OutroIn,
 			Energy:     sel.Energy,
 		}
 
 		result.Items = append(result.Items, item)
-		cursor += durMS
+		cursor = endsAtMS
 		quotaState.observe(sel.Item, sel.Tags)
 
 		// Remove selected track from remaining (pickFrom may be a filtered subset).
