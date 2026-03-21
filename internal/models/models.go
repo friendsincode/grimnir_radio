@@ -522,7 +522,7 @@ type MediaItem struct {
 }
 
 // Format returns the audio format derived from the file path extension (e.g. "mp3", "flac").
-func (m *MediaItem) Format() string {
+func (m MediaItem) Format() string {
 	p := m.StorageKey
 	if p == "" {
 		p = m.Path

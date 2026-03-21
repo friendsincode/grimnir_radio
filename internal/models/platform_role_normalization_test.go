@@ -28,3 +28,39 @@ func TestUserIsPlatformAdminLegacyRole(t *testing.T) {
 		t.Fatalf("expected legacy admin role to be treated as platform admin")
 	}
 }
+
+func TestMediaItem_Format_ValueReceiver(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    MediaItem
+		expected string
+	}{
+		{
+			name:     "format from StorageKey",
+			input:    MediaItem{StorageKey: "station/ab/cd/file.mp3"},
+			expected: "MP3",
+		},
+		{
+			name:     "format from Path when StorageKey is empty",
+			input:    MediaItem{Path: "/path/to/song.flac"},
+			expected: "FLAC",
+		},
+		{
+			name:     "no extension",
+			input:    MediaItem{StorageKey: "station/ab/cd/noextension"},
+			expected: "",
+		},
+		{
+			name:     "both empty",
+			input:    MediaItem{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		got := tt.input.Format()
+		if got != tt.expected {
+			t.Errorf("%s: Format() = %q, want %q", tt.name, got, tt.expected)
+		}
+	}
+}
