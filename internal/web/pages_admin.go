@@ -563,8 +563,22 @@ func (h *Handler) AdminStationsBulk(w http.ResponseWriter, r *http.Request) {
 		result := h.db.Model(&models.Station{}).Where("id IN ?", req.IDs).Update("approved", false)
 		affected, err = result.RowsAffected, result.Error
 	case "delete":
-		result := h.db.Where("id IN ?", req.IDs).Delete(&models.Station{})
-		affected, err = result.RowsAffected, result.Error
+		var deleteErr error
+		var totalAffected int64
+		for _, id := range req.IDs {
+			var station models.Station
+			if err := h.db.First(&station, "id = ?", id).Error; err != nil {
+				continue // station not found — skip
+			}
+			if err := h.db.Transaction(func(tx *gorm.DB) error {
+				return cascadeDeleteStation(tx, id, &station)
+			}); err != nil {
+				deleteErr = err
+				break
+			}
+			totalAffected++
+		}
+		affected, err = totalAffected, deleteErr
 	default:
 		http.Error(w, "Unknown action", http.StatusBadRequest)
 		return

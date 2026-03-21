@@ -537,7 +537,7 @@ func TestAdminStationsBulk_Admin_UnknownAction_Returns400(t *testing.T) {
 }
 
 func TestAdminStationsBulk_Admin_DeleteStations(t *testing.T) {
-	db := newAdminTestDB(t)
+	db := newCascadeTestDB(t)
 	h := newAdminTestHandler(t, db)
 	admin := seedAdminUser(t, db)
 	seedStation(t, db, "sb3", "To Delete")
@@ -663,5 +663,127 @@ func TestGetDiskUsage_ValidPath_ReturnsInfo(t *testing.T) {
 	}
 	if info.Total == "" {
 		t.Fatalf("expected non-empty Total")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Cascade delete test
+// ---------------------------------------------------------------------------
+
+// newCascadeTestDB creates an in-memory SQLite DB with all models needed by
+// cascadeDeleteStation auto-migrated.
+func newCascadeTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Station{},
+		&models.StationUser{},
+		&models.Mount{},
+		&models.MediaItem{},
+		&models.Playlist{},
+		&models.PlaylistItem{},
+		&models.PlayHistory{},
+		&models.LandingPage{},
+		&models.LandingPageAsset{},
+		&models.LandingPageVersion{},
+		&models.ScheduleEntry{},
+		&models.ScheduleRule{},
+		&models.ScheduleTemplate{},
+		&models.ScheduleVersion{},
+		&models.Show{},
+		&models.ShowInstance{},
+		&models.ScheduleRequest{},
+		&models.DJAvailability{},
+		&models.ScheduleLock{},
+		&models.WebhookTarget{},
+		&models.WebhookLog{},
+		&models.ListenerSample{},
+		&models.ScheduleAnalytics{},
+		&models.ScheduleAnalyticsDaily{},
+		&models.NetworkSubscription{},
+		&models.UnderwritingObligation{},
+		&models.UnderwritingSpot{},
+		&models.Recording{},
+		&models.RecordingChapter{},
+		&models.ClockHour{},
+		&models.ClockSlot{},
+		&models.Clock{},
+		&models.SmartBlock{},
+		&models.PlayoutQueueItem{},
+		&models.MountPlayoutState{},
+		&models.AnalysisJob{},
+		&models.PrioritySource{},
+		&models.ExecutorState{},
+		&models.LiveSession{},
+		&models.WebDJSession{},
+		&models.Webstream{},
+		&models.StationGroup{},
+		&models.StationGroupMember{},
+		&models.Sponsor{},
+		&migration.Job{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return db
+}
+
+// TestAdminStationsBulk_Delete_CascadesChildData verifies that the bulk
+// "delete" action removes the station AND all child records (no orphans).
+func TestAdminStationsBulk_Delete_CascadesChildData(t *testing.T) {
+	db := newCascadeTestDB(t)
+	h := newAdminTestHandler(t, db)
+	admin := seedAdminUser(t, db)
+	station := seedStation(t, db, "sc1", "Cascade Station")
+
+	// Seed a child MediaItem belonging to the station.
+	item := models.MediaItem{
+		ID:            "mi1",
+		StationID:     station.ID,
+		Title:         "Test Track",
+		Path:          "sc1/ab/cd/test.mp3",
+		AnalysisState: "complete",
+	}
+	if err := db.Create(&item).Error; err != nil {
+		t.Fatalf("seed media item: %v", err)
+	}
+
+	// Confirm station and child both exist before the action.
+	var preStation models.Station
+	if err := db.First(&preStation, "id = ?", "sc1").Error; err != nil {
+		t.Fatalf("station should exist before delete: %v", err)
+	}
+	var preItem models.MediaItem
+	if err := db.First(&preItem, "id = ?", "mi1").Error; err != nil {
+		t.Fatalf("media item should exist before delete: %v", err)
+	}
+
+	// Send the bulk delete request.
+	body, _ := json.Marshal(BulkRequest{IDs: []string{"sc1"}, Action: "delete"})
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser, &admin))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	h.AdminStationsBulk(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Assert: station row is gone.
+	var postStation models.Station
+	err := db.Unscoped().First(&postStation, "id = ?", "sc1").Error
+	if err == nil {
+		t.Fatal("station row still exists after bulk delete — expected it to be gone")
+	}
+
+	// Assert: child MediaItem is gone (no orphan).
+	var postItem models.MediaItem
+	err = db.Unscoped().First(&postItem, "id = ?", "mi1").Error
+	if err == nil {
+		t.Fatal("media item still exists after bulk delete — orphaned child data not cleaned up")
 	}
 }
