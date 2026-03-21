@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
@@ -691,6 +692,7 @@ func newCascadeTestDB(t *testing.T) *gorm.DB {
 		&models.LandingPageAsset{},
 		&models.LandingPageVersion{},
 		&models.ScheduleEntry{},
+		&models.ScheduleSuppression{},
 		&models.ScheduleRule{},
 		&models.ScheduleTemplate{},
 		&models.ScheduleVersion{},
@@ -785,5 +787,46 @@ func TestAdminStationsBulk_Delete_CascadesChildData(t *testing.T) {
 	err = db.Unscoped().First(&postItem, "id = ?", "mi1").Error
 	if err == nil {
 		t.Fatal("media item still exists after bulk delete — orphaned child data not cleaned up")
+	}
+}
+
+// TestCascadeDeleteStation_CleansScheduleSuppressions verifies that
+// cascadeDeleteStation removes all schedule_suppressions records for the deleted station.
+func TestCascadeDeleteStation_CleansScheduleSuppressions(t *testing.T) {
+	db := newCascadeTestDB(t)
+	station := seedStation(t, db, "ss1", "Suppression Test Station")
+
+	// Seed a ScheduleSuppression record.
+	suppression := models.ScheduleSuppression{
+		ID:        "supp1",
+		StationID: station.ID,
+		SlotID:    "slot1",
+		SlotType:  "smart_block",
+		StartsAt:  time.Now(),
+		Reason:    "overlapping program",
+	}
+	if err := db.Create(&suppression).Error; err != nil {
+		t.Fatalf("seed schedule suppression: %v", err)
+	}
+
+	// Confirm suppression exists before delete.
+	var preSupp models.ScheduleSuppression
+	if err := db.First(&preSupp, "id = ?", "supp1").Error; err != nil {
+		t.Fatalf("schedule suppression should exist before delete: %v", err)
+	}
+
+	// Delete the station via cascadeDeleteStation.
+	err := db.Transaction(func(tx *gorm.DB) error {
+		return cascadeDeleteStation(tx, station.ID, &station)
+	})
+	if err != nil {
+		t.Fatalf("cascadeDeleteStation failed: %v", err)
+	}
+
+	// Assert: suppression row is gone.
+	var postSupp models.ScheduleSuppression
+	err = db.Unscoped().First(&postSupp, "id = ?", "supp1").Error
+	if err == nil {
+		t.Fatal("schedule suppression still exists after cascadeDeleteStation — expected it to be deleted")
 	}
 }
