@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -568,7 +569,11 @@ func (h *Handler) AdminStationsBulk(w http.ResponseWriter, r *http.Request) {
 		for _, id := range req.IDs {
 			var station models.Station
 			if err := h.db.First(&station, "id = ?", id).Error; err != nil {
-				continue // station not found — skip
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					continue
+				}
+				deleteErr = err
+				break
 			}
 			if err := h.db.Transaction(func(tx *gorm.DB) error {
 				return cascadeDeleteStation(tx, id, &station)
@@ -576,6 +581,7 @@ func (h *Handler) AdminStationsBulk(w http.ResponseWriter, r *http.Request) {
 				deleteErr = err
 				break
 			}
+			h.publishCacheEvent(events.EventStationDeleted, id)
 			totalAffected++
 		}
 		affected, err = totalAffected, deleteErr
