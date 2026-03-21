@@ -138,9 +138,9 @@ func (s *Service) maybeCleanupOldEntries(ctx context.Context) {
 		{"media_sb_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND metadata->>'smart_block_id' IS NOT NULL AND metadata->>'smart_block_id' NOT IN (SELECT id::text FROM smart_blocks)`},
 		// media_item_orphan: any future media entry (hard_item or direct) whose actual media
 		// item no longer exists — safety net for any deletion path that may have missed the cascade.
-		{"media_item_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND source_id IS NOT NULL AND source_id != '' AND source_id NOT IN (SELECT id FROM media_items)`},
+		{"media_item_orphan", `DELETE FROM schedule_entries WHERE source_type = 'media' AND starts_at > NOW() AND source_id IS NOT NULL AND source_id NOT IN (SELECT id FROM media_items)`},
 		// mount_orphan: future entries targeting a mount that was deleted.
-		{"mount_orphan", `DELETE FROM schedule_entries WHERE starts_at > NOW() AND mount_id IS NOT NULL AND mount_id != '' AND mount_id NOT IN (SELECT id FROM mounts)`},
+		{"mount_orphan", `DELETE FROM schedule_entries WHERE starts_at > NOW() AND mount_id IS NOT NULL AND mount_id NOT IN (SELECT id FROM mounts)`},
 	}
 	for _, q := range queries {
 		res := s.db.WithContext(ctx).Exec(q.sql)
