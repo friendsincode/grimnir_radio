@@ -293,6 +293,10 @@ func cascadeDeleteStation(tx *gorm.DB, id string, station *models.Station) error
 	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleEntry{}).Error; err != nil {
 		return err
 	}
+	// Schedule suppressions
+	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleSuppression{}).Error; err != nil {
+		return err
+	}
 	// Schedule rules, templates, versions
 	if err := tx.Where("station_id = ?", id).Delete(&models.ScheduleRule{}).Error; err != nil {
 		return err
