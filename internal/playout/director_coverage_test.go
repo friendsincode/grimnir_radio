@@ -572,6 +572,32 @@ func TestRecordPlayHistory_NoRowWhenTitleEmpty(t *testing.T) {
 	}
 }
 
+func TestRecordPlayHistory_EmptyMountID_NoError(t *testing.T) {
+	// When MountID is empty, recordPlayHistory must return without attempting a DB
+	// write — inserting an empty string into the UUID-typed mount_id column in
+	// PostgreSQL causes SQLSTATE 22P02.  We use SQLite here so the type
+	// enforcement is looser, but we can verify no row is written by checking the
+	// count remains zero after the call.
+	d := newCoverageDirector(t)
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  uuid.NewString(),
+		MountID:    "", // deliberately empty — the problematic case
+		SourceType: "live",
+		StartsAt:   time.Now().UTC(),
+		EndsAt:     time.Now().UTC().Add(time.Hour),
+	}
+	// "live" with no explicit title sets title = "Live DJ", so without the
+	// MountID guard the function would proceed to the DB insert.
+	d.recordPlayHistory(entry, map[string]any{})
+
+	var count int64
+	d.db.Model(&models.PlayHistory{}).Count(&count)
+	if count != 0 {
+		t.Fatalf("expected no history row when MountID is empty, got %d rows", count)
+	}
+}
+
 func TestRecordPlayHistory_WebstreamUsesWebstreamName(t *testing.T) {
 	d := newCoverageDirector(t)
 	entry := models.ScheduleEntry{

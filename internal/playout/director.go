@@ -3213,6 +3213,11 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 		return
 	}
 
+	// Don't record play history if MountID is empty — would fail uuid column constraint.
+	if entry.MountID == "" {
+		return
+	}
+
 	// Use actual current time for started_at, not schedule entry time
 	now := time.Now().UTC()
 	startedAt := now
