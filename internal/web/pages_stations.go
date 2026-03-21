@@ -425,7 +425,14 @@ func cascadeDeleteStation(tx *gorm.DB, id string, station *models.Station) error
 		return err
 	}
 
-	// Media items
+	// Media items — collect IDs first so we can clean up analysis jobs
+	var mediaIDs []string
+	tx.Model(&models.MediaItem{}).Where("station_id = ?", id).Pluck("id", &mediaIDs)
+	if len(mediaIDs) > 0 {
+		if err := tx.Where("media_id IN ?", mediaIDs).Delete(&models.AnalysisJob{}).Error; err != nil {
+			return err
+		}
+	}
 	if err := tx.Where("station_id = ?", id).Delete(&models.MediaItem{}).Error; err != nil {
 		return err
 	}
@@ -435,9 +442,6 @@ func cascadeDeleteStation(tx *gorm.DB, id string, station *models.Station) error
 		return err
 	}
 	if err := tx.Where("station_id = ?", id).Delete(&models.MountPlayoutState{}).Error; err != nil {
-		return err
-	}
-	if err := tx.Where("station_id = ?", id).Delete(&models.AnalysisJob{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Where("station_id = ?", id).Delete(&models.PrioritySource{}).Error; err != nil {
