@@ -227,7 +227,8 @@ func (p *Pipeline) StartWithDualOutputAndInput(ctx context.Context, launch strin
 
 // StartWithDualOutput launches a pipeline that outputs to two streams (HQ and LQ).
 // Uses extra file descriptors (fd=3 for HQ, fd=4 for LQ) to capture both outputs.
-func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, hqHandler, lqHandler func(io.Reader)) error {
+// If seekFile is non-nil it is passed as fd=5 so the pipeline can read from a pre-seeked position.
+func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, seekFile *os.File, hqHandler, lqHandler func(io.Reader)) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -260,20 +261,30 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, hqHan
 	cmd.Stderr = &stderrBuf
 	cmd.Stdout = nil
 
-	// Pass extra file descriptors: fd=3 for HQ, fd=4 for LQ
+	// Pass extra file descriptors: fd=3 for HQ, fd=4 for LQ.
+	// If a seek file is provided it becomes fd=5 so the pipeline can use fdsrc fd=5.
 	cmd.ExtraFiles = []*os.File{hqWriter, lqWriter}
+	if seekFile != nil {
+		cmd.ExtraFiles = append(cmd.ExtraFiles, seekFile)
+	}
 
 	if err := cmd.Start(); err != nil {
 		hqReader.Close()
 		hqWriter.Close()
 		lqReader.Close()
 		lqWriter.Close()
+		if seekFile != nil {
+			seekFile.Close()
+		}
 		return fmt.Errorf("start pipeline: %w", err)
 	}
 
-	// Close write ends in parent process (GStreamer has them now)
+	// Close write ends in parent process (child has inherited them).
 	hqWriter.Close()
 	lqWriter.Close()
+	if seekFile != nil {
+		seekFile.Close() // child inherited fd=5; parent no longer needs its copy
+	}
 
 	p.cmd = cmd
 	p.done = make(chan struct{})
