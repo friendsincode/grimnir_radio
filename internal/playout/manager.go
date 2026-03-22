@@ -9,6 +9,7 @@ package playout
 import (
 	"context"
 	"io"
+	"os"
 	"sync"
 
 	"github.com/friendsincode/grimnir_radio/internal/config"
@@ -49,7 +50,8 @@ func (m *Manager) EnsurePipelineWithOutput(ctx context.Context, mountID string, 
 
 // EnsurePipelineWithDualOutput starts a pipeline with HQ and LQ output streams.
 // The pipeline should use fd=3 for HQ output and fd=4 for LQ output.
-func (m *Manager) EnsurePipelineWithDualOutput(ctx context.Context, mountID string, launch string, hqHandler, lqHandler func(io.Reader)) error {
+// If seekFile is non-nil it is passed as fd=5 for fdsrc-based positional seek.
+func (m *Manager) EnsurePipelineWithDualOutput(ctx context.Context, mountID string, launch string, seekFile *os.File, hqHandler, lqHandler func(io.Reader)) error {
 	m.mu.Lock()
 	pipeline, ok := m.pipelines[mountID]
 	if !ok {
@@ -58,7 +60,7 @@ func (m *Manager) EnsurePipelineWithDualOutput(ctx context.Context, mountID stri
 	}
 	m.mu.Unlock()
 
-	return pipeline.StartWithDualOutput(ctx, launch, hqHandler, lqHandler)
+	return pipeline.StartWithDualOutput(ctx, launch, seekFile, hqHandler, lqHandler)
 }
 
 // EnsurePipelineWithDualOutputAndInput starts a pipeline that consumes stdin (fd=0) and emits HQ/LQ outputs.

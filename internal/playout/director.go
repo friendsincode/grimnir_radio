@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -990,7 +991,7 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		return fmt.Errorf("build webstream pipeline: %w", err)
 	}
 
-	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipeline, hqHandler, lqHandler); err != nil {
+	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipeline, nil, hqHandler, lqHandler); err != nil {
 		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start webstream pipeline")
 		return err
 	}
@@ -1182,7 +1183,7 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				}
 			}
 
-			if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipelineStr, hqHandler, lqHandler); err != nil {
+			if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipelineStr, nil, hqHandler, lqHandler); err != nil {
 				d.logger.Warn().Err(err).Int("attempt", attempt).Msg("reconnect attempt failed")
 				delay *= 2
 				continue
@@ -2041,7 +2042,7 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 	} else {
 		// Build single GStreamer pipeline for both HQ and LQ (using tee for perfect sync)
 		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort, resumeOffsetMS)
+		seekFile, launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort, resumeOffsetMS, media.Duration.Milliseconds())
 		if err != nil {
 			return fmt.Errorf("build pipeline: %w", err)
 		}
@@ -2053,7 +2054,7 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 			}
 			d.handleTrackEnded(entry, mount.Name)
 		}
-		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandlerWithEnd, lqHandler); err != nil {
+		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
 		}
 	}
@@ -2267,7 +2268,7 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 		}
 	} else {
 		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort, resumeOffsetMS)
+		seekFile, launch, err := d.buildDualBroadcastPipeline(fullPath, mount, mountBitrate, lqBitrate, webrtcPort, resumeOffsetMS, media.Duration.Milliseconds())
 		if err != nil {
 			return fmt.Errorf("build pipeline: %w", err)
 		}
@@ -2277,7 +2278,7 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 			}
 			d.handleTrackEnded(entry, mount.Name)
 		}
-		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandlerWithEnd, lqHandler); err != nil {
+		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
 		}
 	}
@@ -2385,8 +2386,14 @@ func (d *Director) buildBroadcastPipeline(filePath string, mount models.Mount) (
 // Uses tee to split decoded audio, encodes to HQ (fd=3) and LQ (fd=4) simultaneously.
 // If WebRTC is enabled, also outputs RTP/Opus to UDP for low-latency streaming.
 // This ensures all streams are perfectly synchronized from the same decode.
-// / seekOffsetMS: if > 0, seek to this position in the file before playback (for cut-position resume).
-func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Mount, hqBitrate, lqBitrate int, webrtcRTPPort int, seekOffsetMS int64) (string, error) {
+//
+// seekOffsetMS: position (ms) to resume from; fileDurationMS: total track duration (ms).
+// When seekOffsetMS > 0 the pipeline uses fdsrc fd=5: Go opens the file and seeks to the
+// proportional byte offset before handing the fd to the subprocess, avoiding the invalid
+// GStreamer "identity start-time" property that previously caused pipeline crashes.
+// Returns the seek file (caller must NOT close it — StartWithDualOutput owns the lifecycle),
+// the pipeline string, and any error.
+func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Mount, hqBitrate, lqBitrate int, webrtcRTPPort int, seekOffsetMS int64, fileDurationMS int64) (*os.File, string, error) {
 	// Determine format
 	format := mount.Format
 	if format == "" {
@@ -2424,7 +2431,7 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 	}
 
 	// Build pipeline with tee:
-	// filesrc -> decodebin -> audioconvert -> audioresample -> tee
+	// source -> decodebin -> audioconvert -> audioresample -> tee
 	//   tee.src_0 -> queue -> HQ encoder -> identity sync=true -> fdsink fd=3
 	//   tee.src_1 -> queue -> LQ encoder -> identity sync=true -> fdsink fd=4
 	//   tee.src_2 -> queue -> Opus encoder -> rtpopuspay -> udpsink (WebRTC)
@@ -2442,18 +2449,40 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 		)
 	}
 
-	// Build seek element if resuming from a cut position.
-	seekElem := ""
-	if seekOffsetMS > 0 {
-		seekNS := seekOffsetMS * 1_000_000 // ms → ns
-		seekElem = fmt.Sprintf(" ! identity start-time=%d", seekNS)
+	// Determine source element. When a resume position is requested, open the file in Go,
+	// seek to the proportional byte offset, and hand the pre-positioned fd to GStreamer as
+	// fd=5 via fdsrc. This replaces the invalid "identity start-time=N" GStreamer property
+	// that caused exit status 1 crashes on any track with cue points or resume offsets.
+	var source string
+	var seekFile *os.File
+	if seekOffsetMS > 0 && fileDurationMS > 0 {
+		info, statErr := os.Stat(filePath)
+		if statErr == nil && info.Size() > 0 {
+			byteOffset := int64(float64(seekOffsetMS) / float64(fileDurationMS) * float64(info.Size()))
+			f, openErr := os.Open(filePath)
+			if openErr == nil {
+				if _, seekErr := f.Seek(byteOffset, io.SeekStart); seekErr == nil {
+					seekFile = f
+				} else {
+					f.Close()
+					d.logger.Warn().Err(seekErr).Str("file", filePath).Msg("seek failed, playing from start")
+				}
+			} else {
+				d.logger.Warn().Err(openErr).Str("file", filePath).Msg("open for seek failed, playing from start")
+			}
+		}
+	}
+	if seekFile != nil {
+		source = "fdsrc fd=5"
+	} else {
+		source = fmt.Sprintf("filesrc location=%q", filePath)
 	}
 
 	pipeline := fmt.Sprintf(
-		`filesrc location=%q ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d%s ! tee name=t `+
+		`%s ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! tee name=t `+
 			`t. ! queue ! %s ! identity sync=true ! fdsink fd=3 `+
 			`t. ! queue ! %s ! identity sync=true ! fdsink fd=4%s`,
-		filePath, sampleRate, channels, seekElem, hqEncoder, lqEncoder, webrtcBranch,
+		source, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
 	)
 
 	d.logger.Debug().
@@ -2463,9 +2492,11 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 		Int("lq_bitrate", lqBitrate).
 		Bool("webrtc", d.webrtcEnabled && webrtcRTPPort > 0).
 		Int("webrtc_rtp_port", webrtcRTPPort).
+		Bool("seek", seekFile != nil).
+		Int64("seek_offset_ms", seekOffsetMS).
 		Msg("built dual broadcast pipeline")
 
-	return pipeline, nil
+	return seekFile, pipeline, nil
 }
 
 func (d *Director) buildPCMEncoderPipeline(mount models.Mount, hqBitrate, lqBitrate int, webrtcRTPPort int) (string, error) {
@@ -2844,7 +2875,7 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 		}
 	} else {
 		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0)
+		seekFile, launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0, 0)
 		if err != nil {
 			d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
 			return
@@ -2855,7 +2886,7 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 			}
 			d.handleTrackEnded(entry, mount.Name)
 		}
-		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandlerWithEnd, lqHandler); err != nil {
+		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track pipeline")
 		}
 	}
@@ -2980,12 +3011,12 @@ func (d *Director) playQueuedTrack(entry models.ScheduleEntry, state playoutStat
 		}
 	} else {
 		webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
-		launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0)
+		seekFile, launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0, 0)
 		if err != nil {
 			d.logger.Warn().Err(err).Msg("failed to build pipeline for queued track")
 			return
 		}
-		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
+		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandler, lqHandler); err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start queued track pipeline")
 		}
 	}
@@ -3031,7 +3062,7 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 		fullPath = filepath.Join(d.mediaRoot, media.Path)
 	}
 	webrtcPort := d.getWebRTCRTPPortForStation(context.Background(), entry.StationID)
-	launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0)
+	seekFile, launch, err := d.buildDualBroadcastPipeline(fullPath, mount, hqBitrate, lqBitrate, webrtcPort, 0, 0)
 	if err != nil {
 		d.logger.Warn().Err(err).Msg("failed to build pipeline for next track")
 		return
@@ -3087,7 +3118,7 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 		}
 	}
 
-	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, hqHandler, lqHandler); err != nil {
+	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandler, lqHandler); err != nil {
 		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track dual pipeline")
 	}
 
