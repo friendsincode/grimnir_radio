@@ -3386,15 +3386,27 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function deleteEvent(event) {
-        if (!confirm('Delete this schedule entry?')) return;
+        const isRecurring = event.extendedProps && event.extendedProps.recurrence;
+        let msg;
+        if (isRecurring) {
+            const dateStr = event.start ? event.start.toLocaleDateString(undefined, {month:'short',day:'numeric',year:'numeric'}) : 'this date';
+            msg = `This will end the recurring schedule for "${event.title}" starting ${dateStr}. All future occurrences will be removed. Past occurrences are not affected.\n\nContinue?`;
+        } else {
+            msg = 'Delete this schedule entry?';
+        }
+        if (!confirm(msg)) return;
 
         fetch(`/dashboard/schedule/entries/${event.id}`, {
             method: 'DELETE'
         }).then(response => {
             if (response.ok) {
-                event.remove();
+                if (isRecurring) {
+                    calendar.refetchEvents();
+                } else {
+                    event.remove();
+                }
                 eventModal.hide();
-                grimnirUtils.showToast('Entry deleted', 'success');
+                grimnirUtils.showToast(isRecurring ? 'Recurring schedule ended' : 'Entry deleted', 'success');
             }
         });
     }

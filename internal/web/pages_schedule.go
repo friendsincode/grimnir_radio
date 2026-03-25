@@ -1293,11 +1293,42 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		dayEnd := dayStart.Add(24 * time.Hour)
-		if err := h.db.Where("station_id = ? AND recurrence_parent_id = ? AND starts_at >= ? AND starts_at < ?",
+		overrideErr := h.db.Where("station_id = ? AND recurrence_parent_id = ? AND starts_at >= ? AND starts_at < ?",
 			station.ID, parentID, dayStart, dayEnd).
 			Order("starts_at ASC").
-			First(&entry).Error; err != nil {
-			http.NotFound(w, r)
+			First(&entry).Error
+		if overrideErr != nil && !errors.Is(overrideErr, gorm.ErrRecordNotFound) {
+			http.Error(w, "Failed to load entry", http.StatusInternalServerError)
+			return
+		}
+		if errors.Is(overrideErr, gorm.ErrRecordNotFound) {
+			// No concrete override for this virtual instance — end the recurrence series
+			// at the day before this occurrence so the scheduler stops generating it.
+			var parent models.ScheduleEntry
+			if err := h.db.First(&parent, "id = ? AND station_id = ?", parentID, station.ID).Error; err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			endDate := dayStart.AddDate(0, 0, -1)
+			parent.RecurrenceEndDate = &endDate
+			if err := h.db.Save(&parent).Error; err != nil {
+				http.Error(w, "Failed to update recurring entry", http.StatusInternalServerError)
+				return
+			}
+			if h.eventBus != nil {
+				h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+					"entry_id":    parent.ID,
+					"station_id":  station.ID,
+					"mount_id":    parent.MountID,
+					"starts_at":   parent.StartsAt,
+					"ends_at":     parent.EndsAt,
+					"source_type": parent.SourceType,
+					"source_id":   parent.SourceID,
+					"metadata":    parent.Metadata,
+					"event":       "end_recurrence",
+				})
+			}
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		targetID = entry.ID
