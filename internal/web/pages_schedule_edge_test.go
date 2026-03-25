@@ -269,6 +269,51 @@ func TestScheduleDeleteEntryVirtualInstanceNotFound(t *testing.T) {
 	}
 }
 
+func TestScheduleDeleteEntryVirtualInstanceEndsRecurrence(t *testing.T) {
+	db, station := newScheduleEdgeTestDB(t)
+	h := &Handler{db: db, logger: zerolog.Nop()}
+
+	occurrenceDate := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+	parent := models.ScheduleEntry{
+		ID:             "parent-end-recur",
+		StationID:      station.ID,
+		MountID:        "m1",
+		StartsAt:       time.Date(2026, 3, 9, 10, 0, 0, 0, time.UTC),
+		EndsAt:         time.Date(2026, 3, 9, 11, 0, 0, 0, time.UTC),
+		SourceType:     "smart_block",
+		SourceID:       "block-1",
+		RecurrenceType: models.RecurrenceWeekly,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	// Delete a virtual recurring instance with no concrete override — should end recurrence.
+	virtualID := recurrenceInstanceKey(parent.ID, occurrenceDate)
+	req := httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/"+virtualID, nil)
+	req = withScheduleRouteID(req, virtualID)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+	rr := httptest.NewRecorder()
+
+	h.ScheduleDeleteEntry(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Parent should now have RecurrenceEndDate set to the day before the occurrence.
+	var updated models.ScheduleEntry
+	if err := db.First(&updated, "id = ?", parent.ID).Error; err != nil {
+		t.Fatalf("reload parent: %v", err)
+	}
+	if updated.RecurrenceEndDate == nil {
+		t.Fatal("expected RecurrenceEndDate to be set, got nil")
+	}
+	wantEnd := time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
+	if !updated.RecurrenceEndDate.Equal(wantEnd) {
+		t.Fatalf("RecurrenceEndDate = %v, want %v", updated.RecurrenceEndDate, wantEnd)
+	}
+}
+
 func TestParseRecurringInstanceID(t *testing.T) {
 	parentID, day, ok := parseRecurringInstanceID("parent_20260320")
 	if !ok {
