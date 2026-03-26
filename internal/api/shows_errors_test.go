@@ -43,6 +43,34 @@ func TestShowsDelete_NotFound(t *testing.T) {
 	}
 }
 
+// TestShowsDelete_StationAccessDenied tests that handleShowsDelete returns 401
+// when the caller has no auth claims (requireStationAccess returns false).
+// This covers the branch at shows.go:352.
+func TestShowsDelete_StationAccessDenied(t *testing.T) {
+	a, db := newShowsAPITest(t)
+
+	// Seed a show so the DB lookup succeeds and we reach requireStationAccess.
+	show := models.Show{
+		ID:        "show-no-access",
+		StationID: "station-private",
+		Name:      "Private Show",
+		DTStart:   time.Now().Add(time.Hour).UTC(),
+		Active:    true,
+	}
+	if err := db.Create(&show).Error; err != nil {
+		t.Fatalf("seed show: %v", err)
+	}
+
+	// No auth claims → requireStationAccess returns false (401).
+	req := httptest.NewRequest("DELETE", "/shows/"+show.ID, nil)
+	req = withChiParam(req, "showID", show.ID)
+	rr := httptest.NewRecorder()
+	a.handleShowsDelete(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("no auth: got %d, want 401", rr.Code)
+	}
+}
+
 // TestInstancesGet_ErrorPaths tests handleInstancesGet error paths
 func TestInstancesGet_ErrorPaths(t *testing.T) {
 	a, _ := newShowsAPITest(t)
