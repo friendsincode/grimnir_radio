@@ -23,6 +23,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/analyzer"
 	"github.com/friendsincode/grimnir_radio/internal/audit"
 	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/friendsincode/grimnir_radio/internal/events"
@@ -490,5 +491,80 @@ func TestHandlePlayoutStop_Success(t *testing.T) {
 	json.NewDecoder(rr.Body).Decode(&resp) //nolint:errcheck
 	if resp["status"] != "stopped" {
 		t.Fatalf("expected status=stopped, got %v", resp["status"])
+	}
+}
+
+// --- handleSystemStatus with non-nil analyzer ---
+
+// TestHandleSystemStatus_AnalyzerNotConfigured verifies that when an analyzer is set but
+// has no media engine address configured, the media_engine status is "unavailable".
+// This exercises the `a.analyzer != nil && !meStatus.Configured` branch.
+func TestHandleSystemStatus_AnalyzerNotConfigured(t *testing.T) {
+	a, _ := newSystemTestAPI(t)
+
+	// Create an analyzer with an empty gRPC address → Configured=false branch.
+	db := a.db
+	svc := analyzer.NewWithConfig(db, t.TempDir(), zerolog.Nop(), analyzer.Config{
+		MediaEngineGRPCAddr: "", // not configured
+	})
+	a.analyzer = svc
+
+	req := httptest.NewRequest("GET", "/system/status", nil)
+	rr := httptest.NewRecorder()
+	a.handleSystemStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("analyzer not configured: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	meStatus, ok := resp["media_engine"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected 'media_engine' in response; got %+v", resp)
+	}
+	if meStatus["status"] != "unavailable" {
+		t.Fatalf("expected media_engine status=unavailable (not configured), got %v", meStatus["status"])
+	}
+}
+
+// TestHandleSystemStatus_AnalyzerConfiguredNotConnected verifies that handleSystemStatus
+// returns 200 when the analyzer is configured with an address. The exact media_engine
+// status depends on connection timing, so we just verify the response is well-formed.
+// This exercises the `a.analyzer != nil && meStatus.Configured` branches.
+func TestHandleSystemStatus_AnalyzerConfiguredNotConnected(t *testing.T) {
+	a, _ := newSystemTestAPI(t)
+
+	// Use an address that is configured but may or may not connect (depends on the environment).
+	svc := analyzer.NewWithConfig(a.db, t.TempDir(), zerolog.Nop(), analyzer.Config{
+		MediaEngineGRPCAddr: "127.0.0.1:19999",
+	})
+	a.analyzer = svc
+
+	req := httptest.NewRequest("GET", "/system/status", nil)
+	rr := httptest.NewRecorder()
+	a.handleSystemStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("analyzer configured: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	meStatus, ok := resp["media_engine"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected 'media_engine' in response; got %+v", resp)
+	}
+	// Status is "ok", "error", or "unavailable" depending on whether the background
+	// connect goroutine from NewWithConfig has completed. All are valid outcomes.
+	s, _ := meStatus["status"].(string)
+	if s == "" {
+		t.Fatalf("expected non-empty media_engine status, got %q", s)
 	}
 }
