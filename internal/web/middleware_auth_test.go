@@ -449,3 +449,97 @@ func TestRequestScheme_XForwardedProtoCommaSeparated(t *testing.T) {
 		t.Fatalf("expected 'https' (first value), got %q", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// RequireRole - HTMX paths
+// ---------------------------------------------------------------------------
+
+func TestRequireRole_UnauthenticatedHTMX_SetsRedirectHeader(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	req := httptest.NewRequest(http.MethodPost, "/admin", nil)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	h.RequireRole("manager")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for HTMX unauthenticated, got %d", rr.Code)
+	}
+	if rr.Header().Get("HX-Redirect") != "/login" {
+		t.Fatalf("expected HX-Redirect=/login, got %q", rr.Header().Get("HX-Redirect"))
+	}
+}
+
+func TestRequireRole_InsufficientRoleHTMX_Returns403(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	user := &models.User{ID: "u1", Email: "user@example.com", PlatformRole: models.PlatformRoleUser}
+	req := httptest.NewRequest(http.MethodPost, "/admin", nil)
+	req.Header.Set("HX-Request", "true")
+	ctx := context.WithValue(req.Context(), ctxKeyUser, user)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.RequireRole("platform_admin")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for HTMX insufficient role, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RequireStation - HTMX no-station path
+// ---------------------------------------------------------------------------
+
+func TestRequireStation_NoStation_HTMX_SetsRedirectHeader(t *testing.T) {
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db.AutoMigrate(&models.User{}, &models.StationUser{})
+	h := &Handler{db: db, logger: zerolog.Nop()}
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/media", nil)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	h.RequireStation(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for HTMX no-station, got %d", rr.Code)
+	}
+	if rr.Header().Get("HX-Redirect") != "/dashboard/stations/select" {
+		t.Fatalf("expected HX-Redirect=/dashboard/stations/select, got %q", rr.Header().Get("HX-Redirect"))
+	}
+}
+
+func TestRequireStation_UnauthorizedStation_HTMX_Returns403(t *testing.T) {
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db.AutoMigrate(&models.User{}, &models.Station{}, &models.StationUser{})
+	h := &Handler{db: db, logger: zerolog.Nop()}
+
+	station := &models.Station{ID: "s1", Name: "Private Station", Active: true}
+	db.Create(station)
+	user := &models.User{ID: "u2", Email: "noabc@example.com", PlatformRole: models.PlatformRoleUser}
+	db.Create(user)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/media", nil)
+	req.Header.Set("HX-Request", "true")
+	ctx := context.WithValue(req.Context(), ctxKeyStation, station)
+	ctx = context.WithValue(ctx, ctxKeyUser, user)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.RequireStation(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for HTMX unauthorized station, got %d", rr.Code)
+	}
+	if rr.Header().Get("HX-Redirect") != "/dashboard/stations/select" {
+		t.Fatalf("expected HX-Redirect=/dashboard/stations/select, got %q", rr.Header().Get("HX-Redirect"))
+	}
+}

@@ -667,6 +667,14 @@ func TestGetDiskUsage_ValidPath_ReturnsInfo(t *testing.T) {
 	}
 }
 
+func TestGetDiskUsage_InvalidPath_ReturnsNil(t *testing.T) {
+	// A path that does not exist triggers syscall.Statfs error
+	info := getDiskUsage("/nonexistent/path/for/coverage/test")
+	if info != nil {
+		t.Fatalf("expected nil for invalid path, got %+v", info)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Cascade delete test
 // ---------------------------------------------------------------------------

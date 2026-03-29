@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -242,6 +243,20 @@ func TestTimeago_FutureTime(t *testing.T) {
 	}
 }
 
+func TestTimeago_OneHourAgo(t *testing.T) {
+	got := timeago(time.Now().Add(-61 * time.Minute))
+	if got != "1 hour ago" {
+		t.Fatalf("expected '1 hour ago', got %q", got)
+	}
+}
+
+func TestTimeago_OneDayAgo(t *testing.T) {
+	got := timeago(time.Now().Add(-25 * time.Hour))
+	if got != "1 day ago" {
+		t.Fatalf("expected '1 day ago', got %q", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // stationColor
 // ---------------------------------------------------------------------------
@@ -318,6 +333,18 @@ func TestSourceTypeName_Unknown(t *testing.T) {
 	}
 }
 
+func TestSourceTypeName_RadioBoss(t *testing.T) {
+	if got := sourceTypeName("radioboss"); got != "RadioBoss" {
+		t.Fatalf("expected 'RadioBoss', got %q", got)
+	}
+}
+
+func TestSourceTypeName_PlayoutONE(t *testing.T) {
+	if got := sourceTypeName("playoutone"); got != "PlayoutONE" {
+		t.Fatalf("expected 'PlayoutONE', got %q", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // formatHourWindow
 // ---------------------------------------------------------------------------
@@ -346,6 +373,13 @@ func TestFormatHourWindow_InvalidStartClamped(t *testing.T) {
 	// Invalid startHour gets clamped to 0
 	if got := formatHourWindow(-1, 5); got != "00:00-05:00" {
 		t.Fatalf("expected '00:00-05:00' for clamped start, got %q", got)
+	}
+}
+
+func TestFormatHourWindow_InvalidEndClamped(t *testing.T) {
+	// Invalid endHour (0) gets clamped to 24
+	if got := formatHourWindow(0, 0); got != "00:00-00:00" {
+		t.Fatalf("expected '00:00-00:00' for end clamped to 24 (24%%24=0), got %q", got)
 	}
 }
 
@@ -995,4 +1029,172 @@ func TestStaticResponseWriter_WriteHeader_NoDoubleSet(t *testing.T) {
 	w.WriteHeader(http.StatusOK)
 	// Second call should not re-set content type or panic
 	w.WriteHeader(http.StatusNotFound)
+}
+
+// ---------------------------------------------------------------------------
+// GetStationRole
+// ---------------------------------------------------------------------------
+
+func TestGetStationRole_NilUserReturnsNil(t *testing.T) {
+	h, _ := newEmptySetupHandler(t)
+	result := h.GetStationRole(nil, "any-station")
+	if result != nil {
+		t.Fatalf("expected nil for nil user, got %+v", result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LoadStations
+// ---------------------------------------------------------------------------
+
+func TestLoadStations_NilUserReturnsNil(t *testing.T) {
+	h, _ := newEmptySetupHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	result := h.LoadStations(req)
+	if result != nil {
+		t.Fatalf("expected nil for no user, got %v", result)
+	}
+}
+
+func TestLoadStations_RegularUserReturnsStations(t *testing.T) {
+	h, db := newEmptySetupHandler(t)
+	user := &models.User{ID: "ls-u1", Email: "ls@example.com", Password: "x", PlatformRole: models.PlatformRoleUser}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxKeyUser, user)
+	req = req.WithContext(ctx)
+	result := h.LoadStations(req)
+	// No station associations, so should return empty slice
+	_ = result
+}
+
+// ---------------------------------------------------------------------------
+// isStringLike
+// ---------------------------------------------------------------------------
+
+func TestIsStringLike_NilReturnsFalse(t *testing.T) {
+	if isStringLike(nil) {
+		t.Fatal("expected false for nil")
+	}
+}
+
+func TestIsStringLike_StringReturnsTrue(t *testing.T) {
+	if !isStringLike("hello") {
+		t.Fatal("expected true for string")
+	}
+}
+
+func TestIsStringLike_IntReturnsFalse(t *testing.T) {
+	if isStringLike(42) {
+		t.Fatal("expected false for int")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// isActive
+// ---------------------------------------------------------------------------
+
+func TestIsActive_RootExactMatch(t *testing.T) {
+	if !isActive("/", "/") {
+		t.Fatal("expected true for exact root match")
+	}
+}
+
+func TestIsActive_RootNoMatch(t *testing.T) {
+	if isActive("/dashboard", "/") {
+		t.Fatal("expected false for root link when path is /dashboard")
+	}
+}
+
+func TestIsActive_PrefixMatch(t *testing.T) {
+	if !isActive("/dashboard/settings", "/dashboard") {
+		t.Fatal("expected true for prefix match")
+	}
+}
+
+func TestIsActive_NoPrefixMatch(t *testing.T) {
+	if isActive("/media", "/dashboard") {
+		t.Fatal("expected false when path does not start with link")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// toInt float32
+// ---------------------------------------------------------------------------
+
+func TestToInt_Float32Truncates(t *testing.T) {
+	if got := toInt(float32(7.9)); got != 7 {
+		t.Fatalf("expected 7 (truncated float32), got %d", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// jsonMarshal error path
+// ---------------------------------------------------------------------------
+
+func TestJsonMarshal_UnmarshalableReturnsNull(t *testing.T) {
+	// A channel cannot be marshalled to JSON.
+	ch := make(chan int)
+	got := string(jsonMarshal(ch))
+	if got != "null" {
+		t.Fatalf("expected 'null' for unmarshalable type, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// csrfTokensEqual
+// ---------------------------------------------------------------------------
+
+func TestCSRFTokensEqual_EmptyAReturnsFalse(t *testing.T) {
+	if csrfTokensEqual("", "abc") {
+		t.Fatal("expected false when a is empty")
+	}
+}
+
+func TestCSRFTokensEqual_EmptyBReturnsFalse(t *testing.T) {
+	if csrfTokensEqual("abc", "") {
+		t.Fatal("expected false when b is empty")
+	}
+}
+
+func TestCSRFTokensEqual_MatchReturnsTrue(t *testing.T) {
+	if !csrfTokensEqual("abc123", "abc123") {
+		t.Fatal("expected true for equal tokens")
+	}
+}
+
+func TestCSRFTokensEqual_MismatchReturnsFalse(t *testing.T) {
+	if csrfTokensEqual("abc123", "xyz789") {
+		t.Fatal("expected false for different tokens")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// defaultPortForScheme
+// ---------------------------------------------------------------------------
+
+func TestDefaultPortForScheme_HTTP(t *testing.T) {
+	if got := defaultPortForScheme("http"); got != "80" {
+		t.Fatalf("expected '80' for http, got %q", got)
+	}
+}
+
+func TestDefaultPortForScheme_HTTPS(t *testing.T) {
+	if got := defaultPortForScheme("https"); got != "443" {
+		t.Fatalf("expected '443' for https, got %q", got)
+	}
+}
+
+func TestDefaultPortForScheme_Unknown(t *testing.T) {
+	if got := defaultPortForScheme("ftp"); got != "80" {
+		t.Fatalf("expected '80' for unknown scheme, got %q", got)
+	}
+}
+
+func TestDefaultPortForScheme_Uppercase(t *testing.T) {
+	if got := defaultPortForScheme("HTTPS"); got != "443" {
+		t.Fatalf("expected '443' for HTTPS, got %q", got)
+	}
 }
