@@ -41,6 +41,17 @@ func TestIsSecureCookieEnv_ExplicitOverrideWins(t *testing.T) {
 	}
 }
 
+func TestIsSecureCookieEnv_RLMFallbackOverride(t *testing.T) {
+	// When GRIMNIR_COOKIE_SECURE is unset, fall back to RLM_COOKIE_SECURE
+	t.Setenv("GRIMNIR_COOKIE_SECURE", "")
+	t.Setenv("RLM_COOKIE_SECURE", "true")
+	t.Setenv("GRIMNIR_ENV", "")
+	t.Setenv("RLM_ENV", "")
+	if !isSecureCookieEnv() {
+		t.Fatalf("expected secure cookies with RLM_COOKIE_SECURE=true")
+	}
+}
+
 func TestSetAndClearAuthToken_CookieAttributesMatch(t *testing.T) {
 	t.Setenv("GRIMNIR_COOKIE_SECURE", "true")
 	h := &Handler{}

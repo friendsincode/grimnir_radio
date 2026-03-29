@@ -95,85 +95,85 @@ func TestSmartBlockPreview_NoStation(t *testing.T) {
 // pages_playlists.go
 // ---------------------------------------------------------------------------
 
-func TestPlaylistList_NoStation(t *testing.T) {
+func TestPlaylistList_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "PlaylistList", h.PlaylistList)
 }
 
-func TestPlaylistCreate_NoStation(t *testing.T) {
+func TestPlaylistCreate_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistCreate", h.PlaylistCreate)
 }
 
-func TestPlaylistDetail_NoStation(t *testing.T) {
+func TestPlaylistDetail_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "PlaylistDetail", h.PlaylistDetail)
 }
 
-func TestPlaylistEdit_NoStation(t *testing.T) {
+func TestPlaylistEdit_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "PlaylistEdit", h.PlaylistEdit)
 }
 
-func TestPlaylistUpdate_NoStation(t *testing.T) {
+func TestPlaylistUpdate_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistUpdate", h.PlaylistUpdate)
 }
 
-func TestPlaylistDelete_NoStation(t *testing.T) {
+func TestPlaylistDelete_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistDelete", h.PlaylistDelete)
 }
 
-func TestPlaylistBulk_NoStation(t *testing.T) {
+func TestPlaylistBulk_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistBulk", h.PlaylistBulk)
 }
 
-func TestPlaylistAddItem_NoStation(t *testing.T) {
+func TestPlaylistAddItem_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistAddItem", h.PlaylistAddItem)
 }
 
-func TestPlaylistRemoveItem_NoStation(t *testing.T) {
+func TestPlaylistRemoveItem_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistRemoveItem", h.PlaylistRemoveItem)
 }
 
-func TestPlaylistReorderItems_NoStation(t *testing.T) {
+func TestPlaylistReorderItems_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistReorderItems", h.PlaylistReorderItems)
 }
 
-func TestPlaylistCover_NoStation(t *testing.T) {
+func TestPlaylistCover_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "PlaylistCover", h.PlaylistCover)
 }
 
-func TestPlaylistUploadCover_NoStation(t *testing.T) {
+func TestPlaylistUploadCover_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistUploadCover", h.PlaylistUploadCover)
 }
 
-func TestPlaylistDeleteCover_NoStation(t *testing.T) {
+func TestPlaylistDeleteCover_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "PlaylistDeleteCover", h.PlaylistDeleteCover)
 }
 
-func TestPlaylistMediaSearch_NoStation(t *testing.T) {
+func TestPlaylistMediaSearch_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "PlaylistMediaSearch", h.PlaylistMediaSearch)
@@ -183,19 +183,19 @@ func TestPlaylistMediaSearch_NoStation(t *testing.T) {
 // pages_media.go
 // ---------------------------------------------------------------------------
 
-func TestMediaReanalyzeDurations_NoStation(t *testing.T) {
+func TestMediaReanalyzeDurations_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "MediaReanalyzeDurations", h.MediaReanalyzeDurations)
 }
 
-func TestMediaReanalyzeDurationsStatus_NoStation(t *testing.T) {
+func TestMediaReanalyzeDurationsStatus_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaReanalyzeDurationsStatus", h.MediaReanalyzeDurationsStatus)
 }
 
-func TestMediaReanalyzeDurationsCurrentStatus_NoStation(t *testing.T) {
+func TestMediaReanalyzeDurationsCurrentStatus_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaReanalyzeDurationsCurrentStatus", h.MediaReanalyzeDurationsCurrentStatus)
@@ -219,67 +219,67 @@ func TestMediaDetail_NoStation(t *testing.T) {
 	assertNoStation(t, "MediaDetail", h.MediaDetail)
 }
 
-func TestMediaEdit_NoStation(t *testing.T) {
+func TestMediaEdit_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaEdit", h.MediaEdit)
 }
 
-func TestMediaUpdate_NoStation(t *testing.T) {
+func TestMediaUpdate_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "MediaUpdate", h.MediaUpdate)
 }
 
-func TestMediaDelete_NoStation(t *testing.T) {
+func TestMediaDelete_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "MediaDelete", h.MediaDelete)
 }
 
-func TestMediaBulk_NoStation(t *testing.T) {
+func TestMediaBulk_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "MediaBulk", h.MediaBulk)
 }
 
-func TestMediaGenres_NoStation(t *testing.T) {
+func TestMediaGenres_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaGenres", h.MediaGenres)
 }
 
-func TestMediaGenreReassign_NoStation(t *testing.T) {
+func TestMediaGenreReassign_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "MediaGenreReassign", h.MediaGenreReassign)
 }
 
-func TestMediaWaveform_NoStation(t *testing.T) {
+func TestMediaWaveform_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaWaveform", h.MediaWaveform)
 }
 
-func TestMediaArtwork_NoStation(t *testing.T) {
+func TestMediaArtwork_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaArtwork", h.MediaArtwork)
 }
 
-func TestMediaStream_NoStation(t *testing.T) {
+func TestMediaStream_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaStream", h.MediaStream)
 }
 
-func TestMediaDuplicates_NoStation(t *testing.T) {
+func TestMediaDuplicates_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaDuplicates", h.MediaDuplicates)
 }
 
-func TestMediaPurgeDuplicates_NoStation(t *testing.T) {
+func TestMediaPurgeDuplicates_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStationPOST(t, "MediaPurgeDuplicates", h.MediaPurgeDuplicates)
@@ -291,19 +291,19 @@ func TestMediaBackfillHashes_NoStation(t *testing.T) {
 	assertNoStationPOST(t, "MediaBackfillHashes", h.MediaBackfillHashes)
 }
 
-func TestMediaTablePartial_NoStation(t *testing.T) {
+func TestMediaTablePartial_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaTablePartial", h.MediaTablePartial)
 }
 
-func TestMediaGridPartial_NoStation(t *testing.T) {
+func TestMediaGridPartial_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaGridPartial", h.MediaGridPartial)
 }
 
-func TestMediaSearchJSON_NoStation(t *testing.T) {
+func TestMediaSearchJSON_NoStation_Assert(t *testing.T) {
 	db := newAdminTestDB(t)
 	h := newAdminTestHandler(t, db)
 	assertNoStation(t, "MediaSearchJSON", h.MediaSearchJSON)

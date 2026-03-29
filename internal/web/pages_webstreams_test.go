@@ -409,4 +409,29 @@ func TestWebstreamServiceBranchesOnPages(t *testing.T) {
 			t.Fatalf("expected reset id %q, got %q", ws.ID, stub.resetID)
 		}
 	})
+
+	t.Run("reset service error returns 500", func(t *testing.T) {
+		h.webstreamSvc = &stubWebstreamService{resetErr: errors.New("reset failed")}
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/webstreams/ws-2/reset", nil)
+		req = withWebstreamContext(withWebstreamRouteID(req, ws.ID), nil, &station)
+		rr := httptest.NewRecorder()
+
+		h.WebstreamReset(rr, req)
+		if rr.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500 on reset error, got %d body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("reset service error htmx returns danger alert", func(t *testing.T) {
+		h.webstreamSvc = &stubWebstreamService{resetErr: errors.New("reset failed htmx")}
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/webstreams/ws-2/reset", nil)
+		req.Header.Set("HX-Request", "true")
+		req = withWebstreamContext(withWebstreamRouteID(req, ws.ID), nil, &station)
+		rr := httptest.NewRecorder()
+
+		h.WebstreamReset(rr, req)
+		if !strings.Contains(rr.Body.String(), "reset failed htmx") {
+			t.Fatalf("expected error message in HTMX response, got: %s", rr.Body.String())
+		}
+	})
 }
