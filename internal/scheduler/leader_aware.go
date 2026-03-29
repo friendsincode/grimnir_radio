@@ -8,6 +8,7 @@ package scheduler
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/leadership"
@@ -20,7 +21,8 @@ type LeaderAwareScheduler struct {
 	election  *leadership.Election
 	logger    zerolog.Logger
 
-	// Internal state
+	// Internal state — protected by mu
+	mu               sync.Mutex
 	ctx              context.Context
 	cancelFunc       context.CancelFunc
 	schedulerRunning bool
@@ -38,7 +40,9 @@ func NewLeaderAware(scheduler *Service, election *leadership.Election, logger ze
 
 // Start begins monitoring leadership status and manages scheduler lifecycle
 func (las *LeaderAwareScheduler) Start(ctx context.Context) error {
+	las.mu.Lock()
 	las.ctx = ctx
+	las.mu.Unlock()
 
 	las.logger.Info().Msg("starting leader-aware scheduler")
 
@@ -57,10 +61,17 @@ func (las *LeaderAwareScheduler) Start(ctx context.Context) error {
 func (las *LeaderAwareScheduler) Stop() error {
 	las.logger.Info().Msg("stopping leader-aware scheduler")
 
-	// Stop scheduler if running
-	if las.schedulerRunning && las.cancelFunc != nil {
-		las.cancelFunc()
+	las.mu.Lock()
+	cancel := las.cancelFunc
+	running := las.schedulerRunning
+	if running {
+		las.cancelFunc = nil
 		las.schedulerRunning = false
+	}
+	las.mu.Unlock()
+
+	if running && cancel != nil {
+		cancel()
 	}
 
 	// Stop election
@@ -76,9 +87,13 @@ func (las *LeaderAwareScheduler) monitorLeadership() {
 		las.startScheduler()
 	}
 
+	las.mu.Lock()
+	ctx := las.ctx
+	las.mu.Unlock()
+
 	for {
 		select {
-		case <-las.ctx.Done():
+		case <-ctx.Done():
 			return
 		case isLeader := <-leaderCh:
 			if isLeader {
@@ -94,39 +109,50 @@ func (las *LeaderAwareScheduler) monitorLeadership() {
 
 // startScheduler starts the scheduler in a goroutine
 func (las *LeaderAwareScheduler) startScheduler() {
+	las.mu.Lock()
 	if las.schedulerRunning {
+		las.mu.Unlock()
 		las.logger.Warn().Msg("scheduler already running")
 		return
 	}
-
 	ctx, cancel := context.WithCancel(las.ctx)
 	las.cancelFunc = cancel
 	las.schedulerRunning = true
+	las.mu.Unlock()
 
 	go func() {
 		las.logger.Info().Msg("scheduler started")
 		if err := las.scheduler.Run(ctx); err != nil && err != context.Canceled {
 			las.logger.Error().Err(err).Msg("scheduler error")
 		}
+		las.mu.Lock()
 		las.schedulerRunning = false
+		las.mu.Unlock()
 		las.logger.Info().Msg("scheduler stopped")
 	}()
 }
 
 // stopScheduler stops the running scheduler
 func (las *LeaderAwareScheduler) stopScheduler() {
+	las.mu.Lock()
 	if !las.schedulerRunning {
+		las.mu.Unlock()
 		return
 	}
+	cancel := las.cancelFunc
+	las.cancelFunc = nil
+	las.mu.Unlock()
 
-	if las.cancelFunc != nil {
-		las.cancelFunc()
-		las.cancelFunc = nil
+	if cancel != nil {
+		cancel()
 	}
 
 	// Wait briefly for scheduler to stop
 	time.Sleep(100 * time.Millisecond)
+
+	las.mu.Lock()
 	las.schedulerRunning = false
+	las.mu.Unlock()
 }
 
 // IsLeader returns whether this instance is the leader
