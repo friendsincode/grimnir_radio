@@ -1642,7 +1642,7 @@ func TestSmartBlockPreview_WithSourcePlaylists_Renders(t *testing.T) {
 		StationID: station.ID,
 		Name:      "Playlist Source Block",
 		Rules: map[string]any{
-			"targetMinutes":  float64(5),
+			"targetMinutes":   float64(5),
 			"sourcePlaylists": []any{"pl-src-1"},
 		},
 	}
@@ -2373,7 +2373,7 @@ func TestExtractPreviewConfig_FallbacksEmptyBlockID_Skipped(t *testing.T) {
 	rules := map[string]any{
 		"fallbacksEnabled": true,
 		"fallbacks": []any{
-			map[string]any{"blockID": "", "limit": float64(5)},        // empty blockID: skip
+			map[string]any{"blockID": "", "limit": float64(5)},         // empty blockID: skip
 			map[string]any{"blockID": "valid-id", "limit": float64(0)}, // zero limit: use default 10
 		},
 	}

@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/go-chi/chi/v5"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
