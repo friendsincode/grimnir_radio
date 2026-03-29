@@ -765,7 +765,7 @@ func TestLiveDashboard_QuotaCalculation_Returns200(t *testing.T) {
 	u := seedEmbedUser(t, db, "u1", "admin@example.com")
 	s := seedEmbedPublicStation(t, db, "st1", "Test FM")
 	// Set quota so the percentage calculation is exercised
-	s.RecordingQuotaBytes = 1024 * 1024 * 100 // 100MB
+	s.RecordingQuotaBytes = 1024 * 1024 * 100  // 100MB
 	s.RecordingStorageUsed = 1024 * 1024 * 150 // 150MB (over quota → capped at 100%)
 	db.Save(&s)
 

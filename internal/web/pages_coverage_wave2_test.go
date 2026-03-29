@@ -559,8 +559,8 @@ func TestProfileUpdate_ValidCalendarTheme_Saved(t *testing.T) {
 	u := seedWave2User(t, db)
 
 	form := url.Values{
-		"email":                 {"w2user@example.com"},
-		"calendar_color_theme":  {"ocean"},
+		"email":                {"w2user@example.com"},
+		"calendar_color_theme": {"ocean"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/profile", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

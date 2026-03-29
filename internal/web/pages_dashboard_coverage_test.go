@@ -216,12 +216,12 @@ func TestLoadDashboardUpcomingEntries_NonRecurring(t *testing.T) {
 	now := time.Now().UTC()
 	future := now.Add(2 * time.Hour)
 	db.Create(&models.ScheduleEntry{
-		ID:        "se1",
-		StationID: s.ID,
+		ID:         "se1",
+		StationID:  s.ID,
 		SourceType: "playlist",
-		SourceID:  "pl1",
-		StartsAt:  future,
-		EndsAt:    future.Add(time.Hour),
+		SourceID:   "pl1",
+		StartsAt:   future,
+		EndsAt:     future.Add(time.Hour),
 	})
 
 	entries := h.loadDashboardUpcomingEntries(s.ID, now, 24*time.Hour, 10)
@@ -239,12 +239,12 @@ func TestLoadDashboardUpcomingEntries_LimitEnforced(t *testing.T) {
 	for i := 0; i < 15; i++ {
 		future := now.Add(time.Duration(i+1) * time.Hour)
 		db.Create(&models.ScheduleEntry{
-			ID:        "se-" + string(rune('a'+i)),
-			StationID: s.ID,
+			ID:         "se-" + string(rune('a'+i)),
+			StationID:  s.ID,
 			SourceType: "playlist",
-			SourceID:  "pl1",
-			StartsAt:  future,
-			EndsAt:    future.Add(30 * time.Minute),
+			SourceID:   "pl1",
+			StartsAt:   future,
+			EndsAt:     future.Add(30 * time.Minute),
 		})
 	}
 
