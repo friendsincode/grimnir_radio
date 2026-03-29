@@ -20,6 +20,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// PipelineInterface abstracts a GStreamer pipeline for testing.
+type PipelineInterface interface {
+	Done() <-chan struct{}
+	Stop() error
+}
+
 // limitedBuffer captures up to 4KB of GStreamer stderr for diagnostics.
 type limitedBuffer struct {
 	buf [4096]byte

@@ -16,6 +16,17 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// ManagerInterface abstracts pipeline management for testing.
+type ManagerInterface interface {
+	EnsurePipeline(ctx context.Context, mountID, launch string) error
+	EnsurePipelineWithOutput(ctx context.Context, mountID, launch string, outputHandler func(io.Reader)) error
+	EnsurePipelineWithDualOutput(ctx context.Context, mountID, launch string, seekFile *os.File, hqHandler, lqHandler func(io.Reader)) error
+	EnsurePipelineWithDualOutputAndInput(ctx context.Context, mountID, launch string, hqHandler, lqHandler func(io.Reader)) (io.WriteCloser, error)
+	GetPipeline(mountID string) PipelineInterface
+	StopPipeline(mountID string) error
+	Shutdown() error
+}
+
 // Manager tracks pipelines per mount.
 type Manager struct {
 	cfg    *config.Config
@@ -77,10 +88,14 @@ func (m *Manager) EnsurePipelineWithDualOutputAndInput(ctx context.Context, moun
 }
 
 // GetPipeline returns the pipeline for a mount, or nil if none exists.
-func (m *Manager) GetPipeline(mountID string) *Pipeline {
+func (m *Manager) GetPipeline(mountID string) PipelineInterface {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.pipelines[mountID]
+	p := m.pipelines[mountID]
+	if p == nil {
+		return nil
+	}
+	return p
 }
 
 // StopPipeline stops the pipeline for a mount.

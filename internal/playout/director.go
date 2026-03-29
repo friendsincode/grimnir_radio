@@ -100,7 +100,7 @@ type cachedScheduleSnapshot struct {
 type Director struct {
 	db            *gorm.DB
 	cfg           *config.Config
-	manager       *Manager
+	manager       ManagerInterface
 	bus           *events.Bus
 	webstreamSvc  *webstream.Service
 	broadcast     *broadcast.Server
@@ -144,7 +144,7 @@ type Director struct {
 }
 
 // NewDirector creates a playout director.
-func NewDirector(db *gorm.DB, cfg *config.Config, manager *Manager, bus *events.Bus, webstreamSvc *webstream.Service, broadcastSrv *broadcast.Server, logger zerolog.Logger, opts ...DirectorOption) *Director {
+func NewDirector(db *gorm.DB, cfg *config.Config, manager ManagerInterface, bus *events.Bus, webstreamSvc *webstream.Service, broadcastSrv *broadcast.Server, logger zerolog.Logger, opts ...DirectorOption) *Director {
 	d := &Director{
 		db:            db,
 		cfg:           cfg,
