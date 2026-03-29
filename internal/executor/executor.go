@@ -30,6 +30,19 @@ var (
 	ErrExecutorNotRunning = errors.New("executor not running")
 )
 
+// MediaControllerIface abstracts the media engine controller for testing.
+type MediaControllerIface interface {
+	IsConnected() bool
+	LoadGraph(ctx context.Context, graph *pb.DSPGraph) (string, error)
+	Play(ctx context.Context, sourceID, path string, sourceType pb.SourceType, priority models.PriorityLevel, cuePoints *pb.CuePoints) (string, error)
+	Stop(ctx context.Context, immediate bool) error
+	Fade(ctx context.Context, nextSourceID, nextPath string, nextSourceType pb.SourceType, nextCuePoints *pb.CuePoints, fadeConfig *pb.FadeConfig) (string, error)
+	InsertEmergency(ctx context.Context, sourceID, path string) (string, error)
+	RouteLive(ctx context.Context, inputURL, authToken string, applyProcessing bool) (string, error)
+	GetStatus(ctx context.Context) (*pb.StatusResponse, error)
+	StreamTelemetry(ctx context.Context, intervalMs int32, callback func(*pb.TelemetryData) error) error
+}
+
 // Executor manages per-station playout execution.
 type Executor struct {
 	stationID    string
@@ -37,7 +50,7 @@ type Executor struct {
 	stateManager *StateManager
 	prioritySvc  *priority.Service
 	bus          *events.Bus
-	mediaCtrl    *MediaController
+	mediaCtrl    MediaControllerIface
 	logger       zerolog.Logger
 
 	mu      sync.Mutex
@@ -47,7 +60,7 @@ type Executor struct {
 }
 
 // New creates a new executor for a station.
-func New(stationID string, db *gorm.DB, stateManager *StateManager, prioritySvc *priority.Service, bus *events.Bus, mediaCtrl *MediaController, logger zerolog.Logger) *Executor {
+func New(stationID string, db *gorm.DB, stateManager *StateManager, prioritySvc *priority.Service, bus *events.Bus, mediaCtrl MediaControllerIface, logger zerolog.Logger) *Executor {
 	return &Executor{
 		stationID:    stationID,
 		db:           db,
