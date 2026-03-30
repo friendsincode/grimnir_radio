@@ -18,10 +18,12 @@ import (
 
 type noopMetadataPoller struct{ stopped bool }
 
-func (p *noopMetadataPoller) Start(ctx context.Context)                                { <-ctx.Done() }
-func (p *noopMetadataPoller) Stop()                                                    { p.stopped = true }
-func (p *noopMetadataPoller) SetURL(url string)                                        {}
-func (p *noopMetadataPoller) FetchOnce(ctx context.Context) (string, string, error)    { return "", "", nil }
+func (p *noopMetadataPoller) Start(ctx context.Context) { <-ctx.Done() }
+func (p *noopMetadataPoller) Stop()                     { p.stopped = true }
+func (p *noopMetadataPoller) SetURL(url string)         {}
+func (p *noopMetadataPoller) FetchOnce(ctx context.Context) (string, string, error) {
+	return "", "", nil
+}
 
 // ── stopICYPoller ─────────────────────────────────────────────────────────
 
