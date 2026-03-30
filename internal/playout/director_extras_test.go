@@ -134,6 +134,187 @@ func TestResumeEntryIfPossible_ValidState_WithMedia_ReturnsTrue(t *testing.T) {
 	}
 }
 
+// ── resumeEntryIfPossible: source type mismatch ───────────────────────────
+
+func TestResumeEntryIfPossible_PlaylistSourceMismatch(t *testing.T) {
+	d, _ := newMockDirector(t)
+	ctx := context.Background()
+
+	mountID := uuid.NewString()
+	entryID := uuid.NewString()
+
+	// Active state has source_type "smart_block" but entry says "playlist"
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		EntryID:    entryID,
+		StationID:  uuid.NewString(),
+		MediaID:    uuid.NewString(),
+		SourceType: "smart_block",
+		Items:      []string{uuid.NewString()},
+		Position:   0,
+		TotalItems: 1,
+		Ends:       time.Now().UTC().Add(5 * time.Minute),
+	}
+	d.mu.Unlock()
+
+	entry := models.ScheduleEntry{
+		ID:         entryID,
+		StationID:  d.active[mountID].StationID,
+		MountID:    mountID,
+		SourceType: "playlist",
+		StartsAt:   time.Now().UTC().Add(-1 * time.Second),
+		EndsAt:     time.Now().UTC().Add(5 * time.Minute),
+	}
+	// Capture StationID before lock
+	d.mu.Lock()
+	entry.StationID = d.active[mountID].StationID
+	d.mu.Unlock()
+
+	if d.resumeEntryIfPossible(ctx, entry) {
+		t.Error("expected false when active.SourceType != entry.SourceType for playlist")
+	}
+}
+
+func TestResumeEntryIfPossible_SmartBlockSourceMismatch(t *testing.T) {
+	d, _ := newMockDirector(t)
+	ctx := context.Background()
+
+	mountID := uuid.NewString()
+	entryID := uuid.NewString()
+	stationID := uuid.NewString()
+
+	// Active state has source_type "playlist" but entry says "smart_block"
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		EntryID:    entryID,
+		StationID:  stationID,
+		MediaID:    uuid.NewString(),
+		SourceType: "playlist",
+		Items:      []string{uuid.NewString()},
+		Position:   0,
+		TotalItems: 1,
+		Ends:       time.Now().UTC().Add(5 * time.Minute),
+	}
+	d.mu.Unlock()
+
+	entry := models.ScheduleEntry{
+		ID:         entryID,
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "smart_block",
+		StartsAt:   time.Now().UTC().Add(-1 * time.Second),
+		EndsAt:     time.Now().UTC().Add(5 * time.Minute),
+	}
+
+	if d.resumeEntryIfPossible(ctx, entry) {
+		t.Error("expected false when active.SourceType != entry.SourceType for smart_block")
+	}
+}
+
+func TestResumeEntryIfPossible_MediaNotInDB(t *testing.T) {
+	d, _ := newMockDirector(t)
+	ctx := context.Background()
+
+	mountID := uuid.NewString()
+	entryID := uuid.NewString()
+	stationID := uuid.NewString()
+	nonExistentMediaID := uuid.NewString()
+
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		EntryID:    entryID,
+		StationID:  stationID,
+		MediaID:    nonExistentMediaID,
+		SourceType: "playlist",
+		Items:      []string{nonExistentMediaID},
+		Position:   0,
+		TotalItems: 1,
+		Ends:       time.Now().UTC().Add(5 * time.Minute),
+	}
+	d.mu.Unlock()
+
+	entry := models.ScheduleEntry{
+		ID:         entryID,
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "playlist",
+		StartsAt:   time.Now().UTC().Add(-1 * time.Second),
+		EndsAt:     time.Now().UTC().Add(5 * time.Minute),
+	}
+
+	// Media not found → returns false
+	if d.resumeEntryIfPossible(ctx, entry) {
+		t.Error("expected false when media is not in DB")
+	}
+}
+
+func TestHandleEntry_ResumeReturnsNil(t *testing.T) {
+	d, _ := newMockDirector(t)
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	entryID := uuid.NewString()
+	mediaID := uuid.NewString()
+
+	// Seed media item
+	if err := d.db.Create(&models.MediaItem{
+		ID:            mediaID,
+		StationID:     stationID,
+		Title:         "Resume Track",
+		Path:          "/tmp/resume2.mp3",
+		Duration:      3 * time.Minute,
+		AnalysisState: models.AnalysisComplete,
+	}).Error; err != nil {
+		t.Fatalf("seed media: %v", err)
+	}
+
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		EntryID:    entryID,
+		StationID:  stationID,
+		MediaID:    mediaID,
+		SourceType: "playlist",
+		Items:      []string{mediaID},
+		Position:   0,
+		TotalItems: 1,
+		Ends:       time.Now().UTC().Add(5 * time.Minute),
+	}
+	d.mu.Unlock()
+
+	entry := models.ScheduleEntry{
+		ID:         entryID,
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "playlist",
+		StartsAt:   time.Now().UTC().Add(-1 * time.Second),
+		EndsAt:     time.Now().UTC().Add(5 * time.Minute),
+	}
+
+	// handleEntry should call resumeEntryIfPossible → returns true → handleEntry returns nil.
+	if err := d.handleEntry(ctx, entry); err != nil {
+		t.Errorf("handleEntry returned error: %v", err)
+	}
+}
+
+func TestHandleEntry_SmartBlockSourceType(t *testing.T) {
+	d, _ := newMockDirector(t)
+	ctx := context.Background()
+
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  uuid.NewString(),
+		MountID:    uuid.NewString(),
+		SourceType: "smart_block",
+		StartsAt:   time.Now().UTC().Add(-1 * time.Second),
+		EndsAt:     time.Now().UTC().Add(5 * time.Minute),
+	}
+
+	// Non-existent smart block → startSmartBlockEntry returns error.
+	// We just care that the smart_block branch is exercised.
+	_ = d.handleEntry(ctx, entry)
+}
+
 // ── handleEntry: live and unknown source types ────────────────────────────
 
 func TestHandleEntry_LiveSourceType_NoError(t *testing.T) {
