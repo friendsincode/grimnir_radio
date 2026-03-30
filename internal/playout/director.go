@@ -1204,7 +1204,7 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				Str("mount", entry.MountID).
 				Str("webstream", ws.Name).
 				Int("max_attempts", maxAttempts).
-				Msg("all reconnect attempts failed")
+				Msg("all reconnect attempts failed, entering slow retry")
 
 			d.bus.Publish(events.EventHealth, events.Payload{
 				"station_id": entry.StationID,
@@ -1213,7 +1213,80 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				"event":      "webstream_reconnect_failed",
 				"status":     "error",
 			})
-			return
+
+			// Slow-retry: keep trying every 30 s for the duration of the scheduled
+			// slot rather than giving up and leaving the mount in dead air.
+			const slowRetryInterval = 30 * time.Second
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(slowRetryInterval):
+				}
+
+				d.mu.Lock()
+				state, ok = d.active[entry.MountID]
+				d.mu.Unlock()
+				if !ok || state.EntryID != entry.ID || time.Now().After(state.Ends) {
+					return
+				}
+
+				currentURL := ws.GetCurrentURL()
+				d.logger.Info().
+					Str("mount", entry.MountID).
+					Str("url", currentURL).
+					Msg("slow-retry reconnecting webstream pipeline")
+
+				var mount models.Mount
+				if err := d.db.WithContext(ctx).First(&mount, "id = ?", entry.MountID).Error; err != nil {
+					mount = models.Mount{Format: "mp3", Bitrate: 128, SampleRate: 44100, Channels: 2, Name: "stream"}
+				}
+				mountBitrate := mount.Bitrate
+				if mountBitrate == 0 {
+					mountBitrate = 128
+				}
+				lqBitrate := 64
+				webrtcPort := d.getWebRTCRTPPortForStation(ctx, entry.StationID)
+
+				pipelineStr, err := d.buildWebstreamBroadcastPipeline(currentURL, mount, ws, mountBitrate, lqBitrate, webrtcPort)
+				if err != nil {
+					d.logger.Warn().Err(err).Msg("slow-retry: failed to build pipeline")
+					continue
+				}
+
+				broadcastMount := d.broadcast.GetMount(mount.Name)
+				lqMountName := mount.Name + "-lq"
+				lqMount := d.broadcast.GetMount(lqMountName)
+				if broadcastMount != nil {
+					broadcastMount.ClearBuffer()
+				}
+				if lqMount != nil {
+					lqMount.ClearBuffer()
+				}
+
+				hqHandler := func(r io.Reader) {
+					if broadcastMount != nil {
+						_ = broadcastMount.FeedFrom(r)
+					}
+				}
+				lqHandler := func(r io.Reader) {
+					if lqMount != nil {
+						_ = lqMount.FeedFrom(r)
+					}
+				}
+
+				if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipelineStr, nil, hqHandler, lqHandler); err != nil {
+					d.logger.Warn().Err(err).Msg("slow-retry: reconnect attempt failed")
+					continue
+				}
+
+				d.logger.Info().
+					Str("mount", entry.MountID).
+					Str("url", currentURL).
+					Msg("webstream pipeline reconnected (slow retry)")
+				reconnected = true
+				break
+			}
 		}
 
 		// Re-enter watch loop with the new pipeline
