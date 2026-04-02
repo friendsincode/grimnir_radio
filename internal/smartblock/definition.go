@@ -10,16 +10,35 @@ import "time"
 
 // Definition encodes smart block rules shipped via JSON.
 type Definition struct {
-	Include    []FilterRule    `json:"include"`
-	Exclude    []FilterRule    `json:"exclude"`
-	Weights    []WeightRule    `json:"weights"`
-	Quotas     []QuotaRule     `json:"quotas"`
-	Separation SeparationRules `json:"separation"`
-	Sequence   SequencePolicy  `json:"sequence"`
-	Duration   DurationPolicy  `json:"duration"`
-	Fallbacks  []FallbackRule  `json:"fallbacks"`
-	Bumpers    BumperConfig    `json:"bumpers"`
-	LoopToFill bool            `json:"loopToFill"`
+	Include       []FilterRule        `json:"include"`
+	Exclude       []FilterRule        `json:"exclude"`
+	Weights       []WeightRule        `json:"weights"`
+	Quotas        []QuotaRule         `json:"quotas"`
+	Separation    SeparationRules     `json:"separation"`
+	Sequence      SequencePolicy      `json:"sequence"`
+	Duration      DurationPolicy      `json:"duration"`
+	Fallbacks     []FallbackRule      `json:"fallbacks"`
+	Bumpers       BumperConfig        `json:"bumpers"`
+	Interstitials InterstitialsConfig `json:"interstitials"`
+	LoopToFill    bool                `json:"loopToFill"`
+}
+
+// InterstitialSource identifies one source of interstitial/ad tracks.
+type InterstitialSource struct {
+	SourceType string `json:"sourceType"` // "playlist", "genre", "artist", "label", "title"
+	PlaylistID string `json:"playlistID"`
+	Genre      string `json:"genre"`
+	Query      string `json:"query"` // used for title/artist/label searches
+}
+
+// InterstitialsConfig controls periodic ad/interstitial insertion within the sequence.
+type InterstitialsConfig struct {
+	Enabled              bool                 `json:"enabled"`
+	EveryN               int                  `json:"every"`    // insert after every N music tracks
+	PerBreak             int                  `json:"perBreak"` // how many ads per break
+	Logic                string               `json:"logic"`    // "any" (OR) or "all" (AND)
+	IncludePublicArchive bool                 `json:"includePublicArchive"`
+	Sources              []InterstitialSource `json:"sources"`
 }
 
 // BumperConfig controls tail-fill with short tracks after the main sequence.

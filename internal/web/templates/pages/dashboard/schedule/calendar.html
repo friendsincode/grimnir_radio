@@ -286,6 +286,7 @@
             <option value="{{.ID}}">{{.Name}}</option>
             {{end}}
         </select>
+        <input type="date" class="form-control form-control-sm" id="calendarDatePicker" title="Jump to date" style="width: 150px;">
         <button class="btn btn-outline-secondary btn-sm" id="densityToggleBtn" title="Toggle compact density">
             <i class="bi bi-distribute-vertical me-1"></i>Compact
         </button>
@@ -1616,6 +1617,27 @@ document.addEventListener('DOMContentLoaded', function() {
 
     calendar.render();
     window.calendar = calendar;
+
+    // Date picker: initialize to today and sync with calendar navigation
+    const calendarDatePicker = document.getElementById('calendarDatePicker');
+    if (calendarDatePicker) {
+        const toDateInputValue = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
+        calendarDatePicker.value = toDateInputValue(new Date());
+        calendarDatePicker.addEventListener('change', function() {
+            if (this.value) {
+                calendar.gotoDate(this.value);
+            }
+        });
+        // Keep picker in sync when user navigates via FullCalendar buttons
+        calendar.on('datesSet', function(info) {
+            calendarDatePicker.value = toDateInputValue(info.view.currentStart);
+        });
+    }
 
     // Power features: click time axis for daily recurring, click date header for all-day
     calendarEl.addEventListener('click', function(e) {
