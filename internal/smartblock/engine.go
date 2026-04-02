@@ -49,13 +49,14 @@ type GenerateRequest struct {
 
 // SequenceItem is a planned track with cue data.
 type SequenceItem struct {
-	MediaID    string
-	StartsAtMS int64
-	EndsAtMS   int64
-	IntroEnd   float64
-	OutroIn    float64
-	Energy     float64
-	IsBumper   bool
+	MediaID        string
+	StartsAtMS     int64
+	EndsAtMS       int64
+	IntroEnd       float64
+	OutroIn        float64
+	Energy         float64
+	IsBumper       bool
+	IsInterstitial bool
 }
 
 // GenerateResult returns the materialized sequence.
@@ -123,6 +124,16 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 		result := e.selectSequence(ctx, rng, candidates, relaxed, target, loopToFill)
 		if len(result.Items) == 0 {
 			continue
+		}
+
+		// Interleave interstitial/ad tracks if configured.
+		if def.Interstitials.Enabled && len(def.Interstitials.Sources) > 0 {
+			interstitials, err := e.fetchInterstitialCandidates(ctx, def.Interstitials, req.StationID)
+			if err != nil {
+				e.logger.Warn().Err(err).Str("smart_block", req.SmartBlockID).Msg("failed to fetch interstitial candidates")
+			} else if len(interstitials) > 0 {
+				interleaveInterstitials(&result, interstitials, def.Interstitials.EveryN, def.Interstitials.PerBreak, rng)
+			}
 		}
 
 		// Tail-fill with bumper tracks if enabled and sequence is underfilled.
@@ -339,6 +350,38 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 		def.LoopToFill = true
 	}
 
+	// Interstitials config from legacy rules stored by the dashboard form.
+	// The JSON keys in sb.Rules["interstitials"] match the JSON tags on
+	// InterstitialsConfig so unmarshal already populated most fields.
+	// Handle the legacy single-source case where Sources is empty but the
+	// top-level sourceType/playlistID/genre/query keys are present.
+	if def.Interstitials.Enabled && len(def.Interstitials.Sources) == 0 {
+		if interstitials, ok := rules["interstitials"].(map[string]any); ok {
+			st := strings.ToLower(strings.TrimSpace(toString(interstitials["sourceType"])))
+			if st != "" {
+				src := InterstitialSource{SourceType: st}
+				switch st {
+				case "playlist":
+					src.PlaylistID = strings.TrimSpace(toString(interstitials["playlistID"]))
+				case "genre":
+					src.Genre = strings.TrimSpace(toString(interstitials["genre"]))
+				default:
+					src.Query = strings.TrimSpace(toString(interstitials["query"]))
+				}
+				if src.PlaylistID != "" || src.Genre != "" || src.Query != "" {
+					def.Interstitials.Sources = []InterstitialSource{src}
+				}
+			}
+		}
+	}
+	// Defaults for interstitials EveryN / PerBreak.
+	if def.Interstitials.Enabled && def.Interstitials.EveryN < 1 {
+		def.Interstitials.EveryN = 4
+	}
+	if def.Interstitials.Enabled && def.Interstitials.PerBreak < 1 {
+		def.Interstitials.PerBreak = 1
+	}
+
 	if !separationEnabled {
 		def.Separation = SeparationRules{}
 	} else if sep, ok := rules["separation"].(map[string]any); ok {
@@ -467,6 +510,121 @@ func (e *Engine) fetchBumperCandidates(ctx context.Context, cfg BumperConfig, st
 		return nil, err
 	}
 	return tracks, nil
+}
+
+// fetchInterstitialCandidates loads ad/interstitial tracks from the configured sources.
+func (e *Engine) fetchInterstitialCandidates(ctx context.Context, cfg InterstitialsConfig, stationID string) ([]models.MediaItem, error) {
+	if !cfg.Enabled || len(cfg.Sources) == 0 {
+		return nil, nil
+	}
+
+	baseQuery := e.db.WithContext(ctx).Where("station_id = ?", stationID).
+		Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
+	if cfg.IncludePublicArchive {
+		baseQuery = e.db.WithContext(ctx).
+			Where("(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
+				stationID, true, true, true, true).
+			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
+	}
+
+	clauses := make([]string, 0, len(cfg.Sources))
+	args := make([]any, 0, len(cfg.Sources)*2)
+	for _, src := range cfg.Sources {
+		st := strings.ToLower(strings.TrimSpace(src.SourceType))
+		switch st {
+		case "playlist":
+			if strings.TrimSpace(src.PlaylistID) == "" {
+				continue
+			}
+			clauses = append(clauses, "id IN (SELECT media_id FROM playlist_items WHERE playlist_id = ?)")
+			args = append(args, src.PlaylistID)
+		case "genre":
+			if strings.TrimSpace(src.Genre) == "" {
+				continue
+			}
+			clauses = append(clauses, "genre = ?")
+			args = append(args, src.Genre)
+		case "artist":
+			if strings.TrimSpace(src.Query) == "" {
+				continue
+			}
+			clauses = append(clauses, normalizedSQLExprSB("artist")+" LIKE ?")
+			args = append(args, "%"+normalizeMatchText(src.Query)+"%")
+		case "label":
+			if strings.TrimSpace(src.Query) == "" {
+				continue
+			}
+			clauses = append(clauses, "LOWER(label) LIKE ?")
+			args = append(args, "%"+strings.ToLower(src.Query)+"%")
+		default: // "title"
+			if strings.TrimSpace(src.Query) == "" {
+				continue
+			}
+			clauses = append(clauses, "LOWER(title) LIKE ?")
+			args = append(args, "%"+strings.ToLower(src.Query)+"%")
+		}
+	}
+	if len(clauses) == 0 {
+		return nil, nil
+	}
+
+	joiner := " OR "
+	if strings.ToLower(strings.TrimSpace(cfg.Logic)) == "all" {
+		joiner = " AND "
+	}
+	var tracks []models.MediaItem
+	if err := baseQuery.Where("("+strings.Join(clauses, joiner)+")", args...).Find(&tracks).Error; err != nil {
+		return nil, err
+	}
+	return tracks, nil
+}
+
+// interleaveInterstitials inserts interstitial tracks into result every everyN music tracks,
+// adjusting StartsAtMS/EndsAtMS for all subsequent items. The result is modified in place.
+func interleaveInterstitials(result *GenerateResult, interstitials []models.MediaItem, everyN, perBreak int, rng *rand.Rand) {
+	if everyN < 1 || perBreak < 1 || len(interstitials) == 0 {
+		return
+	}
+
+	// Shuffle for variety.
+	rng.Shuffle(len(interstitials), func(i, j int) { interstitials[i], interstitials[j] = interstitials[j], interstitials[i] })
+
+	newItems := make([]SequenceItem, 0, len(result.Items)+len(result.Items)/everyN*perBreak)
+	musicCount := 0
+	cursor := int64(0)
+	interIdx := 0
+
+	for _, item := range result.Items {
+		dur := item.EndsAtMS - item.StartsAtMS
+		item.StartsAtMS = cursor
+		item.EndsAtMS = cursor + dur
+		cursor = item.EndsAtMS
+		newItems = append(newItems, item)
+
+		if !item.IsBumper && !item.IsInterstitial {
+			musicCount++
+			if musicCount%everyN == 0 {
+				for j := 0; j < perBreak; j++ {
+					if interIdx >= len(interstitials) {
+						interIdx = 0
+					}
+					ad := interstitials[interIdx]
+					adDur := ad.Duration.Milliseconds()
+					newItems = append(newItems, SequenceItem{
+						MediaID:        ad.ID,
+						StartsAtMS:     cursor,
+						EndsAtMS:       cursor + adDur,
+						IsInterstitial: true,
+					})
+					cursor += adDur
+					interIdx++
+				}
+			}
+		}
+	}
+
+	result.Items = newItems
+	result.TotalMS = cursor
 }
 
 func (e *Engine) recentPlays(ctx context.Context, stationID string, windows map[string]time.Duration) ([]models.PlayHistory, error) {

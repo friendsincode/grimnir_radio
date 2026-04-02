@@ -728,6 +728,9 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 			"outro_in":       item.OutroIn,
 			"energy":         item.Energy,
 		}
+		if item.IsInterstitial {
+			meta["is_interstitial"] = true
+		}
 		if constraintLevel > 0 {
 			meta["constraint_relaxed"] = true // legacy boolean kept for calendar check
 			meta["constraint_relaxed_level"] = constraintLevel

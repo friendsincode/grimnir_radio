@@ -39,6 +39,10 @@ type StateResetter interface {
 	SetState(ctx context.Context, stationID string, newState models.ExecutorStateEnum) error
 }
 
+// trackWatchdogGrace is added to the track's natural duration before declaring it stuck.
+// Gives GStreamer time to deliver EOS for tracks that run slightly long (e.g. gapless edges).
+const trackWatchdogGrace = 5 * time.Minute
+
 type playoutState struct {
 	MediaID   string
 	EntryID   string
@@ -51,6 +55,10 @@ type playoutState struct {
 	Position   int      // current position in sequence
 	TotalItems int      // total items in sequence
 	Items      []string // pre-loaded media IDs in order
+	// Watchdog: expected end time for the current individual track (not the block).
+	// Zero means watchdog is disabled for this state (webstreams, live).
+	TrackEndsAt time.Time
+	MountName   string // mount name for logging in watchdog path
 }
 
 type playbackResumeContext struct {
@@ -290,8 +298,55 @@ func (d *Director) tick(ctx context.Context) error {
 		d.markPlayed(playKey, playUntil)
 	}
 
+	d.checkStuckTracks(now)
 	d.emitHealthSnapshot()
 	return nil
+}
+
+// checkStuckTracks detects tracks that have played past their expected end time and
+// auto-skips them. This handles GStreamer pipelines that fail to emit EOS.
+func (d *Director) checkStuckTracks(now time.Time) {
+	type stuckMount struct {
+		mountID   string
+		mountName string
+		entry     models.ScheduleEntry
+	}
+
+	d.mu.Lock()
+	var stuck []stuckMount
+	for mountID, state := range d.active {
+		if state.SourceType == "webstream" || state.SourceType == "live" {
+			continue
+		}
+		if state.TrackEndsAt.IsZero() {
+			continue
+		}
+		if now.After(state.TrackEndsAt) {
+			stuck = append(stuck, stuckMount{
+				mountID:   mountID,
+				mountName: state.MountName,
+				entry: models.ScheduleEntry{
+					ID:        state.EntryID,
+					StationID: state.StationID,
+					MountID:   mountID,
+					EndsAt:    state.Ends,
+				},
+			})
+		}
+	}
+	d.mu.Unlock()
+
+	for _, s := range stuck {
+		d.logger.Warn().
+			Str("mount", s.mountID).
+			Str("entry", s.entry.ID).
+			Msg("watchdog: track overdue — forcing pipeline restart")
+		// Stop the stuck pipeline so the next track can start cleanly.
+		if err := d.manager.StopPipeline(s.mountID); err != nil {
+			d.logger.Warn().Err(err).Str("mount", s.mountID).Msg("watchdog: stop pipeline failed")
+		}
+		go d.handleTrackEnded(s.entry, s.mountName)
+	}
 }
 
 func (d *Director) markScheduleDirty() {
@@ -1985,16 +2040,18 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 
 	d.mu.Lock()
 	d.active[entry.MountID] = playoutState{
-		MediaID:    media.ID,
-		EntryID:    entry.ID,
-		StationID:  entry.StationID,
-		Started:    resume.LogicalStart,
-		Ends:       stopAt,
-		SourceType: "media",
-		SourceID:   media.ID,
-		Position:   0,
-		TotalItems: 1,
-		Items:      []string{media.ID},
+		MediaID:     media.ID,
+		EntryID:     entry.ID,
+		StationID:   entry.StationID,
+		Started:     resume.LogicalStart,
+		Ends:        stopAt,
+		SourceType:  "media",
+		SourceID:    media.ID,
+		Position:    0,
+		TotalItems:  1,
+		Items:       []string{media.ID},
+		TrackEndsAt: time.Now().Add(media.Duration + trackWatchdogGrace),
+		MountName:   mount.Name,
 	}
 	d.mu.Unlock()
 
@@ -2211,16 +2268,18 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 	}
 
 	d.active[entry.MountID] = playoutState{
-		MediaID:    media.ID,
-		EntryID:    entry.ID,
-		StationID:  entry.StationID,
-		Started:    resume.LogicalStart,
-		Ends:       stopAt,
-		SourceType: sourceType,
-		SourceID:   sourceID,
-		Position:   position,
-		TotalItems: len(items),
-		Items:      items,
+		MediaID:     media.ID,
+		EntryID:     entry.ID,
+		StationID:   entry.StationID,
+		Started:     resume.LogicalStart,
+		Ends:        stopAt,
+		SourceType:  sourceType,
+		SourceID:    sourceID,
+		Position:    position,
+		TotalItems:  len(items),
+		Items:       items,
+		TrackEndsAt: time.Now().Add(media.Duration + trackWatchdogGrace),
+		MountName:   mount.Name,
 	}
 	d.mu.Unlock()
 	// Persist on transition (not on the 250ms director tick).
@@ -2859,16 +2918,18 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 	// Update active state with new position
 	d.mu.Lock()
 	d.active[entry.MountID] = playoutState{
-		MediaID:    media.ID,
-		EntryID:    entry.ID,
-		StationID:  entry.StationID,
-		Started:    time.Now(),
-		Ends:       entry.EndsAt,
-		SourceType: state.SourceType,
-		SourceID:   state.SourceID,
-		Position:   nextPos,
-		TotalItems: state.TotalItems,
-		Items:      state.Items,
+		MediaID:     media.ID,
+		EntryID:     entry.ID,
+		StationID:   entry.StationID,
+		Started:     time.Now(),
+		Ends:        entry.EndsAt,
+		SourceType:  state.SourceType,
+		SourceID:    state.SourceID,
+		Position:    nextPos,
+		TotalItems:  state.TotalItems,
+		Items:       state.Items,
+		TrackEndsAt: time.Now().Add(media.Duration + trackWatchdogGrace),
+		MountName:   mount.Name,
 	}
 	d.mu.Unlock()
 	d.mu.Lock()
@@ -2996,16 +3057,18 @@ func (d *Director) playQueuedTrack(entry models.ScheduleEntry, state playoutStat
 
 	d.mu.Lock()
 	d.active[entry.MountID] = playoutState{
-		MediaID:    media.ID,
-		EntryID:    entry.ID,
-		StationID:  entry.StationID,
-		Started:    time.Now(),
-		Ends:       entry.EndsAt,
-		SourceType: state.SourceType,
-		SourceID:   state.SourceID,
-		Position:   state.Position,
-		TotalItems: state.TotalItems,
-		Items:      state.Items,
+		MediaID:     media.ID,
+		EntryID:     entry.ID,
+		StationID:   entry.StationID,
+		Started:     time.Now(),
+		Ends:        entry.EndsAt,
+		SourceType:  state.SourceType,
+		SourceID:    state.SourceID,
+		Position:    state.Position,
+		TotalItems:  state.TotalItems,
+		Items:       state.Items,
+		TrackEndsAt: time.Now().Add(media.Duration + trackWatchdogGrace),
+		MountName:   mount.Name,
 	}
 	d.mu.Unlock()
 	d.mu.Lock()
@@ -3143,11 +3206,13 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 
 	d.mu.Lock()
 	d.active[entry.MountID] = playoutState{
-		MediaID:   media.ID,
-		EntryID:   entry.ID,
-		StationID: entry.StationID,
-		Started:   time.Now(),
-		Ends:      entry.EndsAt,
+		MediaID:     media.ID,
+		EntryID:     entry.ID,
+		StationID:   entry.StationID,
+		Started:     time.Now(),
+		Ends:        entry.EndsAt,
+		TrackEndsAt: time.Now().Add(media.Duration + trackWatchdogGrace),
+		MountName:   mount.Name,
 	}
 	d.mu.Unlock()
 	d.mu.Lock()
@@ -3565,11 +3630,17 @@ func (d *Director) SkipStation(ctx context.Context, stationID string) (int, erro
 			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline for skip")
 		}
 
+		endsAt := state.Ends
+		// If the block has already ended, extend EndsAt so handleTrackEnded doesn't
+		// bail out immediately — the next scheduled entry will be picked up normally.
+		if time.Now().After(endsAt) {
+			endsAt = time.Now().Add(10 * time.Second)
+		}
 		entry := models.ScheduleEntry{
 			ID:        state.EntryID,
 			StationID: state.StationID,
 			MountID:   mount.ID,
-			EndsAt:    state.Ends,
+			EndsAt:    endsAt,
 		}
 
 		skipped++
