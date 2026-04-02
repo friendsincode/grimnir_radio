@@ -78,7 +78,7 @@ func TestBuildDualBroadcastPipeline_SeekPath_RealFile(t *testing.T) {
 	mount := models.Mount{Name: "seek-test", Format: "mp3", Bitrate: 128, SampleRate: 44100, Channels: 2}
 	seekFile, pipeline, err := d.buildDualBroadcastPipeline(
 		f.Name(), mount, 128, 64, 0,
-		30000, // seekOffsetMS = 30s
+		30000,  // seekOffsetMS = 30s
 		180000, // fileDurationMS = 3 min
 	)
 	if err != nil {
