@@ -674,7 +674,12 @@ func TestCrossfadeSession_Pump_EOFCallsOnTrackEnd(t *testing.T) {
 		sessionConfig{GStreamerBin: "true", SampleRate: 44100, Channels: 2},
 		pw,
 		zerolog.Nop(),
-		func() { select { case trackEnded <- struct{}{}: default: } },
+		func() {
+			select {
+			case trackEnded <- struct{}{}:
+			default:
+			}
+		},
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

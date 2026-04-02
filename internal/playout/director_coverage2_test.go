@@ -51,10 +51,10 @@ func TestHandleTrackEnded_DifferentEntryActive(t *testing.T) {
 
 	mountID := uuid.NewString()
 	entry := models.ScheduleEntry{
-		ID:      uuid.NewString(),
-		MountID: mountID,
+		ID:       uuid.NewString(),
+		MountID:  mountID,
 		StartsAt: time.Now().UTC().Add(-1 * time.Second),
-		EndsAt:  time.Now().UTC().Add(10 * time.Minute),
+		EndsAt:   time.Now().UTC().Add(10 * time.Minute),
 	}
 
 	// Set a different entry as active.
@@ -239,19 +239,19 @@ func TestHandleTrackEnded_ClockZeroTotal(t *testing.T) {
 
 	mount := models.Mount{
 		ID: mountID, StationID: stationID,
-		Name:    "hte-clk0-" + mountID[:8],
-		Format:  "mp3", Bitrate: 128, SampleRate: 44100, Channels: 2,
+		Name:   "hte-clk0-" + mountID[:8],
+		Format: "mp3", Bitrate: 128, SampleRate: 44100, Channels: 2,
 	}
 	if err := d.db.Create(&mount).Error; err != nil {
 		t.Fatalf("seed mount: %v", err)
 	}
 
 	entry := models.ScheduleEntry{
-		ID:       entryID,
+		ID:        entryID,
 		StationID: stationID,
-		MountID:  mountID,
-		StartsAt: time.Now().UTC().Add(-1 * time.Second),
-		EndsAt:   time.Now().UTC().Add(10 * time.Minute),
+		MountID:   mountID,
+		StartsAt:  time.Now().UTC().Add(-1 * time.Second),
+		EndsAt:    time.Now().UTC().Add(10 * time.Minute),
 	}
 
 	d.mu.Lock()
