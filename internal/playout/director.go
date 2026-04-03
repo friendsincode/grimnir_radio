@@ -332,6 +332,10 @@ func (d *Director) checkStuckTracks(now time.Time) {
 					EndsAt:    state.Ends,
 				},
 			})
+			// Zero out TrackEndsAt so the watchdog doesn't fire again on the next
+			// tick while handleTrackEnded is still running in the background.
+			state.TrackEndsAt = time.Time{}
+			d.active[mountID] = state
 		}
 	}
 	d.mu.Unlock()
