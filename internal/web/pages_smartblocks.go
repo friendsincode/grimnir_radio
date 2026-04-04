@@ -1738,6 +1738,14 @@ func (h *Handler) parseSmartBlockForm(r *http.Request) (map[string]any, map[stri
 		rules["bpmRange"] = map[string]int{"min": bpmMin, "max": bpmMax}
 	}
 
+	// Track duration range (seconds)
+	if minDurSec := parseInt(r.FormValue("filter_min_duration_sec"), 0); minDurSec > 0 {
+		rules["minTrackDurationSec"] = minDurSec
+	}
+	if maxDurSec := parseInt(r.FormValue("filter_max_duration_sec"), 0); maxDurSec > 0 {
+		rules["maxTrackDurationSec"] = maxDurSec
+	}
+
 	// Year range
 	yearMin := parseInt(r.FormValue("filter_year_min"), 0)
 	yearMax := parseInt(r.FormValue("filter_year_max"), 0)
