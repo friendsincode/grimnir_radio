@@ -277,6 +277,14 @@
                                         </select>
                                     </div>
                                 </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Min Track Duration (sec)</label>
+                                    <input type="number" class="form-control form-control-sm filter-field" name="filter_min_duration_sec" min="0" placeholder="e.g. 90">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-uppercase text-muted">Max Track Duration (sec)</label>
+                                    <input type="number" class="form-control form-control-sm filter-field" name="filter_max_duration_sec" min="0" placeholder="e.g. 600">
+                                </div>
                                 <div class="col-12">
                                     <div class="form-check">
                                         <input class="form-check-input filter-field" type="checkbox" name="filter_exclude_explicit" id="excludeExplicit">
@@ -1214,6 +1222,8 @@
             if (existingRules.yearRange.min) document.querySelector('[name="filter_year_min"]').value = existingRules.yearRange.min;
             if (existingRules.yearRange.max) document.querySelector('[name="filter_year_max"]').value = existingRules.yearRange.max;
         }
+        if (existingRules.minTrackDurationSec) document.querySelector('[name="filter_min_duration_sec"]').value = existingRules.minTrackDurationSec;
+        if (existingRules.maxTrackDurationSec) document.querySelector('[name="filter_max_duration_sec"]').value = existingRules.maxTrackDurationSec;
         if (existingRules.addedDateRange) {
             if (existingRules.addedDateRange.newerThan) {
                 document.querySelector('[name="filter_newer_than"]').value = existingRules.addedDateRange.newerThan;

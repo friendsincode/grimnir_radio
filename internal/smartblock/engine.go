@@ -272,6 +272,12 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 	if year, ok := rules["yearRange"]; ok && !hasField("year") {
 		def.Include = append(def.Include, FilterRule{Field: "year", Value: year})
 	}
+	if minDur := toInt(rules["minTrackDurationSec"]); minDur > 0 && !hasField("min_track_duration_sec") {
+		def.Include = append(def.Include, FilterRule{Field: "min_track_duration_sec", Value: minDur})
+	}
+	if maxDur := toInt(rules["maxTrackDurationSec"]); maxDur > 0 && !hasField("max_track_duration_sec") {
+		def.Include = append(def.Include, FilterRule{Field: "max_track_duration_sec", Value: maxDur})
+	}
 	if adr, ok := rules["addedDateRange"]; ok && !hasField("added_date") {
 		def.Include = append(def.Include, FilterRule{Field: "added_date", Value: adr})
 	}
@@ -827,6 +833,26 @@ func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
 				} else {
 					query = query.Where("NOT ("+clause+")", tag)
 				}
+			}
+		}
+	case "min_track_duration_sec":
+		sec := toInt(value)
+		if sec > 0 {
+			ns := int64(sec) * int64(time.Second)
+			if positive {
+				query = query.Where("duration >= ?", ns)
+			} else {
+				query = query.Where("duration < ?", ns)
+			}
+		}
+	case "max_track_duration_sec":
+		sec := toInt(value)
+		if sec > 0 {
+			ns := int64(sec) * int64(time.Second)
+			if positive {
+				query = query.Where("duration <= ?", ns)
+			} else {
+				query = query.Where("duration > ?", ns)
 			}
 		}
 	}
