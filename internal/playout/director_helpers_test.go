@@ -176,8 +176,8 @@ func TestDeterministicSmartBlockSeed_Deterministic(t *testing.T) {
 	}
 	blockID := "block-1"
 
-	seed1 := deterministicSmartBlockSeed(entry, blockID)
-	seed2 := deterministicSmartBlockSeed(entry, blockID)
+	seed1 := deterministicSmartBlockSeed(entry, blockID, 0)
+	seed2 := deterministicSmartBlockSeed(entry, blockID, 0)
 	if seed1 != seed2 {
 		t.Errorf("deterministicSmartBlockSeed not deterministic: %d != %d", seed1, seed2)
 	}
@@ -191,7 +191,7 @@ func TestDeterministicSmartBlockSeed_NonNegative(t *testing.T) {
 		StartsAt:  time.Date(2026, 3, 15, 10, 0, 0, 0, time.UTC),
 		EndsAt:    time.Date(2026, 3, 15, 11, 0, 0, 0, time.UTC),
 	}
-	seed := deterministicSmartBlockSeed(entry, "block-x")
+	seed := deterministicSmartBlockSeed(entry, "block-x", 0)
 	if seed < 0 {
 		t.Errorf("deterministicSmartBlockSeed returned negative: %d", seed)
 	}
@@ -209,15 +209,21 @@ func TestDeterministicSmartBlockSeed_DifferentInputsDifferentSeeds(t *testing.T)
 	entry2.StartsAt = time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC)
 	entry2.EndsAt = time.Date(2026, 3, 16, 11, 0, 0, 0, time.UTC)
 
-	s1 := deterministicSmartBlockSeed(entry1, "block-1")
-	s2 := deterministicSmartBlockSeed(entry2, "block-1")
+	s1 := deterministicSmartBlockSeed(entry1, "block-1", 0)
+	s2 := deterministicSmartBlockSeed(entry2, "block-1", 0)
 	if s1 == s2 {
 		t.Error("different entry times should produce different seeds")
 	}
 
-	s3 := deterministicSmartBlockSeed(entry1, "block-2")
+	s3 := deterministicSmartBlockSeed(entry1, "block-2", 0)
 	if s1 == s3 {
 		t.Error("different block IDs should produce different seeds")
+	}
+
+	// Different generations must produce different seeds (the anti-loop guarantee).
+	s4 := deterministicSmartBlockSeed(entry1, "block-1", 1)
+	if s1 == s4 {
+		t.Error("generation 0 and generation 1 should produce different seeds")
 	}
 }
 

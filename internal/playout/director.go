@@ -121,9 +121,10 @@ type Director struct {
 	webrtcEnabled bool
 	webrtcRTPPort int // base port; per-station port is loaded from DB (Station.WebRTCRTPPort)
 
-	mu     sync.Mutex
-	played map[string]time.Time
-	active map[string]playoutState
+	mu           sync.Mutex
+	played       map[string]time.Time
+	active       map[string]playoutState
+	sbGeneration map[string]int // regeneration counter per entry; incremented on sequence exhaustion so each cycle uses a different shuffle seed
 
 	policyMu    sync.Mutex
 	policyCache map[string]cachedScheduleBoundaryPolicy
@@ -167,6 +168,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager ManagerInterface, bus 
 		webrtcRTPPort: cfg.WebRTCRTPPort,
 		played:        make(map[string]time.Time),
 		active:        make(map[string]playoutState),
+		sbGeneration:  make(map[string]int),
 		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
 		webrtcCache:   make(map[string]cachedWebRTCPort),
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
@@ -1517,11 +1519,17 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 		return nil
 	}
 
-	// Use SmartBlock Engine to generate a sequence based on rules
+	// Use SmartBlock Engine to generate a sequence based on rules.
+	// Include the regeneration counter in the seed so each exhaustion cycle
+	// produces a different shuffle order rather than replaying the same sequence.
 	duration := entry.EndsAt.Sub(entry.StartsAt)
+	playKey := playbackKey(entry.ID, entry.StartsAt)
+	d.mu.Lock()
+	gen := d.sbGeneration[playKey]
+	d.mu.Unlock()
 	req := smartblock.GenerateRequest{
 		SmartBlockID: block.ID,
-		Seed:         deterministicSmartBlockSeed(entry, block.ID),
+		Seed:         deterministicSmartBlockSeed(entry, block.ID, gen),
 		Duration:     duration.Milliseconds(),
 		StationID:    entry.StationID,
 		MountID:      entry.MountID,
@@ -1740,11 +1748,12 @@ func (d *Director) startSmartBlockByID(ctx context.Context, entry models.Schedul
 		return fmt.Errorf("failed to load smart block: %w", err)
 	}
 
-	// Use SmartBlock Engine
+	// Use SmartBlock Engine. Clock-slot smart blocks don't track regeneration
+	// generations (they wrap via the clock exhaustion path, not this function).
 	duration := entry.EndsAt.Sub(entry.StartsAt)
 	req := smartblock.GenerateRequest{
 		SmartBlockID: block.ID,
-		Seed:         deterministicSmartBlockSeed(entry, block.ID),
+		Seed:         deterministicSmartBlockSeed(entry, block.ID, 0),
 		Duration:     duration.Milliseconds(),
 		StationID:    entry.StationID,
 		MountID:      entry.MountID,
@@ -1814,7 +1823,7 @@ func (d *Director) playMediaByID(ctx context.Context, entry models.ScheduleEntry
 	})
 }
 
-func deterministicSmartBlockSeed(entry models.ScheduleEntry, blockID string) int64 {
+func deterministicSmartBlockSeed(entry models.ScheduleEntry, blockID string, gen int) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(entry.ID))
 	_, _ = h.Write([]byte(blockID))
@@ -1822,6 +1831,9 @@ func deterministicSmartBlockSeed(entry models.ScheduleEntry, blockID string) int
 	_, _ = h.Write([]byte(entry.EndsAt.UTC().Format(time.RFC3339Nano)))
 	_, _ = h.Write([]byte(entry.StationID))
 	_, _ = h.Write([]byte(entry.MountID))
+	if gen > 0 {
+		_, _ = h.Write([]byte(fmt.Sprintf("gen%d", gen)))
+	}
 	return int64(h.Sum64() & 0x7fffffffffffffff)
 }
 
@@ -2783,10 +2795,13 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 				Str("source", state.SourceID).
 				Msg("smart block sequence complete, regenerating")
 			// Clear active and played state so the next tick picks this entry up fresh.
+			// Increment sbGeneration so the next cycle uses a different shuffle seed,
+			// preventing the same track order from repeating on every exhaustion.
 			playKey := playbackKey(entry.ID, entry.StartsAt)
 			d.mu.Lock()
 			delete(d.active, entry.MountID)
 			delete(d.played, playKey)
+			d.sbGeneration[playKey]++
 			d.mu.Unlock()
 			// Remove the exhausted persisted state so we don't resume from an invalid position.
 			_ = d.db.Where("mount_id = ?", entry.MountID).Delete(&models.MountPlayoutState{}).Error
