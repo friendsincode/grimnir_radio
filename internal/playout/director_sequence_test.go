@@ -506,7 +506,7 @@ func TestUpdateEntryPosition_WithEntry_UpdatesPosition(t *testing.T) {
 		t.Fatalf("seed entry: %v", err)
 	}
 
-	d.updateEntryPosition(entryID, 3)
+	d.updateEntryPosition(entryID, 3, entry.StartsAt)
 
 	var loaded models.ScheduleEntry
 	if err := d.db.First(&loaded, "id = ?", entryID).Error; err != nil {

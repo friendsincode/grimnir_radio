@@ -526,5 +526,5 @@ func TestUpdateEntryPosition_DoesNotPanic(t *testing.T) {
 	d, _ := newMockDirector(t, &models.ScheduleEntry{})
 
 	// Even if the entry doesn't exist, this should not panic.
-	d.updateEntryPosition(uuid.NewString(), 5)
+	d.updateEntryPosition(uuid.NewString(), 5, time.Now())
 }
