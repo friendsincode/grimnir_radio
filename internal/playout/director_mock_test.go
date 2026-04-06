@@ -59,6 +59,7 @@ func newMockDirector(t *testing.T, tables ...any) (*Director, *mockManager) {
 		smartblockEng: smartblock.New(db, zerolog.Nop()),
 		active:        make(map[string]playoutState),
 		played:        make(map[string]time.Time),
+		sbGeneration:  make(map[string]int),
 		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
 		webrtcCache:   make(map[string]cachedWebRTCPort),
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
