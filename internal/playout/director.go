@@ -1486,10 +1486,16 @@ func (d *Director) startPlaylistEntry(ctx context.Context, entry models.Schedule
 		return nil
 	}
 
-	// Get position from metadata (survives restarts)
+	// Get position from metadata (survives restarts within the same occurrence).
+	// We also store the occurrence start time so we can detect stale positions
+	// carried over from a previous weekly/daily recurrence and ignore them.
 	position := 0
 	if p, ok := entry.Metadata["current_position"].(float64); ok {
-		position = int(p) % len(items)
+		savedStart, _ := entry.Metadata["position_occurrence_start"].(string)
+		occStart := entry.StartsAt.UTC().Format(time.RFC3339)
+		if savedStart == occStart {
+			position = int(p) % len(items)
+		}
 	}
 
 	// Load media at current position
@@ -2772,7 +2778,7 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		// Playlists wrap around
 		nextPos := (state.Position + 1) % state.TotalItems
 		if len(state.Items) > nextPos {
-			d.updateEntryPosition(entry.ID, nextPos)
+			d.updateEntryPosition(entry.ID, nextPos, entry.StartsAt)
 			d.playNextFromState(entry, state, nextPos, mountName)
 			return
 		}
@@ -2781,7 +2787,7 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 		// Playlist slots inside clocks should also wrap around until slot end.
 		nextPos := (state.Position + 1) % state.TotalItems
 		if len(state.Items) > nextPos {
-			d.updateEntryPosition(entry.ID, nextPos)
+			d.updateEntryPosition(entry.ID, nextPos, entry.StartsAt)
 			d.playNextFromState(entry, state, nextPos, mountName)
 			return
 		}
@@ -2888,11 +2894,16 @@ func (d *Director) popNextQueuedMedia(ctx context.Context, stationID, mountID st
 	return &media, &picked, nil
 }
 
-// updateEntryPosition persists the current playlist position to entry metadata
-func (d *Director) updateEntryPosition(entryID string, position int) {
+// updateEntryPosition persists the current playlist position to entry metadata.
+// occurrenceStart is the StartsAt of the current schedule occurrence so that
+// a future run of the same recurring entry can detect when the saved position
+// belongs to a different (stale) occurrence and should be ignored.
+func (d *Director) updateEntryPosition(entryID string, position int, occurrenceStart time.Time) {
+	occStr := occurrenceStart.UTC().Format(time.RFC3339)
+	patch := fmt.Sprintf(`{"current_position": %d, "position_occurrence_start": %q}`, position, occStr)
 	if err := d.db.Model(&models.ScheduleEntry{}).
 		Where("id = ?", entryID).
-		Update("metadata", gorm.Expr("jsonb_set(COALESCE(metadata, '{}')::jsonb, '{current_position}', ?::jsonb)", position)).
+		Update("metadata", gorm.Expr("COALESCE(metadata, '{}')::jsonb || ?::jsonb", patch)).
 		Error; err != nil {
 		d.logger.Warn().Err(err).Str("entry", entryID).Int("position", position).Msg("failed to update entry position")
 	}
