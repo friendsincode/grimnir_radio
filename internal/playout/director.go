@@ -402,6 +402,33 @@ func (d *Director) getScheduleSnapshot(ctx context.Context, now time.Time) ([]mo
 		return nil, err
 	}
 
+	// Suppress recurring smart_block parent entries when the same mount already has
+	// pre-materialized media instances covering now. Instances (materialized by the
+	// scheduler ahead of time) are the canonical plan; the parent is a live-generation
+	// fallback that must not fire alongside its own pre-baked entries — doing so would
+	// start a differently-shuffled sequence that the next tick immediately overrides,
+	// causing a brief wrong-track flash before the instance takes over.
+	if len(entries) > 0 {
+		instancedMounts := make(map[string]bool)
+		for i := range entries {
+			e := entries[i]
+			if e.IsInstance && !e.StartsAt.After(now) && !e.EndsAt.Before(now) {
+				instancedMounts[e.MountID] = true
+			}
+		}
+		if len(instancedMounts) > 0 {
+			kept := entries[:0]
+			for i := range entries {
+				e := entries[i]
+				if !e.IsInstance && e.RecurrenceType != "" && e.SourceType == "smart_block" && instancedMounts[e.MountID] {
+					continue // pre-materialized instances take precedence over the recurring parent
+				}
+				kept = append(kept, e)
+			}
+			entries = kept
+		}
+	}
+
 	d.scheduleMu.Lock()
 	d.scheduleCache.entries = entries
 	d.scheduleCache.loadedAt = now
