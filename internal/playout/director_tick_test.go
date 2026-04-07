@@ -194,6 +194,136 @@ func TestScheduleStop_ActiveEntryChanged_DoesNotStop(t *testing.T) {
 	}
 }
 
+// ── getScheduleSnapshot: instance-suppresses-parent ──────────────────────
+
+// TestGetScheduleSnapshot_InstanceSuppressesRecurringParent verifies that when
+// pre-materialized media instances are active for a mount, the recurring
+// smart_block parent for that mount is excluded from the snapshot.  Without
+// this filter the director would start a live-generated sequence that a
+// subsequent tick immediately overrides with the first instance, causing a
+// brief wrong-track flash.
+func TestGetScheduleSnapshot_InstanceSuppressesRecurringParent(t *testing.T) {
+	d, _ := newMockDirector(t, &models.ScheduleEntry{})
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	mediaID := uuid.NewString()
+	blockID := uuid.NewString()
+
+	// Seed a media item so the instance entry is valid.
+	if err := d.db.Create(&models.MediaItem{
+		ID:            mediaID,
+		StationID:     stationID,
+		Title:         "Jingle",
+		Path:          "/tmp/jingle.mp3",
+		Duration:      45 * time.Second,
+		AnalysisState: models.AnalysisComplete,
+	}).Error; err != nil {
+		t.Fatalf("seed media: %v", err)
+	}
+
+	now := time.Now().UTC()
+
+	// Recurring smart_block parent (first occurrence in the past, recurring daily).
+	parent := models.ScheduleEntry{
+		ID:             uuid.NewString(),
+		StationID:      stationID,
+		MountID:        mountID,
+		SourceType:     "smart_block",
+		SourceID:       blockID,
+		StartsAt:       now.Add(-7 * 24 * time.Hour).Truncate(time.Minute), // first occurrence a week ago
+		EndsAt:         now.Add(-7 * 24 * time.Hour).Truncate(time.Minute).Add(2 * time.Hour),
+		RecurrenceType: models.RecurrenceDaily,
+		IsInstance:     false,
+	}
+	if err := d.db.Create(&parent).Error; err != nil {
+		t.Fatalf("seed recurring parent: %v", err)
+	}
+
+	// Pre-materialized media instance currently active on the same mount.
+	instance := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "media",
+		SourceID:   mediaID,
+		StartsAt:   now.Add(-10 * time.Second), // started 10s ago
+		EndsAt:     now.Add(35 * time.Second),  // ends in 35s
+		IsInstance: true,
+	}
+	if err := d.db.Create(&instance).Error; err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+
+	d.scheduleCache.dirty = true
+	entries, err := d.getScheduleSnapshot(ctx, now)
+	if err != nil {
+		t.Fatalf("getScheduleSnapshot: %v", err)
+	}
+
+	for _, e := range entries {
+		if e.ID == parent.ID {
+			t.Errorf("recurring smart_block parent should be suppressed when instances are active, but it appeared in snapshot")
+		}
+	}
+
+	found := false
+	for _, e := range entries {
+		if e.ID == instance.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("pre-materialized instance should still appear in snapshot")
+	}
+}
+
+// TestGetScheduleSnapshot_ParentKeptWhenNoInstances verifies that the recurring
+// smart_block parent is NOT suppressed when no pre-materialized instances are
+// active for the mount (fall-through to live generation).
+func TestGetScheduleSnapshot_ParentKeptWhenNoInstances(t *testing.T) {
+	d, _ := newMockDirector(t, &models.ScheduleEntry{})
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	blockID := uuid.NewString()
+
+	now := time.Now().UTC()
+
+	parent := models.ScheduleEntry{
+		ID:             uuid.NewString(),
+		StationID:      stationID,
+		MountID:        mountID,
+		SourceType:     "smart_block",
+		SourceID:       blockID,
+		StartsAt:       now.Add(-7 * 24 * time.Hour).Truncate(time.Minute),
+		EndsAt:         now.Add(-7 * 24 * time.Hour).Truncate(time.Minute).Add(2 * time.Hour),
+		RecurrenceType: models.RecurrenceDaily,
+		IsInstance:     false,
+	}
+	if err := d.db.Create(&parent).Error; err != nil {
+		t.Fatalf("seed recurring parent: %v", err)
+	}
+
+	d.scheduleCache.dirty = true
+	entries, err := d.getScheduleSnapshot(ctx, now)
+	if err != nil {
+		t.Fatalf("getScheduleSnapshot: %v", err)
+	}
+
+	found := false
+	for _, e := range entries {
+		if e.ID == parent.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("recurring parent should be kept in snapshot when no instances exist")
+	}
+}
+
 // ── playNextFromState ─────────────────────────────────────────────────────
 
 func TestPlayNextFromState_WithMountAndMedia_SetsActiveStateAtPosition(t *testing.T) {
