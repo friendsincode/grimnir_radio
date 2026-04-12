@@ -127,12 +127,29 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 		}
 
 		// Interleave interstitial/ad tracks if configured.
-		if def.Interstitials.Enabled && len(def.Interstitials.Sources) > 0 {
-			interstitials, err := e.fetchInterstitialCandidates(ctx, def.Interstitials, req.StationID)
-			if err != nil {
-				e.logger.Warn().Err(err).Str("smart_block", req.SmartBlockID).Msg("failed to fetch interstitial candidates")
-			} else if len(interstitials) > 0 {
-				interleaveInterstitials(&result, interstitials, def.Interstitials.EveryN, def.Interstitials.PerBreak, rng)
+		if def.Interstitials.Enabled {
+			if len(def.Interstitials.Sources) == 0 {
+				e.logger.Warn().Str("smart_block", req.SmartBlockID).
+					Msg("interstitials enabled but no sources configured — ads will not play; check the smart block interstitials settings")
+			} else {
+				interstitials, err := e.fetchInterstitialCandidates(ctx, def.Interstitials, req.StationID)
+				if err != nil {
+					e.logger.Warn().Err(err).Str("smart_block", req.SmartBlockID).Msg("failed to fetch interstitial candidates")
+				} else if len(interstitials) == 0 {
+					e.logger.Warn().
+						Str("smart_block", req.SmartBlockID).
+						Str("station", req.StationID).
+						Int("sources_configured", len(def.Interstitials.Sources)).
+						Msg("interstitials enabled but zero candidates found — check source playlist/genre has analyzed tracks")
+				} else {
+					e.logger.Debug().
+						Str("smart_block", req.SmartBlockID).
+						Int("candidates", len(interstitials)).
+						Int("every_n", def.Interstitials.EveryN).
+						Int("per_break", def.Interstitials.PerBreak).
+						Msg("interleaving interstitial tracks")
+					interleaveInterstitials(&result, interstitials, def.Interstitials.EveryN, def.Interstitials.PerBreak, rng)
+				}
 			}
 		}
 

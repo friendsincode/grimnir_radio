@@ -759,6 +759,9 @@ class GlobalPlayer {
         this.titleScrollPxPerSecond = 10;
         this.artistAutoScrollRaf = null;
         this.failedArtworkIds = new Set();
+        this.listenersEl = document.getElementById('playerListeners');
+        this.listenerCountEl = document.getElementById('playerListenerCount');
+        this.listenerPollInterval = null;
 
         // Cached stations for quick switching
         this.publicStations = [];
@@ -1208,6 +1211,7 @@ class GlobalPlayer {
             console.log('LQ stream selected, using HTTP directly');
             this.fallbackToHTTP(url);
             this.startMetadataPolling();
+            this.startListenerPolling();
             return;
         }
 
@@ -1233,8 +1237,9 @@ class GlobalPlayer {
             this.fallbackToHTTP(lqUrl);
         }
 
-        // Start fetching now-playing metadata
+        // Start fetching now-playing metadata and listener count
         this.startMetadataPolling();
+        this.startListenerPolling();
     }
 
     fallbackToHTTP(url) {
@@ -1489,6 +1494,35 @@ class GlobalPlayer {
             clearInterval(this.metadataInterval);
             this.metadataInterval = null;
         }
+    }
+
+    startListenerPolling() {
+        if (this.listenerPollInterval) {
+            clearInterval(this.listenerPollInterval);
+        }
+        this.fetchListenerCount();
+        this.listenerPollInterval = setInterval(() => {
+            if (this.isLive) this.fetchListenerCount();
+        }, 15000);
+    }
+
+    stopListenerPolling() {
+        if (this.listenerPollInterval) {
+            clearInterval(this.listenerPollInterval);
+            this.listenerPollInterval = null;
+        }
+        if (this.listenersEl) this.listenersEl.style.display = 'none';
+    }
+
+    fetchListenerCount() {
+        fetch('/api/v1/public/listeners')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data || !this.listenerCountEl || !this.listenersEl) return;
+                this.listenerCountEl.textContent = data.total;
+                this.listenersEl.style.display = '';
+            })
+            .catch(() => {});
     }
 
     async fetchNowPlayingMetadata() {
@@ -1822,6 +1856,7 @@ class GlobalPlayer {
         this.isLive = false;
         this.isLiveDJ = false;
         this.stopMetadataPolling();
+        this.stopListenerPolling();
         this.stopLiveTimeTicker();
         this.hide();
         sessionStorage.removeItem('grimnir-player-state');
