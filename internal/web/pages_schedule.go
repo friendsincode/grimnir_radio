@@ -379,7 +379,7 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 	endTime, _ := time.Parse(time.RFC3339, end)
 
 	if startTime.IsZero() {
-		startTime = time.Now().Add(-24 * time.Hour)
+		startTime = time.Now().Add(-28 * 24 * time.Hour)
 	}
 	if endTime.IsZero() {
 		endTime = time.Now().Add(48 * time.Hour)

@@ -2857,9 +2857,18 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 			return
 		}
 		// Otherwise fall through to random selection
+
+	case "media":
+		// Single media item entry (direct schedule entry or pre-materialized instance).
+		// Do not fill with random tracks — let the next tick pick up the next scheduled entry.
+		d.logger.Debug().
+			Str("entry", entry.ID).
+			Str("mount", entry.MountID).
+			Msg("media entry track ended within slot window, waiting for next scheduled entry")
+		return
 	}
 
-	// Default: random track selection (for plain media entries or exhausted sequences)
+	// Default: random track selection (for exhausted clock sequences)
 	d.playRandomNextTrack(entry, mountName)
 }
 
