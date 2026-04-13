@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"strconv"
 	"strings"
 	"sync"
@@ -674,7 +675,7 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 
 	result, err := s.engine.Generate(ctx, smartblock.GenerateRequest{
 		SmartBlockID: blockID,
-		Seed:         plan.StartsAt.Unix(),
+		Seed:         schedulerSmartBlockSeed(blockID, plan.SlotID, stationID, plan.StartsAt),
 		Duration:     targetDuration.Milliseconds(),
 		StationID:    stationID,
 		MountID:      mountID,
@@ -1052,4 +1053,18 @@ func stringValue(value any) string {
 	default:
 		return ""
 	}
+}
+
+// schedulerSmartBlockSeed produces a non-sequential seed for smart block
+// shuffle so that daily occurrences at the same wall-clock time don't produce
+// correlated track selections. Using plain StartsAt.Unix() gives seeds that
+// differ by exactly 86400 per day, which makes Go's PRNG output nearly
+// identical sequences for small candidate pools.
+func schedulerSmartBlockSeed(blockID, slotID, stationID string, startsAt time.Time) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(blockID))
+	_, _ = h.Write([]byte(slotID))
+	_, _ = h.Write([]byte(stationID))
+	_, _ = h.Write([]byte(startsAt.UTC().Format(time.RFC3339)))
+	return int64(h.Sum64() & 0x7fffffffffffffff)
 }
