@@ -2866,6 +2866,15 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 			Str("mount", entry.MountID).
 			Msg("media entry track ended within slot window, waiting for next scheduled entry")
 		return
+
+	case "random_fill":
+		// A single random fill track has played. Do not loop — let the tick decide
+		// whether another scheduled entry needs to start.
+		d.logger.Debug().
+			Str("entry", entry.ID).
+			Str("mount", entry.MountID).
+			Msg("random fill track ended, waiting for next scheduled entry")
+		return
 	}
 
 	// Default: random track selection (for exhausted clock sequences)
@@ -3279,6 +3288,7 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 		Ends:        entry.EndsAt,
 		TrackEndsAt: time.Now().Add(media.Duration + trackWatchdogGrace),
 		MountName:   mount.Name,
+		SourceType:  "random_fill",
 	}
 	d.mu.Unlock()
 	d.mu.Lock()
