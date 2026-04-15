@@ -1134,7 +1134,7 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 	}
 
 	// Watch for pipeline crashes and attempt reconnection
-	go d.watchWebstreamPipeline(ctx, entry, ws)
+	go d.watchWebstreamPipeline(ctx, entry, ws, mount.Name)
 
 	if hasPrev && prev.MediaID != webstreamID {
 		d.bus.Publish(events.EventHealth, events.Payload{
@@ -1157,7 +1157,7 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 // watchWebstreamPipeline monitors a webstream pipeline for crashes and attempts
 // reconnection with exponential backoff using the webstream's ReconnectDelayMS
 // and MaxReconnectAttempts settings.
-func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.ScheduleEntry, ws *models.Webstream) {
+func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.ScheduleEntry, ws *models.Webstream, mountName string) {
 	pipeline := d.manager.GetPipeline(entry.MountID)
 	if pipeline == nil {
 		return
@@ -1302,6 +1302,19 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				"status":     "error",
 			})
 
+			// Fill with automation while retrying so the mount isn't silent.
+			d.logger.Info().
+				Str("mount", mountName).
+				Str("webstream", ws.Name).
+				Msg("webstream down — filling with automation until stream recovers")
+			d.playRandomNextTrack(entry, mountName)
+			d.mu.Lock()
+			if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
+				s.SourceType = "webstream_fill"
+				d.active[entry.MountID] = s
+			}
+			d.mu.Unlock()
+
 			// Slow-retry: keep trying every 30 s for the duration of the scheduled
 			// slot rather than giving up and leaving the mount in dead air.
 			const slowRetryInterval = 30 * time.Second
@@ -1372,6 +1385,13 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 					Str("mount", entry.MountID).
 					Str("url", currentURL).
 					Msg("webstream pipeline reconnected (slow retry)")
+				// Restore active source type — fill stopped when the new webstream pipeline replaced it.
+				d.mu.Lock()
+				if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
+					s.SourceType = "webstream"
+					d.active[entry.MountID] = s
+				}
+				d.mu.Unlock()
 				reconnected = true
 				break
 			}
@@ -2867,6 +2887,11 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 			Msg("media entry track ended within slot window, waiting for next scheduled entry")
 		return
 
+	case "webstream":
+		// Webstream resumed — the fill pipeline was stopped by a reconnect.
+		// Do not restart fill tracks.
+		return
+
 	case "random_fill":
 		// A single random fill track has played. Do not loop — let the tick decide
 		// whether another scheduled entry needs to start.
@@ -2874,6 +2899,24 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 			Str("entry", entry.ID).
 			Str("mount", entry.MountID).
 			Msg("random fill track ended, waiting for next scheduled entry")
+		return
+
+	case "webstream_fill":
+		// Automation fill during a webstream slot whose upstream is down.
+		// Keep filling until the slot ends or the webstream recovers.
+		if now.After(entry.EndsAt) {
+			d.logger.Debug().Str("entry", entry.ID).Msg("webstream fill slot ended")
+			return
+		}
+		d.logger.Debug().Str("entry", entry.ID).Msg("webstream fill track ended, playing next fill track")
+		d.playRandomNextTrack(entry, mountName)
+		// Re-mark as webstream_fill so the next track also loops.
+		d.mu.Lock()
+		if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
+			s.SourceType = "webstream_fill"
+			d.active[entry.MountID] = s
+		}
+		d.mu.Unlock()
 		return
 	}
 
