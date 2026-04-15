@@ -1483,8 +1483,11 @@ func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount model
 	//   tee.src_1 -> queue -> LQ encoder -> fdsink fd=4
 	//   tee.src_2 -> queue -> Opus encoder -> rtpopuspay -> udpsink (WebRTC, optional)
 	// NOTE: No `identity sync=true` needed — webstreams are live sources already at real-time speed.
+	// watchdog fires an error if no buffers flow for 15 s, turning a stalled
+	// stream (live source went silent without closing the HTTP connection) into
+	// a pipeline crash that watchWebstreamPipeline can detect and recover from.
 	pipeline := fmt.Sprintf(
-		`%s%s ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! tee name=t `+
+		`%s%s ! watchdog timeout=15000 ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! tee name=t `+
 			`t. ! queue ! %s ! fdsink fd=3 `+
 			`t. ! queue ! %s ! fdsink fd=4%s`,
 		sourceElement, bufferElement, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
