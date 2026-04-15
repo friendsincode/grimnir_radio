@@ -1606,10 +1606,26 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 			d.publishNowPlaying(entry, map[string]any{"smart_block_id": block.ID, "smart_block_name": block.Name, "error": "no matching media"})
 			return nil
 		}
-		return d.playMedia(ctx, entry, media, map[string]any{
+		if err := d.playMedia(ctx, entry, media, map[string]any{
 			"smart_block_id":   block.ID,
 			"smart_block_name": block.Name,
-		})
+		}); err != nil {
+			return err
+		}
+		// Restore smart_block context so handleTrackEnded regenerates the sequence
+		// when this fallback track ends, rather than stopping silently (which would
+		// happen if SourceType remained "media").
+		d.mu.Lock()
+		if state, ok := d.active[entry.MountID]; ok {
+			state.SourceType = "smart_block"
+			state.SourceID = block.ID
+			state.Items = []string{media.ID}
+			state.TotalItems = 1
+			state.Position = 0
+			d.active[entry.MountID] = state
+		}
+		d.mu.Unlock()
+		return nil
 	}
 
 	if len(result.Items) == 0 {
