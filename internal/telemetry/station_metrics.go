@@ -7,15 +7,39 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package telemetry
 
 import (
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 )
 
 var startTime = time.Now()
 
+// safeLabel sanitizes a string for use as a Prometheus label value.
+// Prometheus panics on invalid UTF-8, so we sanitize first, then truncate
+// by rune count (not bytes) to avoid splitting multi-byte sequences.
+func safeLabel(s string, maxRunes int) string {
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "")
+	}
+	runes := []rune(s)
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes-3]) + "..."
+	}
+	return s
+}
+
 // UpdateStationMetrics queries the DB and updates station-level Prometheus gauges.
+// A deferred recover prevents any bad label value from crashing the server.
 func UpdateStationMetrics(db *gorm.DB) {
+	defer func() {
+		if r := recover(); r != nil {
+			// A corrupted or unexpected label value caused a panic.
+			// Log nothing here — the caller's ticker loop will retry next cycle.
+			_ = r
+		}
+	}()
 	UptimeSeconds.Set(time.Since(startTime).Seconds())
 
 	// Total stations
@@ -62,15 +86,7 @@ func UpdateStationMetrics(db *gorm.DB) {
 	// Reset now-playing metric to avoid stale label combos building up
 	NowPlayingInfo.Reset()
 	for _, np := range npRows {
-		title := np.Title
-		if len(title) > 60 {
-			title = title[:57] + "..."
-		}
-		artist := np.Artist
-		if len(artist) > 40 {
-			artist = artist[:37] + "..."
-		}
-		NowPlayingInfo.WithLabelValues(np.StationID, title, artist).Set(1)
+		NowPlayingInfo.WithLabelValues(np.StationID, safeLabel(np.Title, 60), safeLabel(np.Artist, 40)).Set(1)
 	}
 
 	// Plays in last 24h per station
