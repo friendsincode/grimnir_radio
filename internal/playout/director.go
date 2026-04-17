@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -3704,6 +3705,16 @@ func (d *Director) StopStation(ctx context.Context, stationID string) (int, erro
 			delete(d.active, mount.ID)
 			d.clearPersistedMountState(ctx, mount.ID)
 			stopped++
+
+			// Clear played-entry records for this mount's current entry so the director
+			// can immediately re-pick the entry on the next tick instead of waiting
+			// for the 30-minute prune window to expire.
+			entryPrefix := state.EntryID + "@"
+			for key := range d.played {
+				if strings.HasPrefix(key, entryPrefix) {
+					delete(d.played, key)
+				}
+			}
 
 			// Publish stop event
 			d.bus.Publish(events.EventHealth, events.Payload{
