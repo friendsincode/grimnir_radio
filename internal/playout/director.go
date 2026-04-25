@@ -1377,8 +1377,35 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 					}
 				}
 
+				// Mark as "webstream" BEFORE stopping the fill pipeline so that the
+				// fill track's handleTrackEnded (triggered by the stop below) sees
+				// SourceType="webstream" and returns early rather than starting yet
+				// another fill track. Without this the fill pipeline is still running
+				// when EnsurePipelineWithDualOutput is called, so it gets "pipeline
+				// already running" and the webstream can never actually reconnect.
+				d.mu.Lock()
+				if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
+					s.SourceType = "webstream"
+					d.active[entry.MountID] = s
+				}
+				d.mu.Unlock()
+
+				// Stop the fill pipeline so EnsurePipelineWithDualOutput can claim
+				// the mount slot for the webstream.
+				if stopErr := d.manager.StopPipeline(entry.MountID); stopErr != nil {
+					d.logger.Debug().Err(stopErr).Msg("slow-retry: stop fill pipeline")
+				}
+
 				if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipelineStr, nil, hqHandler, lqHandler); err != nil {
 					d.logger.Warn().Err(err).Msg("slow-retry: reconnect attempt failed")
+					// Webstream still down — go back to fill so the mount isn't silent.
+					d.mu.Lock()
+					if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
+						s.SourceType = "webstream_fill"
+						d.active[entry.MountID] = s
+					}
+					d.mu.Unlock()
+					d.playRandomNextTrack(entry, mountName)
 					continue
 				}
 
@@ -1386,13 +1413,6 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 					Str("mount", entry.MountID).
 					Str("url", currentURL).
 					Msg("webstream pipeline reconnected (slow retry)")
-				// Restore active source type — fill stopped when the new webstream pipeline replaced it.
-				d.mu.Lock()
-				if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
-					s.SourceType = "webstream"
-					d.active[entry.MountID] = s
-				}
-				d.mu.Unlock()
 				reconnected = true
 				break
 			}
