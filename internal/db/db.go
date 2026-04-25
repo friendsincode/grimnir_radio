@@ -34,7 +34,10 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	}
 
 	gormConfig := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		// Warn level: logs slow queries and errors only.
+		// Info would log every SQL statement, generating ~500K lines/day in
+		// production and evicting useful log entries from Docker's ring buffer.
+		Logger: logger.Default.LogMode(logger.Warn),
 	}
 
 	db, err := gorm.Open(dialector, gormConfig)
