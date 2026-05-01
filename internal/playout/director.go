@@ -1625,7 +1625,7 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 		if err != nil {
 			d.logger.Warn().Str("block", block.ID).Msg("no media found for smart block")
 			d.publishNowPlaying(entry, map[string]any{"smart_block_id": block.ID, "smart_block_name": block.Name, "error": "no matching media"})
-			return nil
+			return fmt.Errorf("smart block %s: generation failed and no fallback media available", block.ID)
 		}
 		if err := d.playMedia(ctx, entry, media, map[string]any{
 			"smart_block_id":   block.ID,
@@ -1652,7 +1652,7 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 	if len(result.Items) == 0 {
 		d.logger.Warn().Str("block", block.ID).Msg("smart block produced no items")
 		d.publishNowPlaying(entry, map[string]any{"smart_block_id": block.ID, "smart_block_name": block.Name, "error": "no matching media"})
-		return nil
+		return fmt.Errorf("smart block %s produced no items", block.ID)
 	}
 
 	// Extract media IDs from sequence
@@ -3379,17 +3379,22 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 	d.mu.Unlock()
 	d.persistMountState(context.Background(), entry.MountID, s)
 
+	contentType := "audio/mpeg"
+	if mount.Format == "aac" {
+		contentType = "audio/aac"
+	} else if mount.Format == "ogg" || mount.Format == "vorbis" {
+		contentType = "audio/ogg"
+	}
+
 	broadcastMount := d.broadcast.GetMount(mount.Name)
 	if broadcastMount == nil {
-		d.logger.Warn().Str("mount", mount.Name).Msg("broadcast mount not found for next track")
-		return
+		broadcastMount = d.broadcast.CreateMount(mount.Name, contentType, hqBitrate)
 	}
 
 	lqMountName := mount.Name + "-lq"
 	lqMount := d.broadcast.GetMount(lqMountName)
 	if lqMount == nil {
-		d.logger.Warn().Str("mount", lqMountName).Msg("LQ broadcast mount not found for next track")
-		return
+		lqMount = d.broadcast.CreateMount(lqMountName, contentType, lqBitrate)
 	}
 
 	d.logger.Info().
