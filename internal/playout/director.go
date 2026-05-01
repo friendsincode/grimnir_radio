@@ -3818,7 +3818,14 @@ func (d *Director) SkipStation(ctx context.Context, stationID string) (int, erro
 		}
 
 		skipped++
-		go d.handleTrackEnded(entry, mount.Name)
+		if sess != nil {
+			// Crossfade path: hqHandler does NOT call handleTrackEnded on pipeline exit,
+			// so we must trigger it explicitly to advance the playlist.
+			go d.handleTrackEnded(entry, mount.Name)
+		}
+		// Non-crossfade path: hqHandlerWithEnd already calls handleTrackEnded when the
+		// pipeline exits after StopPipeline above. An explicit call here would race with
+		// that goroutine and double-advance the playlist position.
 	}
 
 	d.logger.Info().

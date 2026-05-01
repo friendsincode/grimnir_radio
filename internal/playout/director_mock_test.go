@@ -646,6 +646,60 @@ func TestSkipStation_WithActiveMount_Skips(t *testing.T) {
 	}
 }
 
+// TestSkipStation_NonXfade_DoesNotDirectlyCallHandleTrackEnded verifies that
+// for a non-crossfade mount (no xfade session), SkipStation does NOT explicitly
+// call handleTrackEnded. The active state must still be present immediately after
+// SkipStation returns — only the hqHandlerWithEnd pipeline goroutine should
+// trigger it (which doesn't run in mock tests).
+func TestSkipStation_NonXfade_DoesNotDirectlyCallHandleTrackEnded(t *testing.T) {
+	d, _ := newMockDirector(t)
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	entryID := uuid.NewString()
+
+	mount := models.Mount{
+		ID:        mountID,
+		StationID: stationID,
+		Name:      "main-noxfade-" + mountID[:8],
+	}
+	if err := d.db.Create(&mount).Error; err != nil {
+		t.Fatalf("seed mount: %v", err)
+	}
+
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		MediaID:   uuid.NewString(),
+		EntryID:   entryID,
+		StationID: stationID,
+		Started:   time.Now().UTC(),
+		Ends:      time.Now().UTC().Add(5 * time.Minute),
+	}
+	d.mu.Unlock()
+
+	// No xfade session registered — non-crossfade path.
+	skipped, err := d.SkipStation(ctx, stationID)
+	if err != nil {
+		t.Fatalf("SkipStation error: %v", err)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1", skipped)
+	}
+
+	// active state must still be present: SkipStation must not have called
+	// handleTrackEnded directly (which would have cleared/modified it).
+	d.mu.Lock()
+	state, ok := d.active[mountID]
+	d.mu.Unlock()
+	if !ok {
+		t.Fatal("active state was cleared — handleTrackEnded was called directly (double-fire bug)")
+	}
+	if state.EntryID != entryID {
+		t.Errorf("active.EntryID changed from %q to %q — handleTrackEnded fired unexpectedly", entryID, state.EntryID)
+	}
+}
+
 // ── ReloadStation ─────────────────────────────────────────────────────────
 
 func TestReloadStation_NoMounts_ReturnsZero(t *testing.T) {
