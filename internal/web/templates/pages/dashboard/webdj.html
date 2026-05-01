@@ -1673,7 +1673,7 @@
             nowPlayingEl.innerHTML = renderNowPlaying(np);
             upcomingEl.innerHTML = renderEntries(entries);
         } catch (err) {
-            nowPlayingEl.innerHTML = '<span style="color:#dc2626">Failed to load IRT state.</span>';
+            nowPlayingEl.innerHTML = '<span style="color:#888"><i class="bi bi-wifi-off me-1"></i>Refresh failed — retrying…</span>';
         }
     }
 

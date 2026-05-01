@@ -57,7 +57,7 @@ func TestPlayRandomNextTrack_MountNotFound(t *testing.T) {
 	d.playRandomNextTrack(entry, "main")
 }
 
-func TestPlayRandomNextTrack_BroadcastMountNotFound(t *testing.T) {
+func TestPlayRandomNextTrack_AutoCreatesMissingMounts(t *testing.T) {
 	d, _ := newMockDirector(t)
 
 	stationID := uuid.NewString()
@@ -95,53 +95,21 @@ func TestPlayRandomNextTrack_BroadcastMountNotFound(t *testing.T) {
 		StartsAt:  time.Now().UTC(),
 		EndsAt:    time.Now().UTC().Add(5 * time.Minute),
 	}
-	// no broadcast mount → early return
+	// No broadcast mounts pre-created — they should be auto-created and pipeline started.
 	d.playRandomNextTrack(entry, mount.Name)
-}
 
-func TestPlayRandomNextTrack_LQMountNotFound(t *testing.T) {
-	d, _ := newMockDirector(t)
-
-	stationID := uuid.NewString()
-	mountID := uuid.NewString()
-
-	mount := models.Mount{
-		ID:         mountID,
-		StationID:  stationID,
-		Name:       "random-no-lq-" + mountID[:8],
-		Format:     "mp3",
-		Bitrate:    128,
-		SampleRate: 44100,
-		Channels:   2,
+	if d.broadcast.GetMount(mount.Name) == nil {
+		t.Error("expected HQ broadcast mount to be auto-created")
 	}
-	if err := d.db.Create(&mount).Error; err != nil {
-		t.Fatalf("seed mount: %v", err)
+	if d.broadcast.GetMount(mount.Name+"-lq") == nil {
+		t.Error("expected LQ broadcast mount to be auto-created")
 	}
-
-	media := models.MediaItem{
-		ID:            uuid.NewString(),
-		StationID:     stationID,
-		Title:         "Random No LQ",
-		Path:          "/tmp/random-no-lq.mp3",
-		Duration:      3 * time.Minute,
-		AnalysisState: models.AnalysisComplete,
+	d.mu.Lock()
+	_, active := d.active[mountID]
+	d.mu.Unlock()
+	if !active {
+		t.Error("expected active playout state after auto-creating mounts")
 	}
-	if err := d.db.Create(&media).Error; err != nil {
-		t.Fatalf("seed media: %v", err)
-	}
-
-	// Only HQ mount, no LQ
-	d.broadcast.CreateMount(mount.Name, "audio/mpeg", 128)
-
-	entry := models.ScheduleEntry{
-		ID:        uuid.NewString(),
-		StationID: stationID,
-		MountID:   mountID,
-		StartsAt:  time.Now().UTC(),
-		EndsAt:    time.Now().UTC().Add(5 * time.Minute),
-	}
-	// LQ mount missing → early return
-	d.playRandomNextTrack(entry, mount.Name)
 }
 
 func TestPlayRandomNextTrack_NormalPath(t *testing.T) {

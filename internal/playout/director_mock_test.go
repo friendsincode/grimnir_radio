@@ -506,6 +506,39 @@ func TestStartSmartBlockEntry_BlockNotFound_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestStartSmartBlockEntry_EmptyResult_ReturnsError(t *testing.T) {
+	d, _ := newMockDirector(t, &models.SmartBlock{})
+	ctx := context.Background()
+
+	blockID := uuid.NewString()
+	stationID := uuid.NewString()
+	block := models.SmartBlock{
+		ID:        blockID,
+		StationID: stationID,
+		Name:      "empty block",
+	}
+	if err := d.db.Create(&block).Error; err != nil {
+		t.Fatalf("seed smart block: %v", err)
+	}
+
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    uuid.NewString(),
+		SourceType: "smart_block",
+		SourceID:   blockID,
+		StartsAt:   time.Now().UTC().Add(-1 * time.Second),
+		EndsAt:     time.Now().UTC().Add(5 * time.Minute),
+	}
+
+	// No media in DB → engine produces 0 items → must return error (not nil)
+	// so the scheduler can retry rather than silently marking the slot played.
+	err := d.startSmartBlockEntry(ctx, entry)
+	if err == nil {
+		t.Error("expected error when smart block produces no items")
+	}
+}
+
 // ── StopStation ───────────────────────────────────────────────────────────
 
 func TestStopStation_NoMounts_ReturnsZero(t *testing.T) {
@@ -859,10 +892,11 @@ func TestStartSmartBlockEntry_WithBlock_NoMediaFallback(t *testing.T) {
 		EndsAt:     time.Now().UTC().Add(5 * time.Minute),
 	}
 
-	// Should not return an error even when no media found — it logs and publishes error state
+	// With no media, engine fails and fallback also finds nothing → must return error
+	// so the scheduler retries rather than silently marking the slot played.
 	err := d.startSmartBlockEntry(ctx, entry)
-	if err != nil {
-		t.Errorf("startSmartBlockEntry with no media should not error, got: %v", err)
+	if err == nil {
+		t.Error("startSmartBlockEntry with no media should return error so scheduler can retry")
 	}
 }
 
