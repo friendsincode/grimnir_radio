@@ -1303,18 +1303,35 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				"status":     "error",
 			})
 
-			// Fill with automation while retrying so the mount isn't silent.
-			d.logger.Info().
-				Str("mount", mountName).
-				Str("webstream", ws.Name).
-				Msg("webstream down — filling with automation until stream recovers")
-			d.playRandomNextTrack(entry, mountName)
-			d.mu.Lock()
-			if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
-				s.SourceType = "webstream_fill"
-				d.active[entry.MountID] = s
+			// During startup the source mount for a relay webstream may not be
+			// ready yet (startup ordering). Filling with automation from this
+			// station's media library would play wrong-station content, which is
+			// worse than brief silence. Skip the fill until the slot has been
+			// running long enough that a startup race is no longer the cause.
+			const startupGrace = 5 * time.Minute
+			isFilling := false
+
+			if time.Since(entry.StartsAt) >= startupGrace {
+				// Fill with automation while retrying so the mount isn't silent.
+				d.logger.Info().
+					Str("mount", mountName).
+					Str("webstream", ws.Name).
+					Msg("webstream down — filling with automation until stream recovers")
+				d.playRandomNextTrack(entry, mountName)
+				d.mu.Lock()
+				if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
+					s.SourceType = "webstream_fill"
+					d.active[entry.MountID] = s
+				}
+				d.mu.Unlock()
+				isFilling = true
+			} else {
+				d.logger.Info().
+					Str("mount", mountName).
+					Str("webstream", ws.Name).
+					Dur("grace", startupGrace).
+					Msg("webstream down within startup grace period — retrying without automation fill")
 			}
-			d.mu.Unlock()
 
 			// Slow-retry: keep trying every 30 s for the duration of the scheduled
 			// slot rather than giving up and leaving the mount in dead air.
@@ -1391,21 +1408,31 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				d.mu.Unlock()
 
 				// Stop the fill pipeline so EnsurePipelineWithDualOutput can claim
-				// the mount slot for the webstream.
-				if stopErr := d.manager.StopPipeline(entry.MountID); stopErr != nil {
-					d.logger.Debug().Err(stopErr).Msg("slow-retry: stop fill pipeline")
+				// the mount slot for the webstream. Only needed if we're actually filling.
+				if isFilling {
+					if stopErr := d.manager.StopPipeline(entry.MountID); stopErr != nil {
+						d.logger.Debug().Err(stopErr).Msg("slow-retry: stop fill pipeline")
+					}
 				}
 
 				if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipelineStr, nil, hqHandler, lqHandler); err != nil {
 					d.logger.Warn().Err(err).Msg("slow-retry: reconnect attempt failed")
-					// Webstream still down — go back to fill so the mount isn't silent.
-					d.mu.Lock()
-					if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
-						s.SourceType = "webstream_fill"
-						d.active[entry.MountID] = s
+					// Only fill if we're past the startup grace period to avoid
+					// playing wrong-station content during a startup ordering race.
+					if time.Since(entry.StartsAt) >= startupGrace {
+						d.mu.Lock()
+						if s, ok := d.active[entry.MountID]; ok && s.EntryID == entry.ID {
+							s.SourceType = "webstream_fill"
+							d.active[entry.MountID] = s
+						}
+						d.mu.Unlock()
+						d.playRandomNextTrack(entry, mountName)
+						isFilling = true
+					} else {
+						// Within grace period: leave SourceType="webstream" (set above)
+						// so handleTrackEnded returns early and doesn't start a fill.
+						isFilling = false
 					}
-					d.mu.Unlock()
-					d.playRandomNextTrack(entry, mountName)
 					continue
 				}
 
@@ -1413,6 +1440,7 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 					Str("mount", entry.MountID).
 					Str("url", currentURL).
 					Msg("webstream pipeline reconnected (slow retry)")
+				isFilling = false
 				reconnected = true
 				break
 			}
