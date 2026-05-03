@@ -377,15 +377,30 @@ func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, statio
 		// Use a full overlap check (not just starts_at range) so that a track
 		// which starts before this slot's boundary but ends during it is also
 		// detected — preventing a spurious 23514 constraint violation.
-		var count int64
+		// Check 1 (mount-agnostic): prevents cross-mount double-materialization —
+		// clock-generated media on mount A must not cause a second materialization
+		// on mount B. Keep existing behavior.
+		var mediaCount int64
 		if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
 			Where("station_id = ? AND source_type = 'media' AND starts_at < ? AND ends_at > ?",
 				stationID, entry.EndsAt, entry.StartsAt).
-			Count(&count).Error; err != nil {
+			Count(&mediaCount).Error; err != nil {
 			return err
 		}
-		if count > 0 {
-			continue // Window already materialized or conflicting; skip.
+		if mediaCount > 0 {
+			continue // Media already covers this window.
+		}
+		// Check 2 (same-mount, any source_type): prevents smart_block from
+		// materializing on a mount that already has a playlist, webstream, etc.
+		var mountCount int64
+		if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+			Where("station_id = ? AND mount_id = ? AND starts_at < ? AND ends_at > ?",
+				stationID, mountID, entry.EndsAt, entry.StartsAt).
+			Count(&mountCount).Error; err != nil {
+			return err
+		}
+		if mountCount > 0 {
+			continue // Same mount occupied by another entry type; skip.
 		}
 
 		plan := clock.SlotPlan{
