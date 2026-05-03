@@ -788,7 +788,9 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		return nil
 	}
 
-	return s.db.WithContext(ctx).Create(&entries).Error
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return tx.Create(&entries).Error
+	})
 }
 
 func (s *Service) createPlaylistEntry(ctx context.Context, stationID string, plan clock.SlotPlan) error {
