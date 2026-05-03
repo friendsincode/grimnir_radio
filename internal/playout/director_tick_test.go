@@ -495,3 +495,119 @@ func TestTick_HardBoundaryPreemption_ClearsOldActiveBeforeStartingNew(t *testing
 		t.Errorf("EntryID = %q, want %q (new entry should own mount after preemption)", activeState.EntryID, entry2.ID)
 	}
 }
+
+func TestCheckDeadAir_RestartsIdleMount(t *testing.T) {
+	d, _ := newMockDirector(t, &models.ScheduleEntry{})
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+
+	mount := models.Mount{
+		ID:         mountID,
+		StationID:  stationID,
+		Name:       "dead-air-" + mountID[:8],
+		Format:     "mp3",
+		Bitrate:    128,
+		SampleRate: 44100,
+		Channels:   2,
+	}
+	if err := d.db.Create(&mount).Error; err != nil {
+		t.Fatalf("seed mount: %v", err)
+	}
+
+	media := models.MediaItem{
+		ID:            uuid.NewString(),
+		StationID:     stationID,
+		Path:          "/tmp/da.mp3",
+		Duration:      5 * time.Minute,
+		AnalysisState: models.AnalysisComplete,
+	}
+	if err := d.db.Create(&media).Error; err != nil {
+		t.Fatalf("seed media: %v", err)
+	}
+
+	now := time.Now().UTC()
+	// Entry started 20s ago — past 15s grace period, still within its window.
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "media",
+		SourceID:   media.ID,
+		StartsAt:   now.Add(-20 * time.Second),
+		EndsAt:     now.Add(5 * time.Minute),
+	}
+	if err := d.db.Create(&entry).Error; err != nil {
+		t.Fatalf("seed entry: %v", err)
+	}
+
+	d.broadcast.CreateMount(mount.Name, "audio/mpeg", 128)
+	d.broadcast.CreateMount(mount.Name+"-lq", "audio/mpeg", 64)
+
+	// d.active is empty — no pipeline running. Call checkDeadAir directly so we
+	// isolate watchdog behavior from the normal tick dispatch path.
+	d.checkDeadAir(context.Background(), now)
+
+	d.mu.Lock()
+	_, active := d.active[mountID]
+	d.mu.Unlock()
+	if !active {
+		t.Error("expected dead air watchdog to restart the mount")
+	}
+}
+
+func TestCheckDeadAir_RespectsGracePeriod(t *testing.T) {
+	d, _ := newMockDirector(t, &models.ScheduleEntry{})
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+
+	mount := models.Mount{
+		ID:         mountID,
+		StationID:  stationID,
+		Name:       "grace-" + mountID[:8],
+		Format:     "mp3",
+		Bitrate:    128,
+		SampleRate: 44100,
+		Channels:   2,
+	}
+	if err := d.db.Create(&mount).Error; err != nil {
+		t.Fatalf("seed mount: %v", err)
+	}
+
+	media := models.MediaItem{
+		ID:            uuid.NewString(),
+		StationID:     stationID,
+		Path:          "/tmp/grace.mp3",
+		Duration:      5 * time.Minute,
+		AnalysisState: models.AnalysisComplete,
+	}
+	if err := d.db.Create(&media).Error; err != nil {
+		t.Fatalf("seed media: %v", err)
+	}
+
+	now := time.Now().UTC()
+	// Entry started only 5s ago — within 15s grace period.
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "media",
+		SourceID:   media.ID,
+		StartsAt:   now.Add(-5 * time.Second),
+		EndsAt:     now.Add(5 * time.Minute),
+	}
+	if err := d.db.Create(&entry).Error; err != nil {
+		t.Fatalf("seed entry: %v", err)
+	}
+
+	// Call checkDeadAir directly to isolate watchdog from normal tick dispatch.
+	d.checkDeadAir(context.Background(), now)
+
+	d.mu.Lock()
+	_, active := d.active[mountID]
+	d.mu.Unlock()
+	if active {
+		t.Error("expected watchdog NOT to trigger during grace period")
+	}
+}
