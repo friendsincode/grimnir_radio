@@ -234,6 +234,59 @@ func TestMaterializeSmartBlock_TracksClippedToSlotBoundary(t *testing.T) {
 	}
 }
 
+func TestMaterializeDirectSmartBlock_SkipsWhenPlaylistOccupiesMount(t *testing.T) {
+	svc, db := newMaterializationTestService(t)
+	svc.lookahead = 48 * time.Hour
+	stationID := "station-sb-playlist-skip"
+	mountID := "mount-sb-playlist-skip"
+	now := time.Now().UTC().Truncate(time.Minute)
+	ctx := context.Background()
+
+	createTestMount(t, db, stationID, mountID)
+
+	// Playlist already occupies this mount+window
+	playlist := models.ScheduleEntry{
+		ID:         "playlist-entry-skip",
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "playlist",
+		SourceID:   "pl-skip-01",
+		StartsAt:   now.Add(-8 * time.Minute),
+		EndsAt:     now.Add(2 * time.Hour),
+	}
+	if err := db.Create(&playlist).Error; err != nil {
+		t.Fatalf("create playlist entry: %v", err)
+	}
+
+	// Recurring smart_block parent on same mount
+	sbParent := models.ScheduleEntry{
+		ID:             "sb-parent-skip",
+		StationID:      stationID,
+		MountID:        mountID,
+		SourceType:     "smart_block",
+		SourceID:       "sb-source-skip",
+		StartsAt:       now.Add(-time.Hour),
+		EndsAt:         now.Add(time.Hour),
+		RecurrenceType: models.RecurrenceWeekly,
+		IsInstance:     false,
+	}
+	if err := db.Create(&sbParent).Error; err != nil {
+		t.Fatalf("create smart_block parent entry: %v", err)
+	}
+
+	if err := svc.materializeDirectSmartBlockEntries(ctx, stationID, now); err != nil {
+		t.Fatalf("materializeDirectSmartBlockEntries returned error: %v", err)
+	}
+
+	var count int64
+	db.Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND source_type = 'media'", stationID).
+		Count(&count)
+	if count != 0 {
+		t.Errorf("expected 0 media entries (smart_block should not materialize when playlist occupies same mount), got %d", count)
+	}
+}
+
 func TestCreateWebstreamEntry(t *testing.T) {
 	svc, db := newMaterializationTestService(t)
 	ctx := context.Background()
