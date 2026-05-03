@@ -229,6 +229,7 @@ func (d *Director) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			d.flushTrackPositions(context.Background())
 			d.logger.Info().Msg("playout director stopped")
 			return ctx.Err()
 		case <-ticker.C:

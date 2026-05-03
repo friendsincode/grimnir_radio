@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -79,5 +80,43 @@ func TestDirector_PersistAndLoadMountState(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected state to be cleared, count=%d", count)
+	}
+}
+
+func TestRun_GracefulShutdown_FlushesPositions(t *testing.T) {
+	d, _ := newMockDirector(t)
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	mediaID := uuid.NewString()
+	entryID := uuid.NewString()
+
+	startedAt := time.Now().UTC().Add(-30 * time.Second)
+	if err := d.db.Create(&models.MountPlayoutState{
+		MountID:   mountID,
+		StationID: stationID,
+		EntryID:   entryID,
+		MediaID:   mediaID,
+		StartedAt: startedAt,
+		EndsAt:    time.Now().UTC().Add(5 * time.Minute),
+		UpdatedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatalf("seed MountPlayoutState: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+
+	var state models.MountPlayoutState
+	if err := d.db.First(&state, "mount_id = ?", mountID).Error; err != nil {
+		t.Fatalf("load MountPlayoutState: %v", err)
+	}
+	if state.TrackPositionMS <= 0 {
+		t.Errorf("expected TrackPositionMS > 0 after shutdown flush, got %d", state.TrackPositionMS)
 	}
 }
