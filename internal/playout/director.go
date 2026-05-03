@@ -323,8 +323,63 @@ func (d *Director) tick(ctx context.Context) error {
 	}
 
 	d.checkStuckTracks(now)
+	d.checkDeadAir(ctx, now)
 	d.emitHealthSnapshot()
 	return nil
+}
+
+// checkDeadAir detects schedule entries that should be playing but have no active pipeline.
+// This is the inverse of checkStuckTracks. Live entries are excluded since intentional silence
+// on air is valid; all other source types (including webstream) are monitored.
+// A 15-second grace period prevents false triggers during normal entry transitions.
+func (d *Director) checkDeadAir(ctx context.Context, now time.Time) {
+	const deadAirGrace = 15 * time.Second
+
+	entries, err := d.getScheduleSnapshot(ctx, now)
+	if err != nil {
+		return
+	}
+
+	d.mu.Lock()
+	activeMounts := make(map[string]string, len(d.active))
+	for mountID, state := range d.active {
+		if state.MediaID != "" || state.SourceType == "webstream" || state.SourceType == "live" {
+			activeMounts[mountID] = state.EntryID
+		}
+	}
+	d.mu.Unlock()
+
+	seen := make(map[string]bool)
+	for _, rawEntry := range entries {
+		if seen[rawEntry.MountID] {
+			continue
+		}
+		if rawEntry.SourceType == "live" {
+			continue
+		}
+		if now.Before(rawEntry.StartsAt) || now.After(rawEntry.EndsAt) {
+			continue
+		}
+		if now.Before(rawEntry.StartsAt.Add(deadAirGrace)) {
+			continue
+		}
+		if activeMounts[rawEntry.MountID] != "" {
+			seen[rawEntry.MountID] = true
+			continue
+		}
+		seen[rawEntry.MountID] = true
+		d.logger.Warn().
+			Str("mount", rawEntry.MountID).
+			Str("entry", rawEntry.ID).
+			Str("source_type", rawEntry.SourceType).
+			Dur("overdue_by", now.Sub(rawEntry.StartsAt)).
+			Msg("dead air detected: no active pipeline — restarting entry")
+		if err := d.handleEntry(ctx, rawEntry); err != nil {
+			d.logger.Warn().Err(err).Str("entry", rawEntry.ID).Msg("dead air recovery failed")
+		} else {
+			d.markPlayed(playbackKey(rawEntry.ID, rawEntry.StartsAt), rawEntry.EndsAt)
+		}
+	}
 }
 
 // checkStuckTracks detects tracks that have played past their expected end time and
@@ -1615,6 +1670,20 @@ func (d *Director) startPlaylistEntry(ctx context.Context, entry models.Schedule
 		occStart := entry.StartsAt.UTC().Format(time.RFC3339)
 		if savedStart == occStart {
 			position = int(p) % len(items)
+		}
+	}
+
+	// Time-aware skip: if no saved position and the entry started in the past,
+	// calculate where we should be based on elapsed wall-clock time.
+	if position == 0 {
+		elapsed := time.Now().UTC().Sub(entry.StartsAt)
+		if calculated := d.calculateTimeAwarePosition(ctx, items, elapsed); calculated > 0 {
+			d.logger.Info().
+				Str("entry", entry.ID).
+				Int("position", calculated).
+				Dur("elapsed", elapsed).
+				Msg("time-aware playlist resume: skipping to calculated position")
+			position = calculated
 		}
 	}
 
@@ -3657,6 +3726,31 @@ func (d *Director) closeCurrentPlayHistory(ctx context.Context, stationID, mount
 		h.EndedAt = now
 		_ = d.db.WithContext(ctx).Save(&h)
 	}
+}
+
+// calculateTimeAwarePosition walks items, loads each track's duration from the DB, and returns
+// the index of the track that should be playing given elapsed wall-clock time since entry.StartsAt.
+// Returns 0 when elapsed is too small, items is empty, or durations cannot be loaded.
+func (d *Director) calculateTimeAwarePosition(ctx context.Context, items []string, elapsed time.Duration) int {
+	const minElapsed = 2 * time.Second
+	if elapsed <= minElapsed || len(items) == 0 {
+		return 0
+	}
+	var cumulative time.Duration
+	for i, mediaID := range items {
+		var media models.MediaItem
+		if err := d.db.WithContext(ctx).Select("duration").First(&media, "id = ?", mediaID).Error; err != nil {
+			return i
+		}
+		if media.Duration <= 0 {
+			continue
+		}
+		cumulative += media.Duration
+		if cumulative >= elapsed {
+			return i
+		}
+	}
+	return len(items) - 1
 }
 
 // findResumeOffset returns the position (in ms) to resume a track from after an interruption.
