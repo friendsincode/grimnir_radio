@@ -399,3 +399,99 @@ func TestPlayNextFromState_WithMountAndMedia_SetsActiveStateAtPosition(t *testin
 		t.Errorf("Position = %d, want 1", active.Position)
 	}
 }
+
+func TestTick_HardBoundaryPreemption_ClearsOldActiveBeforeStartingNew(t *testing.T) {
+	d, _ := newMockDirector(t, &models.ScheduleEntry{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{})
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+
+	mount := models.Mount{
+		ID:         mountID,
+		StationID:  stationID,
+		Name:       "hb-preempt-" + mountID[:8],
+		Format:     "mp3",
+		Bitrate:    128,
+		SampleRate: 44100,
+		Channels:   2,
+	}
+	if err := d.db.Create(&mount).Error; err != nil {
+		t.Fatalf("seed mount: %v", err)
+	}
+
+	media1 := models.MediaItem{
+		ID:            uuid.NewString(),
+		StationID:     stationID,
+		Path:          "/tmp/m1.mp3",
+		Duration:      5 * time.Minute,
+		AnalysisState: models.AnalysisComplete,
+	}
+	media2 := models.MediaItem{
+		ID:            uuid.NewString(),
+		StationID:     stationID,
+		Path:          "/tmp/m2.mp3",
+		Duration:      5 * time.Minute,
+		AnalysisState: models.AnalysisComplete,
+	}
+	if err := d.db.Create(&media1).Error; err != nil {
+		t.Fatalf("seed media1: %v", err)
+	}
+	if err := d.db.Create(&media2).Error; err != nil {
+		t.Fatalf("seed media2: %v", err)
+	}
+
+	now := time.Now().UTC()
+	entry1 := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "media",
+		SourceID:   media1.ID,
+		StartsAt:   now.Add(-10 * time.Minute),
+		EndsAt:     now.Add(-1 * time.Second), // PAST its end
+	}
+	entry2 := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "media",
+		SourceID:   media2.ID,
+		StartsAt:   now.Add(-1 * time.Second),
+		EndsAt:     now.Add(5 * time.Minute),
+	}
+	if err := d.db.Create(&entry1).Error; err != nil {
+		t.Fatalf("seed entry1: %v", err)
+	}
+	if err := d.db.Create(&entry2).Error; err != nil {
+		t.Fatalf("seed entry2: %v", err)
+	}
+
+	// Prime d.active with entry1 still listed as active, but its Ends is in the past.
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		EntryID:    entry1.ID,
+		StationID:  stationID,
+		MediaID:    media1.ID,
+		Ends:       entry1.EndsAt,
+		SourceType: "media",
+	}
+	d.mu.Unlock()
+
+	d.broadcast.CreateMount(mount.Name, "audio/mpeg", 128)
+	d.broadcast.CreateMount(mount.Name+"-lq", "audio/mpeg", 64)
+
+	if err := d.tick(context.Background()); err != nil {
+		t.Errorf("tick returned error: %v", err)
+	}
+
+	d.mu.Lock()
+	activeState, ok := d.active[mountID]
+	d.mu.Unlock()
+
+	if !ok {
+		t.Fatal("expected active state on mount after tick with preempting entry")
+	}
+	if activeState.EntryID != entry2.ID {
+		t.Errorf("EntryID = %q, want %q (new entry should own mount after preemption)", activeState.EntryID, entry2.ID)
+	}
+}

@@ -273,6 +273,26 @@ func (d *Director) tick(ctx context.Context) error {
 			}
 		}
 
+		// Hard-boundary preemption handoff: when an entry's scheduled slot has ended
+		// but its pipeline may still be running, explicitly clear the active state
+		// and stop the pipeline before starting the new entry. This prevents the old
+		// pipeline's handleTrackEnded goroutine from racing with the new entry's state.
+		if hasActive && active.EntryID != entry.ID && active.StationID == entry.StationID &&
+			!now.Before(active.Ends) {
+			d.logger.Info().
+				Str("mount", entry.MountID).
+				Str("preempted", active.EntryID).
+				Str("new_entry", entry.ID).
+				Msg("hard boundary: clearing preempted entry state before starting new")
+			d.mu.Lock()
+			delete(d.active, entry.MountID)
+			d.mu.Unlock()
+			if err := d.manager.StopPipeline(entry.MountID); err != nil {
+				d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("preemption stop pipeline")
+			}
+			hasActive = false
+		}
+
 		// Crossfade lookahead: allow starting the next entry a little early so the fade completes
 		// exactly at the schedule boundary.
 		if entry.StartsAt.After(now) {
