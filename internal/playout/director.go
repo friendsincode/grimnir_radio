@@ -3699,7 +3699,11 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 		Metadata:  extra,
 	}
 
-	if err := d.db.Create(&history).Error; err != nil {
+	tx := d.db
+	if mediaID == "" {
+		tx = tx.Omit("MediaID")
+	}
+	if err := tx.Create(&history).Error; err != nil {
 		d.logger.Warn().Err(err).Msg("failed to record play history")
 	}
 }
