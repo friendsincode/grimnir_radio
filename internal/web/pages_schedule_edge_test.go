@@ -76,8 +76,8 @@ func TestScheduleUpdateEntrySingleInstanceCreatesOverride(t *testing.T) {
 		},
 		"edit_mode": "single",
 	})
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/"+recurrenceInstanceKey(parent.ID, instanceStart), bytes.NewReader(reqBody))
-	req = withScheduleRouteID(req, recurrenceInstanceKey(parent.ID, instanceStart))
+	req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/"+recurrenceInstanceKey(parent.ID, instanceStart, time.UTC), bytes.NewReader(reqBody))
+	req = withScheduleRouteID(req, recurrenceInstanceKey(parent.ID, instanceStart, time.UTC))
 	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
 	rr := httptest.NewRecorder()
 
@@ -129,7 +129,7 @@ func TestExpandRecurringEntrySkipsOverridesAndRespectsEndDate(t *testing.T) {
 	rangeStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	rangeEnd := time.Date(2026, 3, 31, 23, 59, 59, 0, time.UTC)
 	overrides := map[string]struct{}{
-		recurrenceInstanceKey(entry.ID, time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC)): {},
+		recurrenceInstanceKey(entry.ID, time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC), time.UTC): {},
 	}
 
 	instances := h.expandRecurringEntry(entry, rangeStart, rangeEnd, overrides, time.UTC)
@@ -257,7 +257,7 @@ func TestScheduleDeleteEntryVirtualInstanceNotFound(t *testing.T) {
 	db, station := newScheduleEdgeTestDB(t)
 	h := &Handler{db: db, logger: zerolog.Nop()}
 
-	virtualID := recurrenceInstanceKey("missing-parent", time.Date(2026, 3, 20, 9, 0, 0, 0, time.UTC))
+	virtualID := recurrenceInstanceKey("missing-parent", time.Date(2026, 3, 20, 9, 0, 0, 0, time.UTC), time.UTC)
 	req := httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/"+virtualID, nil)
 	req = withScheduleRouteID(req, virtualID)
 	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
@@ -289,7 +289,7 @@ func TestScheduleDeleteEntryVirtualInstanceEndsRecurrence(t *testing.T) {
 	}
 
 	// Delete a virtual recurring instance with no concrete override — should end recurrence.
-	virtualID := recurrenceInstanceKey(parent.ID, occurrenceDate)
+	virtualID := recurrenceInstanceKey(parent.ID, occurrenceDate, time.UTC)
 	req := httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/"+virtualID, nil)
 	req = withScheduleRouteID(req, virtualID)
 	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
@@ -360,8 +360,8 @@ func TestScheduleUpdateEntryForwardSplitsSeries(t *testing.T) {
 		"source_id":   "block-2",
 		"edit_mode":   "forward",
 	})
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/"+recurrenceInstanceKey(parent.ID, instanceStart), bytes.NewReader(reqBody))
-	req = withScheduleRouteID(req, recurrenceInstanceKey(parent.ID, instanceStart))
+	req := httptest.NewRequest(http.MethodPut, "/dashboard/schedule/entries/"+recurrenceInstanceKey(parent.ID, instanceStart, time.UTC), bytes.NewReader(reqBody))
+	req = withScheduleRouteID(req, recurrenceInstanceKey(parent.ID, instanceStart, time.UTC))
 	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
 	rr := httptest.NewRecorder()
 

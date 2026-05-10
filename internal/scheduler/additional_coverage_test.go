@@ -301,7 +301,7 @@ func TestMaterializeDirectSmartBlockEntries_NonRecurring(t *testing.T) {
 	}
 
 	// Should not panic — engine may fail to generate but that's ok
-	_ = svc.materializeDirectSmartBlockEntries(ctx, stationID, now)
+	_ = svc.materializeDirectScheduleEntries(ctx, stationID, now)
 }
 
 // TestScheduleStation_SlotBeforeStart verifies plan.StartsAt.Before(start) skip path.
@@ -384,4 +384,137 @@ func TestMaterializeSmartBlock_NegativeDuration(t *testing.T) {
 	// Will fail because block doesn't exist (engine will return error),
 	// but the duration-computation path is exercised before that.
 	_ = svc.materializeSmartBlock(ctx, stationID, plan)
+}
+
+// TestMaterializeDirectScheduleEntries_RecurringPlaylist locks in the v1.40.0 fix:
+// recurring playlist parents must be expanded into is_instance=true rows the executor
+// can play. Pre-fix, the materializer hardcoded source_type='smart_block', so weekly
+// playlist parents silently produced dead air on every recurrence.
+func TestMaterializeDirectScheduleEntries_RecurringPlaylist(t *testing.T) {
+	svc, db := newRunTestService(t)
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	if err := db.Create(&models.Station{ID: stationID, Name: "Recur Playlist", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.Mount{ID: mountID, StationID: stationID, Name: "M",
+		URL: "https://example.invalid/m.mp3", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	playlistID := uuid.NewString()
+	if err := db.Create(&models.Playlist{ID: playlistID, StationID: stationID, Name: "Sunday Show"}).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+
+	// Recurring weekly playlist parent placed directly on the calendar one week ago.
+	// Today's expected occurrence falls inside the lookahead window.
+	now := time.Now().UTC().Truncate(time.Hour)
+	parentStart := now.AddDate(0, 0, -7).Add(15 * time.Minute) // last week, +15min into hour
+	parentEnd := parentStart.Add(2 * time.Hour)
+	parentID := uuid.NewString()
+	if err := db.Create(&models.ScheduleEntry{
+		ID:             parentID,
+		StationID:      stationID,
+		MountID:        mountID,
+		StartsAt:       parentStart,
+		EndsAt:         parentEnd,
+		SourceType:     "playlist",
+		SourceID:       playlistID,
+		IsInstance:     false,
+		RecurrenceType: models.RecurrenceWeekly,
+	}).Error; err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	if err := svc.materializeDirectScheduleEntries(ctx, stationID, now); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+
+	var instances []models.ScheduleEntry
+	if err := db.Where("station_id = ? AND is_instance = true AND source_type = 'playlist'", stationID).
+		Find(&instances).Error; err != nil {
+		t.Fatalf("query instances: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("want 1 instance, got %d", len(instances))
+	}
+	got := instances[0]
+	if got.SourceID != playlistID {
+		t.Errorf("instance source_id = %s, want %s", got.SourceID, playlistID)
+	}
+	if got.RecurrenceParentID == nil || *got.RecurrenceParentID != parentID {
+		t.Errorf("instance recurrence_parent_id = %v, want %s (UI suppression depends on this)", got.RecurrenceParentID, parentID)
+	}
+	if got.MountID != mountID {
+		t.Errorf("instance mount_id = %s, want %s", got.MountID, mountID)
+	}
+
+	// Idempotent: running again must not create a duplicate instance.
+	if err := svc.materializeDirectScheduleEntries(ctx, stationID, now); err != nil {
+		t.Fatalf("materialize 2nd run: %v", err)
+	}
+	var count int64
+	if err := db.Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND is_instance = true AND source_type = 'playlist'", stationID).
+		Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("idempotency broken: 2nd run created duplicates, count=%d", count)
+	}
+}
+
+// TestMaterializeDirectScheduleEntries_RecurringWebstream covers the same fix for
+// recurring webstream parents — also previously dropped by the smart-block-only filter.
+func TestMaterializeDirectScheduleEntries_RecurringWebstream(t *testing.T) {
+	svc, db := newRunTestService(t)
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	if err := db.Create(&models.Station{ID: stationID, Name: "Recur Webstream", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.Mount{ID: mountID, StationID: stationID, Name: "M",
+		URL: "https://example.invalid/m.mp3", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	webstreamID := uuid.NewString()
+	now := time.Now().UTC().Truncate(time.Hour)
+	parentStart := now.AddDate(0, 0, -7).Add(20 * time.Minute)
+	parentEnd := parentStart.Add(time.Hour)
+	parentID := uuid.NewString()
+	if err := db.Create(&models.ScheduleEntry{
+		ID:             parentID,
+		StationID:      stationID,
+		MountID:        mountID,
+		StartsAt:       parentStart,
+		EndsAt:         parentEnd,
+		SourceType:     "webstream",
+		SourceID:       webstreamID,
+		IsInstance:     false,
+		RecurrenceType: models.RecurrenceWeekly,
+	}).Error; err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	if err := svc.materializeDirectScheduleEntries(ctx, stationID, now); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+
+	var instances []models.ScheduleEntry
+	if err := db.Where("station_id = ? AND is_instance = true AND source_type = 'webstream'", stationID).
+		Find(&instances).Error; err != nil {
+		t.Fatalf("query instances: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("want 1 webstream instance, got %d", len(instances))
+	}
+	if instances[0].RecurrenceParentID == nil || *instances[0].RecurrenceParentID != parentID {
+		t.Errorf("webstream instance recurrence_parent_id = %v, want %s", instances[0].RecurrenceParentID, parentID)
+	}
 }

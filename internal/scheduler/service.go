@@ -313,11 +313,13 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 		}
 	}
 
-	// Also materialize smart block entries placed directly on the schedule
-	// (source_type = 'smart_block') without going through a clock template.
-	if err := s.materializeDirectSmartBlockEntries(ctx, stationID, start); err != nil {
-		s.logger.Warn().Err(err).Str("station", stationID).Msg("direct smart block materialization failed")
-		telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "direct_smart_block").Inc()
+	// Also materialize entries placed directly on the schedule (smart_block,
+	// playlist, webstream) without going through a clock template. Without this
+	// pass, recurring playlist/webstream parents are stored but never expanded
+	// into playable instance rows → silent dead air on every recurrence.
+	if err := s.materializeDirectScheduleEntries(ctx, stationID, start); err != nil {
+		s.logger.Warn().Err(err).Str("station", stationID).Msg("direct schedule entry materialization failed")
+		telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "direct_schedule_entry").Inc()
 	}
 
 	// Record metrics
@@ -328,21 +330,45 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 	return nil
 }
 
-// materializeDirectSmartBlockEntries processes schedule entries where source_type='smart_block'
-// that were placed directly on the calendar (not via a clock template). The scheduler normally
-// only processes clock-template-derived plans, so these entries would never be materialized
-// into concrete media entries without this second pass.
-func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, stationID string, start time.Time) error {
+// directMaterializableSourceTypes are the source_types this pass handles. Smart blocks expand
+// to media rows; playlist and webstream parents materialize into instance rows the executor
+// plays directly. Restricting the materializer to smart_block (the historical bug) caused
+// recurring playlist/webstream parents to silently produce dead air every recurrence.
+var directMaterializableSourceTypes = []string{"smart_block", "playlist", "webstream"}
+
+// pendingDirectEntry pairs an entry-to-materialize with its originating recurring parent (if any).
+// The parent is used to set recurrence_parent_id on instance rows so the schedule UI can
+// suppress the parent's expansion and avoid double-display.
+type pendingDirectEntry struct {
+	entry    models.ScheduleEntry
+	parentID *string
+}
+
+// materializeDirectScheduleEntries processes schedule entries placed directly on the calendar
+// (not via a clock template). It handles smart_block, playlist, and webstream source types.
+//
+// Smart blocks are expanded into concrete media rows (existing behavior). Playlist and
+// webstream parents are materialized as is_instance=true rows that the executor plays
+// directly — matching the shape produced by createPlaylistEntry / createWebstreamEntry on
+// the clock-plan path.
+//
+// Without this second pass, the scheduler only processes clock-template-derived plans;
+// directly-placed entries (especially recurring ones) are stored but never become playable.
+func (s *Service) materializeDirectScheduleEntries(ctx context.Context, stationID string, start time.Time) error {
 	// -- Pass 1: non-recurring entries whose window overlaps [start, start+lookahead] --
-	var entries []models.ScheduleEntry
 	// Use ends_at > start so that in-progress slots (starts_at < now but not yet ended)
 	// are also caught, not just future slots.
-	err := s.db.WithContext(ctx).
-		Where("station_id = ? AND source_type = 'smart_block' AND (recurrence_type = '' OR recurrence_type IS NULL) AND ends_at > ? AND starts_at <= ?",
-			stationID, start, start.Add(s.lookahead)).
-		Find(&entries).Error
-	if err != nil {
+	var pass1 []models.ScheduleEntry
+	if err := s.db.WithContext(ctx).
+		Where("station_id = ? AND source_type IN ? AND is_instance = false AND (recurrence_type = '' OR recurrence_type IS NULL) AND ends_at > ? AND starts_at <= ?",
+			stationID, directMaterializableSourceTypes, start, start.Add(s.lookahead)).
+		Find(&pass1).Error; err != nil {
 		return err
+	}
+
+	pending := make([]pendingDirectEntry, 0, len(pass1))
+	for _, e := range pass1 {
+		pending = append(pending, pendingDirectEntry{entry: e, parentID: nil})
 	}
 
 	// -- Pass 2: recurring parent entries — expand to current occurrences in the window --
@@ -350,8 +376,8 @@ func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, statio
 	// ends_at > now filter above permanently misses them on subsequent weeks.
 	var recurringParents []models.ScheduleEntry
 	if err := s.db.WithContext(ctx).
-		Where("station_id = ? AND source_type = 'smart_block' AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false AND (recurrence_end_date IS NULL OR recurrence_end_date >= ?)",
-			stationID, start).
+		Where("station_id = ? AND source_type IN ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false AND (recurrence_end_date IS NULL OR recurrence_end_date >= ?)",
+			stationID, directMaterializableSourceTypes, start).
 		Find(&recurringParents).Error; err != nil {
 		return err
 	}
@@ -359,73 +385,148 @@ func (s *Service) materializeDirectSmartBlockEntries(ctx context.Context, statio
 	loc := s.getStationLocation(ctx, stationID)
 	end := start.Add(s.lookahead)
 	for _, parent := range recurringParents {
-		occurrences := expandRecurringSmartBlock(parent, start, end, loc)
-		entries = append(entries, occurrences...)
+		parentID := parent.ID
+		for _, occ := range expandRecurringSmartBlock(parent, start, end, loc) {
+			pending = append(pending, pendingDirectEntry{entry: occ, parentID: &parentID})
+		}
 	}
 
-	for _, entry := range entries {
+	for _, p := range pending {
+		entry := p.entry
 		mountID := entry.MountID
 		if mountID == "" {
 			mountID = s.getDefaultMountID(ctx, stationID)
 		}
 
-		// Check if already covered: any media entry already occupies this window,
-		// regardless of which mount or smart_block produced it. The mount-agnostic
-		// check is critical for recurring entries — clock-generated media entries
-		// may be on a different mount than the parent recurring entry, so filtering
-		// by mount_id would miss them and cause double-materialization.
-		// Use a full overlap check (not just starts_at range) so that a track
-		// which starts before this slot's boundary but ends during it is also
-		// detected — preventing a spurious 23514 constraint violation.
-		// Check 1 (mount-agnostic): prevents cross-mount double-materialization —
-		// clock-generated media on mount A must not cause a second materialization
-		// on mount B. Keep existing behavior.
-		var mediaCount int64
-		if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
-			Where("station_id = ? AND source_type = 'media' AND starts_at < ? AND ends_at > ?",
-				stationID, entry.EndsAt, entry.StartsAt).
-			Count(&mediaCount).Error; err != nil {
-			return err
-		}
-		if mediaCount > 0 {
-			continue // Media already covers this window.
-		}
-		// Check 2 (same-mount, any source_type): prevents smart_block from
-		// materializing on a mount that already has a playlist, webstream, etc.
-		var mountCount int64
-		if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
-			Where("station_id = ? AND mount_id = ? AND starts_at < ? AND ends_at > ?",
-				stationID, mountID, entry.EndsAt, entry.StartsAt).
-			Count(&mountCount).Error; err != nil {
-			return err
-		}
-		if mountCount > 0 {
-			continue // Same mount occupied by another entry type; skip.
-		}
-
-		plan := clock.SlotPlan{
-			SlotID:   entry.ID,
-			StartsAt: entry.StartsAt,
-			EndsAt:   entry.EndsAt,
-			Duration: entry.EndsAt.Sub(entry.StartsAt),
-			SlotType: string(models.SlotTypeSmartBlock),
-			Payload: map[string]any{
-				"smart_block_id": entry.SourceID,
-				"mount_id":       mountID,
-			},
-		}
-
-		if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
-			s.logger.Warn().Err(err).
-				Str("station", stationID).
-				Str("entry_id", entry.ID).
-				Str("smart_block_id", entry.SourceID).
-				Msg("failed to materialize direct smart block entry")
-			// Continue with remaining entries rather than aborting.
-			continue
+		switch entry.SourceType {
+		case "smart_block":
+			if err := s.materializeSmartBlockEntry(ctx, stationID, entry, mountID); err != nil {
+				s.logger.Warn().Err(err).
+					Str("station", stationID).
+					Str("entry_id", entry.ID).
+					Str("smart_block_id", entry.SourceID).
+					Msg("failed to materialize direct smart block entry")
+			}
+		case "playlist", "webstream":
+			if err := s.materializeDirectInstanceEntry(ctx, stationID, entry, mountID, p.parentID); err != nil {
+				s.logger.Warn().Err(err).
+					Str("station", stationID).
+					Str("entry_id", entry.ID).
+					Str("source_type", entry.SourceType).
+					Str("source_id", entry.SourceID).
+					Msg("failed to materialize direct schedule entry")
+			}
 		}
 	}
 	return nil
+}
+
+// materializeSmartBlockEntry runs the smart-block-specific materialization path: it expands
+// the smart block into concrete media schedule rows. It enforces idempotency via two checks:
+//
+//  1. Mount-agnostic media-overlap check — prevents cross-mount double-materialization when
+//     a clock template on a different mount has already filled this window with media.
+//  2. Same-mount any-source-type check — prevents materializing a smart block on a mount that
+//     already has a playlist, webstream, or other entry occupying the slot.
+//
+// Both checks use full overlap predicates (not just starts_at range) so that a track that
+// starts before the slot boundary but ends inside it is correctly detected, preventing
+// spurious 23514 (overlap trigger) violations.
+func (s *Service) materializeSmartBlockEntry(ctx context.Context, stationID string, entry models.ScheduleEntry, mountID string) error {
+	var mediaCount int64
+	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND source_type = 'media' AND starts_at < ? AND ends_at > ?",
+			stationID, entry.EndsAt, entry.StartsAt).
+		Count(&mediaCount).Error; err != nil {
+		return err
+	}
+	if mediaCount > 0 {
+		return nil
+	}
+
+	var mountCount int64
+	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND mount_id = ? AND starts_at < ? AND ends_at > ?",
+			stationID, mountID, entry.EndsAt, entry.StartsAt).
+		Count(&mountCount).Error; err != nil {
+		return err
+	}
+	if mountCount > 0 {
+		return nil
+	}
+
+	plan := clock.SlotPlan{
+		SlotID:   entry.ID,
+		StartsAt: entry.StartsAt,
+		EndsAt:   entry.EndsAt,
+		Duration: entry.EndsAt.Sub(entry.StartsAt),
+		SlotType: string(models.SlotTypeSmartBlock),
+		Payload: map[string]any{
+			"smart_block_id": entry.SourceID,
+			"mount_id":       mountID,
+		},
+	}
+	return s.materializeSmartBlock(ctx, stationID, plan)
+}
+
+// materializeDirectInstanceEntry creates the is_instance=true row that the executor plays
+// directly for a playlist or webstream parent. Idempotency: skip if an instance with the
+// same source_id and starts_at already exists on this mount, OR if a smart-block-produced
+// media row already overlaps the slot on this mount (avoids overlapping a smart block that
+// was materialized first).
+//
+// The new instance's recurrence_parent_id points back at the originating recurring parent
+// (when applicable) so the schedule UI's instance-override map suppresses the parent's
+// virtual expansion for this occurrence. Without that linkage the UI renders BOTH the
+// parent occurrence AND the instance, causing the duplicate "SAVED OVERRIDE" + base-row
+// double-display that operators have flagged.
+func (s *Service) materializeDirectInstanceEntry(ctx context.Context, stationID string, entry models.ScheduleEntry, mountID string, parentID *string) error {
+	if mountID == "" {
+		return nil
+	}
+
+	var existing int64
+	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND mount_id = ? AND source_type = ? AND source_id = ? AND is_instance = true AND starts_at = ?",
+			stationID, mountID, entry.SourceType, entry.SourceID, entry.StartsAt).
+		Count(&existing).Error; err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+
+	var overlapping int64
+	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND mount_id = ? AND source_type = 'media' AND starts_at < ? AND ends_at > ?",
+			stationID, mountID, entry.EndsAt, entry.StartsAt).
+		Count(&overlapping).Error; err != nil {
+		return err
+	}
+	if overlapping > 0 {
+		return nil
+	}
+
+	slotType := string(models.SlotTypePlaylist)
+	if entry.SourceType == "webstream" {
+		slotType = string(models.SlotTypeWebstream)
+	}
+
+	instance := models.ScheduleEntry{
+		ID:                 uuid.NewString(),
+		StationID:          stationID,
+		MountID:            mountID,
+		StartsAt:           entry.StartsAt,
+		EndsAt:             entry.EndsAt,
+		SourceType:         entry.SourceType,
+		SourceID:           entry.SourceID,
+		IsInstance:         true,
+		RecurrenceParentID: parentID,
+		Metadata: map[string]any{
+			"slot_type": slotType,
+		},
+	}
+	return s.db.WithContext(ctx).Create(&instance).Error
 }
 
 // expandRecurringSmartBlock returns cloned schedule entries with StartsAt/EndsAt set to each
