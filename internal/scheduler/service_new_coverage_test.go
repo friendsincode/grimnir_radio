@@ -869,7 +869,7 @@ func TestCreateWebstreamEntry_NoWebstreamID(t *testing.T) {
 	}
 }
 
-// ── materializeDirectSmartBlockEntries - edge cases ───────────────────────
+// ── materializeDirectScheduleEntries - edge cases ───────────────────────
 
 func TestMaterializeDirectSmartBlockEntries_EmptyStation(t *testing.T) {
 	svc, db, _ := newServiceForAPITests(t)
@@ -881,7 +881,7 @@ func TestMaterializeDirectSmartBlockEntries_EmptyStation(t *testing.T) {
 	}
 
 	// No entries at all — should succeed without error.
-	if err := svc.materializeDirectSmartBlockEntries(ctx, stationID, time.Now().UTC()); err != nil {
-		t.Fatalf("materializeDirectSmartBlockEntries: %v", err)
+	if err := svc.materializeDirectScheduleEntries(ctx, stationID, time.Now().UTC()); err != nil {
+		t.Fatalf("materializeDirectScheduleEntries: %v", err)
 	}
 }

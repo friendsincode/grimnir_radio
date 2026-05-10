@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,7 +149,7 @@ func TestScheduleDeleteEntryVirtualInstanceDeletesOverride(t *testing.T) {
 		t.Fatalf("create override: %v", err)
 	}
 
-	virtualID := recurrenceInstanceKey(parentID, start)
+	virtualID := recurrenceInstanceKey(parentID, start, time.UTC)
 	h := &Handler{db: db, logger: zerolog.Nop()}
 
 	req := httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/"+virtualID, nil)
@@ -262,5 +263,36 @@ func TestScheduleCreateEntryLiveNormalizesEmptySourceID(t *testing.T) {
 	}
 	if entry.SourceID == "" {
 		t.Fatalf("expected normalized source_id for live entry, got empty string")
+	}
+}
+
+// TestRecurrenceInstanceKey_TimezoneConsistency locks in the v1.40.0 fix:
+// the override-suppression key must be timezone-aware. The parent expansion
+// walks days in station-local time, so an override-row whose UTC starts_at
+// rolls into the next day (e.g. 21:00 CDT = 02:00 UTC next day) must still
+// produce the same key. Without this, the calendar UI renders both the
+// override-instance row AND the parent expansion side-by-side as duplicates.
+func TestRecurrenceInstanceKey_TimezoneConsistency(t *testing.T) {
+	chicago, err := time.LoadLocation("America/Chicago")
+	if err != nil {
+		t.Fatalf("load chicago: %v", err)
+	}
+	parentID := "parent-xyz"
+
+	// Parent expansion: 21:00 CDT on Sun May 10, computed in local time.
+	parentLocal := time.Date(2026, 5, 10, 21, 0, 0, 0, chicago)
+	// Override-instance row: same wall-clock moment, stored as UTC = 02:00 May 11.
+	instanceUTC := parentLocal.UTC()
+	if instanceUTC.Day() != 11 {
+		t.Fatalf("test premise wrong: instance UTC date = %d, want 11", instanceUTC.Day())
+	}
+
+	parentKey := recurrenceInstanceKey(parentID, parentLocal, chicago)
+	instanceKey := recurrenceInstanceKey(parentID, instanceUTC, chicago)
+	if parentKey != instanceKey {
+		t.Fatalf("keys must match for UI suppression to work\n  parent:   %s\n  instance: %s", parentKey, instanceKey)
+	}
+	if !strings.HasSuffix(parentKey, "_20260510") {
+		t.Errorf("expected key to use station-local date 20260510, got %s", parentKey)
 	}
 }

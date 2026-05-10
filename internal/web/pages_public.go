@@ -924,10 +924,23 @@ func (h *Handler) PublicScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		publicStationIDs, startTime, endTime, "media").
 		Order("starts_at ASC").Find(&entries)
 
+	// This view spans multiple public stations; cache per-station tz so the
+	// override key uses the SAME timezone the matching parent's expansion will
+	// use (different stations can be in different zones).
+	stationLocs := make(map[string]*time.Location)
+	getLoc := func(stationID string) *time.Location {
+		if loc, ok := stationLocs[stationID]; ok {
+			return loc
+		}
+		loc := h.getStationTimezone(stationID)
+		stationLocs[stationID] = loc
+		return loc
+	}
+
 	instanceOverrides := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.IsInstance && entry.RecurrenceParentID != nil {
-			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt, getLoc(entry.StationID))] = struct{}{}
 		}
 	}
 
@@ -938,7 +951,7 @@ func (h *Handler) PublicScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Expand recurring entries
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides, h.getStationTimezone(re.StationID))
+		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides, getLoc(re.StationID))
 		entries = append(entries, instances...)
 	}
 

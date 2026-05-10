@@ -274,8 +274,8 @@ func TestMaterializeDirectSmartBlock_SkipsWhenPlaylistOccupiesMount(t *testing.T
 		t.Fatalf("create smart_block parent entry: %v", err)
 	}
 
-	if err := svc.materializeDirectSmartBlockEntries(ctx, stationID, now); err != nil {
-		t.Fatalf("materializeDirectSmartBlockEntries returned error: %v", err)
+	if err := svc.materializeDirectScheduleEntries(ctx, stationID, now); err != nil {
+		t.Fatalf("materializeDirectScheduleEntries returned error: %v", err)
 	}
 
 	var count int64

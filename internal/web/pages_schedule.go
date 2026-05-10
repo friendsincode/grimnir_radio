@@ -170,10 +170,11 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 	var entries []models.ScheduleEntry
 	_ = query.Order("starts_at ASC").Find(&entries).Error
 
+	stationLoc := h.getStationTimezone(stationID)
 	instanceOverrides := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.IsInstance && entry.RecurrenceParentID != nil {
-			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt, stationLoc)] = struct{}{}
 		}
 	}
 
@@ -185,7 +186,7 @@ func (h *Handler) loadEffectiveSchedulePreviewData(r *http.Request, stationID, m
 	var recurringEntries []models.ScheduleEntry
 	_ = recurringQuery.Find(&recurringEntries).Error
 	for _, re := range recurringEntries {
-		entries = append(entries, h.expandRecurringEntry(re, now.Add(-24*time.Hour), end, instanceOverrides, h.getStationTimezone(stationID))...)
+		entries = append(entries, h.expandRecurringEntry(re, now.Add(-24*time.Hour), end, instanceOverrides, stationLoc)...)
 	}
 
 	filtered := make([]models.ScheduleEntry, 0, len(entries))
@@ -403,10 +404,11 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Track concrete instance overrides so we don't also render generated
 	// virtual instances for the same parent/date.
+	stationLoc := h.getStationTimezone(station.ID)
 	instanceOverrides := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.IsInstance && entry.RecurrenceParentID != nil {
-			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt, stationLoc)] = struct{}{}
 		}
 	}
 
@@ -421,7 +423,7 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Expand recurring entries into virtual instances
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides, h.getStationTimezone(station.ID))
+		instances := h.expandRecurringEntry(re, startTime, endTime, instanceOverrides, stationLoc)
 		entries = append(entries, instances...)
 	}
 
@@ -814,7 +816,7 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 			break
 		}
 		if h.matchesRecurrence(entry, currentLocal, loc) {
-			if _, overridden := overrides[recurrenceInstanceKey(entry.ID, currentLocal)]; overridden {
+			if _, overridden := overrides[recurrenceInstanceKey(entry.ID, currentLocal, loc)]; overridden {
 				currentLocal = h.nextOccurrenceLocal(entry, currentLocal, loc)
 				if currentLocal.IsZero() {
 					break
@@ -823,7 +825,7 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 				continue
 			}
 			instance := entry
-			instance.ID = recurrenceInstanceKey(entry.ID, currentLocal)
+			instance.ID = recurrenceInstanceKey(entry.ID, currentLocal, loc)
 			instance.StartsAt = currentLocal
 			instance.EndsAt = currentLocal.Add(duration)
 			instance.IsInstance = true
@@ -839,8 +841,20 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 	return instances
 }
 
-func recurrenceInstanceKey(parentID string, at time.Time) string {
-	return parentID + "_" + at.Format("20060102")
+// recurrenceInstanceKey returns the suppression key shared between a recurring parent's
+// virtual expansion and a real override-instance row. Both code paths MUST format the date
+// in the SAME timezone or the keys never match and the UI renders both → visible duplicate.
+//
+// expandRecurringEntry walks days in station-local time, so override rows (whose StartsAt
+// comes from the DB as UTC) must also be normalized to the station's location before the
+// date is formatted. Without this, e.g. a 21:00 CDT instance (= 02:00 UTC next day)
+// formats UTC as "20260511" while the parent's local-tz expansion for the same Sunday
+// formats as "20260510" — keys never match → calendar shows the same slot twice.
+func recurrenceInstanceKey(parentID string, at time.Time, loc *time.Location) string {
+	if loc == nil {
+		loc = time.UTC
+	}
+	return parentID + "_" + at.In(loc).Format("20060102")
 }
 
 // nextOccurrence finds the next potential occurrence date

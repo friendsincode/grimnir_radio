@@ -148,10 +148,11 @@ func (h *Handler) loadDashboardUpcomingEntries(stationID string, from time.Time,
 		Order("starts_at ASC").
 		Find(&entries)
 
+	stationLoc := h.getStationTimezone(stationID)
 	instanceOverrides := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.IsInstance && entry.RecurrenceParentID != nil {
-			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt, stationLoc)] = struct{}{}
 		}
 	}
 
@@ -162,7 +163,7 @@ func (h *Handler) loadDashboardUpcomingEntries(stationID string, from time.Time,
 		Find(&recurringEntries)
 
 	for _, re := range recurringEntries {
-		instances := h.expandRecurringEntry(re, from, to, instanceOverrides, h.getStationTimezone(stationID))
+		instances := h.expandRecurringEntry(re, from, to, instanceOverrides, stationLoc)
 		entries = append(entries, instances...)
 	}
 
@@ -650,10 +651,11 @@ func (h *Handler) loadExpectedCurrentSchedule(r *http.Request, stationID, mountI
 	var entries []models.ScheduleEntry
 	_ = query.Order("starts_at DESC").Find(&entries).Error
 
+	stationLoc := h.getStationTimezone(stationID)
 	instanceOverrides := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.IsInstance && entry.RecurrenceParentID != nil {
-			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt)] = struct{}{}
+			instanceOverrides[recurrenceInstanceKey(*entry.RecurrenceParentID, entry.StartsAt, stationLoc)] = struct{}{}
 		}
 	}
 	var recurring []models.ScheduleEntry
@@ -662,7 +664,7 @@ func (h *Handler) loadExpectedCurrentSchedule(r *http.Request, stationID, mountI
 			stationID, mountID).
 		Find(&recurring).Error
 	for _, re := range recurring {
-		for _, inst := range h.expandRecurringEntry(re, now.Add(-24*time.Hour), now.Add(24*time.Hour), instanceOverrides, h.getStationTimezone(stationID)) {
+		for _, inst := range h.expandRecurringEntry(re, now.Add(-24*time.Hour), now.Add(24*time.Hour), instanceOverrides, stationLoc) {
 			if inst.StartsAt.Before(now) && inst.EndsAt.After(now) {
 				entries = append(entries, inst)
 			}

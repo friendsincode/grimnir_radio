@@ -390,7 +390,7 @@ func TestScheduleStationOvernightClock(t *testing.T) {
 func TestDirectSmartBlockNotDuplicatedWhenClockAlreadyMaterialized(t *testing.T) {
 	// BUG-4: when a clock slot materialises smart_block A and a direct
 	// source_type='smart_block' entry exists for smart_block B in the same
-	// window, materializeDirectSmartBlockEntries must not create a second
+	// window, materializeDirectScheduleEntries must not create a second
 	// batch of overlapping tracks.
 	svc, db := newIntegrationTestService(t)
 	ctx := context.Background()
@@ -432,8 +432,8 @@ func TestDirectSmartBlockNotDuplicatedWhenClockAlreadyMaterialized(t *testing.T)
 		t.Fatalf("create direct sb entry: %v", err)
 	}
 
-	if err := svc.materializeDirectSmartBlockEntries(ctx, stationID, start.Add(-time.Minute)); err != nil {
-		t.Fatalf("materializeDirectSmartBlockEntries: %v", err)
+	if err := svc.materializeDirectScheduleEntries(ctx, stationID, start.Add(-time.Minute)); err != nil {
+		t.Fatalf("materializeDirectScheduleEntries: %v", err)
 	}
 
 	// Only the 3 clock-A entries should exist; block B must not add more.

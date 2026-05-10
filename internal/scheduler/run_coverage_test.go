@@ -392,7 +392,7 @@ func TestMaterializeDirectSmartBlockEntries_WithRecurring(t *testing.T) {
 	}
 
 	// Should not panic or error even if engine returns error (block may not generate)
-	err := svc.materializeDirectSmartBlockEntries(ctx, stationID, now)
+	err := svc.materializeDirectScheduleEntries(ctx, stationID, now)
 	// We allow error here since smart block generation may fail
 	_ = err
 }
