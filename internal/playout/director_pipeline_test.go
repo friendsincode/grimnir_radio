@@ -262,6 +262,9 @@ func TestBuildWebstreamBroadcastPipeline_MP3(t *testing.T) {
 	if !strings.Contains(pipeline, "souphttpsrc") {
 		t.Errorf("expected souphttpsrc in webstream pipeline, got: %s", pipeline)
 	}
+	if !strings.Contains(pipeline, "retries=3") || !strings.Contains(pipeline, "timeout=10") {
+		t.Errorf("expected souphttpsrc retries=3 and timeout=10 to absorb transient upstream stalls, got: %s", pipeline)
+	}
 }
 
 func TestBuildWebstreamBroadcastPipeline_AAC(t *testing.T) {

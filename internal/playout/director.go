@@ -1270,10 +1270,14 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 			return // Entry ended or replaced
 		}
 
-		d.logger.Warn().
+		// Demoted from WARN to INFO: a single pipeline exit followed by a
+		// successful first-attempt reconnect is the routine recovery path
+		// (e.g. transient typefind failure on upstream stall). The escalation
+		// to slow-retry below still logs at WARN/ERROR if reconnects fail.
+		d.logger.Info().
 			Str("mount", entry.MountID).
 			Str("webstream", ws.Name).
-			Msg("webstream pipeline crashed, attempting reconnection")
+			Msg("webstream pipeline exited, attempting reconnection")
 
 		reconnected := false
 		delay := baseDelay
@@ -1582,8 +1586,11 @@ func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount model
 		lqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", lqBitrate)
 	}
 
-	// Build source element
-	sourceElement := fmt.Sprintf("souphttpsrc location=%q is-live=true do-timestamp=true", sourceURL)
+	// Build source element. retries+timeout absorb transient upstream stalls
+	// (a relayed-internal mount briefly returning <typefind worth of bytes
+	// makes decodebin abort; with retries souphttpsrc reconnects in-pipeline
+	// instead of crashing the whole gst process).
+	sourceElement := fmt.Sprintf("souphttpsrc location=%q is-live=true do-timestamp=true retries=3 timeout=10", sourceURL)
 	if ws.PassthroughMetadata {
 		sourceElement += " iradio-mode=true"
 	}
