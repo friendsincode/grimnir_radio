@@ -130,16 +130,22 @@ func (p *ICYPoller) poll(ctx context.Context) {
 			Order("started_at DESC").
 			First(&history).Error
 		if err == nil {
-			history.Artist = artist
-			history.Title = title
 			if history.Metadata == nil {
 				history.Metadata = make(map[string]any)
 			}
 			history.Metadata["icy_metadata"] = true
 			history.Metadata["stream_title"] = title
 			history.Metadata["stream_artist"] = artist
-			if saveErr := p.db.Save(&history).Error; saveErr != nil {
-				p.logger.Warn().Err(saveErr).Msg("failed to update play history with ICY metadata")
+			// Use Updates with an explicit column map instead of Save: webstream
+			// PlayHistory rows have empty media_id, and Save would re-serialize
+			// it as "" which Postgres rejects as an invalid uuid (SQLSTATE 22P02).
+			updateErr := p.db.Model(&history).Updates(map[string]any{
+				"artist":   artist,
+				"title":    title,
+				"metadata": history.Metadata,
+			}).Error
+			if updateErr != nil {
+				p.logger.Warn().Err(updateErr).Msg("failed to update play history with ICY metadata")
 			}
 		}
 	}
