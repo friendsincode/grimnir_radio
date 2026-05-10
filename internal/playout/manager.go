@@ -46,8 +46,33 @@ func (m *Manager) EnsurePipeline(ctx context.Context, mountID string, launch str
 	return m.EnsurePipelineWithOutput(ctx, mountID, launch, nil)
 }
 
+// stopIfRunning ensures any in-flight gst process for this mount is fully
+// terminated before a new pipeline is launched. Without this, the previous
+// pipeline keeps writing into its output pipes (HQ/LQ fdsink) — and because
+// the previous and new pipelines feed the SAME broadcast mount, listeners
+// hear both tracks overlapping (the audible "echo"). It also prevents the
+// leak of orphaned gst-launch processes (combined with Setpgid in pipeline.go,
+// Stop() now kills the whole sh+gst process group, not just the shell).
+//
+// This used to return `"pipeline already running"` and bail; that bug forced
+// the director to either skip the new track entirely or run two pipelines
+// concurrently into the same mount, neither of which is acceptable for live
+// broadcast.
+func (m *Manager) stopIfRunning(mountID string) {
+	m.mu.Lock()
+	pipeline, ok := m.pipelines[mountID]
+	m.mu.Unlock()
+	if !ok || pipeline == nil {
+		return
+	}
+	if err := pipeline.Stop(); err != nil {
+		m.logger.Debug().Err(err).Str("mount", mountID).Msg("stop previous pipeline before re-ensure")
+	}
+}
+
 // EnsurePipelineWithOutput starts a pipeline with optional stdout capture.
 func (m *Manager) EnsurePipelineWithOutput(ctx context.Context, mountID string, launch string, outputHandler func(io.Reader)) error {
+	m.stopIfRunning(mountID)
 	m.mu.Lock()
 	pipeline, ok := m.pipelines[mountID]
 	if !ok {
@@ -63,6 +88,7 @@ func (m *Manager) EnsurePipelineWithOutput(ctx context.Context, mountID string, 
 // The pipeline should use fd=3 for HQ output and fd=4 for LQ output.
 // If seekFile is non-nil it is passed as fd=5 for fdsrc-based positional seek.
 func (m *Manager) EnsurePipelineWithDualOutput(ctx context.Context, mountID string, launch string, seekFile *os.File, hqHandler, lqHandler func(io.Reader)) error {
+	m.stopIfRunning(mountID)
 	m.mu.Lock()
 	pipeline, ok := m.pipelines[mountID]
 	if !ok {
@@ -76,6 +102,7 @@ func (m *Manager) EnsurePipelineWithDualOutput(ctx context.Context, mountID stri
 
 // EnsurePipelineWithDualOutputAndInput starts a pipeline that consumes stdin (fd=0) and emits HQ/LQ outputs.
 func (m *Manager) EnsurePipelineWithDualOutputAndInput(ctx context.Context, mountID string, launch string, hqHandler, lqHandler func(io.Reader)) (io.WriteCloser, error) {
+	m.stopIfRunning(mountID)
 	m.mu.Lock()
 	pipeline, ok := m.pipelines[mountID]
 	if !ok {

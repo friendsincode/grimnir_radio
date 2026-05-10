@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package playout
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -131,3 +132,67 @@ func TestLimitedBuffer_MultipleWrites(t *testing.T) {
 		t.Errorf("String() = %q, want to contain \"foobar\"", got)
 	}
 }
+
+// TestPipeline_StartUsesProcessGroup locks in the v1.40.1 fix:
+// gst-launch must be launched with Setpgid so we can later kill the WHOLE
+// process group (sh wrapper + gst-launch grandchild) via a single signal.
+// Without Setpgid, killing cmd.Process only reaps the shell; gst-launch
+// orphans to PID 1 and keeps writing to its broadcast pipe → audible echo.
+func TestPipeline_StartUsesProcessGroup(t *testing.T) {
+	cfg := &config.Config{GStreamerBin: "true"} // /bin/true exits immediately, suitable as a no-op
+	p := NewPipeline(cfg, "mount-pg-test", zerolog.Nop())
+
+	if err := p.Start(testCtx(), "fakesrc num-buffers=0 ! fakesink"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Stop()
+
+	p.mu.Lock()
+	cmd := p.cmd
+	p.mu.Unlock()
+	if cmd == nil || cmd.SysProcAttr == nil {
+		t.Fatal("expected SysProcAttr to be set so the process becomes its own group leader")
+	}
+	if !cmd.SysProcAttr.Setpgid {
+		t.Errorf("expected Setpgid=true so killing the group also reaps gst-launch grandchild; got Setpgid=%v", cmd.SysProcAttr.Setpgid)
+	}
+}
+
+// TestManager_EnsurePipeline_StopsPreviousFirst locks in the v1.40.1 fix:
+// EnsurePipelineWithDualOutput must terminate the previous pipeline before
+// starting a new one for the same mount. Without this, the previous and new
+// pipelines both feed the same broadcast mount → listeners hear both tracks
+// overlapping (the audible "echo" reported on <public-hostname> - M).
+//
+// Test verifies behavioral contract: after a second EnsurePipeline call on
+// the same mount, the FIRST pipeline's Done() channel is closed (i.e. it
+// was actually stopped, not left running).
+func TestManager_EnsurePipeline_StopsPreviousFirst(t *testing.T) {
+	cfg := &config.Config{GStreamerBin: "true"}
+	mgr := NewManager(cfg, zerolog.Nop())
+
+	if err := mgr.EnsurePipeline(testCtx(), "m1", "fakesrc ! fakesink"); err != nil {
+		t.Fatalf("first EnsurePipeline: %v", err)
+	}
+	first := mgr.GetPipeline("m1")
+	if first == nil {
+		t.Fatal("expected pipeline registered under m1")
+	}
+	// Capture the FIRST pipeline's Done channel before the second Ensure
+	// reassigns p.done — the contract is that Stop closes the *current*
+	// done channel, which is what we want to observe here.
+	firstDone := first.Done()
+
+	if err := mgr.EnsurePipeline(testCtx(), "m1", "fakesrc ! fakesink"); err != nil {
+		t.Fatalf("second EnsurePipeline: %v", err)
+	}
+
+	select {
+	case <-firstDone:
+		// good — previous pipeline was stopped before the second Start()
+	default:
+		t.Fatal("previous pipeline still running after second EnsurePipeline; auto-stop did not happen → echo regression")
+	}
+}
+
+func testCtx() context.Context { return context.Background() }
