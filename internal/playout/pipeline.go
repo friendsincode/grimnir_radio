@@ -50,12 +50,35 @@ type Pipeline struct {
 	cfg    *config.Config
 	logger zerolog.Logger
 
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	mountID string
-	stdout  io.ReadCloser
-	stdin   io.WriteCloser
-	done    chan struct{} // signals when the process has exited
+	mu            sync.Mutex
+	cmd           *exec.Cmd
+	mountID       string
+	stdout        io.ReadCloser
+	stdin         io.WriteCloser
+	done          chan struct{} // signals when the process has exited
+	stopRequested bool          // set by Stop() so the wait goroutine can treat the resulting signal exit as expected
+}
+
+// wasStopRequested reports whether Stop() was called for the current process.
+func (p *Pipeline) wasStopRequested() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stopRequested
+}
+
+// logExit emits the wait-goroutine's exit log, downgrading expected
+// signal-induced exits (caused by Stop()) from WARN to INFO so per-track
+// pipeline teardown doesn't look like a failure.
+func (p *Pipeline) logExit(err error, stderr string) {
+	if err == nil {
+		p.logger.Info().Str("mount", p.mountID).Msg("gstreamer pipeline stopped")
+		return
+	}
+	if p.wasStopRequested() {
+		p.logger.Info().Err(err).Str("mount", p.mountID).Msg("gstreamer pipeline stopped (signal)")
+		return
+	}
+	p.logger.Warn().Err(err).Str("mount", p.mountID).Str("stderr", stderr).Msg("gstreamer pipeline exited with error")
 }
 
 // NewPipeline constructs a pipeline for a mount.
@@ -107,6 +130,7 @@ func (p *Pipeline) StartWithOutput(ctx context.Context, launch string, outputHan
 	p.cmd = cmd
 	p.done = make(chan struct{})
 	p.stdin = nil
+	p.stopRequested = false
 
 	// Handle stdout if provided
 	if outputHandler != nil && p.stdout != nil {
@@ -117,11 +141,7 @@ func (p *Pipeline) StartWithOutput(ctx context.Context, launch string, outputHan
 	go func(done chan struct{}, c *exec.Cmd, stderr *limitedBuffer) {
 		err := c.Wait()
 		close(done)
-		if err != nil {
-			p.logger.Warn().Err(err).Str("mount", p.mountID).Str("stderr", stderr.String()).Msg("gstreamer pipeline exited with error")
-		} else {
-			p.logger.Info().Str("mount", p.mountID).Msg("gstreamer pipeline stopped")
-		}
+		p.logExit(err, stderr.String())
 	}(p.done, cmd, &stderrBuf)
 
 	return nil
@@ -195,6 +215,7 @@ func (p *Pipeline) StartWithDualOutputAndInput(ctx context.Context, launch strin
 	p.cmd = cmd
 	p.stdin = stdin
 	p.done = make(chan struct{})
+	p.stopRequested = false
 
 	// Handle HQ output
 	if hqHandler != nil {
@@ -223,11 +244,7 @@ func (p *Pipeline) StartWithDualOutputAndInput(ctx context.Context, launch strin
 		if in != nil {
 			_ = in.Close()
 		}
-		if err != nil {
-			p.logger.Warn().Err(err).Str("mount", p.mountID).Str("stderr", stderr.String()).Msg("gstreamer pipeline exited with error")
-		} else {
-			p.logger.Info().Str("mount", p.mountID).Msg("gstreamer pipeline stopped")
-		}
+		p.logExit(err, stderr.String())
 	}(p.done, cmd, stdin, &stderrBuf)
 
 	return stdin, nil
@@ -298,6 +315,7 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, seekF
 	p.cmd = cmd
 	p.done = make(chan struct{})
 	p.stdin = nil
+	p.stopRequested = false
 
 	// Handle HQ output
 	if hqHandler != nil {
@@ -323,11 +341,7 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, seekF
 	go func(done chan struct{}, c *exec.Cmd, stderr *limitedBuffer) {
 		err := c.Wait()
 		close(done)
-		if err != nil {
-			p.logger.Warn().Err(err).Str("mount", p.mountID).Str("stderr", stderr.String()).Msg("gstreamer pipeline exited with error")
-		} else {
-			p.logger.Info().Str("mount", p.mountID).Msg("gstreamer pipeline stopped")
-		}
+		p.logExit(err, stderr.String())
 	}(p.done, cmd, &stderrBuf)
 
 	return nil
@@ -346,6 +360,14 @@ func (p *Pipeline) Stop() error {
 	p.mu.Lock()
 	cmd := p.cmd
 	done := p.done
+	if cmd != nil && done != nil {
+		select {
+		case <-done:
+			// already exited; leave stopRequested as-is
+		default:
+			p.stopRequested = true
+		}
+	}
 	p.mu.Unlock()
 
 	if cmd == nil || done == nil {
