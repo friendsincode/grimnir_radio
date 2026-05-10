@@ -14,11 +14,37 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/rs/zerolog"
 )
+
+// newPipelineProcessGroup launches the child in its own process group so we can
+// kill the entire group (the `sh -c` wrapper AND the gst-launch grandchild it
+// spawned). Without this, signalling cmd.Process kills only the shell; gst-launch
+// orphans to PID 1 and keeps writing to the now-orphan output pipes — accumulating
+// 20+ leaked gst processes per mount over time and producing the audible echo
+// because every leaked pipeline is still feeding bytes into the broadcast mount.
+func newPipelineProcessGroup() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{Setpgid: true}
+}
+
+// killProcessGroup sends a signal to the entire process group of cmd so the
+// shell wrapper AND its gst-launch child both die. Falls back to signalling
+// the leader process if pgid lookup fails (still better than nothing).
+func killProcessGroup(cmd *exec.Cmd, sig syscall.Signal) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	pgid, err := syscall.Getpgid(cmd.Process.Pid)
+	if err == nil && pgid != 0 {
+		_ = syscall.Kill(-pgid, sig)
+		return
+	}
+	_ = cmd.Process.Signal(sig)
+}
 
 // PipelineInterface abstracts a GStreamer pipeline for testing.
 type PipelineInterface interface {
@@ -109,7 +135,8 @@ func (p *Pipeline) StartWithOutput(ctx context.Context, launch string, outputHan
 	// Use shell to properly parse the GStreamer pipeline string
 	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
-	cmd.WaitDelay = 3 * time.Second // don't block cmd.Wait forever on orphaned subprocesses
+	cmd.WaitDelay = 3 * time.Second             // don't block cmd.Wait forever on orphaned subprocesses
+	cmd.SysProcAttr = newPipelineProcessGroup() // kill entire group on Stop, not just the sh wrapper
 	var stderrBuf limitedBuffer
 	cmd.Stderr = &stderrBuf
 
@@ -182,7 +209,8 @@ func (p *Pipeline) StartWithDualOutputAndInput(ctx context.Context, launch strin
 	// Use shell to properly parse the GStreamer pipeline string
 	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
-	cmd.WaitDelay = 3 * time.Second // don't block cmd.Wait forever on orphaned subprocesses
+	cmd.WaitDelay = 3 * time.Second             // don't block cmd.Wait forever on orphaned subprocesses
+	cmd.SysProcAttr = newPipelineProcessGroup() // kill entire group on Stop, not just the sh wrapper
 	var stderrBuf limitedBuffer
 	cmd.Stderr = &stderrBuf
 	cmd.Stdout = nil
@@ -282,7 +310,8 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, seekF
 	// Use shell to properly parse the GStreamer pipeline string
 	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
-	cmd.WaitDelay = 3 * time.Second // don't block cmd.Wait forever on orphaned subprocesses
+	cmd.WaitDelay = 3 * time.Second             // don't block cmd.Wait forever on orphaned subprocesses
+	cmd.SysProcAttr = newPipelineProcessGroup() // kill entire group on Stop, not just the sh wrapper
 	var stderrBuf limitedBuffer
 	cmd.Stderr = &stderrBuf
 	cmd.Stdout = nil
@@ -381,17 +410,15 @@ func (p *Pipeline) Stop() error {
 	default:
 	}
 
-	// Send interrupt signal
-	if cmd.Process != nil {
-		_ = cmd.Process.Signal(os.Interrupt)
-	}
+	// Send interrupt to the WHOLE process group (sh wrapper + gst-launch child).
+	// Without -pgid, signalling cmd.Process kills only the shell and gst-launch
+	// orphans → the leak that produces the audible echo.
+	killProcessGroup(cmd, syscall.SIGINT)
 
 	// Wait for process to exit or timeout
 	select {
 	case <-time.After(5 * time.Second):
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+		killProcessGroup(cmd, syscall.SIGKILL)
 		<-done
 	case <-done:
 		// Process exited normally
