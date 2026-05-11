@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -170,6 +171,12 @@ func (s *pcmCrossfadeSession) startDecoder(ctx context.Context, filePath string,
 		shellCmd := fmt.Sprintf("%s -e %s", s.cfg.GStreamerBin, pipeline)
 		cmd = exec.CommandContext(cmdCtx, "sh", "-c", shellCmd)
 	}
+	// Same process-group trick as pipeline.go: without this, d.cmd.Process.Kill()
+	// in stop() only reaps the `sh -c` wrapper while the gst-launch grandchild
+	// orphans to PID 1 and keeps producing PCM bytes — accumulating ~170 leaked
+	// decoder processes per ~24h on a busy station and causing the audible echo
+	// (multiple decoders feeding the same encoder stdin).
+	cmd.SysProcAttr = newPipelineProcessGroup()
 	cmd.Stderr = nil
 
 	stdout, err := cmd.StdoutPipe()
@@ -198,7 +205,11 @@ func (d *decoderProc) stop() error {
 		_ = d.stdout.Close()
 	}
 	if d.cmd != nil && d.cmd.Process != nil {
-		_ = d.cmd.Process.Kill()
+		// Kill the entire process group so the sh wrapper AND its gst-launch
+		// grandchild both die. cmd.Process.Kill() alone leaves gst-launch
+		// orphaned, which was the root cause of the v1.40.x audible echo:
+		// orphan decoders kept feeding the mount's encoder pipe.
+		killProcessGroup(d.cmd, syscall.SIGKILL)
 	}
 	return nil
 }
