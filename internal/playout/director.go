@@ -583,6 +583,22 @@ func (d *Director) getWebRTCRTPPortForStation(ctx context.Context, stationID str
 
 	port := r.WebRTCRTPPort
 
+	// If no port has ever been allocated for this station, allocate one now.
+	// Without this, every station with web_rtc_rtp_port=0 falls back to the
+	// cluster default (d.webrtcRTPPort, usually 5004) and they all collide on
+	// the same UDP loopback — many real-time-synced encoders writing to the
+	// same port produces audible echo and pegs CPU until the analyzer
+	// transcodes start dying with SIGKILL (issue #220). Allocation logic
+	// mirrors webrtcStationManager.ensureStationRTPPort: pick the next free
+	// port in [base..base+999] and persist atomically.
+	if port == 0 {
+		if allocated, err := d.allocateStationRTPPort(ctx, stationID); err == nil && allocated != 0 {
+			port = allocated
+		} else if err != nil {
+			d.logger.Warn().Err(err).Str("station_id", stationID).Msg("failed to allocate station webrtc port; falling back to base")
+		}
+	}
+
 	d.webrtcMu.Lock()
 	d.webrtcCache[stationID] = cachedWebRTCPort{port: port, loadedAt: now}
 	d.webrtcMu.Unlock()
@@ -591,6 +607,68 @@ func (d *Director) getWebRTCRTPPortForStation(ctx context.Context, stationID str
 		return port
 	}
 	return d.webrtcRTPPort
+}
+
+// allocateStationRTPPort picks the next free WebRTC RTP port in the cluster
+// range and persists it onto the station row. The atomic UPDATE filter on
+// web_rtc_rtp_port=0 prevents two directors from clobbering each other when
+// they race to allocate the same station.
+func (d *Director) allocateStationRTPPort(ctx context.Context, stationID string) (int, error) {
+	base := d.webrtcRTPPort
+	if base == 0 {
+		base = 5004
+	}
+
+	type row struct {
+		Port int `gorm:"column:web_rtc_rtp_port"`
+	}
+	var rows []row
+	if err := d.db.WithContext(ctx).
+		Model(&models.Station{}).
+		Select("web_rtc_rtp_port").
+		Where("web_rtc_rtp_port > 0").
+		Find(&rows).Error; err != nil {
+		return 0, fmt.Errorf("list used ports: %w", err)
+	}
+	used := make(map[int]struct{}, len(rows))
+	for _, r := range rows {
+		used[r.Port] = struct{}{}
+	}
+
+	chosen := 0
+	for p := base; p <= base+999; p++ {
+		if _, taken := used[p]; taken {
+			continue
+		}
+		chosen = p
+		break
+	}
+	if chosen == 0 {
+		return 0, fmt.Errorf("no free WebRTC RTP ports available in range %d-%d", base, base+999)
+	}
+
+	res := d.db.WithContext(ctx).
+		Model(&models.Station{}).
+		Where("id = ? AND web_rtc_rtp_port = 0", stationID).
+		Update("web_rtc_rtp_port", chosen)
+	if res.Error != nil {
+		return 0, fmt.Errorf("persist station port: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		// Another caller allocated first; re-read and use whatever they picked.
+		var r row
+		if err := d.db.WithContext(ctx).
+			Model(&models.Station{}).
+			Select("web_rtc_rtp_port").
+			Where("id = ?", stationID).
+			Take(&r).Error; err == nil && r.Port != 0 {
+			return r.Port, nil
+		}
+		return 0, fmt.Errorf("port allocation lost race and re-read returned 0")
+	}
+
+	d.logger.Info().Str("station_id", stationID).Int("port", chosen).Msg("allocated webrtc rtp port for station")
+	return chosen, nil
 }
 
 func (d *Director) getCrossfadeConfig(ctx context.Context, stationID string) crossfadeConfig {
