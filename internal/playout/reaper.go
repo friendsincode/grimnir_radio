@@ -35,12 +35,11 @@ const reaperInterval = 60 * time.Second
 // (fdsink fd=1), webstream relays (souphttpsrc), analyzer probes, and
 // mediaengine pipelines have different signatures and are left alone.
 func (m *Manager) StartOrphanReaper(ctx context.Context) {
-	debug := os.Getenv("GRIMNIR_REAPER_DEBUG") == "1"
-	m.logger.Info().Bool("debug", debug).Dur("interval", reaperInterval).Int("self_pid", os.Getpid()).Msg("orphan reaper started")
-	go m.reaperLoop(ctx, debug)
+	m.logger.Info().Dur("interval", reaperInterval).Int("self_pid", os.Getpid()).Msg("orphan reaper started")
+	go m.reaperLoop(ctx)
 }
 
-func (m *Manager) reaperLoop(ctx context.Context, debug bool) {
+func (m *Manager) reaperLoop(ctx context.Context) {
 	selfPID := os.Getpid()
 	ticker := time.NewTicker(reaperInterval)
 	defer ticker.Stop()
@@ -56,18 +55,18 @@ func (m *Manager) reaperLoop(ctx context.Context, debug bool) {
 		owned := m.OwnedPIDs()
 		candidates := scanBroadcastOrphans(selfPID, owned)
 
-		if debug {
-			// Per-scan snapshot. Tells us whether the reaper sees the pipelines
-			// at all and whether OwnedPIDs is over-counting. Reproduces issue
-			// #220's "kills never fire" symptom without needing a debugger.
-			m.logger.Info().
-				Int("owned_count", len(owned)).
-				Ints("owned_pids", pidsSorted(owned)).
-				Int("candidate_count", len(candidates)).
-				Ints("candidate_pids", pidsSorted(candidates)).
-				Int("prev_count", len(prev)).
-				Msg("orphan reaper scan")
-		}
+		// Per-scan snapshot at INFO. One line per reaperInterval (60s) is cheap
+		// and tells us whether OwnedPIDs is over-counting or the cmdline match
+		// is failing — needed to investigate issue #220 where the reaper
+		// silently observed zero candidates despite long-lived broadcast pids
+		// existing in /proc.
+		m.logger.Info().
+			Int("owned_count", len(owned)).
+			Ints("owned_pids", pidsSorted(owned)).
+			Int("candidate_count", len(candidates)).
+			Ints("candidate_pids", pidsSorted(candidates)).
+			Int("prev_count", len(prev)).
+			Msg("orphan reaper scan")
 
 		// Only kill PIDs that were also candidates in the previous scan. This
 		// gives a full reaperInterval grace window between cmd.Start and the
