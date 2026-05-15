@@ -595,6 +595,10 @@ func (s *Server) startBackgroundWorkers() {
 		}()
 	}
 
+	if s.playout != nil {
+		s.playout.StartOrphanReaper(ctx)
+	}
+
 	// Start database metrics updater
 	if s.db != nil {
 		s.bgWG.Add(1)

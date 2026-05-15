@@ -384,6 +384,23 @@ func (p *Pipeline) Done() <-chan struct{} {
 	return p.done
 }
 
+// CurrentPID returns the OS pid of the gst-launch process this Pipeline is
+// currently driving, or 0 if no process is live. The orphan reaper uses this
+// to distinguish tracked broadcast pipelines from leaked ones (#220).
+func (p *Pipeline) CurrentPID() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
+		return 0
+	}
+	select {
+	case <-p.done:
+		return 0
+	default:
+	}
+	return p.cmd.Process.Pid
+}
+
 // Stop terminates the running pipeline.
 func (p *Pipeline) Stop() error {
 	p.mu.Lock()
