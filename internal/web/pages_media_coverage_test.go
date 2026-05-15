@@ -469,6 +469,52 @@ func TestMediaBulk_Delete(t *testing.T) {
 	}
 }
 
+// TestMediaBulk_Delete_RemovesPlaylistReferences regresses issue #223: bulk
+// delete must clean up playlist_items (and other FK referrers) before
+// deleting media_items, or Postgres rejects the DELETE with SQLSTATE 23503
+// and the handler 500s — which HTMX silently swallows. SM reported six
+// failed bulk-delete attempts in one day before this was diagnosed.
+func TestMediaBulk_Delete_RemovesPlaylistReferences(t *testing.T) {
+	h, db, user, station := newMediaDetailTestHandler(t)
+	seedMedia(t, h, station.ID, "bulk-ref-1", "Referenced Song")
+
+	// Wire the track into a playlist on the same station. Pre-fix, this is
+	// what made the bulk delete fail with a FK violation.
+	playlist := models.Playlist{ID: "pl-1", StationID: station.ID, Name: "Show"}
+	if err := db.Create(&playlist).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	if err := db.Create(&models.PlaylistItem{
+		ID: "pi-1", PlaylistID: playlist.ID, MediaID: "bulk-ref-1", Position: 1,
+	}).Error; err != nil {
+		t.Fatalf("create playlist item: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"action": "delete",
+		"ids":    []string{"bulk-ref-1"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	ctx := context.WithValue(req.Context(), ctxKeyUser, &user)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+	h.MediaBulk(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var mediaCount, itemCount int64
+	db.Model(&models.MediaItem{}).Where("id = ?", "bulk-ref-1").Count(&mediaCount)
+	db.Model(&models.PlaylistItem{}).Where("media_id = ?", "bulk-ref-1").Count(&itemCount)
+	if mediaCount != 0 {
+		t.Fatalf("media row should be gone, count=%d", mediaCount)
+	}
+	if itemCount != 0 {
+		t.Fatalf("playlist_item ref should be cleaned up, count=%d", itemCount)
+	}
+}
+
 func TestMediaBulk_SetGenre(t *testing.T) {
 	h, _, user, station := newMediaDetailTestHandler(t)
 	seedMedia(t, h, station.ID, "bulk-genre-1", "Genre Song")

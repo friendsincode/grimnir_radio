@@ -39,6 +39,8 @@ func newMediaDetailTestHandler(t *testing.T) (*Handler, *gorm.DB, models.User, m
 		&models.ClockHour{},
 		&models.ClockSlot{},
 		&models.LandingPage{},
+		&models.MountPlayoutState{},
+		&models.UnderwritingObligation{},
 		&migration.Job{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
