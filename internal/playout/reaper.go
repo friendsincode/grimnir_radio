@@ -35,10 +35,12 @@ const reaperInterval = 60 * time.Second
 // (fdsink fd=1), webstream relays (souphttpsrc), analyzer probes, and
 // mediaengine pipelines have different signatures and are left alone.
 func (m *Manager) StartOrphanReaper(ctx context.Context) {
-	go m.reaperLoop(ctx)
+	debug := os.Getenv("GRIMNIR_REAPER_DEBUG") == "1"
+	m.logger.Info().Bool("debug", debug).Dur("interval", reaperInterval).Int("self_pid", os.Getpid()).Msg("orphan reaper started")
+	go m.reaperLoop(ctx, debug)
 }
 
-func (m *Manager) reaperLoop(ctx context.Context) {
+func (m *Manager) reaperLoop(ctx context.Context, debug bool) {
 	selfPID := os.Getpid()
 	ticker := time.NewTicker(reaperInterval)
 	defer ticker.Stop()
@@ -53,6 +55,19 @@ func (m *Manager) reaperLoop(ctx context.Context) {
 
 		owned := m.OwnedPIDs()
 		candidates := scanBroadcastOrphans(selfPID, owned)
+
+		if debug {
+			// Per-scan snapshot. Tells us whether the reaper sees the pipelines
+			// at all and whether OwnedPIDs is over-counting. Reproduces issue
+			// #220's "kills never fire" symptom without needing a debugger.
+			m.logger.Info().
+				Int("owned_count", len(owned)).
+				Ints("owned_pids", pidsSorted(owned)).
+				Int("candidate_count", len(candidates)).
+				Ints("candidate_pids", pidsSorted(candidates)).
+				Int("prev_count", len(prev)).
+				Msg("orphan reaper scan")
+		}
 
 		// Only kill PIDs that were also candidates in the previous scan. This
 		// gives a full reaperInterval grace window between cmd.Start and the
@@ -73,6 +88,30 @@ func (m *Manager) reaperLoop(ctx context.Context) {
 			}
 		}
 		prev = candidates
+	}
+}
+
+// pidsSorted returns the keys of a pid set as a deterministic sorted slice for
+// log readability. Only used by the debug logger.
+func pidsSorted(s map[int]struct{}) []int {
+	out := make([]int, 0, len(s))
+	for pid := range s {
+		out = append(out, pid)
+	}
+	sortInts(out)
+	return out
+}
+
+func sortInts(a []int) {
+	// Manual insertion sort to avoid pulling in sort just for log formatting.
+	for i := 1; i < len(a); i++ {
+		v := a[i]
+		j := i - 1
+		for j >= 0 && a[j] > v {
+			a[j+1] = a[j]
+			j--
+		}
+		a[j+1] = v
 	}
 }
 
