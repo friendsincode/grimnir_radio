@@ -1093,20 +1093,52 @@ func (h *Handler) MediaBulk(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "delete":
-		// Get media items to delete files
+		// Get media items to delete files (and to filter station-owned IDs).
 		var mediaItems []models.MediaItem
 		h.db.Where("id IN ? AND station_id = ?", req.IDs, station.ID).Find(&mediaItems)
 
-		// Delete from database
-		result := h.db.Where("id IN ? AND station_id = ?", req.IDs, station.ID).Delete(&models.MediaItem{})
-		affected, err = result.RowsAffected, result.Error
+		// Collect the IDs that actually belong to this station. Without this
+		// filter, a malicious request could trick adminDeleteMediaReferences
+		// into nullifying cross-station refs for media the user doesn't own.
+		ownedIDs := make([]string, 0, len(mediaItems))
+		for _, m := range mediaItems {
+			ownedIDs = append(ownedIDs, m.ID)
+		}
 
-		// Delete files from disk
-		for _, media := range mediaItems {
-			if media.Path != "" {
-				fullPath := filepath.Join(h.mediaRoot, media.Path)
-				if rmErr := os.Remove(fullPath); rmErr != nil && !os.IsNotExist(rmErr) {
-					h.logger.Warn().Err(rmErr).Str("path", fullPath).Msg("failed to delete media file")
+		if len(ownedIDs) == 0 {
+			// Nothing to do; treat as success so the UI doesn't loop on a
+			// stale set of IDs the user no longer owns.
+			break
+		}
+
+		// Foreign-key references (playlist_items, schedule_entries, clock_slots,
+		// etc.) must be cleared before the media_items row can be deleted.
+		// Without this, the DELETE fails with SQLSTATE 23503 and the user sees
+		// a silent 500 (issue #223). Wrap the whole thing in a transaction so
+		// a mid-cleanup failure doesn't leave dangling refs.
+		var resAffected int64
+		err = h.db.Transaction(func(tx *gorm.DB) error {
+			if refErr := adminDeleteMediaReferences(tx, ownedIDs); refErr != nil {
+				return refErr
+			}
+			result := tx.Where("id IN ? AND station_id = ?", ownedIDs, station.ID).Delete(&models.MediaItem{})
+			if result.Error != nil {
+				return result.Error
+			}
+			resAffected = result.RowsAffected
+			return nil
+		})
+		affected = resAffected
+
+		// Best-effort file deletion outside the transaction; if a file is
+		// missing we proceed silently to match single-delete behavior.
+		if err == nil {
+			for _, media := range mediaItems {
+				if media.Path != "" {
+					fullPath := filepath.Join(h.mediaRoot, media.Path)
+					if rmErr := os.Remove(fullPath); rmErr != nil && !os.IsNotExist(rmErr) {
+						h.logger.Warn().Err(rmErr).Str("path", fullPath).Msg("failed to delete media file")
+					}
 				}
 			}
 		}
