@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -417,6 +418,111 @@ func TestCrossfadeSession_Pump_XfadeDurationZero(t *testing.T) {
 	case <-pumpDone:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Pump did not exit")
+	}
+}
+
+// TestCrossfadeSession_Play_StopsExistingNext verifies that calling Play() when
+// a prior s.next is already queued does NOT leak the prior decoder. This is the
+// regression test for the gst-launch accumulation that pegged the production box
+// at load avg 75+ (148 leaked decoders × 13% CPU each).
+func TestCrossfadeSession_Play_StopsExistingNext(t *testing.T) {
+	sess := newPCMCrossfadeSession(
+		sessionConfig{GStreamerBin: "true", SampleRate: 44100, Channels: 2},
+		nopWriteCloser{io.Discard},
+		zerolog.Nop(),
+		nil,
+	)
+
+	curPr, curPw := io.Pipe()
+	defer curPw.Close()
+	sess.mu.Lock()
+	sess.cur = &decoderProc{stdout: curPr, cancel: func() {}}
+	sess.mu.Unlock()
+
+	// Pre-populate s.next with a decoder we can observe.
+	oldNextPr, oldNextPw := io.Pipe()
+	defer oldNextPw.Close()
+	var oldStopped int32
+	oldNext := &decoderProc{
+		stdout: oldNextPr,
+		cancel: func() { atomic.StoreInt32(&oldStopped, 1) },
+	}
+	sess.mu.Lock()
+	sess.next = oldNext
+	sess.mu.Unlock()
+
+	// Real temp file so filesrc location=%q parses; GStreamerBin=true means
+	// the child exits immediately without touching the file.
+	f, err := os.CreateTemp("", "grimnir-test-media-*.mp3")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	f.Close()
+	defer os.Remove(f.Name())
+
+	if err := sess.Play(context.Background(), f.Name(), 0, 0); err != nil {
+		t.Fatalf("Play returned error: %v", err)
+	}
+
+	if atomic.LoadInt32(&oldStopped) != 1 {
+		t.Fatal("Play() did not stop the existing s.next — decoder leak regression")
+	}
+
+	sess.mu.Lock()
+	if sess.next == oldNext {
+		t.Fatal("s.next still points to the leaked old decoder")
+	}
+	sess.mu.Unlock()
+
+	_ = sess.Close()
+}
+
+// TestCrossfadeSession_Pump_CurEOF_StopsExistingNext verifies that when cur
+// hits EOF mid-crossfade, the queued s.next decoder is stopped (not just nilled).
+// This is the second leak path for the same accumulation bug.
+func TestCrossfadeSession_Pump_CurEOF_StopsExistingNext(t *testing.T) {
+	sess := newPCMCrossfadeSession(
+		sessionConfig{SampleRate: 44100, Channels: 2},
+		nopWriteCloser{io.Discard},
+		zerolog.Nop(),
+		nil,
+	)
+
+	// cur with already-closed read side → readFrame returns EOF immediately.
+	curPr, curPw := io.Pipe()
+	curPw.Close()
+
+	nextPr, nextPw := io.Pipe()
+	defer nextPw.Close()
+	var nextStopped int32
+	sess.mu.Lock()
+	sess.cur = &decoderProc{stdout: curPr, cancel: func() {}}
+	sess.next = &decoderProc{
+		stdout: nextPr,
+		cancel: func() { atomic.StoreInt32(&nextStopped, 1) },
+	}
+	sess.xfade = &xfadeState{start: time.Now(), duration: 5 * time.Second}
+	sess.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pumpDone := make(chan error, 1)
+	go func() { pumpDone <- sess.Pump(ctx) }()
+
+	// Wait for the EOF handler path to run.
+	deadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&nextStopped) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case <-pumpDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Pump did not exit after cancel")
+	}
+
+	if atomic.LoadInt32(&nextStopped) != 1 {
+		t.Fatal("Pump cur-EOF handler did not stop s.next — decoder leak regression")
 	}
 }
 

@@ -118,7 +118,12 @@ func (s *pcmCrossfadeSession) Play(ctx context.Context, filePath string, fade ti
 		s.mu.Unlock()
 		return nil
 	}
-	// Crossfade from current to next.
+	// Crossfade from current to next. If s.next is already set (e.g. a prior
+	// Play() queued one and the fade has not completed yet), capture it so we
+	// can stop it AFTER releasing the lock — otherwise overwriting s.next here
+	// drops the only pointer to that decoder and leaks the gst-launch process,
+	// which accumulates at ~1/track and pegs the box at high load over time.
+	prevNext := s.next
 	s.next = dec
 	if fade > 0 {
 		s.xfade = &xfadeState{start: time.Now(), duration: fade}
@@ -126,6 +131,10 @@ func (s *pcmCrossfadeSession) Play(ctx context.Context, filePath string, fade ti
 		s.xfade = &xfadeState{start: time.Now(), duration: 0}
 	}
 	s.mu.Unlock()
+
+	if prevNext != nil {
+		_ = prevNext.stop()
+	}
 
 	// We do not stop prev here; mixer loop will stop it after fade completes.
 	_ = prev
@@ -273,10 +282,17 @@ func (s *pcmCrossfadeSession) Pump(ctx context.Context) error {
 			}
 			s.mu.Lock()
 			_ = cur.stop()
+			// Capture next before nilling so we can stop it AFTER releasing the
+			// lock. Nilling without stopping leaks the gst-launch decoder process
+			// (the same accumulation pattern as the Play() overwrite path).
+			prevNext := s.next
 			s.cur = nil
 			s.xfade = nil
 			s.next = nil
 			s.mu.Unlock()
+			if prevNext != nil {
+				_ = prevNext.stop()
+			}
 			time.Sleep(25 * time.Millisecond)
 			continue
 		}
