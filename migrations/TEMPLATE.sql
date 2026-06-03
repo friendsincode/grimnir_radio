@@ -1,0 +1,19 @@
+-- Migration NNN: <short description>
+-- Created: YYYY-MM-DD
+-- Phase: [expand | dual-write | contract]
+--
+-- Description: <what this migration changes and why>
+--
+-- For destructive operations (DROP, RENAME, ALTER TYPE, SET NOT NULL, TRUNCATE):
+-- this migration MUST include the following annotation explaining why dropping
+-- this shape now is safe (referencing the expand release that added the new shape,
+-- the dual-write release that populated it, and confirming every region is on
+-- a version that doesn't read the old shape):
+--
+-- -- migration-contract: <reason>
+--
+-- See docs/MIGRATIONS.md for worked examples.
+
+-- ============================================================================
+-- SQL BELOW
+-- ============================================================================
