@@ -70,3 +70,29 @@ var contractAnnotation = regexp.MustCompile(`(?im)^[^\S\n]*--[^\S\n]*migration-c
 func hasContractAnnotation(sql string) bool {
 	return contractAnnotation.MatchString(sql)
 }
+
+// FileFinding is a destructive operation found in a specific file that
+// lacked a contract annotation.
+type FileFinding struct {
+	Path string
+	Finding
+}
+
+// LintFile reports destructive operations in `sql` that are not covered by a
+// migration-contract annotation. A clean file returns nil; a fully-annotated
+// destructive file returns nil; a destructive file without annotation returns
+// one FileFinding per destructive operation.
+func LintFile(path, sql string) []FileFinding {
+	ops := detectDestructive(sql)
+	if len(ops) == 0 {
+		return nil
+	}
+	if hasContractAnnotation(sql) {
+		return nil
+	}
+	out := make([]FileFinding, 0, len(ops))
+	for _, op := range ops {
+		out = append(out, FileFinding{Path: path, Finding: op})
+	}
+	return out
+}
