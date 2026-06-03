@@ -30,6 +30,12 @@ func TestDetectDestructive_TableOfPatterns(t *testing.T) {
 		{"add column, safe", "ALTER TABLE foo ADD COLUMN bar text;", ""},
 		{"create table, safe", "CREATE TABLE foo (id uuid PRIMARY KEY);", ""},
 		{"create index, safe", "CREATE INDEX idx_foo ON foo(bar);", ""},
+		{"column named drop_count, safe", "ALTER TABLE foo ADD COLUMN drop_count int;", ""},
+		{"drop not null is relaxing, safe", "ALTER TABLE foo ALTER COLUMN bar DROP NOT NULL;", ""},
+		{"set data type long form", "ALTER TABLE foo ALTER COLUMN bar SET DATA TYPE integer;", "ALTER COLUMN TYPE"},
+		{"rename table quoted identifier", "ALTER TABLE \"foo\" RENAME TO \"bar\";", "RENAME TABLE"},
+		{"rename table schema-qualified", "ALTER TABLE public.foo RENAME TO bar;", "RENAME TABLE"},
+		{"alter column type quoted identifier", "ALTER TABLE \"foo\" ALTER COLUMN \"bar\" TYPE integer;", "ALTER COLUMN TYPE"},
 	}
 
 	for _, tc := range tests {

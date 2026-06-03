@@ -24,10 +24,10 @@ var destructiveRules = []struct {
 	canonical string
 	pattern   *regexp.Regexp
 }{
-	{"ALTER COLUMN SET NOT NULL", regexp.MustCompile(`(?i)\balter\s+column\s+\w+\s+set\s+not\s+null\b`)},
-	{"ALTER COLUMN TYPE", regexp.MustCompile(`(?i)\balter\s+column\s+\w+\s+type\b`)},
+	{"ALTER COLUMN SET NOT NULL", regexp.MustCompile(`(?i)\balter\s+column\s+[\w."]+\s+set\s+not\s+null\b`)},
+	{"ALTER COLUMN TYPE", regexp.MustCompile(`(?i)\balter\s+column\s+[\w."]+\s+(set\s+data\s+)?type\b`)},
 	{"RENAME COLUMN", regexp.MustCompile(`(?i)\brename\s+column\b`)},
-	{"RENAME TABLE", regexp.MustCompile(`(?i)\balter\s+table\s+\w+\s+rename\s+to\b`)},
+	{"RENAME TABLE", regexp.MustCompile(`(?i)\balter\s+table\s+[\w."]+\s+rename\s+to\b`)},
 	{"DROP COLUMN", regexp.MustCompile(`(?i)\bdrop\s+column\b`)},
 	{"DROP TABLE", regexp.MustCompile(`(?i)\bdrop\s+table\b`)},
 	{"DROP INDEX", regexp.MustCompile(`(?i)\bdrop\s+index\b`)},
