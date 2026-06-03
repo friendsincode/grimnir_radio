@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "v2-dev"]
   pull_request:
 
 jobs:
@@ -52,6 +52,14 @@ jobs:
 
       - name: go vet
         run: go vet ./...
+
+      - name: Migration lint (expand/contract discipline)
+        run: |
+          if [ -n "${{ github.base_ref }}" ]; then
+            BASE_REF=origin/${{ github.base_ref }} make migration-lint-ci
+          else
+            make migration-lint
+          fi
 
       - name: go test
         run: go test -count=1 ./...
