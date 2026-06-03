@@ -132,3 +132,19 @@ func TestLintFile(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatFinding(t *testing.T) {
+	f := FileFinding{
+		Path: "migrations/099_drop.sql",
+		Finding: Finding{
+			Op:      "DROP COLUMN",
+			Line:    7,
+			Snippet: "ALTER TABLE foo DROP COLUMN bar;",
+		},
+	}
+	got := FormatFinding(f)
+	want := "migrations/099_drop.sql:7: destructive operation DROP COLUMN without -- migration-contract annotation: ALTER TABLE foo DROP COLUMN bar;"
+	if got != want {
+		t.Errorf("FormatFinding =\n  %q\nwant\n  %q", got, want)
+	}
+}

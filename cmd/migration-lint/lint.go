@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -95,4 +96,10 @@ func LintFile(path, sql string) []FileFinding {
 		out = append(out, FileFinding{Path: path, Finding: op})
 	}
 	return out
+}
+
+// FormatFinding renders a FileFinding as a single human-readable line.
+func FormatFinding(f FileFinding) string {
+	return fmt.Sprintf("%s:%d: destructive operation %s without -- migration-contract annotation: %s",
+		f.Path, f.Line, f.Op, f.Snippet)
 }
