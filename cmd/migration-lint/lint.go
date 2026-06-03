@@ -60,3 +60,13 @@ func detectDestructive(sql string) []Finding {
 	}
 	return findings
 }
+
+// contractAnnotation matches a "-- migration-contract: <non-empty reason>" comment.
+// The marker is case-insensitive; the reason must contain at least one non-space character.
+var contractAnnotation = regexp.MustCompile(`(?im)^[^\S\n]*--[^\S\n]*migration-contract[^\S\n]*:[^\S\n]*(\S.*)$`)
+
+// hasContractAnnotation reports whether the SQL contains a non-empty
+// "-- migration-contract: <reason>" annotation.
+func hasContractAnnotation(sql string) bool {
+	return contractAnnotation.MatchString(sql)
+}

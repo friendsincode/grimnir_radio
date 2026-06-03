@@ -56,3 +56,26 @@ func TestDetectDestructive_TableOfPatterns(t *testing.T) {
 		})
 	}
 }
+
+func TestHasContractAnnotation(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{"explicit annotation", "-- migration-contract: dropping foo, replaced by bar in v1.40\nDROP COLUMN foo;", true},
+		{"annotation with surrounding whitespace", "  --   migration-contract:   reason here\n", true},
+		{"missing annotation", "DROP COLUMN foo;", false},
+		{"empty annotation", "-- migration-contract:\nDROP COLUMN foo;", false},
+		{"annotation with only whitespace reason", "-- migration-contract:    \nDROP COLUMN foo;", false},
+		{"annotation case-insensitive marker", "-- MIGRATION-CONTRACT: reason\nDROP COLUMN foo;", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := hasContractAnnotation(tc.sql)
+			if got != tc.want {
+				t.Errorf("hasContractAnnotation(%q) = %v, want %v", tc.sql, got, tc.want)
+			}
+		})
+	}
+}
