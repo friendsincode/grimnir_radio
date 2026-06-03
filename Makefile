@@ -7,7 +7,7 @@ PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
 .PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan verify ci proto proto-clean \
-        dev-db dev-redis dev-stack run-control run-media
+        dev-db dev-redis dev-stack run-control run-media migration-lint migration-lint-ci
 
 help:
 	@echo "Common targets:"
@@ -49,6 +49,16 @@ vet:
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || echo "golangci-lint not found; skipping lint"
 
+migration-lint:
+	@$(GO) run ./cmd/migration-lint --dir=migrations
+
+migration-lint-ci:
+	@if [ -n "$$BASE_REF" ]; then \
+		$(GO) run ./cmd/migration-lint --diff-base=$$BASE_REF; \
+	else \
+		$(GO) run ./cmd/migration-lint --dir=migrations; \
+	fi
+
 tidy:
 	@$(GO) mod tidy
 
@@ -70,7 +80,7 @@ build-mediascan:
 
 verify: tidy fmt vet lint test
 
-ci: verify fmt-check
+ci: verify fmt-check migration-lint-ci
 
 proto:
 	@echo "Generating protobuf code..."
