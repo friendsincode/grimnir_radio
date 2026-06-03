@@ -79,3 +79,56 @@ func TestHasContractAnnotation(t *testing.T) {
 		})
 	}
 }
+
+func TestLintFile(t *testing.T) {
+	tests := []struct {
+		name         string
+		path         string
+		sql          string
+		wantFindings int
+	}{
+		{
+			name:         "clean migration",
+			path:         "migrations/100_add_column.sql",
+			sql:          "ALTER TABLE foo ADD COLUMN bar text;",
+			wantFindings: 0,
+		},
+		{
+			name:         "destructive without annotation",
+			path:         "migrations/101_drop_column.sql",
+			sql:          "ALTER TABLE foo DROP COLUMN bar;",
+			wantFindings: 1,
+		},
+		{
+			name:         "destructive with annotation",
+			path:         "migrations/102_drop_column_annotated.sql",
+			sql:          "-- migration-contract: foo deprecated in v1.40, contracted in v1.43\nALTER TABLE foo DROP COLUMN bar;",
+			wantFindings: 0,
+		},
+		{
+			name:         "two destructive ops without annotation",
+			path:         "migrations/103_two_drops.sql",
+			sql:          "DROP TABLE foo;\nDROP TABLE bar;",
+			wantFindings: 2,
+		},
+		{
+			name:         "two destructive ops with annotation",
+			path:         "migrations/104_two_drops_annotated.sql",
+			sql:          "-- migration-contract: deprecated tables\nDROP TABLE foo;\nDROP TABLE bar;",
+			wantFindings: 0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := LintFile(tc.path, tc.sql)
+			if len(got) != tc.wantFindings {
+				t.Errorf("LintFile findings = %d, want %d (%+v)", len(got), tc.wantFindings, got)
+			}
+			for _, f := range got {
+				if f.Path != tc.path {
+					t.Errorf("finding path = %q, want %q", f.Path, tc.path)
+				}
+			}
+		})
+	}
+}
