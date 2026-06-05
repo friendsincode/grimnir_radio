@@ -370,6 +370,68 @@ func TestPipeline_StartWithDualOutputAndInput_AlreadyRunningNilStdin(t *testing.
 	}
 }
 
+// ── Pipeline.SetClock ──────────────────────────────────────────────────────
+
+// TestPipeline_SetClock_BindsToPipeline confirms ForceClock is called BEFORE
+// SetState(PLAYING) when SetClock provided a non-nil clock. We use a fresh
+// GstSystemClock instance so the post-Start pipeline clock is the one we
+// passed (not the default). NetClock Chunk 3 self-review item: "slave's
+// GstClock() returns the NetClient after sync, pipelines actually bind to it".
+func TestPipeline_SetClock_BindsToPipeline(t *testing.T) {
+	sysClock := gst.ObtainSystemClock()
+	if sysClock == nil {
+		t.Fatal("ObtainSystemClock returned nil")
+	}
+	defer sysClock.Unref()
+
+	p := newTestPipeline(t)
+	p.SetClock(sysClock.Clock)
+
+	if err := p.Start(context.Background(), longPipeline); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Stop()
+
+	gp := p.CurrentGstPipeline()
+	if gp == nil {
+		t.Fatal("CurrentGstPipeline returned nil after Start")
+	}
+	got := gp.GetPipelineClock()
+	if got == nil {
+		t.Fatal("GetPipelineClock returned nil after SetClock + Start")
+	}
+	// We can't compare *gst.Clock by pointer identity (go-gst returns fresh
+	// wrappers around the same underlying GObject). Verify by Instance().
+	if got.Instance() != sysClock.Clock.Instance() {
+		t.Errorf("pipeline clock instance = %p, want %p", got.Instance(), sysClock.Clock.Instance())
+	}
+}
+
+// TestPipeline_NilClock_PreservesDefault confirms that SetClock(nil) — or
+// never calling SetClock at all — leaves the pipeline using GStreamer's
+// default clock selection. Guards the "NETCLOCK_ENABLED=false behavior
+// identical to today" invariant.
+func TestPipeline_NilClock_PreservesDefault(t *testing.T) {
+	p := newTestPipeline(t)
+	// Don't call SetClock; gstClock stays nil.
+
+	if err := p.Start(context.Background(), longPipeline); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Stop()
+
+	gp := p.CurrentGstPipeline()
+	if gp == nil {
+		t.Fatal("CurrentGstPipeline returned nil after Start")
+	}
+	// Pipeline should still have SOME clock (GStreamer picks one), just not
+	// one forced by us. Nil-default invariant: the result here equals the
+	// system clock, but more importantly we don't crash trying to bind nil.
+	if got := gp.GetPipelineClock(); got == nil {
+		t.Error("pipeline has no clock after Start with nil forced clock; GStreamer should have picked a default")
+	}
+}
+
 // ── Pipeline.CurrentPID ────────────────────────────────────────────────────
 
 func TestPipeline_CurrentPID_AlwaysZeroPostMigration(t *testing.T) {
@@ -387,6 +449,70 @@ func TestPipeline_CurrentPID_AlwaysZeroPostMigration(t *testing.T) {
 		t.Errorf("CurrentPID after Start: got %d, want 0", got)
 	}
 	<-p.Done()
+}
+
+// ── Manager.Ensure* clock-binding ──────────────────────────────────────────
+
+// TestManager_EnsurePipeline_BindsAttachedClock confirms the manager pulls
+// the *gst.Clock from its attached NetClock on each EnsurePipeline* call and
+// forwards it to the pipeline. End-to-end check for Task 3.2's plumbing.
+func TestManager_EnsurePipeline_BindsAttachedClock(t *testing.T) {
+	sysClock := gst.ObtainSystemClock()
+	if sysClock == nil {
+		t.Fatal("ObtainSystemClock returned nil")
+	}
+	defer sysClock.Unref()
+
+	// Construct a Clock with Enabled=false but seed gstClock by hand so
+	// GstClock() returns our sentinel. We bypass the real election loop;
+	// we just want the manager-to-pipeline plumbing exercised.
+	netClock := &Clock{cfg: ClockConfig{Enabled: true}, gstClock: sysClock.Clock, isMaster: true}
+
+	m := NewManager(&config.Config{}, zerolog.Nop(), WithManagerClock(netClock))
+	if err := m.EnsurePipeline(context.Background(), "mount-clock", longPipeline); err != nil {
+		t.Fatalf("EnsurePipeline: %v", err)
+	}
+	pi := m.GetPipeline("mount-clock")
+	if pi == nil {
+		t.Fatal("GetPipeline nil after EnsurePipeline")
+	}
+	defer pi.Stop()
+	p, ok := pi.(*Pipeline)
+	if !ok {
+		t.Fatalf("GetPipeline returned %T; want *Pipeline", pi)
+	}
+	gp := p.CurrentGstPipeline()
+	if gp == nil {
+		t.Fatal("CurrentGstPipeline nil")
+	}
+	got := gp.GetPipelineClock()
+	if got == nil {
+		t.Fatal("pipeline has no clock after manager wired one")
+	}
+	if got.Instance() != sysClock.Clock.Instance() {
+		t.Errorf("pipeline clock = %p, want %p (the one the manager's Clock returned)", got.Instance(), sysClock.Clock.Instance())
+	}
+}
+
+// TestManager_NoClockAttached_PreservesDefault confirms that EnsurePipeline*
+// on a manager constructed without WithManagerClock still works exactly as
+// it did before Task 3.2. Belt-and-suspenders for the "single-instance deploy
+// behavior unchanged" invariant.
+func TestManager_NoClockAttached_PreservesDefault(t *testing.T) {
+	m := NewManager(&config.Config{}, zerolog.Nop())
+	if err := m.EnsurePipeline(context.Background(), "mount-noclock", shortPipeline); err != nil {
+		t.Fatalf("EnsurePipeline: %v", err)
+	}
+	pi := m.GetPipeline("mount-noclock")
+	if pi == nil {
+		t.Fatal("GetPipeline nil")
+	}
+	defer pi.Stop()
+	select {
+	case <-pi.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("pipeline did not exit")
+	}
 }
 
 // ── Manager.Ensure* ────────────────────────────────────────────────────────

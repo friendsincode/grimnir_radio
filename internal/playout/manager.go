@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/friendsincode/grimnir_radio/internal/config"
+	"github.com/go-gst/go-gst/gst"
 	"github.com/rs/zerolog"
 )
 
@@ -67,6 +68,22 @@ func (m *Manager) Clock() *Clock {
 	return m.netClock
 }
 
+// currentGstClock asks the attached NetClock for whichever *gst.Clock the
+// next pipeline should bind via UseClock(). Returns nil when no Clock is
+// attached or the Clock reports nil (disabled, slave-without-master-addr,
+// sync-timeout), in which case the pipeline falls back to GstSystemClock —
+// preserving today's behavior on single-instance deploys.
+//
+// Pulled out so all three EnsurePipeline* call sites pick up future
+// behavior changes (e.g. blocking-vs-non-blocking modes) without
+// duplicating policy.
+func (m *Manager) currentGstClock() *gst.Clock {
+	if m.netClock == nil {
+		return nil
+	}
+	return m.netClock.GstClock()
+}
+
 // EnsurePipeline starts or reuses an existing pipeline.
 func (m *Manager) EnsurePipeline(ctx context.Context, mountID string, launch string) error {
 	return m.EnsurePipelineWithOutput(ctx, mountID, launch, nil)
@@ -107,6 +124,7 @@ func (m *Manager) EnsurePipelineWithOutput(ctx context.Context, mountID string, 
 	}
 	m.mu.Unlock()
 
+	pipeline.SetClock(m.currentGstClock())
 	return pipeline.StartWithOutput(ctx, launch, outputHandler)
 }
 
@@ -123,6 +141,7 @@ func (m *Manager) EnsurePipelineWithDualOutput(ctx context.Context, mountID stri
 	}
 	m.mu.Unlock()
 
+	pipeline.SetClock(m.currentGstClock())
 	return pipeline.StartWithDualOutput(ctx, launch, seekFile, hqHandler, lqHandler)
 }
 
@@ -137,6 +156,7 @@ func (m *Manager) EnsurePipelineWithDualOutputAndInput(ctx context.Context, moun
 	}
 	m.mu.Unlock()
 
+	pipeline.SetClock(m.currentGstClock())
 	return pipeline.StartWithDualOutputAndInput(ctx, launch, hqHandler, lqHandler)
 }
 

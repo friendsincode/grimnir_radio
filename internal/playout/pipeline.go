@@ -68,11 +68,29 @@ type Pipeline struct {
 	// "fdsrc fd=5" launch fragment. Kept here so the GC doesn't close it while
 	// GStreamer is reading; closed by Stop().
 	seekFile *os.File
+
+	// gstClock, when non-nil, is bound via pipeline.ForceClock() before
+	// SetState(PLAYING). Set by SetClock() before any Start* call. Nil means
+	// today's behavior: GStreamer picks the default (GstSystemClock).
+	// This is how NetClock Chunk 3 wires master/slave PCM alignment without
+	// touching every Start* signature; the Manager calls SetClock once per
+	// EnsurePipeline* invocation using whatever the attached Clock returns.
+	gstClock *gst.Clock
 }
 
 // NewPipeline constructs a pipeline for a mount.
 func NewPipeline(cfg *config.Config, mountID string, logger zerolog.Logger) *Pipeline {
 	return &Pipeline{cfg: cfg, mountID: mountID, logger: logger}
+}
+
+// SetClock stores a *gst.Clock that startLocked will bind via ForceClock()
+// before SetState(PLAYING). Passing nil restores the default (GstSystemClock).
+// Safe to call concurrently with anything except Start*. The Manager invokes
+// this immediately before each EnsurePipeline* delegation.
+func (p *Pipeline) SetClock(clock *gst.Clock) {
+	p.mu.Lock()
+	p.gstClock = clock
+	p.mu.Unlock()
 }
 
 // translateLaunch rewrites fdsink/fdsrc markers in a director-built launch
@@ -155,6 +173,13 @@ func (p *Pipeline) startLocked(launch string, seekFile *os.File, hqHandler, lqHa
 	// the edge encoder's consumeBus pattern (internal/edgeencoder/pipeline.go).
 	doneCh := p.done
 	go p.consumeBus(doneCh)
+
+	// Bind NetClock BEFORE SetState(PLAYING). On the master this is the
+	// system clock backing the NetTimeProvider; on a slave it's a synced
+	// NetClientClock. Nil = use GstSystemClock (today's behavior).
+	if p.gstClock != nil {
+		pipeline.ForceClock(p.gstClock)
+	}
 
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
 		// Best-effort teardown; doneCh will close via the bus consumer once
@@ -350,6 +375,15 @@ func (p *Pipeline) Done() <-chan struct{} {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.done
+}
+
+// CurrentGstPipeline returns the underlying *gst.Pipeline for the active run,
+// or nil if Start hasn't been called (or the run already finished). Test-only;
+// production code should not poke at the pipeline directly.
+func (p *Pipeline) CurrentGstPipeline() *gst.Pipeline {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.gst
 }
 
 // CurrentPID always returns 0 now that pipelines run in-process. The orphan
