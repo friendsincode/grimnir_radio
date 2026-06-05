@@ -28,6 +28,9 @@ type Config struct {
 	OutputBitrateKbps int
 	HLSEnabled        bool
 	HLSS3Bucket       string
+	HLSS3Region       string
+	HLSS3Endpoint     string // optional, for MinIO / S3-compatible services
+	HLSS3UsePathStyle bool
 	HLSSegmentDir     string
 	LogLevel          string
 }
@@ -46,6 +49,9 @@ func LoadConfigFromEnv() (*Config, error) {
 		OutputBitrateKbps: getEnvIntOr("EDGE_ENCODER_OUTPUT_BITRATE_KBPS", 128),
 		HLSEnabled:        getEnvBoolOr("EDGE_ENCODER_HLS_ENABLED", false),
 		HLSS3Bucket:       os.Getenv("EDGE_ENCODER_HLS_S3_BUCKET"),
+		HLSS3Region:       getEnvOr("EDGE_ENCODER_HLS_S3_REGION", "us-east-1"),
+		HLSS3Endpoint:     os.Getenv("EDGE_ENCODER_HLS_S3_ENDPOINT"),
+		HLSS3UsePathStyle: getEnvBoolOr("EDGE_ENCODER_HLS_S3_USE_PATH_STYLE", false),
 		HLSSegmentDir:     getEnvOr("EDGE_ENCODER_HLS_SEGMENT_DIR", "/tmp/grimnir-hls"),
 		LogLevel:          getEnvOr("EDGE_ENCODER_LOG_LEVEL", "info"),
 	}

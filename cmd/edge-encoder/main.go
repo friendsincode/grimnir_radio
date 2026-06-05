@@ -76,6 +76,25 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	switcher := edgeencoder.NewSwitcher(healthA, healthB, pipeline, 50*time.Millisecond, 2)
 	go switcher.Run(ctx)
 
+	// HLS uploader (segments + manifest -> S3) when HLS is enabled.
+	if cfg.HLSEnabled {
+		s3Client, err := edgeencoder.NewS3Adapter(ctx, cfg)
+		if err != nil {
+			fmt.Fprintf(stderr, "edge-encoder: hls s3 client: %v\n", err)
+			return 2
+		}
+		uploader, err := edgeencoder.NewHLSUploader(cfg.HLSSegmentDir, cfg.HLSS3Bucket, s3Client)
+		if err != nil {
+			fmt.Fprintf(stderr, "edge-encoder: hls uploader init: %v\n", err)
+			return 2
+		}
+		go func() {
+			if err := uploader.Run(ctx); err != nil {
+				fmt.Fprintf(stderr, "edge-encoder: hls uploader: %v\n", err)
+			}
+		}()
+	}
+
 	// Listener-facing broadcast mount: appsink bytes -> Mount -> HTTP /live.
 	// Bus is nil; this binary has no event bus, & Mount tolerates that.
 	contentType := "audio/mpeg"
