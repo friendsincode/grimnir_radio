@@ -113,3 +113,60 @@ func TestBuildDualBroadcastPipeline_HAEnabledButNoTargetsOmitsRTPBranch(t *testi
 		t.Errorf("HA enabled with no targets must not emit RTP branch:\n%s", pipeline)
 	}
 }
+
+// buildWebstreamPipelineForTest wraps buildWebstreamBroadcastPipeline with
+// canonical args so the HA tests below stay focused on the tee branch.
+func buildWebstreamPipelineForTest(t *testing.T, d *Director) string {
+	t.Helper()
+	mount := models.Mount{
+		Name:       "test",
+		Format:     "mp3",
+		Bitrate:    128,
+		SampleRate: 44100,
+		Channels:   2,
+	}
+	ws := &models.Webstream{
+		Name: "test-relay",
+		URLs: []string{"http://upstream.example.com/stream.mp3"},
+	}
+	pipeline, err := d.buildWebstreamBroadcastPipeline("http://upstream.example.com/stream.mp3", mount, ws, 128, 64, 0)
+	if err != nil {
+		t.Fatalf("buildWebstreamBroadcastPipeline returned error: %v", err)
+	}
+	return pipeline
+}
+
+// TestBuildWebstreamBroadcastPipeline_NoHAModeOmitsRTPBranch mirrors the
+// dual-pipeline test: default single-instance webstream relays must not emit
+// the PCM-RTP tee branch.
+func TestBuildWebstreamBroadcastPipeline_NoHAModeOmitsRTPBranch(t *testing.T) {
+	d, _ := newMockDirector(t)
+	d.cfg.HAPCMRTPEnabled = false
+	pipeline := buildWebstreamPipelineForTest(t, d)
+	if strings.Contains(pipeline, "rtpL16pay") {
+		t.Errorf("HA disabled but pipeline contains rtpL16pay:\n%s", pipeline)
+	}
+	if strings.Contains(pipeline, "multiudpsink") {
+		t.Errorf("HA disabled but pipeline contains multiudpsink:\n%s", pipeline)
+	}
+}
+
+// TestBuildWebstreamBroadcastPipeline_HAModeAddsRTPBranch verifies the
+// additive PCM-over-RTP tee branch appears for webstream relays when HA mode
+// is enabled, matching buildDualBroadcastPipeline's behavior.
+func TestBuildWebstreamBroadcastPipeline_HAModeAddsRTPBranch(t *testing.T) {
+	d, _ := newMockDirector(t)
+	d.cfg.HAPCMRTPEnabled = true
+	d.cfg.HAPCMRTPTargets = []string{"<node-a-ip>:5004"}
+	pipeline := buildWebstreamPipelineForTest(t, d)
+	for _, expected := range []string{
+		"rtpL16pay",
+		"multiudpsink",
+		"format=S16BE",
+		"clients=<node-a-ip>:5004",
+	} {
+		if !strings.Contains(pipeline, expected) {
+			t.Errorf("HA enabled but pipeline missing %q in:\n%s", expected, pipeline)
+		}
+	}
+}

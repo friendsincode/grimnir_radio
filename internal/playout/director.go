@@ -1703,6 +1703,19 @@ func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount model
 		sourceElement, bufferElement, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
 	)
 
+	// HA mode: append a PCM-over-RTP tee branch fanning out to the edge encoders.
+	// Mirrors buildDualBroadcastPipeline so file-playout and webstream relays
+	// converge on the same multicast-friendly transport. RFC 3551 PT=10 = L16
+	// stereo 44.1 kHz, S16BE.
+	haRTPEnabled := d.cfg != nil && d.cfg.HAPCMRTPEnabled && len(d.cfg.HAPCMRTPTargets) > 0
+	if haRTPEnabled {
+		clients := strings.Join(d.cfg.HAPCMRTPTargets, ",")
+		pipeline += fmt.Sprintf(
+			` t. ! queue ! audioconvert ! audio/x-raw,format=S16BE,rate=44100,channels=2 ! rtpL16pay pt=10 mtu=1400 ! multiudpsink clients=%s sync=true`,
+			clients,
+		)
+	}
+
 	d.logger.Debug().
 		Str("pipeline", pipeline).
 		Str("webstream", ws.Name).
@@ -1710,6 +1723,7 @@ func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount model
 		Int("hq_bitrate", hqBitrate).
 		Int("lq_bitrate", lqBitrate).
 		Bool("webrtc", d.webrtcEnabled && webrtcRTPPort > 0).
+		Bool("ha_pcm_rtp", haRTPEnabled).
 		Msg("built webstream broadcast pipeline")
 
 	return pipeline, nil
