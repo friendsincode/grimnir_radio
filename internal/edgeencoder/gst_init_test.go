@@ -33,7 +33,6 @@ func TestGstRequiredElements(t *testing.T) {
 		"rtpjitterbuffer",
 		"rtpL16depay",
 		"input-selector",
-		"fallbackswitch",
 		"audioconvert",
 		"audioresample",
 		"lamemp3enc",
