@@ -56,6 +56,16 @@ type Pipeline struct {
 	// Map from logical input name ("A"/"B") to the request sink pad on
 	// input-selector that represents that input.
 	inputPads map[string]*gst.Pad
+
+	// bus is the GStreamer bus for the pipeline. Cached here so we don't call
+	// GetPipelineBus() from multiple goroutines (go-gst v1.4.0 lazy-initializes
+	// the wrapper, which is racy under -race).
+	bus *gst.Bus
+
+	// done receives a signal (nil or error) when the bus consumer goroutine
+	// exits, either due to a bus ERROR, an EOS, or Close() flushing the bus.
+	// Buffered with capacity 1; sends are non-blocking.
+	done chan error
 }
 
 // NewPipeline constructs and links the GStreamer pipeline. The pipeline is
@@ -179,7 +189,7 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 	appsink.SetMaxBuffers(10)
 	appsink.SetDrop(false)
 
-	return &Pipeline{
+	p := &Pipeline{
 		cfg:           cfg,
 		gst:           pipeline,
 		inputSelector: selector,
@@ -189,7 +199,11 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 			"A": padA,
 			"B": padB,
 		},
-	}, nil
+		bus:  pipeline.GetPipelineBus(),
+		done: make(chan error, 1),
+	}
+	go p.consumeBus()
+	return p, nil
 }
 
 // buildInputBranch creates udpsrc -> rtpjitterbuffer -> rtpL16depay ->
@@ -280,9 +294,59 @@ func (p *Pipeline) Start() error {
 	return nil
 }
 
-// Close stops the pipeline and releases all resources.
+// Close stops the pipeline and releases all resources. Before transitioning
+// to NULL, a synthetic EOS message is posted to wake the blocked consumeBus
+// goroutine so it exits cleanly (no goroutine leak).
 func (p *Pipeline) Close() error {
+	if p.bus != nil {
+		p.bus.Post(gst.NewEOSMessage(p.gst))
+	}
 	return p.gst.SetState(gst.StateNull)
+}
+
+// consumeBus pumps GStreamer bus messages on a dedicated goroutine.
+// On ERROR or EOS, the message is surfaced via the done channel and the
+// goroutine exits. The done channel is buffered, so the send is non-blocking;
+// late listeners won't miss the first signal.
+func (p *Pipeline) consumeBus() {
+	for {
+		msg := p.bus.TimedPop(gst.ClockTimeNone)
+		if msg == nil {
+			// Bus was flushed (e.g., by Close) or otherwise returned no
+			// message. Treat as clean shutdown.
+			select {
+			case p.done <- nil:
+			default:
+			}
+			return
+		}
+		switch msg.Type() {
+		case gst.MessageError:
+			gerr := msg.ParseError()
+			var err error
+			if gerr != nil {
+				err = gerr
+			}
+			select {
+			case p.done <- err:
+			default:
+			}
+			return
+		case gst.MessageEOS:
+			select {
+			case p.done <- nil:
+			default:
+			}
+			return
+		}
+	}
+}
+
+// Done returns a channel that receives a value (or nil) when the pipeline
+// stops, either due to a bus ERROR, an EOS, or Close(). Receivers should
+// treat any value (nil or error) as "pipeline stopped, do not use further".
+func (p *Pipeline) Done() <-chan error {
+	return p.done
 }
 
 // ActiveInput returns the logical name ("A" or "B") of the currently selected

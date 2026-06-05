@@ -8,6 +8,7 @@ package edgeencoder
 
 import (
 	"testing"
+	"time"
 )
 
 func TestNewPipeline_BuildsAndReachesPlayingState(t *testing.T) {
@@ -90,5 +91,59 @@ func TestNewPipeline_InputPadAccessor(t *testing.T) {
 	}
 	if p.InputPad("Z") != nil {
 		t.Error("InputPad(Z) should be nil for unknown input")
+	}
+}
+
+func TestPipeline_DoneChannelExists(t *testing.T) {
+	Init()
+	cfg := &Config{RTPPortA: 15010, RTPPortB: 15011, OutputFormat: "mp3", OutputBitrateKbps: 128}
+	p, err := NewPipeline(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	if err := p.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify Done() returns a non-nil channel.
+	done := p.Done()
+	if done == nil {
+		t.Fatal("Done() returned nil channel")
+	}
+
+	// In normal operation (no errors), Done should NOT fire within a short window.
+	select {
+	case err := <-done:
+		t.Errorf("Done() unexpectedly fired with: %v", err)
+	case <-time.After(200 * time.Millisecond):
+		// Expected: no error in normal operation
+	}
+}
+
+func TestPipeline_DoneFiresOnClose(t *testing.T) {
+	Init()
+	cfg := &Config{RTPPortA: 15012, RTPPortB: 15013, OutputFormat: "mp3", OutputBitrateKbps: 128}
+	p, err := NewPipeline(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Close the pipeline -> bus loop should exit; Done() will close or receive.
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		p.Close()
+	}()
+
+	select {
+	case <-p.Done():
+		// Expected: bus loop drained when pipeline went to NULL
+	case <-time.After(2 * time.Second):
+		t.Error("Done() did not fire within 2s of Close()")
 	}
 }
