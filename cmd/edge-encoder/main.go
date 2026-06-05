@@ -76,6 +76,33 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	switcher := edgeencoder.NewSwitcher(healthA, healthB, pipeline, 50*time.Millisecond, 2)
 	go switcher.Run(ctx)
 
+	// Engine health subscribers: poll each mediaengine's GetStatus every 1s
+	// and flip the matching InputHealth gRPC gate on 3 consecutive failures.
+	// Empty addr = subscriber disabled; InputHealth's gRPC gate stays open
+	// and health is purely packet-based.
+	if cfg.EngineAGRPC != "" {
+		subA := edgeencoder.NewEngineHealthSubscriber(cfg.EngineAGRPC, healthA, time.Second, 3)
+		subA.SetTransitionCallback(func(healthy bool, err error) {
+			if healthy {
+				fmt.Fprintf(stdout, "edge-encoder: engine A gRPC healthy (addr=%s)\n", cfg.EngineAGRPC)
+			} else {
+				fmt.Fprintf(stdout, "edge-encoder: engine A gRPC unhealthy (addr=%s err=%v)\n", cfg.EngineAGRPC, err)
+			}
+		})
+		go func() { _ = subA.Run(ctx) }()
+	}
+	if cfg.EngineBGRPC != "" {
+		subB := edgeencoder.NewEngineHealthSubscriber(cfg.EngineBGRPC, healthB, time.Second, 3)
+		subB.SetTransitionCallback(func(healthy bool, err error) {
+			if healthy {
+				fmt.Fprintf(stdout, "edge-encoder: engine B gRPC healthy (addr=%s)\n", cfg.EngineBGRPC)
+			} else {
+				fmt.Fprintf(stdout, "edge-encoder: engine B gRPC unhealthy (addr=%s err=%v)\n", cfg.EngineBGRPC, err)
+			}
+		})
+		go func() { _ = subB.Run(ctx) }()
+	}
+
 	// HLS uploader (segments + manifest -> S3) when HLS is enabled.
 	if cfg.HLSEnabled {
 		s3Client, err := edgeencoder.NewS3Adapter(ctx, cfg)
