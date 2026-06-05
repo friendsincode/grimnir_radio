@@ -122,6 +122,55 @@ func TestPipeline_DoneChannelExists(t *testing.T) {
 	}
 }
 
+func TestNewPipeline_HLSDisabledOmitsBranch(t *testing.T) {
+	Init()
+	cfg := &Config{
+		RTPPortA: 15014, RTPPortB: 15015,
+		OutputFormat: "mp3", OutputBitrateKbps: 128,
+		HLSEnabled: false,
+	}
+	p, err := NewPipeline(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	// Pipeline should construct without hlssink. Sanity: it should also Start cleanly.
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Look for hlssink element — should NOT exist
+	if elt, _ := p.gst.GetElementByName("hlssink"); elt != nil {
+		t.Error("HLS disabled but hlssink element exists in pipeline")
+	}
+}
+
+func TestNewPipeline_HLSEnabledAddsBranch(t *testing.T) {
+	Init()
+	dir := t.TempDir()
+	cfg := &Config{
+		RTPPortA: 15016, RTPPortB: 15017,
+		OutputFormat: "mp3", OutputBitrateKbps: 128,
+		HLSEnabled: true, HLSS3Bucket: "test-bucket", HLSSegmentDir: dir,
+	}
+	p, err := NewPipeline(cfg)
+	if err != nil {
+		t.Fatalf("NewPipeline: %v", err)
+	}
+	defer p.Close()
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// hlssink element should exist in the pipeline graph
+	elt, err := p.gst.GetElementByName("hlssink")
+	if err != nil {
+		t.Fatalf("GetElementByName(hlssink): %v", err)
+	}
+	if elt == nil {
+		t.Error("HLS enabled but hlssink element not found in pipeline")
+	}
+}
+
 func TestPipeline_DoneFiresOnClose(t *testing.T) {
 	Init()
 	cfg := &Config{RTPPortA: 15012, RTPPortB: 15013, OutputFormat: "mp3", OutputBitrateKbps: 128}

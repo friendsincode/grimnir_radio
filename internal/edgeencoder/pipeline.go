@@ -8,6 +8,8 @@ package edgeencoder
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/go-gst/go-glib/glib"
@@ -188,6 +190,84 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 	}
 	appsink.SetMaxBuffers(10)
 	appsink.SetDrop(false)
+
+	if cfg.HLSEnabled {
+		// Ensure the segment dir exists; hlssink2 won't create parents itself
+		// and will go ERROR at state change if the path is missing.
+		if err := os.MkdirAll(cfg.HLSSegmentDir, 0o755); err != nil {
+			return nil, fmt.Errorf("hls segment dir: %w", err)
+		}
+
+		hlsQueue, err := gst.NewElementWithName("queue", "hls_queue")
+		if err != nil {
+			return nil, fmt.Errorf("hls queue: %w", err)
+		}
+		if err := pipeline.Add(hlsQueue); err != nil {
+			return nil, fmt.Errorf("add hls queue: %w", err)
+		}
+
+		// hlssink2 muxes to MPEG-TS internally; it requires encoded audio on
+		// its sink pad. Encode AAC for HLS (industry standard for the format)
+		// independently of the MP3 branch's encoder.
+		hlsEnc, err := gst.NewElementWithName("avenc_aac", "hls_aac_encoder")
+		if err != nil {
+			return nil, fmt.Errorf("hls avenc_aac: %w", err)
+		}
+		if err := hlsEnc.SetProperty("bitrate", cfg.OutputBitrateKbps*1000); err != nil {
+			return nil, fmt.Errorf("hls aac bitrate: %w", err)
+		}
+		if err := pipeline.Add(hlsEnc); err != nil {
+			return nil, fmt.Errorf("add hls aac encoder: %w", err)
+		}
+		hlsParse, err := gst.NewElementWithName("aacparse", "hls_aac_parser")
+		if err != nil {
+			return nil, fmt.Errorf("hls aacparse: %w", err)
+		}
+		if err := pipeline.Add(hlsParse); err != nil {
+			return nil, fmt.Errorf("add hls aac parser: %w", err)
+		}
+
+		hlssink, err := gst.NewElementWithName("hlssink2", "hlssink")
+		if err != nil {
+			return nil, fmt.Errorf("hlssink2: %w", err)
+		}
+		if err := hlssink.SetProperty("location", filepath.Join(cfg.HLSSegmentDir, "segment%05d.ts")); err != nil {
+			return nil, fmt.Errorf("hlssink2 location: %w", err)
+		}
+		if err := hlssink.SetProperty("playlist-location", filepath.Join(cfg.HLSSegmentDir, "playlist.m3u8")); err != nil {
+			return nil, fmt.Errorf("hlssink2 playlist-location: %w", err)
+		}
+		if err := hlssink.SetProperty("target-duration", uint(4)); err != nil {
+			return nil, fmt.Errorf("hlssink2 target-duration: %w", err)
+		}
+		if err := hlssink.SetProperty("max-files", uint(10)); err != nil {
+			return nil, fmt.Errorf("hlssink2 max-files: %w", err)
+		}
+		if err := pipeline.Add(hlssink); err != nil {
+			return nil, fmt.Errorf("add hlssink: %w", err)
+		}
+
+		// Request a second src pad on the output tee and link it through
+		// hls_queue to hlssink's "audio" request pad. hlssink2 muxes audio
+		// (and optional video) into MPEG-TS segments internally.
+		teeSrcHLS := tee.GetRequestPad("src_%u")
+		if teeSrcHLS == nil {
+			return nil, fmt.Errorf("request src_%%u from output_tee for HLS failed")
+		}
+		if lr := teeSrcHLS.Link(hlsQueue.GetStaticPad("sink")); lr != gst.PadLinkOK {
+			return nil, fmt.Errorf("link tee -> hls_queue failed: %v", lr)
+		}
+		if err := gst.ElementLinkMany(hlsQueue, hlsEnc, hlsParse); err != nil {
+			return nil, fmt.Errorf("link hls_queue -> aac encoder chain: %w", err)
+		}
+		hlsAudioSink := hlssink.GetRequestPad("audio")
+		if hlsAudioSink == nil {
+			return nil, fmt.Errorf("request audio pad from hlssink2 failed")
+		}
+		if lr := hlsParse.GetStaticPad("src").Link(hlsAudioSink); lr != gst.PadLinkOK {
+			return nil, fmt.Errorf("link aacparse -> hlssink failed: %v", lr)
+		}
+	}
 
 	p := &Pipeline{
 		cfg:           cfg,
