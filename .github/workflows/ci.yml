@@ -38,6 +38,20 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install GStreamer (required for edge encoder CGo build)
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            libgstreamer1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-ugly \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-plugins-rs \
+            gstreamer1.0-tools
+          gst-launch-1.0 --version
+          gst-inspect-1.0 fallbackswitch | head -3
+
       - name: Tidy (must be clean)
         run: |
           go mod tidy
