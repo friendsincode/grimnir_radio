@@ -329,13 +329,37 @@ func (s *Server) initDependencies() error {
 			Msg("WebRTC station manager initialized")
 	}
 
-	s.playout = playout.NewManager(s.cfg, s.logger)
+	// NetClock master-election state machine. When disabled (default) the
+	// Clock is a no-op and pipelines use the default GstSystemClock — no
+	// behavior change for single-instance deploys.
+	netClock := playout.NewClock(playout.ClockConfig{
+		Enabled:       s.cfg.NetClockEnabled,
+		Region:        s.cfg.NetClockRegion,
+		Port:          s.cfg.NetClockPort,
+		MasterAddr:    s.cfg.NetClockMasterAddr,
+		RedisAddr:     s.cfg.RedisAddr,
+		RedisPassword: s.cfg.RedisPassword,
+		RedisDB:       s.cfg.RedisDB,
+		InstanceID:    s.cfg.InstanceID,
+	}, s.logger)
+	if s.cfg.NetClockEnabled {
+		if err := netClock.Start(context.Background()); err != nil {
+			return fmt.Errorf("start netclock: %w", err)
+		}
+		s.DeferClose(func() error { return netClock.Stop() })
+		s.logger.Info().
+			Str("region", s.cfg.NetClockRegion).
+			Int("port", s.cfg.NetClockPort).
+			Msg("NetClock election started")
+	}
+
+	s.playout = playout.NewManager(s.cfg, s.logger, playout.WithManagerClock(netClock))
 
 	// Priority and executor services (needed by live service and director)
 	priorityService := priority.NewService(database, s.bus, s.logger)
 	executorStateMgr := executor.NewStateManager(database, s.logger)
 
-	s.director = playout.NewDirector(database, s.cfg, s.playout, s.bus, webstreamService, broadcastSrv, s.logger, playout.WithStateResetter(executorStateMgr))
+	s.director = playout.NewDirector(database, s.cfg, s.playout, s.bus, webstreamService, broadcastSrv, s.logger, playout.WithStateResetter(executorStateMgr), playout.WithClock(netClock))
 	s.listenerAnalyticsSvc = analytics.NewListenerAnalyticsService(database, s.director, s.logger)
 
 	// Live service depends on priority service

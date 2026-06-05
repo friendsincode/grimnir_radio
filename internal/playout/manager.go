@@ -34,11 +34,37 @@ type Manager struct {
 
 	mu        sync.Mutex
 	pipelines map[string]*Pipeline
+
+	// netClock, when non-nil, supplies the *gst.Clock pipelines bind via
+	// pipeline.UseClock() in Chunk 3. Set via WithManagerClock.
+	netClock *Clock
+}
+
+// ManagerOption configures optional Manager dependencies.
+type ManagerOption func(*Manager)
+
+// WithManagerClock attaches a NetClock state machine so Chunk 3's pipeline
+// wiring can bind master/slave clocks via pipeline.UseClock(). Safe to pass
+// nil; Manager.Clock() returns nil in that case and pipelines fall back to
+// the default GstSystemClock.
+func WithManagerClock(c *Clock) ManagerOption {
+	return func(m *Manager) {
+		m.netClock = c
+	}
 }
 
 // NewManager creates a playout manager.
-func NewManager(cfg *config.Config, logger zerolog.Logger) *Manager {
-	return &Manager{cfg: cfg, logger: logger, pipelines: make(map[string]*Pipeline)}
+func NewManager(cfg *config.Config, logger zerolog.Logger, opts ...ManagerOption) *Manager {
+	m := &Manager{cfg: cfg, logger: logger, pipelines: make(map[string]*Pipeline)}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// Clock returns the attached NetClock, or nil if none was injected.
+func (m *Manager) Clock() *Clock {
+	return m.netClock
 }
 
 // EnsurePipeline starts or reuses an existing pipeline.

@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine"
+	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/friendsincode/grimnir_radio/internal/version"
 	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
@@ -55,6 +56,18 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+// getEnvAny returns the first non-empty env var from keys, or def. Mirrors
+// internal/config.getEnvAny so the mediaengine binary honors the GRIMNIR_
+// → RLM_ fallback convention without depending on internal/config.
+func getEnvAny(keys []string, def string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return def
 }
 
 // runHealthCheck connects to the running gRPC server and checks its health
@@ -130,6 +143,40 @@ func main() {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// NetClock master-election state machine (off by default; reads
+	// GRIMNIR_NETCLOCK_* / RLM_NETCLOCK_* env vars directly because the
+	// mediaengine binary doesn't load internal/config). When NETCLOCK_ENABLED
+	// is true the binary participates in the Redis-lease election; otherwise
+	// this is a no-op and pipelines use the default GstSystemClock.
+	netClockEnabled := getEnvAny([]string{"GRIMNIR_NETCLOCK_ENABLED", "RLM_NETCLOCK_ENABLED"}, "") == "true"
+	netClockRegion := getEnvAny([]string{"GRIMNIR_NETCLOCK_REGION", "RLM_NETCLOCK_REGION"}, "")
+	netClockPort := getEnvInt("GRIMNIR_NETCLOCK_PORT", 9094)
+	if v := os.Getenv("RLM_NETCLOCK_PORT"); v != "" && os.Getenv("GRIMNIR_NETCLOCK_PORT") == "" {
+		netClockPort = getEnvInt("RLM_NETCLOCK_PORT", 9094)
+	}
+	if netClockEnabled && netClockRegion == "" {
+		logger.Fatal().Msg("GRIMNIR_NETCLOCK_ENABLED=true requires non-empty GRIMNIR_NETCLOCK_REGION")
+	}
+	netClock := playout.NewClock(playout.ClockConfig{
+		Enabled:       netClockEnabled,
+		Region:        netClockRegion,
+		Port:          netClockPort,
+		MasterAddr:    getEnvAny([]string{"GRIMNIR_NETCLOCK_MASTER_ADDR", "RLM_NETCLOCK_MASTER_ADDR"}, ""),
+		RedisAddr:     getEnvAny([]string{"GRIMNIR_REDIS_ADDR", "RLM_REDIS_ADDR"}, "localhost:6379"),
+		RedisPassword: getEnvAny([]string{"GRIMNIR_REDIS_PASSWORD", "RLM_REDIS_PASSWORD"}, ""),
+	}, logger)
+	if netClockEnabled {
+		if err := netClock.Start(context.Background()); err != nil {
+			logger.Fatal().Err(err).Msg("failed to start NetClock election")
+		}
+		defer func() { _ = netClock.Stop() }()
+		logger.Info().
+			Str("region", netClockRegion).
+			Int("port", netClockPort).
+			Msg("NetClock election started")
+	}
+	_ = netClock // referenced by deferred Stop above; Chunk 3 wires to pipelines
 
 	// Create media engine service
 	engine := mediaengine.New(cfg, logger)

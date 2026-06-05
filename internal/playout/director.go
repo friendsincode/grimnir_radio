@@ -151,6 +151,12 @@ type Director struct {
 
 	// lastPositionFlush tracks when we last wrote TrackPositionMS to DB for crash recovery.
 	lastPositionFlush time.Time
+
+	// netClock, when non-nil and IsMaster()==true, supplies the *gst.Clock that
+	// pipelines bind via pipeline.UseClock() (wired in Chunk 3). When nil or
+	// when GstClock() returns nil, pipelines fall back to the default
+	// GstSystemClock. Set via WithClock at construction.
+	netClock *Clock
 }
 
 // NewDirector creates a playout director.
@@ -195,9 +201,24 @@ func WithStateResetter(sr StateResetter) DirectorOption {
 	}
 }
 
+// WithClock attaches a NetClock state machine to the director. Pipelines
+// (wired in Chunk 3) can read the current *gst.Clock via Director.Clock().
+// Pass nil to use the default GstSystemClock.
+func WithClock(c *Clock) DirectorOption {
+	return func(d *Director) {
+		d.netClock = c
+	}
+}
+
 // Broadcast returns the broadcast server for registering HTTP handlers.
 func (d *Director) Broadcast() *broadcast.Server {
 	return d.broadcast
+}
+
+// Clock returns the attached NetClock, or nil if no Clock was injected via
+// WithClock (in which case pipelines use the default GstSystemClock).
+func (d *Director) Clock() *Clock {
+	return d.netClock
 }
 
 // Run executes the director loop until context cancellation.
