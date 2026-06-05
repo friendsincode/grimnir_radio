@@ -80,7 +80,19 @@ type Config struct {
 
 	// Media Engine configuration
 	MediaEngineGRPCAddr string // gRPC address of the media engine (e.g., "mediaengine:9091")
-	LegacyEnvWarnings   []string
+
+	// HAPCMRTPEnabled controls whether the media engine emits raw L16 PCM via
+	// RTP for ingest by the new edge encoder. False (default) keeps the legacy
+	// fdsink fd=3/4 dual-bitrate output as the sole output. True adds a PCM-RTP
+	// branch alongside the legacy output.
+	HAPCMRTPEnabled bool
+
+	// HAPCMRTPTargets is the list of "host:port" destinations for the PCM-RTP
+	// stream. Typically two entries (local edge encoder + peer edge encoder).
+	// Required when HAPCMRTPEnabled is true.
+	HAPCMRTPTargets []string
+
+	LegacyEnvWarnings []string
 }
 
 // Load reads environment variables, applies defaults, and validates the result.
@@ -142,6 +154,21 @@ func Load() (*Config, error) {
 
 		// Media Engine configuration
 		MediaEngineGRPCAddr: getEnvAny([]string{"GRIMNIR_MEDIA_ENGINE_GRPC_ADDR", "MEDIA_ENGINE_GRPC_ADDR"}, "mediaengine:9091"),
+
+		// High-availability PCM-RTP ingest for the edge encoder.
+		HAPCMRTPEnabled: getEnvBoolAny([]string{"GRIMNIR_HA_PCM_RTP_ENABLED", "RLM_HA_PCM_RTP_ENABLED"}, false),
+	}
+
+	if raw := getEnvAny([]string{"GRIMNIR_HA_PCM_RTP_TARGETS", "RLM_HA_PCM_RTP_TARGETS"}, ""); raw != "" {
+		for _, t := range strings.Split(raw, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				cfg.HAPCMRTPTargets = append(cfg.HAPCMRTPTargets, t)
+			}
+		}
+	}
+	if cfg.HAPCMRTPEnabled && len(cfg.HAPCMRTPTargets) == 0 {
+		return nil, fmt.Errorf("GRIMNIR_HA_PCM_RTP_ENABLED=true requires non-empty GRIMNIR_HA_PCM_RTP_TARGETS")
 	}
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {

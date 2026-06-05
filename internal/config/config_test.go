@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestLoadReadsCriticalEnvKeys(t *testing.T) {
 	t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
@@ -51,4 +54,69 @@ func TestLoadProductionRequiresTurnCredentialsWhenTurnEnabled(t *testing.T) {
 	if _, err := Load(); err != nil {
 		t.Fatalf("expected production config load with TURN creds to succeed: %v", err)
 	}
+}
+
+func TestHAPCMRTPConfig(t *testing.T) {
+	// Required base env vars for Load() to succeed.
+	setBase := func(t *testing.T) {
+		t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
+		t.Setenv("GRIMNIR_JWT_SIGNING_KEY", "supersecret")
+	}
+
+	t.Run("disabled by default", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_HA_PCM_RTP_ENABLED", "")
+		t.Setenv("GRIMNIR_HA_PCM_RTP_TARGETS", "")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.HAPCMRTPEnabled {
+			t.Error("HAPCMRTPEnabled = true, want false (default)")
+		}
+		if len(c.HAPCMRTPTargets) != 0 {
+			t.Errorf("HAPCMRTPTargets = %v, want empty", c.HAPCMRTPTargets)
+		}
+	})
+
+	t.Run("parses target list", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_HA_PCM_RTP_ENABLED", "true")
+		t.Setenv("GRIMNIR_HA_PCM_RTP_TARGETS", "<node-a-ip>:5004,<node-b-ip>:5004")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.HAPCMRTPEnabled {
+			t.Error("HAPCMRTPEnabled = false, want true")
+		}
+		want := []string{"<node-a-ip>:5004", "<node-b-ip>:5004"}
+		if !reflect.DeepEqual(c.HAPCMRTPTargets, want) {
+			t.Errorf("HAPCMRTPTargets = %v, want %v", c.HAPCMRTPTargets, want)
+		}
+	})
+
+	t.Run("ignores whitespace in target list", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_HA_PCM_RTP_ENABLED", "true")
+		t.Setenv("GRIMNIR_HA_PCM_RTP_TARGETS", " <node-a-ip>:5004 , <node-b-ip>:5004 ")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"<node-a-ip>:5004", "<node-b-ip>:5004"}
+		if !reflect.DeepEqual(c.HAPCMRTPTargets, want) {
+			t.Errorf("HAPCMRTPTargets = %v, want %v", c.HAPCMRTPTargets, want)
+		}
+	})
+
+	t.Run("enabled requires non-empty targets", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_HA_PCM_RTP_ENABLED", "true")
+		t.Setenv("GRIMNIR_HA_PCM_RTP_TARGETS", "")
+		_, err := Load()
+		if err == nil {
+			t.Error("Load with enabled=true and empty targets: want error, got nil")
+		}
+	})
 }
