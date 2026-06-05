@@ -9,7 +9,9 @@ package playout
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-gst/go-gst/gst"
 	"github.com/rs/zerolog"
@@ -18,6 +20,15 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/leadership"
 )
 
+// defaultSlaveSyncTimeout caps how long GstClock() will block waiting for the
+// NetClientClock to sync to the master. Past this point we fall back to nil
+// (caller uses GstSystemClock) and log a warning. Five seconds chosen because
+// the gstnet integration test shows sync at ~150ms on localhost; anything
+// over a few seconds on a real network indicates a misconfiguration or a
+// genuinely unreachable master, and we'd rather start the pipeline late-bound
+// than block a director tick forever.
+const defaultSlaveSyncTimeout = 5 * time.Second
+
 // ClockConfig is the subset of process config the NetClock state machine
 // consumes. Constructed from internal/config in the binary main.
 type ClockConfig struct {
@@ -25,6 +36,10 @@ type ClockConfig struct {
 	Region     string
 	Port       int
 	MasterAddr string
+
+	// SyncTimeout caps the blocking wait in GstClock() while the slave's
+	// NetClientClock is dialing the master. Zero means defaultSlaveSyncTimeout.
+	SyncTimeout time.Duration
 
 	// Redis settings used when Enabled is true. Forwarded to the leadership
 	// package for the Redis-lease election.
@@ -38,6 +53,15 @@ type ClockConfig struct {
 // net-time provider. Real implementation is *gstnet.NetTimeProvider; tests
 // substitute a fake to avoid linking libgstnet in unit tests.
 type clockProvider interface {
+	Close() error
+}
+
+// clockClient is the small interface the Clock uses to talk to a
+// NetClientClock that's syncing to a remote master. Real implementation wraps
+// *gstnet.NetClientClock; tests substitute a fake.
+type clockClient interface {
+	WaitForSync(timeout time.Duration) bool
+	GstClock() *gst.Clock
 	Close() error
 }
 
@@ -65,15 +89,27 @@ type Clock struct {
 	cfg    ClockConfig
 	logger zerolog.Logger
 
-	// leader and providerFn are exposed for tests; production code populates
-	// them from internal/leadership and internal/gstnet respectively.
+	// leader, providerFn, clientFn are exposed for tests; production code
+	// populates them from internal/leadership and internal/gstnet
+	// respectively.
 	leader     clockLeader
 	providerFn func(port int) clockProvider
+	clientFn   func(addr string, port int) clockClient
 
 	mu       sync.Mutex
 	provider clockProvider
 	isMaster bool
 	gstClock *gst.Clock // master holds a strong ref to its own clock
+
+	// Slave-side state. client is constructed lazily on the first GstClock()
+	// call after demotion (or process start, when we begin as not-elected).
+	// synced gates the blocking wait so concurrent GstClock() callers all
+	// see the same outcome instead of each re-running WaitForSync. warnedNoAddr
+	// throttles the "MasterAddr empty" log to one line per slave epoch.
+	client       clockClient
+	synced       bool
+	warnedNoAddr bool
+	warnedNoSync bool
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -105,8 +141,44 @@ func NewClock(cfg ClockConfig, logger zerolog.Logger) *Clock {
 			}
 			return p
 		}
+		// Default client factory wraps the real CGo NetClientClock. Returns
+		// nil on failure; the caller treats that as "fall back to nil
+		// gst.Clock" so pipelines use GstSystemClock instead of crashing.
+		c.clientFn = func(addr string, port int) clockClient {
+			cc := gstnet.NewNetClientClock("grimnir-slave", addr, port)
+			if cc == nil {
+				return nil
+			}
+			return &netClientWrapper{cc: cc}
+		}
 	}
 	return c
+}
+
+// netClientWrapper adapts *gstnet.NetClientClock to the clockClient interface
+// so the Clock state machine doesn't have to import gstnet's concrete type
+// outside the default factory closure.
+type netClientWrapper struct {
+	cc *gstnet.NetClientClock
+}
+
+func (w *netClientWrapper) WaitForSync(timeout time.Duration) bool {
+	return w.cc.WaitForSync(timeout)
+}
+
+func (w *netClientWrapper) GstClock() *gst.Clock {
+	if w.cc == nil {
+		return nil
+	}
+	return w.cc.Clock
+}
+
+func (w *netClientWrapper) Close() error {
+	// gstnet.NetClientClock holds a GObject ref via gst.FromGstClockUnsafeFull,
+	// which the gst.Clock finalizer releases on GC. We don't have an explicit
+	// Unref API on the wrapper today; dropping the reference is enough.
+	w.cc = nil
+	return nil
 }
 
 // Start begins the election loop. Safe to call on a disabled Clock (no-op).
@@ -174,14 +246,135 @@ func (c *Clock) IsMaster() bool {
 }
 
 // GstClock returns the *gst.Clock that pipelines should bind via UseClock.
-// On the master this is the system clock backing the NetTimeProvider; on a
-// slave (Chunk 3 wires this) it'll be a NetClientClock. Returns nil when the
-// Clock is disabled or hasn't reached steady state — callers treat nil as
-// "use default" (today's GstSystemClock behavior).
+//
+// On the master this is the system clock backing the NetTimeProvider.
+//
+// On a slave (Clock enabled, not currently master, MasterAddr set) this
+// constructs a NetClientClock pointing at the master on first call and blocks
+// up to SyncTimeout for it to sync. Subsequent calls return the same synced
+// clock without re-syncing.
+//
+// Three slave failure modes all return nil (callers fall back to
+// GstSystemClock, identical to today's behavior):
+//   - MasterAddr is empty — logs a one-shot warning per slave epoch.
+//   - MasterAddr doesn't parse as host:port — same warning, returns nil.
+//   - WaitForSync times out — logs a one-shot warning; the next call retries.
+//
+// Returns nil when the Clock is disabled, since callers treat nil as the
+// "use default" signal.
 func (c *Clock) GstClock() *gst.Clock {
+	if !c.cfg.Enabled {
+		return nil
+	}
+
+	c.mu.Lock()
+	if c.isMaster {
+		gc := c.gstClock
+		c.mu.Unlock()
+		return gc
+	}
+	// Slave path. If we already have a synced client, return it without
+	// re-running the blocking WaitForSync.
+	if c.synced && c.client != nil {
+		gc := c.client.GstClock()
+		c.mu.Unlock()
+		return gc
+	}
+	addr := c.cfg.MasterAddr
+	if addr == "" {
+		warned := c.warnedNoAddr
+		c.warnedNoAddr = true
+		c.mu.Unlock()
+		if !warned {
+			c.logger.Warn().Msg("NetClock slave: MasterAddr is empty; pipelines will use local GstSystemClock")
+		}
+		return nil
+	}
+	host, port, ok := splitHostPort(addr)
+	if !ok {
+		warned := c.warnedNoAddr
+		c.warnedNoAddr = true
+		c.mu.Unlock()
+		if !warned {
+			c.logger.Warn().Str("addr", addr).Msg("NetClock slave: MasterAddr does not parse as host:port; falling back to local clock")
+		}
+		return nil
+	}
+	// Construct the client lazily on the first ask. If construction fails
+	// we leave c.client == nil and try again next call.
+	client := c.client
+	if client == nil {
+		client = c.clientFn(host, port)
+		if client == nil {
+			c.mu.Unlock()
+			c.logger.Warn().Str("addr", addr).Msg("NetClock slave: NetClientClock construction failed; falling back to local clock")
+			return nil
+		}
+		c.client = client
+	}
+	timeout := c.cfg.SyncTimeout
+	c.mu.Unlock()
+	if timeout <= 0 {
+		timeout = defaultSlaveSyncTimeout
+	}
+
+	// Blocking sync wait OUTSIDE the mutex so the leader-loop goroutine can
+	// still flip promote/demote without deadlocking on us. Concurrent
+	// GstClock() callers will both enter WaitForSync; that's harmless —
+	// gst_clock_wait_for_sync is reentrant and idempotent.
+	syncStart := time.Now()
+	ok = client.WaitForSync(timeout)
+	elapsed := time.Since(syncStart)
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.gstClock
+	// If a promotion happened during the wait, prefer the master clock and
+	// throw away the half-synced client.
+	if c.isMaster {
+		_ = client.Close()
+		c.client = nil
+		c.synced = false
+		return c.gstClock
+	}
+	if !ok {
+		warned := c.warnedNoSync
+		c.warnedNoSync = true
+		if !warned {
+			c.logger.Warn().
+				Str("addr", addr).
+				Dur("elapsed", elapsed).
+				Dur("timeout", timeout).
+				Msg("NetClock slave: WaitForSync timed out; falling back to local clock for now")
+		}
+		return nil
+	}
+	c.synced = true
+	c.warnedNoSync = false
+	c.logger.Info().
+		Str("addr", addr).
+		Dur("elapsed", elapsed).
+		Msg("NetClock slave: synced to master")
+	return client.GstClock()
+}
+
+// splitHostPort accepts "host:port" and returns (host, port, true) when the
+// port parses. Refusing IPv6 literals on purpose; ops can introduce bracket
+// parsing if they need it.
+func splitHostPort(addr string) (string, int, bool) {
+	idx := strings.LastIndex(addr, ":")
+	if idx <= 0 || idx == len(addr)-1 {
+		return "", 0, false
+	}
+	host := addr[:idx]
+	portStr := addr[idx+1:]
+	var port int
+	for _, ch := range portStr {
+		if ch < '0' || ch > '9' {
+			return "", 0, false
+		}
+		port = port*10 + int(ch-'0')
+	}
+	return host, port, true
 }
 
 // loop reacts to leader gain/loss events. Exits when ctx is cancelled.
@@ -211,7 +404,16 @@ func (c *Clock) promote() {
 		c.mu.Unlock()
 		return
 	}
+	// Close any slave-side client; we own the clock now.
+	prevClient := c.client
+	c.client = nil
+	c.synced = false
+	c.warnedNoAddr = false
+	c.warnedNoSync = false
 	c.mu.Unlock()
+	if prevClient != nil {
+		_ = prevClient.Close()
+	}
 
 	provider := c.providerFn(c.cfg.Port)
 	if provider == nil {
@@ -235,16 +437,28 @@ func (c *Clock) promote() {
 func (c *Clock) demote() {
 	c.mu.Lock()
 	prov := c.provider
+	prevClient := c.client
 	wasMaster := c.isMaster
 	c.provider = nil
 	c.isMaster = false
 	c.gstClock = nil
+	// Reset slave-side state too: if we're toggling SLAVE->SLAVE (e.g. Stop
+	// during not-elected) we still want clean shutdown of any client we
+	// stood up; if we're MASTER->SLAVE, the next GstClock() call will
+	// construct a fresh client.
+	c.client = nil
+	c.synced = false
+	c.warnedNoAddr = false
+	c.warnedNoSync = false
 	c.mu.Unlock()
 
 	if prov != nil {
 		if err := prov.Close(); err != nil {
 			c.logger.Warn().Err(err).Msg("error closing NetTimeProvider")
 		}
+	}
+	if prevClient != nil {
+		_ = prevClient.Close()
 	}
 	if wasMaster {
 		c.logger.Info().
