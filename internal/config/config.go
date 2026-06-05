@@ -92,6 +92,28 @@ type Config struct {
 	// Required when HAPCMRTPEnabled is true.
 	HAPCMRTPTargets []string
 
+	// NetClockEnabled is the master switch for the GStreamer net-clock subsystem.
+	// When true the process participates in master/slave clock election using
+	// Redis leases; the master spawns a NetTimeProvider, slaves create a
+	// NetClientClock dialed at NetClockMasterAddr. Default: false (each process
+	// uses its own GstSystemClock, today's behavior).
+	NetClockEnabled bool
+
+	// NetClockPort is the TCP port the master's NetTimeProvider listens on.
+	// Slaves dial NetClockMasterAddr (which typically encodes "host:port" of
+	// the master's NetClockPort). Default: 9094.
+	NetClockPort int
+
+	// NetClockRegion identifies the failover group; it's part of the Redis
+	// lease key (grimnir-netclock-master-<region>). Required when
+	// NetClockEnabled is true. No default.
+	NetClockRegion string
+
+	// NetClockMasterAddr is the "host:port" slaves dial to reach the master's
+	// NetTimeProvider. Optional; if empty, slaves can fall back to Redis-based
+	// discovery (deferred to Chunk 3). Pure-packet-fallback if neither is set.
+	NetClockMasterAddr string
+
 	LegacyEnvWarnings []string
 }
 
@@ -157,6 +179,12 @@ func Load() (*Config, error) {
 
 		// High-availability PCM-RTP ingest for the edge encoder.
 		HAPCMRTPEnabled: getEnvBoolAny([]string{"GRIMNIR_HA_PCM_RTP_ENABLED", "RLM_HA_PCM_RTP_ENABLED"}, false),
+
+		// NetClock: master/slave GStreamer clock synchronization.
+		NetClockEnabled:    getEnvBoolAny([]string{"GRIMNIR_NETCLOCK_ENABLED", "RLM_NETCLOCK_ENABLED"}, false),
+		NetClockPort:       getEnvIntAny([]string{"GRIMNIR_NETCLOCK_PORT", "RLM_NETCLOCK_PORT"}, 9094),
+		NetClockRegion:     getEnvAny([]string{"GRIMNIR_NETCLOCK_REGION", "RLM_NETCLOCK_REGION"}, ""),
+		NetClockMasterAddr: getEnvAny([]string{"GRIMNIR_NETCLOCK_MASTER_ADDR", "RLM_NETCLOCK_MASTER_ADDR"}, ""),
 	}
 
 	if raw := getEnvAny([]string{"GRIMNIR_HA_PCM_RTP_TARGETS", "RLM_HA_PCM_RTP_TARGETS"}, ""); raw != "" {
@@ -169,6 +197,10 @@ func Load() (*Config, error) {
 	}
 	if cfg.HAPCMRTPEnabled && len(cfg.HAPCMRTPTargets) == 0 {
 		return nil, fmt.Errorf("GRIMNIR_HA_PCM_RTP_ENABLED=true requires non-empty GRIMNIR_HA_PCM_RTP_TARGETS")
+	}
+
+	if cfg.NetClockEnabled && cfg.NetClockRegion == "" {
+		return nil, fmt.Errorf("GRIMNIR_NETCLOCK_ENABLED=true requires non-empty GRIMNIR_NETCLOCK_REGION")
 	}
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {

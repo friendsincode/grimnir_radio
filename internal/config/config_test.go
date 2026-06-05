@@ -120,3 +120,91 @@ func TestHAPCMRTPConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestNetClockConfig(t *testing.T) {
+	setBase := func(t *testing.T) {
+		t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
+		t.Setenv("GRIMNIR_JWT_SIGNING_KEY", "supersecret")
+	}
+
+	t.Run("disabled by default", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_NETCLOCK_ENABLED", "")
+		t.Setenv("GRIMNIR_NETCLOCK_REGION", "")
+		t.Setenv("GRIMNIR_NETCLOCK_PORT", "")
+		t.Setenv("GRIMNIR_NETCLOCK_MASTER_ADDR", "")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.NetClockEnabled {
+			t.Error("NetClockEnabled = true, want false (default)")
+		}
+		if c.NetClockPort != 9094 {
+			t.Errorf("NetClockPort = %d, want 9094 (default)", c.NetClockPort)
+		}
+		if c.NetClockRegion != "" {
+			t.Errorf("NetClockRegion = %q, want empty (default)", c.NetClockRegion)
+		}
+		if c.NetClockMasterAddr != "" {
+			t.Errorf("NetClockMasterAddr = %q, want empty (default)", c.NetClockMasterAddr)
+		}
+	})
+
+	t.Run("enabled with region succeeds", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_NETCLOCK_ENABLED", "true")
+		t.Setenv("GRIMNIR_NETCLOCK_REGION", "dfw1")
+		t.Setenv("GRIMNIR_NETCLOCK_PORT", "9095")
+		t.Setenv("GRIMNIR_NETCLOCK_MASTER_ADDR", "10.0.0.5:9095")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.NetClockEnabled {
+			t.Error("NetClockEnabled = false, want true")
+		}
+		if c.NetClockRegion != "dfw1" {
+			t.Errorf("NetClockRegion = %q, want dfw1", c.NetClockRegion)
+		}
+		if c.NetClockPort != 9095 {
+			t.Errorf("NetClockPort = %d, want 9095", c.NetClockPort)
+		}
+		if c.NetClockMasterAddr != "10.0.0.5:9095" {
+			t.Errorf("NetClockMasterAddr = %q, want 10.0.0.5:9095", c.NetClockMasterAddr)
+		}
+	})
+
+	t.Run("enabled requires region", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_NETCLOCK_ENABLED", "true")
+		t.Setenv("GRIMNIR_NETCLOCK_REGION", "")
+		_, err := Load()
+		if err == nil {
+			t.Error("Load with NETCLOCK_ENABLED=true and empty region: want error, got nil")
+		}
+	})
+
+	t.Run("RLM_ fallback works", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_NETCLOCK_ENABLED", "")
+		t.Setenv("RLM_NETCLOCK_ENABLED", "true")
+		t.Setenv("GRIMNIR_NETCLOCK_REGION", "")
+		t.Setenv("RLM_NETCLOCK_REGION", "ord1")
+		t.Setenv("GRIMNIR_NETCLOCK_PORT", "")
+		t.Setenv("RLM_NETCLOCK_PORT", "9099")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.NetClockEnabled {
+			t.Error("NetClockEnabled = false, want true (RLM_ fallback)")
+		}
+		if c.NetClockRegion != "ord1" {
+			t.Errorf("NetClockRegion = %q, want ord1 (RLM_ fallback)", c.NetClockRegion)
+		}
+		if c.NetClockPort != 9099 {
+			t.Errorf("NetClockPort = %d, want 9099 (RLM_ fallback)", c.NetClockPort)
+		}
+	})
+}
