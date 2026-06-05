@@ -24,8 +24,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/broadcast"
 	"github.com/friendsincode/grimnir_radio/internal/edgeencoder"
 	pb "github.com/friendsincode/grimnir_radio/proto/edgeencoder/v1"
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 )
 
@@ -74,6 +76,21 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	switcher := edgeencoder.NewSwitcher(healthA, healthB, pipeline, 50*time.Millisecond, 2)
 	go switcher.Run(ctx)
 
+	// Listener-facing broadcast mount: appsink bytes -> Mount -> HTTP /live.
+	// Bus is nil; this binary has no event bus, & Mount tolerates that.
+	contentType := "audio/mpeg"
+	if cfg.OutputFormat == "aac" {
+		contentType = "audio/aac"
+	}
+	mount := broadcast.NewMount("live", contentType, cfg.OutputBitrateKbps, zerolog.Nop(), nil)
+	reader := edgeencoder.NewAppsinkReader(pipeline.MP3Appsink())
+	go func() {
+		if err := mount.FeedFrom(reader); err != nil && err != io.EOF {
+			fmt.Fprintf(stderr, "edge-encoder: mount feed exited: %v\n", err)
+		}
+	}()
+	defer func() { _ = reader.Close(); mount.Close() }()
+
 	// Live status provider for the gRPC service.
 	startTime := time.Now()
 	statusProvider := &liveStatus{
@@ -81,6 +98,7 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 		a:         healthA,
 		b:         healthB,
 		switcher:  switcher,
+		mount:     mount,
 		startTime: startTime,
 	}
 
@@ -101,6 +119,7 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
 	})
+	mux.Handle("/live", mount)
 	httpSrv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.HTTPPort),
 		Handler:           mux,
@@ -118,10 +137,15 @@ type liveStatus struct {
 	pipeline  *edgeencoder.Pipeline
 	a, b      *edgeencoder.InputHealth
 	switcher  *edgeencoder.Switcher
+	mount     *broadcast.Mount
 	startTime time.Time
 }
 
 func (s *liveStatus) Status() edgeencoder.Status {
+	var listeners int64
+	if s.mount != nil {
+		listeners = int64(s.mount.ClientCount())
+	}
 	return edgeencoder.Status{
 		Version:       Version,
 		UptimeSeconds: int64(time.Since(s.startTime).Seconds()),
@@ -129,5 +153,6 @@ func (s *liveStatus) Status() edgeencoder.Status {
 		InputAHealthy: s.a.IsHealthy(),
 		InputBHealthy: s.b.IsHealthy(),
 		SwitchCount:   s.switcher.SwitchCount(),
+		ListenerCount: listeners,
 	}
 }
