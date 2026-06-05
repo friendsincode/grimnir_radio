@@ -47,9 +47,42 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "edge-encoder starting; version=%s grpc_port=%d http_port=%d rtp_ports=%d,%d\n",
 		Version, cfg.GRPCPort, cfg.HTTPPort, cfg.RTPPortA, cfg.RTPPortB)
 
-	// Stub status provider; replaced by real pipeline integration in Chunk 5.
+	// Initialize GStreamer before any element construction.
+	edgeencoder.Init()
+
+	// Build the pipeline (udpsrc x2 -> input-selector -> tee -> mp3 appsink).
+	pipeline, err := edgeencoder.NewPipeline(cfg)
+	if err != nil {
+		fmt.Fprintf(stderr, "edge-encoder: pipeline construction failed: %v\n", err)
+		return 2
+	}
+	defer func() { _ = pipeline.Close() }()
+
+	// Per-input health trackers. 100ms window matches the design's
+	// "switch within 100ms of source loss" target.
+	healthA := edgeencoder.NewInputHealth(100 * time.Millisecond)
+	healthB := edgeencoder.NewInputHealth(100 * time.Millisecond)
+	pipeline.AttachHealthProbes(healthA, healthB)
+
+	// Start the pipeline (async transition to PLAYING).
+	if err := pipeline.Start(); err != nil {
+		fmt.Fprintf(stderr, "edge-encoder: pipeline start failed: %v\n", err)
+		return 2
+	}
+
+	// Switcher: 50ms tick, hysteresis 2 (= 100ms confirmation window).
+	switcher := edgeencoder.NewSwitcher(healthA, healthB, pipeline, 50*time.Millisecond, 2)
+	go switcher.Run(ctx)
+
+	// Live status provider for the gRPC service.
 	startTime := time.Now()
-	statusProvider := &stubStatus{startTime: startTime}
+	statusProvider := &liveStatus{
+		pipeline:  pipeline,
+		a:         healthA,
+		b:         healthB,
+		switcher:  switcher,
+		startTime: startTime,
+	}
 
 	// gRPC server
 	grpcLis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.GRPCPort))
@@ -81,14 +114,20 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	return 0
 }
 
-type stubStatus struct {
+type liveStatus struct {
+	pipeline  *edgeencoder.Pipeline
+	a, b      *edgeencoder.InputHealth
+	switcher  *edgeencoder.Switcher
 	startTime time.Time
 }
 
-func (s *stubStatus) Status() edgeencoder.Status {
+func (s *liveStatus) Status() edgeencoder.Status {
 	return edgeencoder.Status{
 		Version:       Version,
 		UptimeSeconds: int64(time.Since(s.startTime).Seconds()),
-		ActiveInput:   "none",
+		ActiveInput:   s.pipeline.ActiveInput(),
+		InputAHealthy: s.a.IsHealthy(),
+		InputBHealthy: s.b.IsHealthy(),
+		SwitchCount:   s.switcher.SwitchCount(),
 	}
 }

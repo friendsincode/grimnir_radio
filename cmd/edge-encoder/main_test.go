@@ -16,7 +16,7 @@ import (
 )
 
 func TestRun_StartsAndStopsCleanly(t *testing.T) {
-	t.Setenv("EDGE_ENCODER_GRPC_PORT", "0")    // ephemeral
+	t.Setenv("EDGE_ENCODER_GRPC_PORT", "0") // ephemeral
 	t.Setenv("EDGE_ENCODER_HTTP_PORT", "0")
 	t.Setenv("EDGE_ENCODER_METRICS_PORT", "0")
 	t.Setenv("EDGE_ENCODER_RTP_PORT_A", "0")

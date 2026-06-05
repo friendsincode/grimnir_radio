@@ -387,3 +387,11 @@ func (p *Pipeline) MP3Appsink() *app.Sink {
 func (p *Pipeline) InputPad(name string) *gst.Pad {
 	return p.inputPads[name]
 }
+
+// AttachHealthProbes installs pad probes on both input branches; the probes
+// call RecordPacket() on the corresponding InputHealth. Should be called
+// before Start() so probes are in place by the time data flows.
+func (p *Pipeline) AttachHealthProbes(a, b *InputHealth) {
+	a.AttachPadProbe(p.inputPads["A"])
+	b.AttachPadProbe(p.inputPads["B"])
+}
