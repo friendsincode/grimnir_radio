@@ -38,11 +38,16 @@ func setEnumProperty(elt *gst.Element, name string, val int) error {
 // between them via input-selector, and encodes the active stream to MP3 via
 // an appsink that the broadcast adapter reads from.
 //
-// Pipeline graph (Chunk 4; HLS branch added in Chunk 7):
+// Pipeline graph (Chunk 4; HLS branch added in Chunk 7; leaky queue added
+// post-Chunk 9 to unblock failover):
 //
-//	udpsrc:A -> rtpjitterbuffer -> rtpL16depay -> audioconvert -\
-//	                                                              input-selector -> audioconvert -> tee -> queue -> lamemp3enc -> appsink
-//	udpsrc:B -> rtpjitterbuffer -> rtpL16depay -> audioconvert -/
+//	udpsrc:A -> rtpjitterbuffer -> rtpL16depay -> audioconvert -> queue(leaky) -\
+//	                                                                              input-selector -> audioconvert -> tee -> queue -> lamemp3enc -> appsink
+//	udpsrc:B -> rtpjitterbuffer -> rtpL16depay -> audioconvert -> queue(leaky) -/
+//
+// The leaky queue (max-size-buffers=8, leaky=downstream) on each branch
+// drops inactive-branch audio when input-selector isn't pulling, keeping
+// the upstream chain draining so the InputHealth pad probe keeps firing.
 type Pipeline struct {
 	cfg *Config
 
@@ -55,9 +60,17 @@ type Pipeline struct {
 	mu          sync.Mutex
 	activeInput string
 
-	// Map from logical input name ("A"/"B") to the request sink pad on
-	// input-selector that represents that input.
+	// Map from logical input name ("A"/"B") to the leaky queue's sink pad
+	// for that branch. This is the pad probed by InputHealth: it sits upstream
+	// of the leaky-queue drop point, so the probe keeps firing on every
+	// arriving buffer regardless of whether downstream is consuming. Without
+	// this, an inactive branch would stall once input-selector stopped pulling
+	// & the probe would silently stop firing, defeating failover.
 	inputPads map[string]*gst.Pad
+
+	// selectorPads maps logical input name to the input-selector's request
+	// sink pad for that branch. Used by SetActiveInput to flip active-pad.
+	selectorPads map[string]*gst.Pad
 
 	// bus is the GStreamer bus for the pipeline. Cached here so we don't call
 	// GetPipelineBus() from multiple goroutines (go-gst v1.4.0 lazy-initializes
@@ -102,32 +115,45 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 		return nil, fmt.Errorf("add selector: %w", err)
 	}
 
-	padA := selector.GetRequestPad("sink_%u")
-	if padA == nil {
+	selPadA := selector.GetRequestPad("sink_%u")
+	if selPadA == nil {
 		return nil, fmt.Errorf("input-selector: GetRequestPad(sink_%%u) returned nil for A")
 	}
 	srcA := branchA.GetStaticPad("src")
 	if srcA == nil {
 		return nil, fmt.Errorf("branch A: GetStaticPad(src) returned nil")
 	}
-	if ret := srcA.Link(padA); ret != gst.PadLinkOK {
+	if ret := srcA.Link(selPadA); ret != gst.PadLinkOK {
 		return nil, fmt.Errorf("link branch A -> input-selector: %s", ret)
 	}
 
-	padB := selector.GetRequestPad("sink_%u")
-	if padB == nil {
+	selPadB := selector.GetRequestPad("sink_%u")
+	if selPadB == nil {
 		return nil, fmt.Errorf("input-selector: GetRequestPad(sink_%%u) returned nil for B")
 	}
 	srcB := branchB.GetStaticPad("src")
 	if srcB == nil {
 		return nil, fmt.Errorf("branch B: GetStaticPad(src) returned nil")
 	}
-	if ret := srcB.Link(padB); ret != gst.PadLinkOK {
+	if ret := srcB.Link(selPadB); ret != gst.PadLinkOK {
 		return nil, fmt.Errorf("link branch B -> input-selector: %s", ret)
 	}
 
-	if err := selector.SetProperty("active-pad", padA); err != nil {
+	if err := selector.SetProperty("active-pad", selPadA); err != nil {
 		return nil, fmt.Errorf("set initial active-pad: %w", err)
+	}
+
+	// Pad probes go on the leaky queue's SINK pad (upstream of the drop
+	// point). That way an inactive branch — whose leaky queue is constantly
+	// dropping — still fires the probe on every arriving buffer, so
+	// InputHealth correctly reflects "engine is sending packets".
+	healthPadA := branchA.GetStaticPad("sink")
+	if healthPadA == nil {
+		return nil, fmt.Errorf("branch A leaky queue: GetStaticPad(sink) returned nil")
+	}
+	healthPadB := branchB.GetStaticPad("sink")
+	if healthPadB == nil {
+		return nil, fmt.Errorf("branch B leaky queue: GetStaticPad(sink) returned nil")
 	}
 
 	// Output side: audioconvert -> tee -> queue -> encoder -> appsink. The
@@ -276,8 +302,12 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 		mp3Appsink:    appsink,
 		activeInput:   "A",
 		inputPads: map[string]*gst.Pad{
-			"A": padA,
-			"B": padB,
+			"A": healthPadA,
+			"B": healthPadB,
+		},
+		selectorPads: map[string]*gst.Pad{
+			"A": selPadA,
+			"B": selPadB,
 		},
 		bus:  pipeline.GetPipelineBus(),
 		done: make(chan error, 1),
@@ -287,8 +317,11 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 }
 
 // buildInputBranch creates udpsrc -> rtpjitterbuffer -> rtpL16depay ->
-// audioconvert and returns the last element (whose static src pad links into
-// the input-selector).
+// audioconvert -> queue(leaky=downstream) and returns the last element (whose
+// static src pad links into the input-selector). The leaky queue's sink pad
+// is the right place to attach an InputHealth pad probe: it sits upstream of
+// the drop point, so the probe fires on every arriving buffer regardless of
+// whether input-selector is consuming this branch.
 func buildInputBranch(pipe *gst.Pipeline, suffix string, port int) (*gst.Element, error) {
 	udpsrc, err := gst.NewElementWithName("udpsrc", "udpsrc_"+suffix)
 	if err != nil {
@@ -321,15 +354,35 @@ func buildInputBranch(pipe *gst.Pipeline, suffix string, port int) (*gst.Element
 		return nil, fmt.Errorf("audioconvert: %w", err)
 	}
 
-	for _, e := range []*gst.Element{udpsrc, jb, depay, conv} {
+	leakyq, err := gst.NewElementWithName("queue", "branch_leakyq_"+suffix)
+	if err != nil {
+		return nil, fmt.Errorf("branch leaky queue: %w", err)
+	}
+	// leaky=downstream (enum=2) drops oldest buffers when full, so an inactive
+	// branch (input-selector not pulling) keeps draining instead of stalling
+	// upstream. Bounded only by buffer count; bytes/time limits disabled.
+	if err := setEnumProperty(leakyq, "leaky", 2); err != nil {
+		return nil, fmt.Errorf("branch leaky queue leaky=downstream: %w", err)
+	}
+	if err := leakyq.SetProperty("max-size-buffers", uint(8)); err != nil {
+		return nil, fmt.Errorf("branch leaky queue max-size-buffers: %w", err)
+	}
+	if err := leakyq.SetProperty("max-size-bytes", uint(0)); err != nil {
+		return nil, fmt.Errorf("branch leaky queue max-size-bytes: %w", err)
+	}
+	if err := leakyq.SetProperty("max-size-time", uint64(0)); err != nil {
+		return nil, fmt.Errorf("branch leaky queue max-size-time: %w", err)
+	}
+
+	for _, e := range []*gst.Element{udpsrc, jb, depay, conv, leakyq} {
 		if err := pipe.Add(e); err != nil {
 			return nil, fmt.Errorf("add %s: %w", e.GetName(), err)
 		}
 	}
-	if err := gst.ElementLinkMany(udpsrc, jb, depay, conv); err != nil {
+	if err := gst.ElementLinkMany(udpsrc, jb, depay, conv, leakyq); err != nil {
 		return nil, fmt.Errorf("link input branch %s: %w", suffix, err)
 	}
-	return conv, nil
+	return leakyq, nil
 }
 
 // buildEncoder returns the chain of encoder elements (excluding the final
@@ -444,7 +497,7 @@ func (p *Pipeline) SetActiveInput(name string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	pad, ok := p.inputPads[name]
+	pad, ok := p.selectorPads[name]
 	if !ok {
 		return fmt.Errorf("unknown input %q (want A or B)", name)
 	}
@@ -461,9 +514,11 @@ func (p *Pipeline) MP3Appsink() *app.Sink {
 	return p.mp3Appsink
 }
 
-// InputPad returns the input-selector's sink pad for the given logical input
-// name ("A" or "B"), or nil for an unknown name. Used by health.go (Chunk 5)
-// to attach pad probes for packet-arrival monitoring.
+// InputPad returns the leaky queue's sink pad for the given logical input
+// name ("A" or "B"), or nil for an unknown name. Used by health.go to attach
+// pad probes for packet-arrival monitoring; this pad sits upstream of the
+// leaky drop point so the probe keeps firing even when the branch is inactive
+// & input-selector isn't pulling.
 func (p *Pipeline) InputPad(name string) *gst.Pad {
 	return p.inputPads[name]
 }

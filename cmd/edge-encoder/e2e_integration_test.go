@@ -251,35 +251,17 @@ func TestEdgeEncoder_EndToEnd_ServesEncodedAudio(t *testing.T) {
 	t.Logf("/live received %d bytes in 2s (status: %s)", total, statusString(t, grpcPort))
 }
 
-// TestEdgeEncoder_EndToEnd_FailoverWhenEngineDies attempts to verify that
-// killing the active RTP source mid-stream lets the switcher flip to engine B
-// & keep audio flowing.
+// TestEdgeEncoder_EndToEnd_FailoverWhenEngineDies verifies that killing the
+// active RTP source mid-stream lets the switcher flip to engine B & keep
+// audio flowing.
 //
-// Currently SKIPPED: empirically the switcher never fires when engine A is
-// killed because both inputs report unhealthy. Root cause is the input-selector
-// inactive-pad backpressure: when sync-streams=true & cache-buffers=true,
-// upstream branches that feed an inactive pad stall once their internal queues
-// fill, so the InputHealth pad probe on the inactive sink pad stops recording
-// packet arrivals. The switcher.go logic requires the OTHER input to be
-// healthy before flipping, so it stays stuck on the dead active input.
-//
-// Observed in a manual run:
-//
-//	status before kill: active=A a_healthy=true b_healthy=true switches=0
-//	status t=500ms after kill: active=A a_healthy=false b_healthy=false switches=0
-//	(stays in that state until the encoder's internal buffers drain ~10KB,
-//	then the byte stream goes to zero permanently)
-//
-// Likely fix: insert a leaky `queue max-size-buffers=8 leaky=downstream`
-// element between each branch's audioconvert and the input-selector's sink
-// pad, so the inactive branch keeps draining buffers (& the pad probe keeps
-// firing) even when downstream isn't pulling. Out of scope for Chunk 9; track
-// as follow-up.
+// History: this used to be skipped because input-selector inactive-pad
+// backpressure stalled the inactive branch, so the InputHealth pad probe
+// stopped firing & the switcher saw both inputs as unhealthy. Fixed by
+// inserting a per-branch leaky queue (max-size-buffers=8 leaky=downstream)
+// between audioconvert & input-selector, so the inactive branch keeps
+// draining buffers & the pad probe keeps firing.
 func TestEdgeEncoder_EndToEnd_FailoverWhenEngineDies(t *testing.T) {
-	t.Skip("failover does not currently work: input-selector inactive-pad backpressure " +
-		"causes InputHealth to flag the inactive input as unhealthy, blocking the switch. " +
-		"See test doc comment for diagnosis and proposed fix (leaky queue per branch).")
-
 	skipIfNoGstreamer(t)
 
 	rtpA, rtpB := 15006, 15007
