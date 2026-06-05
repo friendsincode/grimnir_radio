@@ -59,6 +59,7 @@ web/build/
 Thumbs.db
 /mediaengine
 /grimnirradio
+/edge-encoder
 .docker-deploy/
 docker-compose.override.yml
 CLAUDE.md
