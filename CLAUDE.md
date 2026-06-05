@@ -128,6 +128,8 @@ Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variabl
 - `GRIMNIR_MEDIA_ENGINE_GRPC_ADDR` - Media engine gRPC address (default: localhost:9091)
 - `GRIMNIR_MEDIA_ROOT` - Base directory for media files (e.g., /var/lib/grimnir/media)
 - `GRIMNIR_JWT_SIGNING_KEY` - JWT signing secret
+- `GRIMNIR_HA_PCM_RTP_ENABLED` - When true, media engine emits raw L16 PCM via RTP to the configured edge encoders (in addition to the legacy fdsink output). Required for the HA architecture (Track A step 4). Default: false.
+- `GRIMNIR_HA_PCM_RTP_TARGETS` - Comma-separated list of `host:port` for PCM-RTP delivery. Required when HA enabled. Example: `<node-a-ip>:5004,<node-b-ip>:5004`. Each entry receives the same RTP stream via `multiudpsink`.
 
 ## Production Server Commands
 
