@@ -2929,6 +2929,18 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 		source, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
 	)
 
+	// HA mode: append a PCM-over-RTP tee branch fanning out to the edge encoders.
+	// Stays alongside the legacy fdsink outputs so single-instance deployments
+	// behave exactly as before. RFC 3551 PT=10 = L16 stereo 44.1 kHz, S16BE.
+	haRTPEnabled := d.cfg != nil && d.cfg.HAPCMRTPEnabled && len(d.cfg.HAPCMRTPTargets) > 0
+	if haRTPEnabled {
+		clients := strings.Join(d.cfg.HAPCMRTPTargets, ",")
+		pipeline += fmt.Sprintf(
+			` t. ! queue ! audioconvert ! audio/x-raw,format=S16BE,rate=44100,channels=2 ! rtpL16pay pt=10 mtu=1400 ! multiudpsink clients=%s sync=true`,
+			clients,
+		)
+	}
+
 	d.logger.Debug().
 		Str("pipeline", pipeline).
 		Str("mount", mount.Name).
@@ -2936,6 +2948,7 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 		Int("lq_bitrate", lqBitrate).
 		Bool("webrtc", d.webrtcEnabled && webrtcRTPPort > 0).
 		Int("webrtc_rtp_port", webrtcRTPPort).
+		Bool("ha_pcm_rtp", haRTPEnabled).
 		Bool("seek", seekFile != nil).
 		Int64("seek_offset_ms", seekOffsetMS).
 		Msg("built dual broadcast pipeline")
