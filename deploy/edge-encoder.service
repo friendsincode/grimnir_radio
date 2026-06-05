@@ -1,0 +1,28 @@
+[Unit]
+Description=Grimnir Edge Encoder (HA ingest + listener-facing HTTP/ICY + HLS)
+Documentation=https://github.com/friendsincode/grimnir_radio/blob/v2-dev/cmd/edge-encoder/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=edge
+Group=edge
+EnvironmentFile=/etc/grimnir/edge-encoder.env
+ExecStart=/usr/local/bin/edge-encoder
+Restart=always
+RestartSec=5
+
+# Reasonable resource isolation; relax if perf testing
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/grimnir-hls /var/log/grimnir
+LimitNOFILE=65536
+
+# RTP needs unprivileged UDP bind; default ports 5004/5005 are fine for non-root
+# Listener HTTP defaults to 8001; remap upstream to 80/443 via nginx if desired
+
+[Install]
+WantedBy=multi-user.target

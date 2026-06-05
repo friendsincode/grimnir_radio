@@ -23,7 +23,7 @@ import (
 // This is set at build time via ldflags:
 //
 //	-X github.com/friendsincode/grimnir_radio/internal/version.Version=X.Y.Z
-var Version = "2.0.0-alpha.2"
+var Version = "2.0.0-alpha.3"
 
 // GitHubRepo is the repository to check for updates
 const GitHubRepo = "friendsincode/grimnir_radio"

@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Grimnir Radio is a broadcast automation system built in Go 1.24. It uses a **two-binary architecture**:
+Grimnir Radio is a broadcast automation system built in Go 1.24. It uses a **two-binary architecture** (three when HA is enabled):
 
 - **Control Plane (`cmd/grimnirradio`)**: HTTP API server, scheduler, executor, authentication
 - **Media Engine (`cmd/mediaengine`)**: GStreamer-based audio processing with gRPC control interface
+- **Edge Encoder (`cmd/edge-encoder`, v2 HA path)**: Ingests raw PCM via RTP from N media engines, sample-aligned input switching on engine failure, serves HTTP/ICY + HLS to listeners. Uses **go-gst CGo bindings** (the only binary that does — gst-launch subprocess can't do runtime input switching). See `cmd/edge-encoder/README.md`.
 
-The control plane communicates with the media engine via gRPC for low-latency audio control.
+The control plane communicates with the media engine via gRPC for low-latency audio control. The edge encoder ingests PCM-over-RTP from each media engine and is the listener-facing endpoint in HA mode.
 
 ## Common Commands
 
