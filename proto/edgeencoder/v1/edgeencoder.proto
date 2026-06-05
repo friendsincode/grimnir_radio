@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package edgeencoder.v1;
+
+option go_package = "github.com/friendsincode/grimnir_radio/proto/edgeencoder/v1;edgeencoderv1";
+
+// EdgeEncoder service exposes operational status of an edge encoder instance.
+// The control plane probes this in place of the standard grpc.health.v1.Health
+// protocol, matching the mediaengine convention.
+service EdgeEncoder {
+  // GetStatus returns the current operational state of the encoder.
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  string version = 1;
+  int64 uptime_seconds = 2;
+  string active_input = 3;     // "A", "B", or "none"
+  bool input_a_healthy = 4;
+  bool input_b_healthy = 5;
+  int64 listener_count = 6;
+  int64 switch_count = 7;
+}

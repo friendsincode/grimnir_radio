@@ -89,7 +89,8 @@ proto:
 	@echo "Generating protobuf code..."
 	@PATH="$$PATH:$$HOME/go/bin" protoc --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		$(PROTO_DIR)/mediaengine/v1/*.proto
+		$(PROTO_DIR)/mediaengine/v1/*.proto \
+		$(PROTO_DIR)/edgeencoder/v1/*.proto
 
 proto-clean:
 	@find $(PROTO_OUT) -name '*.pb.go' -delete
