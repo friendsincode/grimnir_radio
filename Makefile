@@ -6,7 +6,7 @@ RACE ?= 1
 PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan build-edge-encoder verify ci proto proto-clean \
+.PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan build-edge-encoder build-grimnir-deploy verify ci proto proto-clean \
         dev-db dev-redis dev-stack run-control run-media migration-lint migration-lint-ci
 
 help:
@@ -71,7 +71,7 @@ coverage:
 coverage-check:
 	@COVERAGE_ENFORCE=1 COVERAGE_MIN=$${COVERAGE_MIN:-80} ./scripts/coverage.sh
 
-build:
+build: build-grimnir-deploy
 	@$(GO) build $(GOFLAGS) -o ./grimnirradio ./cmd/grimnirradio
 	@$(GO) build $(GOFLAGS) -o ./mediaengine ./cmd/mediaengine
 
@@ -80,6 +80,9 @@ build-mediascan:
 
 build-edge-encoder:
 	@CGO_ENABLED=1 $(GO) build $(GOFLAGS) -o ./edge-encoder ./cmd/edge-encoder
+
+build-grimnir-deploy:
+	@$(GO) build $(GOFLAGS) -o ./bin/grimnir-deploy ./cmd/grimnir-deploy
 
 verify: tidy fmt vet lint test
 
