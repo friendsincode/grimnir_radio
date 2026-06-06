@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package grimnirradio.v1;
+
+option go_package = "github.com/friendsincode/grimnir_radio/proto/grimnirradio/v1;grimnirradiov1";
+
+// DJAuth is the control-plane endpoint the fan-out binary calls to validate a
+// live-input credential before accepting a session. The fan-out caches a
+// positive verdict for AuthClaims.cache_ttl_seconds so reconnects don't round
+// trip; revocation is delivered out-of-band on the existing event bus.
+//
+// The Harbor & WebRTC ingresses both call ValidateToken; SRT & RTP use a
+// source-IP allow-list (separate path) because the wire protocols don't carry
+// credentials. Mount is normalized to a leading slash ("/live", not "live")
+// before dialing so cache hits don't fragment across two equivalent strings.
+service DJAuth {
+  // ValidateToken returns claims when (mount, token) matches a live-session
+  // record that's not expired & not revoked. NOT_FOUND => unknown token,
+  // PERMISSION_DENIED => token revoked or session already used.
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+}
+
+message ValidateTokenRequest {
+  // Normalized mount path the DJ connected to (e.g. "/live"). Required.
+  string mount = 1;
+  // The opaque token presented by the DJ. For Harbor this is the HTTP Basic
+  // password; for WebRTC it's the "token" field of the SDP offer body.
+  string token = 2;
+  // Best-effort hint of the wire protocol the DJ used; lets the control
+  // plane audit & rate-limit per protocol. One of "harbor", "webrtc".
+  string protocol = 3;
+}
+
+message ValidateTokenResponse {
+  // Session-id of the matched LiveSession row; the fan-out stamps this on
+  // its own Session so logs cross-reference.
+  string session_id = 1;
+  // Station the mount belongs to. Used to route the fanned-out PCM toward
+  // the right engine pipeline branch.
+  string station_id = 2;
+  // Username for display in monitoring UIs & audit logs.
+  string username = 3;
+  // Priority level the live input takes on connect (1=Override, 2=Scheduled).
+  int32 priority = 4;
+  // Cache TTL in seconds the fan-out should keep this verdict before
+  // re-asking the control plane. Capped to whichever is smaller of the
+  // session's remaining lifetime & a process-wide max (5 minutes).
+  int32 cache_ttl_seconds = 5;
+}
