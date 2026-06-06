@@ -85,6 +85,21 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	defer harborCancel()
 	go func() { _ = harbor.Serve(harborCtx) }()
 
+	// Raw RTP (FFmpeg, hardware encoder, OBS) UDP ingress — Chunk 4 wire line.
+	rtpAddr := fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.RTPPort)
+	rtpLis, err := grimnirfanout.NewRTPListener(
+		rtpAddr,
+		grimnirfanout.NewRTPSessionBuilder(sessionMgr, engines),
+	)
+	if err != nil {
+		fmt.Fprintf(stderr, "grimnir-fanout: rtp listener: %v\n", err)
+		return 2
+	}
+	rtpCtx, rtpCancel := context.WithCancel(ctx)
+	defer rtpCancel()
+	defer rtpLis.Stop()
+	go func() { _ = rtpLis.Serve(rtpCtx) }()
+
 	// SRT (Secure Reliable Transport) ingress — Chunk 5 wire line.
 	srtLis, err := grimnirfanout.NewSRTListener(grimnirfanout.SRTListenerConfig{
 		BindAddr: cfg.BindAddr,
@@ -157,8 +172,8 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	// release the pipeline + close the network conn before grpcServer's
 	// GracefulStop runs via defer.
 	for _, s := range sessionMgr.List() {
-		if s.Pipeline != nil {
-			_ = s.Pipeline.Stop()
+		if p := s.GetPipeline(); p != nil {
+			_ = p.Stop()
 		}
 		sessionMgr.Remove(s.ID)
 	}

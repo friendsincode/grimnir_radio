@@ -172,6 +172,16 @@ func (s *Session) AttachPipeline(p *Pipeline) {
 	s.mu.Unlock()
 }
 
+// GetPipeline returns the currently-attached pipeline (or nil) under the
+// session lock. Callers that race against AttachPipeline (the shutdown drain
+// loop in cmd/grimnir-fanout) must use this rather than reading s.Pipeline
+// directly to satisfy the race detector.
+func (s *Session) GetPipeline() *Pipeline {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Pipeline
+}
+
 // Telemetry returns a point-in-time snapshot of the session's counters.
 func (s *Session) Telemetry() SessionTelemetry {
 	t := SessionTelemetry{
