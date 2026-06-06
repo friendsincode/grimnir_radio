@@ -6,8 +6,9 @@ RACE ?= 1
 PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan build-edge-encoder build-grimnir-deploy verify ci proto proto-clean \
-        dev-db dev-redis dev-stack run-control run-media migration-lint migration-lint-ci
+.PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan build-edge-encoder build-grimnir-deploy build-alertmanager-ntfy verify ci proto proto-clean \
+        dev-db dev-redis dev-stack run-control run-media migration-lint migration-lint-ci \
+        prometheus-validate
 
 help:
 	@echo "Common targets:"
@@ -83,6 +84,22 @@ build-edge-encoder:
 
 build-grimnir-deploy:
 	@$(GO) build $(GOFLAGS) -o ./bin/grimnir-deploy ./cmd/grimnir-deploy
+
+build-alertmanager-ntfy:
+	@$(GO) build $(GOFLAGS) -o ./bin/alertmanager-ntfy ./cmd/alertmanager-ntfy
+
+# prometheus-validate runs promtool against the rules + scrape config. Uses
+# Docker because promtool isn't a default OS dep. Skips cleanly if Docker is
+# missing so CI on minimal images still passes.
+prometheus-validate:
+	@if command -v docker >/dev/null 2>&1; then \
+		docker run --rm -v $(PWD)/ops/prometheus:/p prom/prometheus:v2.55.0 promtool check rules /p/rules/grimnir-ha.yml && \
+		docker run --rm -v $(PWD)/ops/prometheus:/p prom/prometheus:v2.55.0 promtool test rules /p/rules/grimnir-ha-tests.yml && \
+		docker run --rm -v $(PWD)/ops/prometheus:/p prom/prometheus:v2.55.0 promtool check config /p/prometheus.yml && \
+		docker run --rm -v $(PWD)/ops/alertmanager:/p prom/alertmanager:v0.27.0 amtool check-config /p/config.yml; \
+	else \
+		echo "docker not found; skipping prometheus/alertmanager validation (see ops/prometheus/README.md)"; \
+	fi
 
 verify: tidy fmt vet lint test
 
