@@ -140,7 +140,7 @@ func newBackupDrillCmd() *cobra.Command {
 		Use:   "backup-drill",
 		Short: "Run a backup-restore drill against a staging Postgres on a non-production host",
 		Long:  "Stands up a temporary Postgres on the named drill host, restores the latest backup, measures base-restore + WAL-replay time, reports measured RTO + RPO. Posts results to the audit ntfy topic. Quarterly cadence per design Section 8.4. See docs/runbooks/backup-drill.md.",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realBackupDrillRunE,
 	}
 	c.Flags().String("region", "", "region whose backup repository to drill (required)")
 	c.Flags().String("drill-host", "", "host to stand up the staging Postgres on (required)")
