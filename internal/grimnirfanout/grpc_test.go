@@ -74,6 +74,83 @@ func TestGRPCGetStatus(t *testing.T) {
 	}
 }
 
+func TestSessionMgrStatusProvider_ReflectsCounts(t *testing.T) {
+	mgr := NewSessionMgr()
+	mgr.Add(newSessionWithDeps("h1", ProtocolHarbor, time.Now()))
+	mgr.Add(newSessionWithDeps("h2", ProtocolHarbor, time.Now()))
+	mgr.Add(newSessionWithDeps("r1", ProtocolRTP, time.Now()))
+	mgr.Add(newSessionWithDeps("s1", ProtocolSRT, time.Now()))
+	mgr.Add(newSessionWithDeps("w1", ProtocolWebRTC, time.Now()))
+	mgr.Remove("h2") // ended; should still count toward totalServed
+
+	prov := NewSessionMgrStatusProvider("v-test", mgr, func() time.Duration { return 7 * time.Second })
+
+	st := prov.Status()
+	if st.Version != "v-test" {
+		t.Errorf("Version = %q, want v-test", st.Version)
+	}
+	if st.UptimeSeconds != 7 {
+		t.Errorf("UptimeSeconds = %d, want 7", st.UptimeSeconds)
+	}
+	if st.ActiveSessions != 4 {
+		t.Errorf("ActiveSessions = %d, want 4", st.ActiveSessions)
+	}
+	if st.HarborSessionCount != 1 {
+		t.Errorf("HarborSessionCount = %d, want 1", st.HarborSessionCount)
+	}
+	if st.RTPSessionCount != 1 {
+		t.Errorf("RTPSessionCount = %d, want 1", st.RTPSessionCount)
+	}
+	if st.SRTSessionCount != 1 {
+		t.Errorf("SRTSessionCount = %d, want 1", st.SRTSessionCount)
+	}
+	if st.WebRTCSessionCount != 1 {
+		t.Errorf("WebRTCSessionCount = %d, want 1", st.WebRTCSessionCount)
+	}
+	if st.TotalSessionsServed != 5 {
+		t.Errorf("TotalSessionsServed = %d, want 5", st.TotalSessionsServed)
+	}
+}
+
+func TestGRPCGetStatus_UsesSessionMgr(t *testing.T) {
+	mgr := NewSessionMgr()
+	mgr.Add(newSessionWithDeps("a", ProtocolHarbor, time.Now()))
+	mgr.Add(newSessionWithDeps("b", ProtocolWebRTC, time.Now()))
+	prov := NewSessionMgrStatusProvider("v-grpc", mgr, func() time.Duration { return 0 })
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lis.Close()
+	grpcServer := grpc.NewServer()
+	pb.RegisterGrimnirFanoutServer(grpcServer, NewGRPCServer(prov))
+	go func() { _ = grpcServer.Serve(lis) }()
+	defer grpcServer.Stop()
+
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	client := pb.NewGrimnirFanoutClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	resp, err := client.GetStatus(ctx, &pb.StatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ActiveSessions != 2 {
+		t.Errorf("ActiveSessions = %d, want 2", resp.ActiveSessions)
+	}
+	if resp.HarborSessionCount != 1 {
+		t.Errorf("HarborSessionCount = %d, want 1", resp.HarborSessionCount)
+	}
+	if resp.WebrtcSessionCount != 1 {
+		t.Errorf("WebrtcSessionCount = %d, want 1", resp.WebrtcSessionCount)
+	}
+}
+
 type fakeStatusProvider struct {
 	version             string
 	activeSessions      int64

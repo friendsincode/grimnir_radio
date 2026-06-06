@@ -8,6 +8,7 @@ package grimnirfanout
 
 import (
 	"context"
+	"time"
 
 	pb "github.com/friendsincode/grimnir_radio/proto/grimnirfanout/v1"
 )
@@ -45,6 +46,42 @@ type GRPCServer struct {
 // provided StatusProvider.
 func NewGRPCServer(provider StatusProvider) *GRPCServer {
 	return &GRPCServer{provider: provider}
+}
+
+// SessionMgrStatusProvider adapts a SessionMgr into a StatusProvider. The
+// per-protocol counters come straight from SessionMgr.CountByProtocol; the
+// engine reachability bits stay false here & get filled in by a future chunk
+// that owns the engine health probes.
+type SessionMgrStatusProvider struct {
+	version string
+	mgr     *SessionMgr
+	uptime  func() time.Duration
+}
+
+// NewSessionMgrStatusProvider wires a SessionMgr into a StatusProvider.
+// uptime returns the process uptime; main.go captures the start time in a
+// closure (so the provider doesn't have to import time-of-start state).
+func NewSessionMgrStatusProvider(version string, mgr *SessionMgr, uptime func() time.Duration) *SessionMgrStatusProvider {
+	if uptime == nil {
+		uptime = func() time.Duration { return 0 }
+	}
+	return &SessionMgrStatusProvider{version: version, mgr: mgr, uptime: uptime}
+}
+
+// Status implements StatusProvider.
+func (p *SessionMgrStatusProvider) Status() Status {
+	return Status{
+		Version:             p.version,
+		UptimeSeconds:       int64(p.uptime().Seconds()),
+		ActiveSessions:      int64(p.mgr.Count()),
+		HarborSessionCount:  int64(p.mgr.CountByProtocol(ProtocolHarbor)),
+		RTPSessionCount:     int64(p.mgr.CountByProtocol(ProtocolRTP)),
+		SRTSessionCount:     int64(p.mgr.CountByProtocol(ProtocolSRT)),
+		WebRTCSessionCount:  int64(p.mgr.CountByProtocol(ProtocolWebRTC)),
+		TotalSessionsServed: p.mgr.TotalSessionsServed(),
+		// EngineAReachable / EngineBReachable wired by a later chunk; the
+		// engine health-probe lives outside the session manager.
+	}
 }
 
 // GetStatus returns the fan-out's current status from the underlying provider.

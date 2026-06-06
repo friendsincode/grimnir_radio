@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -57,7 +56,12 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	)
 
 	startTime := time.Now()
-	statusProvider := &scaffoldStatus{startTime: startTime}
+	sessionMgr := grimnirfanout.NewSessionMgr()
+	statusProvider := grimnirfanout.NewSessionMgrStatusProvider(
+		Version,
+		sessionMgr,
+		func() time.Duration { return time.Since(startTime) },
+	)
 
 	// gRPC server (control-plane queries; engine health, session list).
 	grpcLis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.GRPCPort))
@@ -98,24 +102,14 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 
 	<-ctx.Done()
 	fmt.Fprintln(stdout, "grimnir-fanout shutting down")
-	// Drain placeholder: Chunk 2 wires the session manager & this is where
-	// in-flight sessions get drained before grpcServer.GracefulStop runs via
-	// defer. For the scaffold there is nothing to drain.
-	return 0
-}
-
-// scaffoldStatus is the Chunk 1 placeholder StatusProvider. Chunk 2 replaces
-// it with the real session-manager-backed provider. It only reports uptime so
-// the gRPC GetStatus call returns something non-zero & observable.
-type scaffoldStatus struct {
-	startTime           time.Time
-	totalSessionsServed atomic.Int64
-}
-
-func (s *scaffoldStatus) Status() grimnirfanout.Status {
-	return grimnirfanout.Status{
-		Version:             Version,
-		UptimeSeconds:       int64(time.Since(s.startTime).Seconds()),
-		TotalSessionsServed: s.totalSessionsServed.Load(),
+	// Drain: stop every live session so protocol terminators (Chunks 3-6)
+	// release the pipeline + close the network conn before grpcServer's
+	// GracefulStop runs via defer.
+	for _, s := range sessionMgr.List() {
+		if s.Pipeline != nil {
+			_ = s.Pipeline.Stop()
+		}
+		sessionMgr.Remove(s.ID)
 	}
+	return 0
 }
