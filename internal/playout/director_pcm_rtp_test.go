@@ -151,6 +151,90 @@ func TestBuildWebstreamBroadcastPipeline_NoHAModeOmitsRTPBranch(t *testing.T) {
 	}
 }
 
+// TestBuildDualBroadcastPipeline_LiveInputDisabledOmitsMixer verifies the
+// default: when LiveInputEnabled is false the pipeline must not contain the
+// audiomixer or live-input udpsrc branch. Single-instance shape preserved.
+func TestBuildDualBroadcastPipeline_LiveInputDisabledOmitsMixer(t *testing.T) {
+	d, _ := newMockDirector(t)
+	d.cfg.LiveInputEnabled = false
+
+	mount := models.Mount{Name: "test", Format: "mp3", SampleRate: 44100, Channels: 2}
+	seekFile, pipeline, err := d.buildDualBroadcastPipeline("/some/file.mp3", mount, 128, 64, 0, 0, 0)
+	if err != nil {
+		t.Fatalf("buildDualBroadcastPipeline returned error: %v", err)
+	}
+	if seekFile != nil {
+		seekFile.Close()
+	}
+
+	for _, banned := range []string{"audiomixer", "rtpL16depay", "rtpjitterbuffer"} {
+		if strings.Contains(pipeline, banned) {
+			t.Errorf("LiveInput disabled but pipeline contains %q:\n%s", banned, pipeline)
+		}
+	}
+}
+
+// TestBuildDualBroadcastPipeline_LiveInputEnabledAddsMixerBranch verifies the
+// audiomixer + udpsrc/rtpL16depay branch appears when LiveInputEnabled is
+// true. Scheduled content lands on mixer.sink_0; the live RTP feed lands on
+// mixer.sink_1. The tee then fans the mixed output to HQ / LQ / (optional) HA.
+func TestBuildDualBroadcastPipeline_LiveInputEnabledAddsMixerBranch(t *testing.T) {
+	d, _ := newMockDirector(t)
+	d.cfg.LiveInputEnabled = true
+	d.cfg.LiveInputPort = 5008
+	d.cfg.LiveInputFanoutAddr = "10.10.0.7:9100"
+
+	mount := models.Mount{Name: "test", Format: "mp3", SampleRate: 44100, Channels: 2}
+	seekFile, pipeline, err := d.buildDualBroadcastPipeline("/some/file.mp3", mount, 128, 64, 0, 0, 0)
+	if err != nil {
+		t.Fatalf("buildDualBroadcastPipeline returned error: %v", err)
+	}
+	if seekFile != nil {
+		seekFile.Close()
+	}
+
+	for _, expected := range []string{
+		"audiomixer name=mix",
+		"udpsrc port=5008",
+		"rtpjitterbuffer",
+		"rtpL16depay",
+		"mix.sink_1",
+	} {
+		if !strings.Contains(pipeline, expected) {
+			t.Errorf("LiveInput enabled but pipeline missing %q in:\n%s", expected, pipeline)
+		}
+	}
+
+	// HQ + LQ outputs must still be present.
+	for _, legacy := range []string{"fdsink fd=3", "fdsink fd=4", "lamemp3enc"} {
+		if !strings.Contains(pipeline, legacy) {
+			t.Errorf("LiveInput enabled but legacy output missing %q in:\n%s", legacy, pipeline)
+		}
+	}
+}
+
+// TestBuildWebstreamBroadcastPipeline_LiveInputEnabledAddsMixerBranch mirrors
+// the file-playout case for relayed webstreams.
+func TestBuildWebstreamBroadcastPipeline_LiveInputEnabledAddsMixerBranch(t *testing.T) {
+	d, _ := newMockDirector(t)
+	d.cfg.LiveInputEnabled = true
+	d.cfg.LiveInputPort = 5008
+	d.cfg.LiveInputFanoutAddr = "10.10.0.7:9100"
+
+	pipeline := buildWebstreamPipelineForTest(t, d)
+	for _, expected := range []string{
+		"audiomixer name=mix",
+		"udpsrc port=5008",
+		"rtpjitterbuffer",
+		"rtpL16depay",
+		"mix.sink_1",
+	} {
+		if !strings.Contains(pipeline, expected) {
+			t.Errorf("LiveInput enabled but webstream pipeline missing %q in:\n%s", expected, pipeline)
+		}
+	}
+}
+
 // TestBuildWebstreamBroadcastPipeline_HAModeAddsRTPBranch verifies the
 // additive PCM-over-RTP tee branch appears for webstream relays when HA mode
 // is enabled, matching buildDualBroadcastPipeline's behavior.

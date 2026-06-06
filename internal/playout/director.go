@@ -1772,11 +1772,25 @@ func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount model
 	// watchdog fires an error if no buffers flow for 15 s, turning a stalled
 	// stream (live source went silent without closing the HTTP connection) into
 	// a pipeline crash that watchWebstreamPipeline can detect and recover from.
+	// Live input branch: mirror buildDualBroadcastPipeline. When enabled,
+	// insert audiomixer between resample & tee so live DJ audio from the
+	// fan-out can ride on top of the relayed webstream automation content.
+	liveEnabled := d.cfg != nil && d.cfg.LiveInputEnabled
+	mixerHead := "tee name=t"
+	mixerLiveBranch := ""
+	if liveEnabled {
+		mixerHead = "audiomixer name=mix ! tee name=t"
+		mixerLiveBranch = fmt.Sprintf(
+			` udpsrc port=%d caps="application/x-rtp,media=audio,clock-rate=44100,encoding-name=L16,channels=2,payload=10" ! rtpjitterbuffer latency=80 ! rtpL16depay ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! mix.sink_1`,
+			d.cfg.LiveInputPort, sampleRate, channels,
+		)
+	}
+
 	pipeline := fmt.Sprintf(
-		`%s%s ! watchdog timeout=15000 ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! tee name=t `+
+		`%s%s ! watchdog timeout=15000 ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! %s `+
 			`t. ! queue ! %s ! fdsink fd=3 `+
-			`t. ! queue ! %s ! fdsink fd=4%s`,
-		sourceElement, bufferElement, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
+			`t. ! queue ! %s ! fdsink fd=4%s%s`,
+		sourceElement, bufferElement, sampleRate, channels, mixerHead, hqEncoder, lqEncoder, webrtcBranch, mixerLiveBranch,
 	)
 
 	// HA mode: append a PCM-over-RTP tee branch fanning out to the edge encoders.
@@ -3037,11 +3051,30 @@ func (d *Director) buildDualBroadcastPipeline(filePath string, mount models.Moun
 		source = fmt.Sprintf("filesrc location=%q", filePath)
 	}
 
+	// Live input branch: when LiveInputEnabled, insert an audiomixer between
+	// the scheduled-content resampler and the output tee. Scheduled content
+	// lands on mix.sink_0; a parallel udpsrc/rtpjitterbuffer/rtpL16depay chain
+	// lands on mix.sink_1. audiomixer outputs whichever input is louder when
+	// the live branch is silent (jitter buffer underrun = silence), so default
+	// behavior is "automation passes through unchanged until the DJ speaks".
+	// The fan-out node decides when to actually push live audio; SetLiveInput
+	// telemetry is purely informational at the engine layer.
+	liveEnabled := d.cfg != nil && d.cfg.LiveInputEnabled
+	mixerHead := "tee name=t"
+	mixerLiveBranch := ""
+	if liveEnabled {
+		mixerHead = "audiomixer name=mix ! tee name=t"
+		mixerLiveBranch = fmt.Sprintf(
+			` udpsrc port=%d caps="application/x-rtp,media=audio,clock-rate=44100,encoding-name=L16,channels=2,payload=10" ! rtpjitterbuffer latency=80 ! rtpL16depay ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! mix.sink_1`,
+			d.cfg.LiveInputPort, sampleRate, channels,
+		)
+	}
+
 	pipeline := fmt.Sprintf(
-		`%s ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! tee name=t `+
+		`%s ! decodebin ! audioconvert ! audioresample ! audio/x-raw,rate=%d,channels=%d ! %s `+
 			`t. ! queue ! %s ! identity sync=true ! fdsink fd=3 `+
-			`t. ! queue ! %s ! identity sync=true ! fdsink fd=4%s`,
-		source, sampleRate, channels, hqEncoder, lqEncoder, webrtcBranch,
+			`t. ! queue ! %s ! identity sync=true ! fdsink fd=4%s%s`,
+		source, sampleRate, channels, mixerHead, hqEncoder, lqEncoder, webrtcBranch, mixerLiveBranch,
 	)
 
 	// HA mode: append a PCM-over-RTP tee branch fanning out to the edge encoders.
