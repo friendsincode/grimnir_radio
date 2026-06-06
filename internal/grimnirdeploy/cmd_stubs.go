@@ -129,7 +129,7 @@ func newRecoverPartitionCmd() *cobra.Command {
 		Use:   "recover-partition",
 		Short: "Recover from a network partition between the two HA nodes",
 		Long:  "Partition recovery runbook. Verifies VIP holder count (must be exactly 1), Postgres replication state (which side has more recent WAL), leader-election lease holder, then surfaces conflicts for operator decision. Does not auto-merge diverged state. See docs/runbooks/recover-partition.md.",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realRecoverRunE,
 	}
 	c.Flags().Bool("dry-run", false, "print the planned actions; do not mutate the cluster")
 	return c
