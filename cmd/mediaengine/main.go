@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine"
+	"github.com/friendsincode/grimnir_radio/internal/metrics"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/friendsincode/grimnir_radio/internal/version"
@@ -184,7 +185,7 @@ func main() {
 	// Start HTTP server for metrics on port 9092
 	metricsPort := getEnvInt("MEDIAENGINE_METRICS_PORT", 9092)
 	metricsMux := http.NewServeMux()
-	metricsMux.Handle("/metrics", telemetry.Handler())
+	metricsMux.Handle("/metrics", metrics.Handler(metrics.MediaEngineRegistry))
 	metricsServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", metricsPort),
 		Handler: metricsMux,
