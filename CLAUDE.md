@@ -131,6 +131,14 @@ Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variabl
 - `GRIMNIR_JWT_SIGNING_KEY` - JWT signing secret
 - `GRIMNIR_HA_PCM_RTP_ENABLED` - When true, media engine emits raw L16 PCM via RTP to the configured edge encoders (in addition to the legacy fdsink output). Required for the HA architecture (Track A step 4). Default: false.
 - `GRIMNIR_HA_PCM_RTP_TARGETS` - Comma-separated list of `host:port` for PCM-RTP delivery. Required when HA enabled. Example: `<node-a-ip>:5004,<node-b-ip>:5004`. Each entry receives the same RTP stream via `multiudpsink`.
+- `GRIMNIR_NETCLOCK_ENABLED` - When true, media engine pipelines bind to a region-wide shared clock (NetClock master/slave) so PCM samples emitted by N engines are aligned at the wall-clock level. Required for sample-aligned PCM switching at the edge encoder. Default: false. See Track A step 5.
+- `GRIMNIR_NETCLOCK_PORT` - TCP port the master serves clock time on. Default: 9094.
+- `GRIMNIR_NETCLOCK_REGION` - Region identifier; part of the Redis lease key `grimnir-netclock-master-<region>`. Required when NetClock enabled.
+- `GRIMNIR_NETCLOCK_MASTER_ADDR` - Slaves dial this `host:port`. Optional; future versions will auto-discover via Redis.
+
+## Architectural note: programmatic GStreamer (v2.0.0-alpha.3+)
+
+Starting with v2.0.0-alpha.3 the edge encoder (`cmd/edge-encoder`) uses go-gst CGo bindings instead of `gst-launch-1.0` subprocess. Starting with v2.0.0-alpha.4 the media engine (`cmd/grimnirradio` playout layer) also uses programmatic go-gst — pipeline strings in `internal/playout/director.go` are preserved unchanged, but the spawning layer (`internal/playout/pipeline.go`) is now `gst.NewPipelineFromString(...)` so `pipeline.ForceClock(...)` is callable. Build dependencies: `libgstreamer1.0-dev` + plugin packs (see `cmd/edge-encoder/README.md`).
 
 ## Production Server Commands
 
