@@ -77,6 +77,14 @@ make run-media
 - `internal/live/` - Live DJ input (Icecast, RTP, SRT, WebRTC)
 - `internal/migration/` - Import tools for AzuraCast and LibreTime
 - `internal/metrics/` - HA-specific Prometheus metrics with per-binary registries. Add new HA metrics here; use `internal/telemetry/` for legacy/cross-binary shared metrics.
+- `internal/notify/` - Self-hosted ntfy.sh client with three-tier severity (Tier1 audit / Tier2 page / Tier3 page-and-rollback). Per-region topic naming.
+- `internal/secrets/` - Pluggable secret backend (`.env` baseline + Vault KV v2). Backend chosen via `GRIMNIR_SECRETS_BACKEND`. Contract-tested against both backends.
+- `internal/alertbridge/` - Alertmanager webhook -> ntfy adapter. Runs as a loopback sidecar via `cmd/alertmanager-ntfy`.
+- `internal/dbhealth/` - Postgres replication-lag probe; exports `grimnir_pg_replication_lag_seconds`.
+- `internal/vrrphealth/` - VRRP master-count + state probe; exports `grimnir_vrrp_master_count` and `grimnir_vrrp_state` (split-brain detector).
+- `internal/grimnirdeploy/autorollback/` - Soak-window Prometheus poller. Flips deploy verdict to Rollback when listener reconnects / 5xx rate / page-and-rollback alerts breach defaults.
+- `ops/prometheus/`, `ops/alertmanager/`, `ops/grafana/` - HA observability provisioning. `make prometheus-validate` runs promtool against the rules + tests.
+- `docs/observability/README.md` - HA observability topology: what scrapes what, where alerts go, how secrets resolve.
 - `proto/mediaengine/v1/` - Protobuf definitions for media engine gRPC
 
 ### Data Flow
@@ -136,6 +144,18 @@ Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variabl
 - `GRIMNIR_NETCLOCK_PORT` - TCP port the master serves clock time on. Default: 9094.
 - `GRIMNIR_NETCLOCK_REGION` - Region identifier; part of the Redis lease key `grimnir-netclock-master-<region>`. Required when NetClock enabled.
 - `GRIMNIR_NETCLOCK_MASTER_ADDR` - Slaves dial this `host:port`. Optional; future versions will auto-discover via Redis.
+- `GRIMNIR_REGION` - Region short name; defaults to `default`. Drives ntfy topic naming (`grimnir-region-<region>-page`, `grimnir-audit-<region>`).
+- `GRIMNIR_NTFY_URL` - Self-hosted ntfy.sh base URL (e.g., `https://ntfy.grimnir.example`). When unset, `notify.FromEnv` returns a NopNotifier so dev binaries don't fail to start.
+- `GRIMNIR_NTFY_TOKEN_PAGE` - Publisher token for the per-region page topic.
+- `GRIMNIR_NTFY_TOKEN_AUDIT` - Publisher token for the per-region audit topic.
+- `GRIMNIR_NTFY_TOKEN_ROLLBACK` - Publisher token for the per-region rollback topic.
+- `GRIMNIR_SECRETS_BACKEND` - `env` (default) or `vault`. Selects the `internal/secrets/` backend.
+- `GRIMNIR_SECRETS_ENV_FILE` - Path to the .env file (default `.env`). Used only when backend=`env`.
+- `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID` - Vault AppRole credentials. Required when backend=`vault`.
+- `GRIMNIR_PROMETHEUS_URL` - Prometheus base URL the auto-rollback observer polls (e.g., `http://prometheus:9090`). Falls back from the more specific `GRIMNIR_DEPLOY_AUTOROLLBACK_PROM_URL`.
+- `GRIMNIR_DEPLOY_AUTOROLLBACK_ENABLED` - `true` (default) or `false`/`0`/`no`/`off`. Disables the soak-window observer; tests use `false` to avoid needing a live Prometheus.
+- `GRIMNIR_DEPLOY_AUTOROLLBACK_PROM_URL` - Override Prometheus URL for auto-rollback only (per-region differentiation).
+- `GRIMNIR_DEPLOY_AUTOROLLBACK_TICK` - Poll interval during the soak window. Default `15s`.
 
 ## Architectural note: programmatic GStreamer (v2.0.0-alpha.3+)
 

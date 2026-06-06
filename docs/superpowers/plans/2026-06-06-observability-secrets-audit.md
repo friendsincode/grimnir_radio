@@ -1955,6 +1955,8 @@ git commit -m "feat(notify): add retry on 5xx, no retry on 4xx"
 ---
 ## Chunk 5: audit_log table + writer
 
+> **Status:** Shipped in B-2 Chunk 1 (commit fa8646a). The `audit_log` table, GORM model, Recorder, & cobra middleware all live under `internal/grimnirdeploy/audit/`. No work remains in this chunk; future-reader, read the B-2 plan for the as-shipped design.
+
 ### Task 5.1: Migration for `audit_log` table
 
 **Files:**
