@@ -66,8 +66,16 @@ type StatusResponse struct {
 	InputBHealthy bool                   `protobuf:"varint,5,opt,name=input_b_healthy,json=inputBHealthy,proto3" json:"input_b_healthy,omitempty"`
 	ListenerCount int64                  `protobuf:"varint,6,opt,name=listener_count,json=listenerCount,proto3" json:"listener_count,omitempty"`
 	SwitchCount   int64                  `protobuf:"varint,7,opt,name=switch_count,json=switchCount,proto3" json:"switch_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Engine-divergence detection (issue #236). Phase 1 surfaces RTP-timestamp
+	// divergence between the two engines; the audio-fingerprint variant is a
+	// follow-up. The detector currently observes & reports; it does not pin or
+	// force-switch.
+	DivergenceDetected bool  `protobuf:"varint,8,opt,name=divergence_detected,json=divergenceDetected,proto3" json:"divergence_detected,omitempty"`
+	DivergenceCount    int64 `protobuf:"varint,9,opt,name=divergence_count,json=divergenceCount,proto3" json:"divergence_count,omitempty"`
+	// Seconds since the last divergence event, or -1 if none has occurred.
+	LastDivergenceSecondsAgo int64 `protobuf:"varint,10,opt,name=last_divergence_seconds_ago,json=lastDivergenceSecondsAgo,proto3" json:"last_divergence_seconds_ago,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
@@ -149,12 +157,33 @@ func (x *StatusResponse) GetSwitchCount() int64 {
 	return 0
 }
 
+func (x *StatusResponse) GetDivergenceDetected() bool {
+	if x != nil {
+		return x.DivergenceDetected
+	}
+	return false
+}
+
+func (x *StatusResponse) GetDivergenceCount() int64 {
+	if x != nil {
+		return x.DivergenceCount
+	}
+	return 0
+}
+
+func (x *StatusResponse) GetLastDivergenceSecondsAgo() int64 {
+	if x != nil {
+		return x.LastDivergenceSecondsAgo
+	}
+	return 0
+}
+
 var File_proto_edgeencoder_v1_edgeencoder_proto protoreflect.FileDescriptor
 
 const file_proto_edgeencoder_v1_edgeencoder_proto_rawDesc = "" +
 	"\n" +
 	"&proto/edgeencoder/v1/edgeencoder.proto\x12\x0eedgeencoder.v1\"\x0f\n" +
-	"\rStatusRequest\"\x8e\x02\n" +
+	"\rStatusRequest\"\xa9\x03\n" +
 	"\x0eStatusResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12%\n" +
 	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12!\n" +
@@ -162,7 +191,11 @@ const file_proto_edgeencoder_v1_edgeencoder_proto_rawDesc = "" +
 	"\x0finput_a_healthy\x18\x04 \x01(\bR\rinputAHealthy\x12&\n" +
 	"\x0finput_b_healthy\x18\x05 \x01(\bR\rinputBHealthy\x12%\n" +
 	"\x0elistener_count\x18\x06 \x01(\x03R\rlistenerCount\x12!\n" +
-	"\fswitch_count\x18\a \x01(\x03R\vswitchCount2Y\n" +
+	"\fswitch_count\x18\a \x01(\x03R\vswitchCount\x12/\n" +
+	"\x13divergence_detected\x18\b \x01(\bR\x12divergenceDetected\x12)\n" +
+	"\x10divergence_count\x18\t \x01(\x03R\x0fdivergenceCount\x12=\n" +
+	"\x1blast_divergence_seconds_ago\x18\n" +
+	" \x01(\x03R\x18lastDivergenceSecondsAgo2Y\n" +
 	"\vEdgeEncoder\x12J\n" +
 	"\tGetStatus\x12\x1d.edgeencoder.v1.StatusRequest\x1a\x1e.edgeencoder.v1.StatusResponseBKZIgithub.com/friendsincode/grimnir_radio/proto/edgeencoder/v1;edgeencoderv1b\x06proto3"
 

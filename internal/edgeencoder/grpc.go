@@ -28,6 +28,13 @@ type Status struct {
 	InputBHealthy bool
 	ListenerCount int64
 	SwitchCount   int64
+	// Engine-divergence detection (issue #236). Phase 1 reports the RTP-
+	// timestamp comparison only; an audio-fingerprint follow-up is tracked
+	// separately. The detector observes & reports; it does NOT pin or force-
+	// switch on its own.
+	DivergenceDetected       bool
+	DivergenceCount          int64
+	LastDivergenceSecondsAgo int64 // -1 when no divergence has occurred
 }
 
 // StatusProvider is implemented by whatever owns the live state (pipeline +
@@ -53,13 +60,16 @@ func NewGRPCServer(provider StatusProvider) *GRPCServer {
 func (s *GRPCServer) GetStatus(_ context.Context, _ *pb.StatusRequest) (*pb.StatusResponse, error) {
 	st := s.provider.Status()
 	return &pb.StatusResponse{
-		Version:       st.Version,
-		UptimeSeconds: st.UptimeSeconds,
-		ActiveInput:   st.ActiveInput,
-		InputAHealthy: st.InputAHealthy,
-		InputBHealthy: st.InputBHealthy,
-		ListenerCount: st.ListenerCount,
-		SwitchCount:   st.SwitchCount,
+		Version:                  st.Version,
+		UptimeSeconds:            st.UptimeSeconds,
+		ActiveInput:              st.ActiveInput,
+		InputAHealthy:            st.InputAHealthy,
+		InputBHealthy:            st.InputBHealthy,
+		ListenerCount:            st.ListenerCount,
+		SwitchCount:              st.SwitchCount,
+		DivergenceDetected:       st.DivergenceDetected,
+		DivergenceCount:          st.DivergenceCount,
+		LastDivergenceSecondsAgo: st.LastDivergenceSecondsAgo,
 	}, nil
 }
 

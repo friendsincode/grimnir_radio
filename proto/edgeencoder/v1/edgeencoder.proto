@@ -22,4 +22,12 @@ message StatusResponse {
   bool input_b_healthy = 5;
   int64 listener_count = 6;
   int64 switch_count = 7;
+  // Engine-divergence detection (issue #236). Phase 1 surfaces RTP-timestamp
+  // divergence between the two engines; the audio-fingerprint variant is a
+  // follow-up. The detector currently observes & reports; it does not pin or
+  // force-switch.
+  bool divergence_detected = 8;
+  int64 divergence_count = 9;
+  // Seconds since the last divergence event, or -1 if none has occurred.
+  int64 last_divergence_seconds_ago = 10;
 }
