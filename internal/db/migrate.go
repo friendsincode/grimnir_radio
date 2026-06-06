@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	deployaudit "github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/audit"
+	deployhistory "github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/history"
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"gorm.io/gorm"
@@ -113,6 +114,10 @@ func Migrate(database *gorm.DB) error {
 		// grimnir-deploy audit log (table audit_log; distinct from
 		// models.AuditLog whose table is audit_logs).
 		&deployaudit.Entry{},
+
+		// grimnir-deploy deploy history (table deploy_history) — rollback
+		// eligibility + contract-migration crossing queries read this.
+		&deployhistory.Entry{},
 	); err != nil {
 		return err
 	}
