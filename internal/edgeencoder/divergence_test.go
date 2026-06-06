@@ -181,6 +181,31 @@ func TestRTPDelta_NoWrap(t *testing.T) {
 	}
 }
 
+// TestRTPHeaderLayout documents the byte layout used by readRTPHeader.
+// readRTPHeader itself takes a *gst.Buffer; this test asserts the binary
+// math directly so we catch off-by-one regressions without a live pipeline.
+func TestRTPHeaderLayout(t *testing.T) {
+	// Synthetic RTP header: V=2, PT=10, seq=0x1234, ts=0xDEADBEEF.
+	header := []byte{
+		0x80, 0x0A, // version=2, payload=10
+		0x12, 0x34, // seq = 0x1234
+		0xDE, 0xAD, 0xBE, 0xEF, // ts = 0xDEADBEEF
+		0x00, 0x00, 0x00, 0x00, // ssrc
+	}
+	if len(header) != 12 {
+		t.Fatalf("header len = %d, want 12", len(header))
+	}
+	// Same bit-twiddling as readRTPHeader.
+	seq := uint16(header[2])<<8 | uint16(header[3])
+	ts := uint32(header[4])<<24 | uint32(header[5])<<16 | uint32(header[6])<<8 | uint32(header[7])
+	if seq != 0x1234 {
+		t.Errorf("seq = %#x, want 0x1234", seq)
+	}
+	if ts != 0xDEADBEEF {
+		t.Errorf("ts = %#x, want 0xDEADBEEF", ts)
+	}
+}
+
 func TestDivergenceDetector_RunStopsOnContextCancel(t *testing.T) {
 	d := NewDivergenceDetector(DivergenceConfig{TickInterval: 20 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())

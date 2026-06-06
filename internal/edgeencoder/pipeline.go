@@ -7,10 +7,13 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package edgeencoder
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/go-gst/go-glib/glib"
 	"github.com/go-gst/go-gst/gst"
@@ -72,6 +75,11 @@ type Pipeline struct {
 	// sink pad for that branch. Used by SetActiveInput to flip active-pad.
 	selectorPads map[string]*gst.Pad
 
+	// rtpProbePads maps logical input name to the rtpL16depay's sink pad.
+	// That pad receives RTP packets with intact RTP headers, so a buffer
+	// probe there can extract (seq, timestamp) for divergence detection.
+	rtpProbePads map[string]*gst.Pad
+
 	// bus is the GStreamer bus for the pipeline. Cached here so we don't call
 	// GetPipelineBus() from multiple goroutines (go-gst v1.4.0 lazy-initializes
 	// the wrapper, which is racy under -race).
@@ -91,12 +99,12 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 		return nil, fmt.Errorf("gst.NewPipeline: %w", err)
 	}
 
-	branchA, err := buildInputBranch(pipeline, "a", cfg.RTPPortA)
+	branchA, rtpPadA, err := buildInputBranch(pipeline, "a", cfg.RTPPortA)
 	if err != nil {
 		return nil, fmt.Errorf("input branch A: %w", err)
 	}
 
-	branchB, err := buildInputBranch(pipeline, "b", cfg.RTPPortB)
+	branchB, rtpPadB, err := buildInputBranch(pipeline, "b", cfg.RTPPortB)
 	if err != nil {
 		return nil, fmt.Errorf("input branch B: %w", err)
 	}
@@ -309,6 +317,10 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 			"A": selPadA,
 			"B": selPadB,
 		},
+		rtpProbePads: map[string]*gst.Pad{
+			"A": rtpPadA,
+			"B": rtpPadB,
+		},
 		bus:  pipeline.GetPipelineBus(),
 		done: make(chan error, 1),
 	}
@@ -322,67 +334,74 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 // is the right place to attach an InputHealth pad probe: it sits upstream of
 // the drop point, so the probe fires on every arriving buffer regardless of
 // whether input-selector is consuming this branch.
-func buildInputBranch(pipe *gst.Pipeline, suffix string, port int) (*gst.Element, error) {
+func buildInputBranch(pipe *gst.Pipeline, suffix string, port int) (*gst.Element, *gst.Pad, error) {
 	udpsrc, err := gst.NewElementWithName("udpsrc", "udpsrc_"+suffix)
 	if err != nil {
-		return nil, fmt.Errorf("udpsrc: %w", err)
+		return nil, nil, fmt.Errorf("udpsrc: %w", err)
 	}
 	if err := udpsrc.SetProperty("port", port); err != nil {
-		return nil, fmt.Errorf("udpsrc port: %w", err)
+		return nil, nil, fmt.Errorf("udpsrc port: %w", err)
 	}
 	caps := gst.NewCapsFromString(
 		"application/x-rtp,media=audio,clock-rate=44100,encoding-name=L16,payload=10,channels=2")
 	if err := udpsrc.SetProperty("caps", caps); err != nil {
-		return nil, fmt.Errorf("udpsrc caps: %w", err)
+		return nil, nil, fmt.Errorf("udpsrc caps: %w", err)
 	}
 
 	jb, err := gst.NewElementWithName("rtpjitterbuffer", "jitter_"+suffix)
 	if err != nil {
-		return nil, fmt.Errorf("rtpjitterbuffer: %w", err)
+		return nil, nil, fmt.Errorf("rtpjitterbuffer: %w", err)
 	}
 	if err := jb.SetProperty("latency", uint(80)); err != nil {
-		return nil, fmt.Errorf("rtpjitterbuffer latency: %w", err)
+		return nil, nil, fmt.Errorf("rtpjitterbuffer latency: %w", err)
 	}
 
 	depay, err := gst.NewElementWithName("rtpL16depay", "depay_"+suffix)
 	if err != nil {
-		return nil, fmt.Errorf("rtpL16depay: %w", err)
+		return nil, nil, fmt.Errorf("rtpL16depay: %w", err)
 	}
 
 	conv, err := gst.NewElementWithName("audioconvert", "audioconvert_"+suffix)
 	if err != nil {
-		return nil, fmt.Errorf("audioconvert: %w", err)
+		return nil, nil, fmt.Errorf("audioconvert: %w", err)
 	}
 
 	leakyq, err := gst.NewElementWithName("queue", "branch_leakyq_"+suffix)
 	if err != nil {
-		return nil, fmt.Errorf("branch leaky queue: %w", err)
+		return nil, nil, fmt.Errorf("branch leaky queue: %w", err)
 	}
 	// leaky=downstream (enum=2) drops oldest buffers when full, so an inactive
 	// branch (input-selector not pulling) keeps draining instead of stalling
 	// upstream. Bounded only by buffer count; bytes/time limits disabled.
 	if err := setEnumProperty(leakyq, "leaky", 2); err != nil {
-		return nil, fmt.Errorf("branch leaky queue leaky=downstream: %w", err)
+		return nil, nil, fmt.Errorf("branch leaky queue leaky=downstream: %w", err)
 	}
 	if err := leakyq.SetProperty("max-size-buffers", uint(8)); err != nil {
-		return nil, fmt.Errorf("branch leaky queue max-size-buffers: %w", err)
+		return nil, nil, fmt.Errorf("branch leaky queue max-size-buffers: %w", err)
 	}
 	if err := leakyq.SetProperty("max-size-bytes", uint(0)); err != nil {
-		return nil, fmt.Errorf("branch leaky queue max-size-bytes: %w", err)
+		return nil, nil, fmt.Errorf("branch leaky queue max-size-bytes: %w", err)
 	}
 	if err := leakyq.SetProperty("max-size-time", uint64(0)); err != nil {
-		return nil, fmt.Errorf("branch leaky queue max-size-time: %w", err)
+		return nil, nil, fmt.Errorf("branch leaky queue max-size-time: %w", err)
 	}
 
 	for _, e := range []*gst.Element{udpsrc, jb, depay, conv, leakyq} {
 		if err := pipe.Add(e); err != nil {
-			return nil, fmt.Errorf("add %s: %w", e.GetName(), err)
+			return nil, nil, fmt.Errorf("add %s: %w", e.GetName(), err)
 		}
 	}
 	if err := gst.ElementLinkMany(udpsrc, jb, depay, conv, leakyq); err != nil {
-		return nil, fmt.Errorf("link input branch %s: %w", suffix, err)
+		return nil, nil, fmt.Errorf("link input branch %s: %w", suffix, err)
 	}
-	return leakyq, nil
+	// depay's sink pad still carries RTP packets (rtpjitterbuffer -> depay).
+	// The divergence detector probes here to extract RTP seq & timestamp
+	// fields from the header. Returned alongside the chain's last element.
+	depaySink := depay.GetStaticPad("sink")
+	if depaySink == nil {
+		return nil, nil, fmt.Errorf("depay %s: GetStaticPad(sink) returned nil", suffix)
+	}
+	return leakyq, depaySink, nil
 }
 
 // buildEncoder returns the chain of encoder elements (excluding the final
@@ -529,4 +548,69 @@ func (p *Pipeline) InputPad(name string) *gst.Pad {
 func (p *Pipeline) AttachHealthProbes(a, b *InputHealth) {
 	a.AttachPadProbe(p.inputPads["A"])
 	b.AttachPadProbe(p.inputPads["B"])
+}
+
+// AttachDivergenceProbes installs pad probes on the rtpL16depay sink pads of
+// both branches. Each probe parses the buffer's RTP header (12-byte fixed
+// header per RFC 3550) to extract seq & timestamp, then hands them to the
+// detector via RecordSample. Probes sample 1-in-N buffers so the streaming
+// thread stays cheap; sampleEveryN = 10 at 50 packets/sec yields ~5 samples/s.
+//
+// Returns the per-branch probe IDs so the caller can RemoveProbe on teardown
+// (currently the pipeline lives for the process lifetime so we ignore them).
+func (p *Pipeline) AttachDivergenceProbes(d *DivergenceDetector, sampleEveryN uint64) (uint64, uint64) {
+	if sampleEveryN == 0 {
+		sampleEveryN = 10
+	}
+	return attachRTPProbe(p.rtpProbePads["A"], "A", d, sampleEveryN),
+		attachRTPProbe(p.rtpProbePads["B"], "B", d, sampleEveryN)
+}
+
+// attachRTPProbe installs a buffer probe on pad that decodes the RTP header
+// from each buffer (every sampleEveryN-th) and forwards (seq, ts) to the
+// detector. The per-pad atomic counter is a closure-captured pointer so
+// each call to attachRTPProbe gets its own independent counter.
+func attachRTPProbe(pad *gst.Pad, input string, d *DivergenceDetector, sampleEveryN uint64) uint64 {
+	if pad == nil || d == nil {
+		return 0
+	}
+	var counter atomic.Uint64
+	return pad.AddProbe(gst.PadProbeTypeBuffer, func(_ *gst.Pad, info *gst.PadProbeInfo) gst.PadProbeReturn {
+		n := counter.Add(1)
+		if n%sampleEveryN != 0 {
+			return gst.PadProbeOK
+		}
+		buf := info.GetBuffer()
+		if buf == nil {
+			return gst.PadProbeOK
+		}
+		seq, ts, ok := readRTPHeader(buf)
+		if !ok {
+			return gst.PadProbeOK
+		}
+		d.RecordSample(input, seq, ts, time.Now().UnixNano())
+		return gst.PadProbeOK
+	})
+}
+
+// readRTPHeader parses the fixed RTP header from buf's first 12 bytes:
+// bytes 0-1 = version/payload/flags; bytes 2-3 = big-endian seq number;
+// bytes 4-7 = big-endian 32-bit RTP timestamp. Returns (seq, ts, true) on
+// success, or (0, 0, false) if the buffer is too small or unmappable.
+func readRTPHeader(buf *gst.Buffer) (uint16, uint32, bool) {
+	mi := buf.Map(gst.MapRead)
+	if mi == nil {
+		return 0, 0, false
+	}
+	defer buf.Unmap()
+	if mi.Size() < 12 {
+		return 0, 0, false
+	}
+	b := mi.Bytes()
+	if len(b) < 12 {
+		return 0, 0, false
+	}
+	seq := binary.BigEndian.Uint16(b[2:4])
+	ts := binary.BigEndian.Uint32(b[4:8])
+	return seq, ts, true
 }
