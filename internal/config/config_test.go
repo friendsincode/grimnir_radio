@@ -121,6 +121,63 @@ func TestHAPCMRTPConfig(t *testing.T) {
 	})
 }
 
+func TestLiveInputConfig(t *testing.T) {
+	setBase := func(t *testing.T) {
+		t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
+		t.Setenv("GRIMNIR_JWT_SIGNING_KEY", "supersecret")
+	}
+
+	t.Run("disabled by default", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_LIVE_INPUT_ENABLED", "")
+		t.Setenv("GRIMNIR_LIVE_INPUT_FANOUT_ADDR", "")
+		t.Setenv("GRIMNIR_LIVE_INPUT_PORT", "")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.LiveInputEnabled {
+			t.Error("LiveInputEnabled = true, want false (default)")
+		}
+		if c.LiveInputPort != 5008 {
+			t.Errorf("LiveInputPort = %d, want 5008 (default)", c.LiveInputPort)
+		}
+		if c.LiveInputFanoutAddr != "" {
+			t.Errorf("LiveInputFanoutAddr = %q, want empty (default)", c.LiveInputFanoutAddr)
+		}
+	})
+
+	t.Run("enabled with fanout addr succeeds", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_LIVE_INPUT_ENABLED", "true")
+		t.Setenv("GRIMNIR_LIVE_INPUT_FANOUT_ADDR", "10.10.0.7:9100")
+		t.Setenv("GRIMNIR_LIVE_INPUT_PORT", "5009")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.LiveInputEnabled {
+			t.Error("LiveInputEnabled = false, want true")
+		}
+		if c.LiveInputFanoutAddr != "10.10.0.7:9100" {
+			t.Errorf("LiveInputFanoutAddr = %q, want 10.10.0.7:9100", c.LiveInputFanoutAddr)
+		}
+		if c.LiveInputPort != 5009 {
+			t.Errorf("LiveInputPort = %d, want 5009", c.LiveInputPort)
+		}
+	})
+
+	t.Run("enabled requires fanout addr", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_LIVE_INPUT_ENABLED", "true")
+		t.Setenv("GRIMNIR_LIVE_INPUT_FANOUT_ADDR", "")
+		_, err := Load()
+		if err == nil {
+			t.Error("Load with LIVE_INPUT_ENABLED=true and empty fanout addr: want error, got nil")
+		}
+	})
+}
+
 func TestNetClockConfig(t *testing.T) {
 	setBase := func(t *testing.T) {
 		t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")

@@ -114,6 +114,21 @@ type Config struct {
 	// discovery (deferred to Chunk 3). Pure-packet-fallback if neither is set.
 	NetClockMasterAddr string
 
+	// LiveInputEnabled enables the engine-side mixing branch that consumes a
+	// PCM/RTP feed from the fan-out node (live DJ audio). When false, engine
+	// pipelines behave exactly as they did pre-fan-out: scheduled content only.
+	LiveInputEnabled bool
+
+	// LiveInputPort is the UDP port the engine pipeline's udpsrc listens on
+	// for incoming PCM/RTP from the fan-out node. Default: 5008. The fan-out
+	// must be configured to deliver to this engine's host:port.
+	LiveInputPort int
+
+	// LiveInputFanoutAddr is the host:port of the fan-out service (for
+	// outbound gRPC calls in the other direction; reserved for future
+	// engine->fanout health hints). Required when LiveInputEnabled is true.
+	LiveInputFanoutAddr string
+
 	LegacyEnvWarnings []string
 }
 
@@ -185,6 +200,11 @@ func Load() (*Config, error) {
 		NetClockPort:       getEnvIntAny([]string{"GRIMNIR_NETCLOCK_PORT", "RLM_NETCLOCK_PORT"}, 9094),
 		NetClockRegion:     getEnvAny([]string{"GRIMNIR_NETCLOCK_REGION", "RLM_NETCLOCK_REGION"}, ""),
 		NetClockMasterAddr: getEnvAny([]string{"GRIMNIR_NETCLOCK_MASTER_ADDR", "RLM_NETCLOCK_MASTER_ADDR"}, ""),
+
+		// Engine-side live input branch (fan-out -> engine PCM/RTP ingest).
+		LiveInputEnabled:    getEnvBoolAny([]string{"GRIMNIR_LIVE_INPUT_ENABLED", "RLM_LIVE_INPUT_ENABLED"}, false),
+		LiveInputPort:       getEnvIntAny([]string{"GRIMNIR_LIVE_INPUT_PORT", "RLM_LIVE_INPUT_PORT"}, 5008),
+		LiveInputFanoutAddr: getEnvAny([]string{"GRIMNIR_LIVE_INPUT_FANOUT_ADDR", "RLM_LIVE_INPUT_FANOUT_ADDR"}, ""),
 	}
 
 	if raw := getEnvAny([]string{"GRIMNIR_HA_PCM_RTP_TARGETS", "RLM_HA_PCM_RTP_TARGETS"}, ""); raw != "" {
@@ -201,6 +221,10 @@ func Load() (*Config, error) {
 
 	if cfg.NetClockEnabled && cfg.NetClockRegion == "" {
 		return nil, fmt.Errorf("GRIMNIR_NETCLOCK_ENABLED=true requires non-empty GRIMNIR_NETCLOCK_REGION")
+	}
+
+	if cfg.LiveInputEnabled && cfg.LiveInputFanoutAddr == "" {
+		return nil, fmt.Errorf("GRIMNIR_LIVE_INPUT_ENABLED=true requires non-empty GRIMNIR_LIVE_INPUT_FANOUT_ADDR")
 	}
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {
