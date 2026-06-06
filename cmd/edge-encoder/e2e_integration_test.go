@@ -35,7 +35,8 @@ import (
 //      pointed at the two engines
 //   3. connects an HTTP client to /live and reads encoded MP3 bytes
 //
-// The plan's Task 9.2 (divergence detection) is deferred.
+// Issue #236 (divergence detection) is now implemented in phase 1
+// (RTP-timestamp comparison only); see TestEdgeEncoder_DivergenceDetection.
 
 const (
 	engineFreqA = 440
@@ -68,6 +69,15 @@ func freePort(t *testing.T) int {
 // We use Setpgid so killing -PID reaps the whole process group, not just the
 // shell. gst-launch occasionally spawns helper threads / child processes.
 func spawnTestEngine(t *testing.T, freq, udpPort int) *exec.Cmd {
+	return spawnTestEngineWithOffsets(t, freq, udpPort, 0, 0)
+}
+
+// spawnTestEngineWithOffsets is the variant used by the divergence test:
+// fixed seqnum-offset and timestamp-offset on rtpL16pay let us produce two
+// engines whose matched sequence numbers carry deterministically-different
+// timestamps. With NetClock-synced engines in production the timestamps
+// would agree; this fakes a divergence shape the detector should flag.
+func spawnTestEngineWithOffsets(t *testing.T, freq, udpPort int, seqOffset, tsOffset int) *exec.Cmd {
 	t.Helper()
 	args := []string{
 		"-q",
@@ -75,6 +85,8 @@ func spawnTestEngine(t *testing.T, freq, udpPort int) *exec.Cmd {
 		"!", "audioconvert",
 		"!", "audio/x-raw,rate=44100,channels=2,format=S16BE",
 		"!", "rtpL16pay", "pt=10", "mtu=1400",
+		fmt.Sprintf("seqnum-offset=%d", seqOffset),
+		fmt.Sprintf("timestamp-offset=%d", tsOffset),
 		"!", "udpsink", "host=127.0.0.1", fmt.Sprintf("port=%d", udpPort), "sync=true",
 	}
 	cmd := exec.Command("gst-launch-1.0", args...)
@@ -306,4 +318,72 @@ func TestEdgeEncoder_EndToEnd_FailoverWhenEngineDies(t *testing.T) {
 	}
 	t.Logf("pre-kill=%d bytes post-kill=%d bytes (status: %s)",
 		beforeKill, afterKill, statusString(t, grpcPort))
+}
+
+// TestEdgeEncoder_DivergenceDetection_ReportsWhenStreamsDiffer drives two
+// engines whose rtpL16pay payloaders share an initial sequence-number offset
+// (so the detector sees matched seqs) but differ wildly on timestamp-offset
+// (so |tsA - tsB| greatly exceeds the 4410-tick threshold). The detector
+// should flip DivergenceDetected within a couple of seconds.
+//
+// In production, NetClock-synced engines would converge on identical
+// timestamps for matched seqs; this test fakes the divergence shape so we
+// can exercise the detector wiring end-to-end.
+func TestEdgeEncoder_DivergenceDetection_ReportsWhenStreamsDiffer(t *testing.T) {
+	skipIfNoGstreamer(t)
+
+	rtpA, rtpB := 15008, 15009
+	httpPort := freePort(t)
+	grpcPort := freePort(t)
+
+	// Both engines start their seq counter at 0 so the detector observes
+	// matched seqs. Engine B's timestamp-offset is shifted by 100000 ticks
+	// (~2.27 seconds at 44.1 kHz) — far past the 4410-tick (=100 ms)
+	// divergence threshold. Engine A uses tsOffset=0; engine B uses 100000.
+	spawnTestEngineWithOffsets(t, engineFreqA, rtpA, 0, 0)
+	spawnTestEngineWithOffsets(t, engineFreqB, rtpB, 0, 100000)
+	runEdgeEncoderInProcess(t, rtpA, rtpB, httpPort, grpcPort)
+
+	waitForHealthz(t, httpPort, 5*time.Second)
+
+	// The detector ticks once per second. Give it up to ~4 seconds to
+	// (a) accumulate ring-buffer samples (1 every 10 packets = ~5 / s) and
+	// (b) flip DivergenceDetected on a Check() call.
+	deadline := time.Now().Add(4 * time.Second)
+	var detected bool
+	var count int64
+	var lastSecAgo int64
+	for time.Now().Before(deadline) {
+		detected, count, lastSecAgo = divergenceStatus(t, grpcPort)
+		if detected {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !detected {
+		t.Errorf("DivergenceDetected = false after 4s; want true (count=%d last_secs_ago=%d status=%s)",
+			count, lastSecAgo, statusString(t, grpcPort))
+	}
+	if count <= 0 {
+		t.Errorf("DivergenceCount = %d after detection; want > 0", count)
+	}
+	t.Logf("divergence detected=%v count=%d last_secs_ago=%d (status=%s)",
+		detected, count, lastSecAgo, statusString(t, grpcPort))
+}
+
+// divergenceStatus fetches divergence fields from GetStatus.
+func divergenceStatus(t *testing.T, grpcPort int) (bool, int64, int64) {
+	t.Helper()
+	conn, err := grpc.NewClient(fmt.Sprintf("127.0.0.1:%d", grpcPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return false, 0, 0
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	resp, err := pb.NewEdgeEncoderClient(conn).GetStatus(ctx, &pb.StatusRequest{})
+	if err != nil {
+		return false, 0, 0
+	}
+	return resp.DivergenceDetected, resp.DivergenceCount, resp.LastDivergenceSecondsAgo
 }
