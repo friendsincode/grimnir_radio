@@ -48,7 +48,7 @@ func newDrainCmd() *cobra.Command {
 		Use:   "drain",
 		Short: "Drain a node: drop VRRP priority, stop services, hand off leadership",
 		Long:  "Drains the named node so the peer takes over. Drops VRRP priority via vrrp_script failure file, SIGTERMs grimnir / edge-encoder / fan-out / mediaengine in that order, waits for leader-election lease to migrate to the peer. See docs/runbooks/drain.md.",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realDrainRunE,
 	}
 	c.Flags().String("node", "", "node hostname or 'self' (required)")
 	c.Flags().Bool("dry-run", false, "print the planned actions; do not mutate the cluster")
