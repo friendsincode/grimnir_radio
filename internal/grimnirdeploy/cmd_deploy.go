@@ -12,14 +12,17 @@ import (
 	"io"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/audit"
+	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/autorollback"
 	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/gates"
 	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/history"
 	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/pause"
 	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/probe"
 	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/runner"
+	"github.com/friendsincode/grimnir_radio/internal/notify"
 )
 
 // DeployOpts is the dependency bag for runDeploy. Built by realDeployRunE for
@@ -42,6 +45,23 @@ type DeployOpts struct {
 	// HealthWaitTimeout caps the per-node wait-for-health loop. 0 means use
 	// the 60-second default; tests set a few ms.
 	HealthWaitTimeout time.Duration
+
+	// SoakObserver actively monitors the soak window. When non-nil, replaces
+	// the passive time.Sleep(SoakWindow) path: the Observer polls
+	// Prometheus & may trigger an auto-rollback if a rule breaches its
+	// dwell threshold. Nil means "legacy passive soak"; production wires an
+	// autorollback.Monitor here when GRIMNIR_DEPLOY_AUTOROLLBACK_ENABLED.
+	SoakObserver autorollback.Observer
+
+	// AutoRollback is the closure invoked when SoakObserver returns
+	// DecisionRollback. Production binds this to runRollback. Nil falls
+	// back to logging the verdict without rolling back (which lets early
+	// rollouts ship with the observer in shadow mode).
+	AutoRollback func(ctx context.Context, reason string) error
+
+	// Notifier sends tier-2 ntfy pages when auto-rollback fires. Nil is a
+	// silent no-op (tests don't need real ntfy).
+	Notifier notify.Notifier
 
 	// Cobra flag relay.
 	DryRun      bool
@@ -138,8 +158,21 @@ func runDeploy(ctx context.Context, o DeployOpts) error {
 
 		// Soak.
 		if o.Cfg.SoakWindow > 0 {
-			fmt.Fprintf(o.Out, "soak: waiting %v\n", o.Cfg.SoakWindow)
-			o.Sleep(o.Cfg.SoakWindow)
+			if o.SoakObserver != nil {
+				fmt.Fprintf(o.Out, "soak: observing for %v (auto-rollback enabled)\n", o.Cfg.SoakWindow)
+				verdict := o.SoakObserver.Observe(ctx)
+				fmt.Fprintf(o.Out, "soak verdict: %s (%s)\n", verdict.Decision, verdict.Reason)
+				if verdict.Decision == autorollback.DecisionRollback {
+					return o.handleAutoRollback(ctx, histID, verdict)
+				}
+				// Pass + Inconclusive both fall through to the closing
+				// health probe + soak_passed history row. Inconclusive is a
+				// soft-pass at this layer; operators can tighten the policy
+				// later if Prometheus outages become common.
+			} else {
+				fmt.Fprintf(o.Out, "soak: waiting %v\n", o.Cfg.SoakWindow)
+				o.Sleep(o.Cfg.SoakWindow)
+			}
 		}
 		// One last health probe at the end of soak. Any unhealthy host
 		// flips the history row to soak_failed; the caller's auto-rollback
@@ -156,6 +189,75 @@ func runDeploy(ctx context.Context, o DeployOpts) error {
 		fmt.Fprintln(o.Out, "soak passed; deploy complete")
 		return nil
 	})
+}
+
+// handleAutoRollback is the soak-window-failed branch: it records the
+// failed history row, pages the operator (tier-2 ntfy), writes a dedicated
+// "auto-rollback" audit entry, & invokes the rollback closure. The Wrapper
+// around runDeploy already opened an audit row for the parent deploy;
+// handleAutoRollback opens a separate, nested audit row so the post-mortem
+// can tell auto-rollback (system-initiated) apart from operator-initiated
+// rollback.
+//
+// Safe re-triggering: the parent runDeploy invocation only ever reaches
+// this branch once per call, because SoakObserver.Observe returns once.
+// The rollback closure itself does NOT loop back into a soak window with
+// auto-rollback wired (RollbackOpts has its own shorter, passive soak),
+// so a failing rollback cannot re-enter this function within the same
+// deploy. Both invariants are documented on Observer & runRollback.
+func (o *DeployOpts) handleAutoRollback(ctx context.Context, histID uuid.UUID, v autorollback.Verdict) error {
+	// 1. Flip the deploy_history row to soak_failed BEFORE attempting the
+	//    rollback so the row reflects the truth even if the rollback
+	//    itself panics.
+	_ = o.History.Complete(ctx, histID, history.OutcomeSoakFailed, history.SoakFailed)
+
+	// 2. Page the operator. ntfy errors are non-fatal — the audit + history
+	//    row are the system-of-record; the page is best-effort.
+	if o.Notifier != nil {
+		_ = o.Notifier.Tier2(ctx,
+			"[grimnir] Auto-rollback triggered",
+			fmt.Sprintf("soak window observed %s: %s; rolling back now",
+				v.TriggeringRule, v.Reason))
+	}
+
+	// 3. Nested audit entry tagged "auto-rollback" so the post-mortem can
+	//    tell system-initiated from operator-initiated rollback. The inner
+	//    body actually runs the rollback closure.
+	rollbackErr := o.Wrapper.Wrap(ctx, "auto-rollback", map[string]any{
+		"triggering_rule": v.TriggeringRule,
+		"reason":          v.Reason,
+		"ticks_observed":  v.TicksObserved,
+		"query_errors":    v.QueryErrors,
+	}, func(ctx context.Context) error {
+		if o.AutoRollback == nil {
+			fmt.Fprintln(o.Out, "auto-rollback: no rollback closure wired; logged verdict only")
+			return nil
+		}
+		return o.AutoRollback(ctx, v.Reason)
+	})
+
+	if rollbackErr != nil {
+		// Roll-back failure ntfy. Distinct title so operators with a
+		// rotating-light ringtone immediately know this is a "rollback
+		// failed, intervene now" event vs a normal "rollback fired".
+		if o.Notifier != nil {
+			// Re-use Tier2 — the Notifier interface intentionally doesn't
+			// expose PageAndRollback so callers can't fire the rollback
+			// ringtone by accident. The "FAILED" prefix in the title gives
+			// the operator the same signal.
+			_ = o.Notifier.Tier2(ctx,
+				"[grimnir] Auto-rollback FAILED",
+				fmt.Sprintf("triggering_rule=%s reason=%s error=%s — operator MUST intervene",
+					v.TriggeringRule, v.Reason, rollbackErr))
+		}
+		return fmt.Errorf("auto-rollback failed: %w", rollbackErr)
+	}
+
+	fmt.Fprintf(o.Out, "auto-rollback completed (rule=%s)\n", v.TriggeringRule)
+	// Bubble the soak failure up to the caller so the deploy command
+	// exits non-zero — the system is no longer running the requested
+	// version, the caller's CI / operator workflow needs to know.
+	return fmt.Errorf("soak failed (auto-rolled back): %s: %s", v.TriggeringRule, v.Reason)
 }
 
 // rollNode runs the per-node sequence: drain via VRRP failure file, stop
@@ -291,7 +393,7 @@ func realDeployRunE(cmd *cobra.Command, args []string) error {
 		secondHost = "local"
 	}
 
-	return runDeploy(cmd.Context(), DeployOpts{
+	opts := DeployOpts{
 		Tag:         tag,
 		Cfg:         cfg,
 		Hosts:       hosts,
@@ -307,5 +409,47 @@ func realDeployRunE(cmd *cobra.Command, args []string) error {
 		DryRun:      dryRun,
 		ForcePolicy: forcePolicy,
 		GoFlag:      goFlag,
-	})
+	}
+
+	// Wire auto-rollback only when both the env flag is set & a Prometheus
+	// URL is configured. A missing URL with the flag on is a soft fail: log
+	// + fall back to passive sleep rather than refusing the deploy.
+	if cfg.AutoRollbackEnabled && cfg.AutoRollbackPromURL != "" {
+		obs, err := autorollback.NewMonitorObserver(
+			cfg.AutoRollbackPromURL,
+			cfg.SoakWindow,
+			cfg.AutoRollbackTickInterval,
+			autorollback.DefaultRules(),
+		)
+		if err != nil {
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"WARN: auto-rollback disabled (could not build Prometheus client: %v); falling back to passive soak\n",
+				err)
+		} else {
+			opts.SoakObserver = obs
+			// The rollback closure builds RollbackOpts from the same deps
+			// & invokes runRollback. Reason is propagated so the audit row
+			// inside runRollback carries the original verdict text.
+			opts.AutoRollback = func(ctx context.Context, reason string) error {
+				return runRollback(ctx, RollbackOpts{
+					Cfg:         cfg,
+					Reason:      "auto-rollback: " + reason,
+					ForceAged:   false, // never bypass safety gates from auto-flow
+					Hosts:       hosts,
+					FirstHost:   firstHost,
+					SecondHost:  secondHost,
+					Runner:      sshRunner,
+					Compose:     compose,
+					HealthProbe: prober,
+					Pause:       deps.Pause,
+					History:     histStore,
+					Wrapper:     deps.Wrapper,
+					Out:         cmd.OutOrStdout(),
+				})
+			}
+			opts.Notifier = deps.NotifyClient
+		}
+	}
+
+	return runDeploy(cmd.Context(), opts)
 }

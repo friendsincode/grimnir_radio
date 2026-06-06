@@ -30,6 +30,11 @@ type Deps struct {
 	Pause   *pause.Client
 	Store   *audit.Store
 	Wrapper *audit.Wrapper
+	// NotifyClient is the tier-aware ntfy client used by auto-rollback for
+	// tier-2 page notifications. The audit Wrapper's ntfy path is tier-1
+	// only; auto-rollback needs its own client so paging-priority alerts
+	// route to the on-call topic. Nil disables auto-rollback ntfy.
+	NotifyClient notify.Notifier
 }
 
 // Close releases the Redis connection and the underlying SQL connection.
@@ -64,9 +69,10 @@ func wireDeps(ctx context.Context, cfg *Config) (*Deps, error) {
 	}
 
 	deps := &Deps{
-		Cfg:   cfg,
-		Redis: rdb,
-		Pause: pause.NewClient(rdb),
+		Cfg:          cfg,
+		Redis:        rdb,
+		Pause:        pause.NewClient(rdb),
+		NotifyClient: notify.FromEnv(),
 	}
 
 	// Postgres + audit store are optional in early chunks; only wire them if
