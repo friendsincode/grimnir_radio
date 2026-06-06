@@ -32,7 +32,10 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.SetVersionTemplate("grimnir-deploy {{.Version}}\n")
-	grimnirdeploy.RegisterCommands(rootCmd)
+	// Wrapper is nil for now: the chunk that loads config + opens the audit
+	// Postgres + ntfy poster will construct the real *audit.Wrapper and pass
+	// it in. With nil, subcommand RunE bodies run unwrapped.
+	grimnirdeploy.RegisterCommands(rootCmd, nil)
 }
 
 func main() {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	deployaudit "github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/audit"
 	"github.com/friendsincode/grimnir_radio/internal/migration"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 	"gorm.io/gorm"
@@ -108,6 +109,10 @@ func Migrate(database *gorm.DB) error {
 		// WebDJ console
 		&models.WebDJSession{},
 		&models.WaveformCache{},
+
+		// grimnir-deploy audit log (table audit_log; distinct from
+		// models.AuditLog whose table is audit_logs).
+		&deployaudit.Entry{},
 	); err != nil {
 		return err
 	}
