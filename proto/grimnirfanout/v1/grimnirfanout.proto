@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package grimnirfanout.v1;
+
+option go_package = "github.com/friendsincode/grimnir_radio/proto/grimnirfanout/v1;grimnirfanoutv1";
+
+// GrimnirFanout exposes operational status of a fan-out instance. Mirrors the
+// EdgeEncoder service convention: control plane scrapes GetStatus instead of
+// the standard grpc.health.v1 Health protocol.
+service GrimnirFanout {
+  // GetStatus returns the current operational state of the fan-out service.
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  string version = 1;
+  int64 uptime_seconds = 2;
+  // Aggregate count of currently active DJ sessions (sum of per-protocol).
+  int64 active_sessions = 3;
+  int64 harbor_session_count = 4;
+  int64 rtp_session_count = 5;
+  int64 srt_session_count = 6;
+  int64 webrtc_session_count = 7;
+  // Lifetime total of sessions that have ever connected to this instance.
+  int64 total_sessions_served = 8;
+  // Per-engine RTP reachability as reported by the fan-out's own probe layer.
+  // True means PCM packets are being delivered & the engine is acking via its
+  // gRPC GetStatus; false means we have stopped delivery or never started.
+  bool engine_a_reachable = 9;
+  bool engine_b_reachable = 10;
+}

@@ -6,7 +6,7 @@ RACE ?= 1
 PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan build-edge-encoder build-grimnir-deploy build-alertmanager-ntfy verify ci proto proto-clean \
+.PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan build-edge-encoder build-fanout build-grimnir-deploy build-alertmanager-ntfy verify ci proto proto-clean \
         dev-db dev-redis dev-stack run-control run-media migration-lint migration-lint-ci \
         prometheus-validate
 
@@ -82,6 +82,9 @@ build-mediascan:
 build-edge-encoder:
 	@CGO_ENABLED=1 $(GO) build $(GOFLAGS) -o ./edge-encoder ./cmd/edge-encoder
 
+build-fanout:
+	@CGO_ENABLED=1 $(GO) build $(GOFLAGS) -o ./grimnir-fanout ./cmd/grimnir-fanout
+
 build-grimnir-deploy:
 	@$(GO) build $(GOFLAGS) -o ./bin/grimnir-deploy ./cmd/grimnir-deploy
 
@@ -110,7 +113,8 @@ proto:
 	@PATH="$$PATH:$$HOME/go/bin" protoc --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		$(PROTO_DIR)/mediaengine/v1/*.proto \
-		$(PROTO_DIR)/edgeencoder/v1/*.proto
+		$(PROTO_DIR)/edgeencoder/v1/*.proto \
+		$(PROTO_DIR)/grimnirfanout/v1/*.proto
 
 proto-clean:
 	@find $(PROTO_OUT) -name '*.pb.go' -delete

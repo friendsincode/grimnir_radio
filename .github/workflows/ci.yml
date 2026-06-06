@@ -38,7 +38,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install GStreamer (required for edge encoder CGo build)
+      - name: Install GStreamer + SRT (required for edge encoder & fan-out CGo builds)
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
@@ -47,7 +47,8 @@ jobs:
             gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-ugly \
             gstreamer1.0-plugins-bad \
-            gstreamer1.0-tools
+            gstreamer1.0-tools \
+            libsrt-openssl-dev
           gst-launch-1.0 --version
           gst-inspect-1.0 input-selector | head -3
 
