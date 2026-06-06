@@ -54,8 +54,8 @@ func TestRegisterCommandsWrapsEveryStub(t *testing.T) {
 	stubs := map[string][]string{
 		// deploy promoted to real RunE in Chunk 6; covered by cmd_deploy_test.go.
 		// drain promoted to real RunE in Chunk 9; covered by cmd_drain_test.go.
-		"promote-replica":   {},
-		"cold-start-region": {"--region=us-east"},
+		// cold-start-region promoted to real RunE in Chunk 11; covered by cmd_coldstart_test.go.
+		// promote-replica promoted to real RunE in Chunk 10; covered by cmd_promote_test.go.
 		"restore":           {"--from=latest"},
 		"recover-partition": {},
 		"backup-drill":      {"--region=us-east", "--drill-host=staging"},

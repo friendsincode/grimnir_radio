@@ -102,7 +102,7 @@ func newColdStartRegionCmd() *cobra.Command {
 		Use:   "cold-start-region",
 		Short: "Bring up a freshly-built region from scratch in dependency order",
 		Long:  "Region bring-up runbook. Verifies firewall rules, WireGuard mesh, Postgres + replica, Redis, MinIO/R2 connectivity, then starts grimnir + mediaengine + fan-out + edge-encoder on both nodes in dependency order and runs grimnir-deploy verify at the end. See docs/runbooks/cold-start-region.md.",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realColdStartRunE,
 	}
 	c.Flags().String("region", "", "region name (required)")
 	c.Flags().Bool("dry-run", false, "print the planned actions; do not mutate the cluster")
