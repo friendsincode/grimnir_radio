@@ -1853,18 +1853,24 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 	result, err := d.smartblockEng.Generate(ctx, req)
 	if err != nil {
 		d.logger.Warn().Err(err).Str("block", block.ID).Msg("smart block generation failed, falling back to random")
-		// Fallback to random selection if engine fails
-		var media models.MediaItem
-		err := d.db.WithContext(ctx).
+		// Fallback to deterministic selection if engine fails. See C2 of
+		// docs/audits/2026-06-06-executor-determinism.md — SQL RANDOM()
+		// returned different rows between two HA control planes serving
+		// the same DB.
+		var candidates []models.MediaItem
+		ferr := d.db.WithContext(ctx).
 			Where("station_id = ?", entry.StationID).
 			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed).
-			Order("RANDOM()").
-			First(&media).Error
-		if err != nil {
-			d.logger.Warn().Str("block", block.ID).Msg("no media found for smart block")
+			Order("id ASC").
+			Find(&candidates).Error
+		if ferr != nil || len(candidates) == 0 {
+			d.logger.Warn().Err(ferr).Str("block", block.ID).Msg("no media found for smart block")
 			d.publishNowPlaying(entry, map[string]any{"smart_block_id": block.ID, "smart_block_name": block.Name, "error": "no matching media"})
 			return fmt.Errorf("smart block %s: generation failed and no fallback media available", block.ID)
 		}
+		media := *deterministicMediaPick(candidates,
+			entry.StationID, entry.ID, entry.StartsAt.Unix(),
+		)
 		if err := d.playMedia(ctx, entry, media, map[string]any{
 			"smart_block_id":   block.ID,
 			"smart_block_name": block.Name,
@@ -2011,13 +2017,15 @@ func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEnt
 		}
 
 		d.logger.Debug().Str("clock", clock.ID).Msg("stopset slot missing payload, falling back to random")
-		var media models.MediaItem
+		// Deterministic selection — see C3 of
+		// docs/audits/2026-06-06-executor-determinism.md.
+		var candidates []models.MediaItem
 		err := d.db.WithContext(ctx).
 			Where("station_id = ?", entry.StationID).
 			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed).
-			Order("RANDOM()").
-			First(&media).Error
-		if err != nil {
+			Order("id ASC").
+			Find(&candidates).Error
+		if err != nil || len(candidates) == 0 {
 			d.publishNowPlaying(entry, map[string]any{
 				"clock_id":   clock.ID,
 				"clock_name": clock.Name,
@@ -2026,6 +2034,9 @@ func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEnt
 			})
 			return nil
 		}
+		media := *deterministicMediaPick(candidates,
+			entry.StationID, entry.ID, entry.StartsAt.Unix(), slot.Position,
+		)
 		return d.playMedia(ctx, entry, media, map[string]any{
 			"clock_id":   clock.ID,
 			"clock_name": clock.Name,
@@ -2033,19 +2044,24 @@ func (d *Director) startClockEntry(ctx context.Context, entry models.ScheduleEnt
 		})
 
 	default:
-		// Unknown slot type - fall back to random
+		// Unknown slot type - fall back to deterministic random.
+		// Same divergence class as C3 (stopset fallback); fixing it here too
+		// for free since it shares the helper.
 		d.logger.Warn().Str("slot_type", string(slot.Type)).Msg("unknown slot type, falling back to random")
-		var media models.MediaItem
+		var candidates []models.MediaItem
 		err := d.db.WithContext(ctx).
 			Where("station_id = ?", entry.StationID).
 			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed).
-			Order("RANDOM()").
-			First(&media).Error
-		if err != nil {
-			d.logger.Warn().Str("clock", clock.ID).Msg("no media found for clock")
+			Order("id ASC").
+			Find(&candidates).Error
+		if err != nil || len(candidates) == 0 {
+			d.logger.Warn().Err(err).Str("clock", clock.ID).Msg("no media found for clock")
 			d.publishNowPlaying(entry, map[string]any{"clock_id": clock.ID, "clock_name": clock.Name, "error": "no matching media"})
 			return nil
 		}
+		media := *deterministicMediaPick(candidates,
+			entry.StationID, entry.ID, entry.StartsAt.Unix(), slot.Position,
+		)
 		return d.playMedia(ctx, entry, media, map[string]any{
 			"clock_id":   clock.ID,
 			"clock_name": clock.Name,
@@ -3576,18 +3592,37 @@ func (d *Director) playQueuedTrack(entry models.ScheduleEntry, state playoutStat
 	})
 }
 
-// playRandomNextTrack plays a random track from the station (fallback behavior)
+// playRandomNextTrack plays a random track from the station (fallback behavior).
+//
+// Selection is deterministic across control-plane instances: the candidate
+// set is ordered by id ASC, then hashed against
+// (stationID, mountID, entry.ID, entry.StartsAt, fillIndex). `fillIndex`
+// is the count of prior random fills emitted under the same active state —
+// taken from playoutState.Position — so consecutive webstream-fill picks
+// don't all pick the same row. See findings C1 of
+// docs/audits/2026-06-06-executor-determinism.md.
 func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName string) {
-	var media models.MediaItem
+	d.mu.Lock()
+	fillIndex := d.active[entry.MountID].Position
+	d.mu.Unlock()
+
+	var candidates []models.MediaItem
 	err := d.db.
 		Where("station_id = ?", entry.StationID).
 		Where("analysis_state != ? AND duration > 0", models.AnalysisFailed).
-		Order("RANDOM()").
-		First(&media).Error
-	if err != nil {
+		Order("id ASC").
+		Find(&candidates).Error
+	if err != nil || len(candidates) == 0 {
+		if err == nil {
+			err = gorm.ErrRecordNotFound
+		}
 		d.logger.Warn().Err(err).Str("station", entry.StationID).Msg("no media found for next track")
 		return
 	}
+	picked := deterministicMediaPick(candidates,
+		entry.StationID, entry.MountID, entry.ID, entry.StartsAt.Unix(), fillIndex,
+	)
+	media := *picked
 
 	var mount models.Mount
 	if err := d.db.First(&mount, "id = ?", entry.MountID).Error; err != nil {
@@ -3623,6 +3658,10 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 		TrackEndsAt: time.Now().Add(media.Duration + trackWatchdogGrace),
 		MountName:   mount.Name,
 		SourceType:  "random_fill",
+		// Position carries the fill counter forward so consecutive
+		// webstream-fill picks (which call back into this method) get a
+		// fresh hash input & don't all pick the same row.
+		Position: fillIndex + 1,
 	}
 	d.mu.Unlock()
 	d.mu.Lock()
