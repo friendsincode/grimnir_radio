@@ -39,7 +39,7 @@ func newVerifyCmd() *cobra.Command {
 		Use:   "verify",
 		Short: "Read-only cluster-wide health probe",
 		Long:  "Probes /healthz on each control plane, gRPC health.Check on each engine and edge encoder, fan-out byte-flow, Postgres replication lag, Redis reachability, VIP holder count, and leader lease state. Exits 0 if everything is healthy, non-zero otherwise. Safe to run anytime; mutates nothing. See docs/runbooks/index.md.",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realVerifyRunE,
 	}
 }
 

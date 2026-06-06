@@ -52,8 +52,7 @@ func TestRegisterCommandsWrapsEveryStub(t *testing.T) {
 	// they get their own audit-wrapper integration coverage in their own
 	// _test.go files.
 	stubs := map[string][]string{
-		"deploy":            {},
-		"verify":            {},
+		// deploy promoted to real RunE in Chunk 6; covered by cmd_deploy_test.go.
 		"drain":             {"--node=self"},
 		"promote-replica":   {},
 		"cold-start-region": {"--region=us-east"},
