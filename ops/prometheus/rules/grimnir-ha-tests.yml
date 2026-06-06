@@ -1,0 +1,105 @@
+# promtool unit tests for ops/prometheus/rules/grimnir-ha.yml.
+# Run with:
+#   promtool test rules ops/prometheus/rules/grimnir-ha-tests.yml
+# or
+#   make prometheus-validate
+rule_files:
+  - grimnir-ha.yml
+
+evaluation_interval: 30s
+
+tests:
+  - name: Postgres replication lag crosses 5s warning
+    interval: 30s
+    input_series:
+      # samples at t=0,30,60,90,120,150,180,210,240,270,300s
+      # ramp 0->4 in first 5 samples, then sit at 6 (over the 5s threshold)
+      - series: 'grimnir_postgres_replication_lag_seconds'
+        values: '0 1 2 3 4 6 6 6 6 6 6'
+    alert_rule_test:
+      - eval_time: 4m30s
+        alertname: PostgresReplicationLagWarn
+        exp_alerts:
+          - exp_labels:
+              severity: notify
+            exp_annotations:
+              summary: "Postgres replication lag > 5s"
+              description: "Lag = 6s for over 2 minutes."
+
+  - name: VRRP split brain (2 holders) pages within 30s
+    interval: 30s
+    input_series:
+      - series: 'grimnir_vrrp_holder_count{vip="listener"}'
+        values: '1 1 1 2 2 2 2'
+    alert_rule_test:
+      - eval_time: 2m30s
+        alertname: VrrpSplitBrain
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              vip: listener
+            exp_annotations:
+              summary: "VRRP split brain on listener (2 holders)"
+              runbook: "https://github.com/friendsincode/grimnir_radio/blob/main/docs/runbooks/index.md#vrrp-split-brain"
+
+  - name: VRRP no holder (0 holders) pages within 30s
+    interval: 30s
+    input_series:
+      - series: 'grimnir_vrrp_holder_count{vip="listener"}'
+        values: '1 1 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m30s
+        alertname: VrrpNoHolder
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              vip: listener
+            exp_annotations:
+              summary: "No VRRP holder for listener"
+
+  - name: Both engines unhealthy pages within 30s
+    interval: 30s
+    input_series:
+      - series: 'grimnir_engine_health{engine="node-1"}'
+        values: '1 1 0 0 0 0'
+      - series: 'grimnir_engine_health{engine="node-2"}'
+        values: '1 1 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m30s
+        alertname: BothEnginesUnhealthy
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "Both engines unhealthy in region"
+
+  - name: DeployFailed fires immediately on counter increment
+    interval: 30s
+    input_series:
+      - series: 'grimnir_deploy_history_failed_total{region="default"}'
+        values: '0 0 0 1 1 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: DeployFailed
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              region: default
+            exp_annotations:
+              summary: "grimnir-deploy reported a failed deploy"
+
+  - name: CacheHitRateLow fires after 30m below 0.5
+    interval: 30s
+    input_series:
+      - series: 'grimnir_cache_hit_rate_ratio'
+        # 65 samples of 0.4 over 32m
+        values: '0.4x65'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: CacheHitRateLow
+        exp_alerts:
+          - exp_labels:
+              severity: notify
+            exp_annotations:
+              summary: "Media cache hit rate < 50% for 30m"
+              description: "Hit rate = 40%."

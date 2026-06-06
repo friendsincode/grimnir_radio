@@ -1,0 +1,125 @@
+# Grimnir Radio HA alerting rules.
+#
+# Severity labels drive Alertmanager routing & the alertmanager-ntfy bridge:
+#   severity=notify             -> Tier1 (audit topic, priority 3)
+#   severity=page               -> Tier2 (page topic, priority 5)
+#   severity=page-and-rollback  -> Tier2 page + grimnir-deploy webhook (Chunk 8)
+#
+# Source of truth: docs/superpowers/plans/2026-06-06-observability-secrets-audit.md
+# §Chunk 7, lines 3400-3700.
+groups:
+  - name: grimnir-ha-tier1-notify
+    interval: 30s
+    rules:
+      - alert: PostgresReplicationLagWarn
+        expr: grimnir_postgres_replication_lag_seconds > 5
+        for: 2m
+        labels:
+          severity: notify
+        annotations:
+          summary: "Postgres replication lag > 5s"
+          description: "Lag = {{ $value }}s for over 2 minutes."
+
+      - alert: PcmInputStarved
+        expr: rate(grimnir_pcm_input_packets_total[1m]) < 1
+        for: 1m
+        labels:
+          severity: notify
+        annotations:
+          summary: "PCM input {{ $labels.engine }}/{{ $labels.source }} not receiving packets"
+          description: "rate(packets) = {{ $value }}/s for 1 minute. Edge encoder will switch internally; this is observational."
+
+      - alert: CacheHitRateLow
+        expr: grimnir_cache_hit_rate_ratio < 0.5
+        for: 30m
+        labels:
+          severity: notify
+        annotations:
+          summary: "Media cache hit rate < 50% for 30m"
+          description: "Hit rate = {{ $value | humanizePercentage }}."
+
+  - name: grimnir-ha-tier2-page
+    interval: 30s
+    rules:
+      - alert: PostgresReplicationLagCritical
+        expr: grimnir_postgres_replication_lag_seconds > 30
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Postgres replication lag > 30s"
+          runbook: "https://github.com/friendsincode/grimnir_radio/blob/main/docs/runbooks/index.md#replication-lag"
+
+      - alert: VrrpSplitBrain
+        expr: grimnir_vrrp_holder_count > 1
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          summary: "VRRP split brain on {{ $labels.vip }} ({{ $value }} holders)"
+          runbook: "https://github.com/friendsincode/grimnir_radio/blob/main/docs/runbooks/index.md#vrrp-split-brain"
+
+      - alert: VrrpNoHolder
+        expr: grimnir_vrrp_holder_count == 0
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          summary: "No VRRP holder for {{ $labels.vip }}"
+
+      - alert: EngineHealthZero
+        expr: grimnir_engine_health == 0
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          summary: "Engine {{ $labels.engine }} unhealthy for 30s"
+
+      - alert: BothEnginesUnhealthy
+        expr: sum(grimnir_engine_health) == 0
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          summary: "Both engines unhealthy in region"
+
+      - alert: RedisUnreachable
+        expr: increase(grimnir_redis_unreachable_seconds[2m]) > 60
+        labels:
+          severity: page
+        annotations:
+          summary: "Redis unreachable for > 60s in last 2m"
+
+      - alert: DeployFailed
+        expr: increase(grimnir_deploy_history_failed_total[5m]) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "grimnir-deploy reported a failed deploy"
+
+  - name: grimnir-ha-tier3-page-and-rollback
+    interval: 15s
+    rules:
+      # The "soak window" is the 5 minutes after a deploy. The deploy emits
+      # a synthetic series grimnir_deploy_soak_active == 1 for that period.
+      # These alerts ONLY fire while soak is active.
+      - alert: ListenerReconnectSpike
+        expr: |
+          (rate(grimnir_listener_reconnect_total[1m]) > 2 * avg_over_time(rate(grimnir_listener_reconnect_total[1m])[1h:1m]))
+          and on() (grimnir_deploy_soak_active == 1)
+        for: 30s
+        labels:
+          severity: page-and-rollback
+        annotations:
+          summary: "Listener reconnect rate spike during deploy soak"
+          description: "Current rate = {{ $value }}/s. Auto-rollback triggered."
+
+      - alert: EdgeEncoderByteFlowZero
+        expr: |
+          (sum by (node) (rate(grimnir_edge_encoder_bytes_total[1m])) == 0)
+          and on() (grimnir_deploy_soak_active == 1)
+        for: 1m
+        labels:
+          severity: page-and-rollback
+        annotations:
+          summary: "Edge encoder byte flow ZERO during soak"
