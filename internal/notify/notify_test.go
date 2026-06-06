@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type capturedRequest struct {
@@ -103,6 +104,7 @@ func TestClient_PageAndRollback_HitsRollbackTopic(t *testing.T) {
 
 func TestClient_NetworkErrorReturned(t *testing.T) {
 	c := NewClient(Config{BaseURL: "http://127.0.0.1:1", Region: "default", PageToken: "tk"})
+	c.backoff = []time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
 	err := c.Page(context.Background(), Message{Body: "x"})
 	if err == nil {
 		t.Error("expected network error")
@@ -118,5 +120,42 @@ func TestClient_Non2xxReturnsError(t *testing.T) {
 	err := c.Page(context.Background(), Message{Body: "x"})
 	if err == nil {
 		t.Error("expected 401 error")
+	}
+}
+
+func TestClient_RetriesOn5xx(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Region: "default", PageToken: "tk"})
+	// Shrink backoff so the test isn't slow.
+	c.backoff = []time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
+	if err := c.Page(context.Background(), Message{Body: "x"}); err != nil {
+		t.Fatalf("expected success after retries: %v", err)
+	}
+	if attempts != 3 {
+		t.Errorf("attempts = %d, want 3", attempts)
+	}
+}
+
+func TestClient_DoesNotRetryOn4xx(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Region: "default", PageToken: "tk"})
+	c.backoff = []time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
+	_ = c.Page(context.Background(), Message{Body: "x"})
+	if attempts != 1 {
+		t.Errorf("attempts = %d, want 1 (no retry on 401)", attempts)
 	}
 }
