@@ -61,11 +61,13 @@ func newEmergencyPauseCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "emergency-pause",
 		Short: "Set the Redis emergency-pause key; subsequent deploys abort with the pause message",
-		Long:  "Sets the grimnir:emergency-pause Redis key. Every grimnir-deploy subcommand that mutates the cluster reads this key first and aborts if set. Use during an incident to prevent any automated or manual deploys from running. Cleared with `grimnir-deploy emergency-resume`. See docs/runbooks/emergency-pause.md.",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		Long:  "Sets the grimnir-deploy:emergency-pause:<region> Redis key. Every grimnir-deploy subcommand that mutates the cluster reads this key first and aborts if set; the grimnirradio scheduler reads the same key before any auto-deploy gate. Use during an incident to prevent any automated or manual deploys from running. Cleared with `grimnir-deploy emergency-resume`. See docs/runbooks/emergency-pause.md.",
+		RunE:  realEmergencyPauseRunE,
 	}
-	c.Flags().String("reason", "", "free-form reason recorded in audit_log.notes (required)")
+	c.Flags().String("reason", "", "free-form reason recorded in audit_log.notes and the Redis payload (required)")
+	c.Flags().String("region", "", "region to pause (defaults to $GRIMNIR_REGION or \"default\")")
 	c.Flags().Bool("dry-run", false, "print the planned actions; do not mutate Redis")
+	c.Flags().Duration("ttl", 0, "TTL on the pause key; 0 means sticky (manual emergency-resume required)")
 	_ = c.MarkFlagRequired("reason")
 	return c
 }
@@ -74,9 +76,10 @@ func newEmergencyResumeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "emergency-resume",
 		Short: "Clear the Redis emergency-pause key; deploys resume per region policy",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realEmergencyResumeRunE,
 	}
 	c.Flags().String("reason", "", "free-form reason recorded in audit_log.notes (required)")
+	c.Flags().String("region", "", "region to resume (defaults to $GRIMNIR_REGION or \"default\")")
 	c.Flags().Bool("dry-run", false, "print the planned actions; do not mutate Redis")
 	_ = c.MarkFlagRequired("reason")
 	return c
