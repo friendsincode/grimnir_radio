@@ -32,6 +32,11 @@ type Config struct {
 	PeerSSHUser      string        // SSH user for peer access; default "<ssh-user>"
 	PeerSSHPort      int           // SSH port for peer access; default 22
 	PeerSSHKey       string        // path to private key for peer SSH
+
+	// RollbackWindow caps how recently the last-successful deploy must have
+	// completed for `deploy --rollback` to proceed without --force-aged-rollback.
+	// Default 30m. Operators set GRIMNIR_DEPLOY_ROLLBACK_WINDOW (e.g. "2h").
+	RollbackWindow time.Duration
 }
 
 // LoadConfig reads the GRIMNIR_DEPLOY_* (and a few legacy GRIMNIR_*) env
@@ -51,6 +56,7 @@ func LoadConfig() (*Config, error) {
 		PeerSSHUser:      firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_USER"), "<ssh-user>"),
 		PeerSSHPort:      parseIntOr(os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_PORT"), 22),
 		PeerSSHKey:       os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_KEY"),
+		RollbackWindow:   parseDurationOr(os.Getenv("GRIMNIR_DEPLOY_ROLLBACK_WINDOW"), 30*time.Minute),
 	}
 	if c.RedisAddr == "" {
 		return nil, ErrMissingRedisAddr

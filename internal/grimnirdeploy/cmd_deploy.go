@@ -250,12 +250,13 @@ func (o *DeployOpts) runMigrations(ctx context.Context, host string) error {
 // runner + DockerCompose helper + the prober, then defers to runDeploy. The
 // audit-wrapping happens inside runDeploy (via the Wrapper).
 //
-// The --rollback path is owned by Chunk 7; until it lands, we surface an
-// explicit "not implemented" rather than silently falling through.
+// The --rollback flag pivots to realRollbackRunE (Chunk 7); the rollback
+// path has its own eligibility window + contract-migration refusal gates
+// before it reuses the per-node rolling sequence.
 func realDeployRunE(cmd *cobra.Command, args []string) error {
 	rb, _ := cmd.Flags().GetBool("rollback")
 	if rb {
-		return fmt.Errorf("--rollback: not yet implemented (Chunk 7)")
+		return realRollbackRunE(cmd, args)
 	}
 	if len(args) != 1 {
 		return fmt.Errorf("usage: grimnir-deploy deploy <tag>")
