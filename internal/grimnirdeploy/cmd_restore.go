@@ -217,7 +217,7 @@ func realRestoreRunE(cmd *cobra.Command, args []string) error {
 	}
 	return runRestore(cmd.Context(), RestoreOpts{
 		From: from, TargetTime: target,
-		Hosts: hosts,
+		Hosts:  hosts,
 		Runner: sshRunner, Compose: compose, Prober: probe.NewProber(),
 		Wrapper: deps.Wrapper, Out: cmd.OutOrStdout(), DryRun: dryRun,
 	})
