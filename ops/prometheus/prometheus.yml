@@ -1,0 +1,55 @@
+# Prometheus scrape config for Grimnir Radio HA.
+# Operator-installable: drop into your Prometheus container alongside
+# ops/prometheus/rules/grimnir-ha.yml.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+  external_labels:
+    region: default
+
+rule_files:
+  - rules/grimnir-ha.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  - job_name: grimnirradio
+    static_configs:
+      - targets:
+          - 'node-1:8080'
+          - 'node-2:8080'
+    metrics_path: /metrics
+
+  - job_name: mediaengine
+    static_configs:
+      - targets:
+          - 'node-1:9090'
+          - 'node-2:9090'
+
+  - job_name: edge-encoder
+    static_configs:
+      - targets:
+          - 'node-1:9095'
+          - 'node-2:9095'
+
+  - job_name: grimnir-fanout
+    static_configs:
+      - targets:
+          - 'node-1:9097'
+          - 'node-2:9097'
+
+  - job_name: grimnir-deploy
+    static_configs:
+      - targets:
+          - 'grimnir-deploy.internal:9100'
+
+  - job_name: node-exporter
+    static_configs:
+      - targets:
+          - 'node-1:9100'
+          - 'node-2:9100'

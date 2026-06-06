@@ -1,0 +1,74 @@
+# Alertmanager routing for Grimnir Radio HA alerts.
+#
+# Three tiers, all routed through the alertmanager-ntfy bridge running as a
+# sidecar on the same host (see cmd/alertmanager-ntfy).
+#
+#   notify             -> Tier1 ntfy (audit topic, priority 3)
+#   page               -> Tier2 ntfy (page topic, priority 5)
+#   page-and-rollback  -> Tier2 ntfy + grimnir-deploy auto-rollback webhook
+#                          (Chunk 8 lands the webhook listener)
+#
+# The bridge handles ntfy auth via its own env (GRIMNIR_NTFY_URL +
+# per-topic tokens), so this file only routes by severity label.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: bridge-default
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = notify
+      receiver: bridge-notify
+      group_wait: 30s
+      repeat_interval: 4h
+
+    - matchers:
+        - severity = page
+      receiver: bridge-page
+      group_wait: 10s
+      repeat_interval: 30m
+
+    - matchers:
+        - severity = page-and-rollback
+      receiver: bridge-page-and-rollback
+      group_wait: 0s
+      repeat_interval: 15m
+      continue: true
+
+receivers:
+  # Default catchall: anything without a matching severity label still pages
+  # via the bridge (defensive default; bridge maps unknown severity to Tier2).
+  - name: bridge-default
+    webhook_configs:
+      - url: 'http://localhost:9098/webhook'
+        send_resolved: true
+
+  - name: bridge-notify
+    webhook_configs:
+      - url: 'http://localhost:9098/webhook'
+        send_resolved: true
+
+  - name: bridge-page
+    webhook_configs:
+      - url: 'http://localhost:9098/webhook'
+        send_resolved: true
+
+  # page-and-rollback fans out to the bridge (for paging) AND directly to the
+  # grimnir-deploy auto-rollback webhook (lands in Chunk 8). Order matters:
+  # ntfy first so the operator hears the page even if the rollback webhook is
+  # down.
+  - name: bridge-page-and-rollback
+    webhook_configs:
+      - url: 'http://localhost:9098/webhook'
+        send_resolved: false
+      - url: 'http://grimnir-deploy.internal:9100/webhook/auto-rollback'
+        send_resolved: false
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/grimnir/deploy-webhook.token
