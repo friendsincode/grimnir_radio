@@ -66,6 +66,18 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	healthB := edgeencoder.NewInputHealth(100 * time.Millisecond)
 	pipeline.AttachHealthProbes(healthA, healthB)
 
+	// Engine-divergence detector (issue #236 phase 1): RTP-header probes
+	// sample seq/timestamp from each branch every 10 packets and a 1s ticker
+	// flags divergence when matched sequences disagree past threshold.
+	// Observation-only for now — does not pin/force-switch on its own.
+	divergence := edgeencoder.NewDivergenceDetector(edgeencoder.DivergenceConfig{})
+	divergence.SetCallback(func(seq uint16, deltaTicks, tsA, tsB uint32) {
+		fmt.Fprintf(stdout, "edge-encoder: divergence detected (seq=%d delta_ticks=%d ts_a=%d ts_b=%d)\n",
+			seq, deltaTicks, tsA, tsB)
+	})
+	pipeline.AttachDivergenceProbes(divergence, 0) // 0 = default sample rate
+	go divergence.Run(ctx)
+
 	// Start the pipeline (async transition to PLAYING).
 	if err := pipeline.Start(); err != nil {
 		fmt.Fprintf(stderr, "edge-encoder: pipeline start failed: %v\n", err)
@@ -140,12 +152,13 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	// Live status provider for the gRPC service.
 	startTime := time.Now()
 	statusProvider := &liveStatus{
-		pipeline:  pipeline,
-		a:         healthA,
-		b:         healthB,
-		switcher:  switcher,
-		mount:     mount,
-		startTime: startTime,
+		pipeline:   pipeline,
+		a:          healthA,
+		b:          healthB,
+		switcher:   switcher,
+		mount:      mount,
+		divergence: divergence,
+		startTime:  startTime,
 	}
 
 	// gRPC server
@@ -180,11 +193,12 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 }
 
 type liveStatus struct {
-	pipeline  *edgeencoder.Pipeline
-	a, b      *edgeencoder.InputHealth
-	switcher  *edgeencoder.Switcher
-	mount     *broadcast.Mount
-	startTime time.Time
+	pipeline   *edgeencoder.Pipeline
+	a, b       *edgeencoder.InputHealth
+	switcher   *edgeencoder.Switcher
+	mount      *broadcast.Mount
+	divergence *edgeencoder.DivergenceDetector
+	startTime  time.Time
 }
 
 func (s *liveStatus) Status() edgeencoder.Status {
@@ -192,13 +206,29 @@ func (s *liveStatus) Status() edgeencoder.Status {
 	if s.mount != nil {
 		listeners = int64(s.mount.ClientCount())
 	}
+	// LastDivergenceSecondsAgo is -1 when no event has been observed yet,
+	// otherwise seconds since the last event (so listeners can render
+	// "12s ago" / "never" without ambiguous-zero semantics).
+	var lastDivAgo int64 = -1
+	var divDetected bool
+	var divCount int64
+	if s.divergence != nil {
+		divDetected = s.divergence.IsDiverging()
+		divCount = s.divergence.Count()
+		if last := s.divergence.LastDivergenceAt(); !last.IsZero() {
+			lastDivAgo = int64(time.Since(last).Seconds())
+		}
+	}
 	return edgeencoder.Status{
-		Version:       Version,
-		UptimeSeconds: int64(time.Since(s.startTime).Seconds()),
-		ActiveInput:   s.pipeline.ActiveInput(),
-		InputAHealthy: s.a.IsHealthy(),
-		InputBHealthy: s.b.IsHealthy(),
-		SwitchCount:   s.switcher.SwitchCount(),
-		ListenerCount: listeners,
+		Version:                  Version,
+		UptimeSeconds:            int64(time.Since(s.startTime).Seconds()),
+		ActiveInput:              s.pipeline.ActiveInput(),
+		InputAHealthy:            s.a.IsHealthy(),
+		InputBHealthy:            s.b.IsHealthy(),
+		SwitchCount:              s.switcher.SwitchCount(),
+		ListenerCount:            listeners,
+		DivergenceDetected:       divDetected,
+		DivergenceCount:          divCount,
+		LastDivergenceSecondsAgo: lastDivAgo,
 	}
 }
