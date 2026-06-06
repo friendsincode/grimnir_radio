@@ -23,6 +23,7 @@ func TestRun_StartsAndStopsCleanly(t *testing.T) {
 	t.Setenv("FANOUT_GRPC_PORT", "0") // ephemeral
 	t.Setenv("FANOUT_HTTP_PORT", "0")
 	t.Setenv("FANOUT_METRICS_PORT", "0")
+	t.Setenv("FANOUT_HARBOR_PORT", fmt.Sprintf("%d", pickPort(t)))
 
 	var stdout, stderr bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -57,6 +58,7 @@ func TestRun_HealthzEndpoint(t *testing.T) {
 	t.Setenv("FANOUT_GRPC_PORT", "0")
 	t.Setenv("FANOUT_METRICS_PORT", "0")
 	t.Setenv("FANOUT_HTTP_PORT", fmt.Sprintf("%d", port))
+	t.Setenv("FANOUT_HARBOR_PORT", fmt.Sprintf("%d", pickPort(t)))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -101,6 +103,7 @@ func TestRun_MetricsEndpoint(t *testing.T) {
 	t.Setenv("FANOUT_GRPC_PORT", "0")
 	t.Setenv("FANOUT_HTTP_PORT", "0")
 	t.Setenv("FANOUT_METRICS_PORT", fmt.Sprintf("%d", port))
+	t.Setenv("FANOUT_HARBOR_PORT", fmt.Sprintf("%d", pickPort(t)))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

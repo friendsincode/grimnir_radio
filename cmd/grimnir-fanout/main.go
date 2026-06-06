@@ -63,6 +63,57 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 		func() time.Duration { return time.Since(startTime) },
 	)
 
+	// Engine targets for every per-session multiudpsink fanout.
+	engines := []string{cfg.EngineARTP}
+	if cfg.EngineBRTP != "" {
+		engines = append(engines, cfg.EngineBRTP)
+	}
+
+	// Harbor (Icecast SOURCE/PUT) TCP listener — Chunk 3 wire line.
+	harborLis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.HarborPort))
+	if err != nil {
+		fmt.Fprintf(stderr, "grimnir-fanout: harbor listen: %v\n", err)
+		return 2
+	}
+	harbor := grimnirfanout.NewHarborListener(grimnirfanout.HarborListenerConfig{
+		Listener: harborLis,
+		Auth:     grimnirfanout.AcceptAllAuthenticator{}, // Chunk 7 replaces with real auth
+		Sink:     grimnirfanout.NewPipelineHarborSink(engines),
+		Sessions: sessionMgr,
+	})
+	harborCtx, harborCancel := context.WithCancel(ctx)
+	defer harborCancel()
+	go func() { _ = harbor.Serve(harborCtx) }()
+
+	// SRT (Secure Reliable Transport) ingress — Chunk 5 wire line.
+	srtLis, err := grimnirfanout.NewSRTListener(grimnirfanout.SRTListenerConfig{
+		BindAddr: cfg.BindAddr,
+		Port:     cfg.SRTPort,
+		Engines:  engines,
+		Sessions: sessionMgr,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "grimnir-fanout: srt listener: %v\n", err)
+		return 2
+	}
+	srtCtx, srtCancel := context.WithCancel(ctx)
+	defer srtCancel()
+	go func() { _ = srtLis.Serve(srtCtx) }()
+
+	// WebRTC (browser WebDJ) signaling + ingest — Chunk 6 wire line.
+	webrtcIng, err := grimnirfanout.NewWebRTCIngress(grimnirfanout.WebRTCIngressConfig{
+		BindAddr:   cfg.BindAddr,
+		Port:       cfg.WebRTCHTTPPort,
+		Engines:    engines,
+		SessionMgr: sessionMgr,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "grimnir-fanout: webrtc ingress: %v\n", err)
+		return 2
+	}
+	go func() { _ = webrtcIng.ListenAndServe() }()
+	defer func() { _ = webrtcIng.Shutdown(context.Background()) }()
+
 	// gRPC server (control-plane queries; engine health, session list).
 	grpcLis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.GRPCPort))
 	if err != nil {
