@@ -115,7 +115,7 @@ func newRestoreCmd() *cobra.Command {
 		Use:   "restore",
 		Short: "Restore Postgres from a pgbackrest backup",
 		Long:  "pgbackrest restore wrapper. Stops grimnir + mediaengine on both nodes, restores the named backup (latest if not specified), optionally replays WAL to --target-time, restarts services, verifies via grimnir-deploy verify. See docs/runbooks/restore.md.",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realRestoreRunE,
 	}
 	c.Flags().String("from", "", "backup id, or 'latest' (required)")
 	c.Flags().String("target-time", "", "WAL replay target, RFC3339 timestamp (optional; replays to end of WAL if omitted)")
