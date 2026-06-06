@@ -22,7 +22,7 @@ func newDeployCmd() *cobra.Command {
 		Short: "Roll out a new image tag across both HA nodes",
 		Long:  "Pre-flight gates (emergency-pause, deploy policy, tag-suffix conventions, image-exists, both-nodes-healthy), then a per-node drain, migrate, start, wait-health, restore-VRRP, soak loop. See docs/runbooks/deploy.md.",
 		Args:  cobra.MaximumNArgs(1),
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realDeployRunE,
 	}
 	c.Flags().Bool("rollback", false, "roll back to the previous successful tag from deploy_history")
 	c.Flags().Bool("dry-run", false, "print the planned actions; do not mutate the cluster")

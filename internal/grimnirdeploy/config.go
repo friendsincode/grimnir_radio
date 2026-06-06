@@ -9,6 +9,8 @@ package grimnirdeploy
 import (
 	"errors"
 	"os"
+	"strconv"
+	"time"
 )
 
 // Config is the minimal set of cluster connection settings the early-chunk
@@ -21,6 +23,15 @@ type Config struct {
 	DBDSN         string // optional; emergency-pause / -resume only require Redis
 	Region        string // GRIMNIR_REGION; defaults to "default"
 	Operator      string // explicit operator override; defaults to $USER
+
+	// Deploy-orchestration fields (Chunk 6+).
+	DeployPolicy     string        // "auto" | "window" | "manual"; default "auto"
+	DeployWindowCron string        // 5-field cron expr; only consulted when DeployPolicy=="window"
+	SoakWindow       time.Duration // post-roll soak; default 5m
+	PeerHost         string        // hostname of the other HA node
+	PeerSSHUser      string        // SSH user for peer access; default "<ssh-user>"
+	PeerSSHPort      int           // SSH port for peer access; default 22
+	PeerSSHKey       string        // path to private key for peer SSH
 }
 
 // LoadConfig reads the GRIMNIR_DEPLOY_* (and a few legacy GRIMNIR_*) env
@@ -28,16 +39,45 @@ type Config struct {
 // configured; that is the only hard requirement for the Chunk 2 commands.
 func LoadConfig() (*Config, error) {
 	c := &Config{
-		RedisAddr:     firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_REDIS_ADDR"), os.Getenv("GRIMNIR_REDIS_ADDR")),
-		RedisPassword: firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_REDIS_PASSWORD"), os.Getenv("GRIMNIR_REDIS_PASSWORD"), os.Getenv("REDIS_PW")),
-		DBDSN:         firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_DB_DSN"), os.Getenv("GRIMNIR_DB_DSN")),
-		Region:        firstNonEmpty(os.Getenv("GRIMNIR_REGION"), "default"),
-		Operator:      firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_OPERATOR"), os.Getenv("USER"), "unknown"),
+		RedisAddr:        firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_REDIS_ADDR"), os.Getenv("GRIMNIR_REDIS_ADDR")),
+		RedisPassword:    firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_REDIS_PASSWORD"), os.Getenv("GRIMNIR_REDIS_PASSWORD"), os.Getenv("REDIS_PW")),
+		DBDSN:            firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_DB_DSN"), os.Getenv("GRIMNIR_DB_DSN")),
+		Region:           firstNonEmpty(os.Getenv("GRIMNIR_REGION"), "default"),
+		Operator:         firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_OPERATOR"), os.Getenv("USER"), "unknown"),
+		DeployPolicy:     firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_POLICY"), "auto"),
+		DeployWindowCron: os.Getenv("GRIMNIR_DEPLOY_WINDOW_CRON"),
+		SoakWindow:       parseDurationOr(os.Getenv("GRIMNIR_DEPLOY_SOAK_WINDOW"), 5*time.Minute),
+		PeerHost:         os.Getenv("GRIMNIR_DEPLOY_PEER_HOST"),
+		PeerSSHUser:      firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_USER"), "<ssh-user>"),
+		PeerSSHPort:      parseIntOr(os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_PORT"), 22),
+		PeerSSHKey:       os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_KEY"),
 	}
 	if c.RedisAddr == "" {
 		return nil, ErrMissingRedisAddr
 	}
 	return c, nil
+}
+
+func parseDurationOr(s string, d time.Duration) time.Duration {
+	if s == "" {
+		return d
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return d
+	}
+	return v
+}
+
+func parseIntOr(s string, d int) int {
+	if s == "" {
+		return d
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return d
+	}
+	return v
 }
 
 // ErrMissingRedisAddr is returned when LoadConfig cannot find a Redis address.
