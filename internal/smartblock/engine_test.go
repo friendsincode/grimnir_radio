@@ -933,3 +933,145 @@ func TestGenerate_ShorterTracksUsedWhenLongTrackWontFit(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerate_DeterministicAcrossInstances covers C4/C5/C6 of the executor
+// determinism audit. Two engines pointed at the same DB & smart block, given
+// the same Now, must produce identical sequences. Bumping Now past an
+// added_date cutoff must change the candidate set (proving the field is wired
+// through, not silently ignored).
+func TestGenerate_DeterministicAcrossInstances(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-det"
+
+	// Anchor instant for the test. Both control planes will use this; the
+	// "drift" scenario uses anchor + 25 days so the added_date cutoff sweeps
+	// past the boundary track.
+	anchor := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	drifted := anchor.Add(25 * 24 * time.Hour)
+
+	// Four candidates against a 30-day cutoff:
+	//   fresh-1, fresh-2 — created 5 days before anchor (pass at both Nows)
+	//   edge-1           — created 20 days before anchor (passes at anchor, fails at drifted)
+	//   stale-1          — created 90 days before anchor (always fails)
+	items := []models.MediaItem{
+		{ID: "fresh-1", StationID: stationID, Title: "Fresh One", Artist: "A1", Duration: 2 * time.Minute, AnalysisState: models.AnalysisComplete, CreatedAt: anchor.Add(-5 * 24 * time.Hour)},
+		{ID: "fresh-2", StationID: stationID, Title: "Fresh Two", Artist: "A2", Duration: 2 * time.Minute, AnalysisState: models.AnalysisComplete, CreatedAt: anchor.Add(-5 * 24 * time.Hour)},
+		{ID: "edge-1", StationID: stationID, Title: "Edge", Artist: "A3", Duration: 2 * time.Minute, AnalysisState: models.AnalysisComplete, CreatedAt: anchor.Add(-20 * 24 * time.Hour)},
+		{ID: "stale-1", StationID: stationID, Title: "Stale", Artist: "A4", Duration: 2 * time.Minute, AnalysisState: models.AnalysisComplete, CreatedAt: anchor.Add(-90 * 24 * time.Hour)},
+	}
+	if err := db.Create(&items).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+	// GORM stamps CreatedAt on insert; override with raw SQL so the
+	// straddle scenario actually triggers.
+	for _, it := range items {
+		if err := db.Exec("UPDATE media_items SET created_at = ? WHERE id = ?", it.CreatedAt, it.ID).Error; err != nil {
+			t.Fatalf("backdate %s: %v", it.ID, err)
+		}
+	}
+
+	sb := models.SmartBlock{
+		ID:        "sb-det",
+		StationID: stationID,
+		Name:      "Determinism",
+		Rules: map[string]any{
+			"targetMinutes":    6,
+			"durationAccuracy": 2,
+			"include": []map[string]any{
+				{
+					"field": "added_date",
+					"value": map[string]any{
+						"newerThan":     float64(30),
+						"newerThanUnit": "days",
+					},
+				},
+			},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smartblock: %v", err)
+	}
+
+	gen := func(eng *Engine, now time.Time) []string {
+		t.Helper()
+		res, err := eng.Generate(context.Background(), GenerateRequest{
+			SmartBlockID: sb.ID,
+			Seed:         42,
+			Duration:     int64(6 * time.Minute / time.Millisecond),
+			StationID:    stationID,
+			MountID:      "mount-1",
+			Now:          now,
+		})
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		ids := make([]string, len(res.Items))
+		for i, item := range res.Items {
+			ids[i] = item.MediaID
+		}
+		return ids
+	}
+
+	engA := New(db, zerolog.Nop())
+	engB := New(db, zerolog.Nop())
+
+	// Same Now on two distinct engines → identical sequences.
+	seqA := gen(engA, anchor)
+	seqB := gen(engB, anchor)
+	if len(seqA) == 0 {
+		t.Fatalf("expected non-empty sequence at anchor; got empty")
+	}
+	if !sameOrder(seqA, seqB) {
+		t.Fatalf("instance divergence with same Now: A=%v B=%v", seqA, seqB)
+	}
+
+	// edge-1 should appear at the anchor (created 20 days ago, cutoff is 30).
+	if !containsID(seqA, "edge-1") {
+		t.Fatalf("expected edge-1 in anchor sequence; got %v", seqA)
+	}
+	// stale-1 must never appear at either Now (90 days old, cutoff 30).
+	if containsID(seqA, "stale-1") {
+		t.Fatalf("stale-1 should not pass newerThan=30d at anchor; got %v", seqA)
+	}
+
+	// Drift Now by 25 days: cutoff = drifted - 30d = anchor - 5d, so edge-1
+	// (created anchor - 20d) is now 45 days old → excluded. fresh-1/fresh-2
+	// (created anchor - 5d) sit exactly on the boundary and still pass.
+	seqDrift := gen(engA, drifted)
+	if containsID(seqDrift, "edge-1") {
+		t.Fatalf("edge-1 should be excluded once Now drifts past its cutoff; got %v", seqDrift)
+	}
+	if sameOrder(seqA, seqDrift) {
+		t.Fatalf("expected different sequence after Now drift; anchor=%v drift=%v", seqA, seqDrift)
+	}
+}
+
+func sameOrder(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsID(seq []string, id string) bool {
+	for _, s := range seq {
+		if s == id {
+			return true
+		}
+	}
+	return false
+}

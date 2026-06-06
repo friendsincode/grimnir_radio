@@ -796,6 +796,10 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		StationID:    stationID,
 		MountID:      mountID,
 		LoopToFill:   loopToFill,
+		// Anchor cutoffs to the plan's scheduled start. Two leaders racing
+		// to materialize the same slot pick up the same separation /
+		// added_date boundaries (#238 C4/C5/C6).
+		Now: plan.StartsAt,
 	})
 
 	// Record smart block materialization duration

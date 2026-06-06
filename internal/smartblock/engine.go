@@ -45,6 +45,22 @@ type GenerateRequest struct {
 	StationID    string
 	MountID      string
 	LoopToFill   bool // repeat tracks to reach target duration when candidates are exhausted
+
+	// Now is the wall-clock reference used for separation cutoffs and
+	// added_date filters. Two control planes serving the same schedule
+	// must pass the same value (typically entry.StartsAt) to produce the
+	// same generated sequence. Zero value defaults to time.Now() for
+	// backwards compatibility with single-instance callers.
+	Now time.Time
+}
+
+// now returns the request-scoped wall clock, defaulting to time.Now() when
+// the caller hasn't supplied a deterministic anchor.
+func (r GenerateRequest) now() time.Time {
+	if r.Now.IsZero() {
+		return time.Now()
+	}
+	return r.Now
 }
 
 // SequenceItem is a planned track with cue data.
@@ -103,12 +119,14 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 	for level := 0; level <= 3; level++ {
 		relaxed := relaxDefinition(def, level)
 
-		recent, err := e.recentPlays(ctx, req.StationID, relaxed.Separation.SeparationDurations())
+		now := req.now()
+
+		recent, err := e.recentPlaysAt(ctx, req.StationID, relaxed.Separation.SeparationDurations(), now)
 		if err != nil {
 			return GenerateResult{}, err
 		}
 
-		candidates, err := e.fetchCandidates(ctx, relaxed, req.StationID, recent)
+		candidates, err := e.fetchCandidatesAt(ctx, relaxed, req.StationID, recent, now)
 		if err != nil {
 			return GenerateResult{}, err
 		}
@@ -651,6 +669,13 @@ func interleaveInterstitials(result *GenerateResult, interstitials []models.Medi
 }
 
 func (e *Engine) recentPlays(ctx context.Context, stationID string, windows map[string]time.Duration) ([]models.PlayHistory, error) {
+	return e.recentPlaysAt(ctx, stationID, windows, time.Now())
+}
+
+// recentPlaysAt is the deterministic variant used by Generate; the separation
+// cutoff is computed from `now` rather than the wall clock so two control
+// planes evaluating the same entry agree on which rows straddle the boundary.
+func (e *Engine) recentPlaysAt(ctx context.Context, stationID string, windows map[string]time.Duration, now time.Time) ([]models.PlayHistory, error) {
 	maxWindow := time.Duration(0)
 	for _, win := range windows {
 		if win > maxWindow {
@@ -665,7 +690,7 @@ func (e *Engine) recentPlays(ctx context.Context, stationID string, windows map[
 	// When separation windows are configured, keep time-bounded history.
 	// Otherwise, still fetch a small recent slice to prevent immediate repeats.
 	if maxWindow > 0 {
-		cutoff := time.Now().Add(-maxWindow)
+		cutoff := now.Add(-maxWindow)
 		query = query.Where("started_at >= ?", cutoff)
 	} else {
 		query = query.Limit(25)
@@ -684,6 +709,13 @@ type candidate struct {
 }
 
 func (e *Engine) fetchCandidates(ctx context.Context, def Definition, stationID string, recent []models.PlayHistory) ([]candidate, error) {
+	return e.fetchCandidatesAt(ctx, def, stationID, recent, time.Now())
+}
+
+// fetchCandidatesAt is the deterministic variant used by Generate. Both the
+// SQL added_date filter and the in-memory separation check use the supplied
+// `now` instead of wall-clock time.
+func (e *Engine) fetchCandidatesAt(ctx context.Context, def Definition, stationID string, recent []models.PlayHistory, now time.Time) ([]candidate, error) {
 	// Accept tracks that are not failed — pending/complete/blank are all playable.
 	// Duration > 0 ensures we only pick tracks with known length for scheduling.
 	analysisFilter := "analysis_state != ? AND duration > 0"
@@ -697,10 +729,10 @@ func (e *Engine) fetchCandidates(ctx context.Context, def Definition, stationID 
 
 	// Apply include filters via SQL when possible
 	for _, rule := range def.Include {
-		query = applyFilterRule(query, rule, true)
+		query = applyFilterRuleAt(query, rule, true, now)
 	}
 	for _, rule := range def.Exclude {
-		query = applyFilterRule(query, rule, false)
+		query = applyFilterRuleAt(query, rule, false, now)
 	}
 
 	var items []models.MediaItem
@@ -716,10 +748,10 @@ func (e *Engine) fetchCandidates(ctx context.Context, def Definition, stationID 
 	avoidedRecent := make([]candidate, 0, 1)
 	for _, item := range items {
 		// Keep items that satisfy include rules AND pass exclude rules.
-		if !matchesFilters(item, def.Include, true) || !matchesFilters(item, def.Exclude, false) {
+		if !matchesFiltersAt(item, def.Include, true, now) || !matchesFiltersAt(item, def.Exclude, false, now) {
 			continue
 		}
-		if violatesSeparation(item, recentCache, windows) {
+		if violatesSeparationAt(item, recentCache, windows, now) {
 			continue
 		}
 
@@ -754,6 +786,12 @@ func mostRecentMediaID(plays []models.PlayHistory) string {
 }
 
 func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
+	return applyFilterRuleAt(query, rule, positive, time.Now())
+}
+
+// applyFilterRuleAt is the deterministic variant; added_date cutoffs are
+// computed from `now` rather than the wall clock.
+func applyFilterRuleAt(query *gorm.DB, rule FilterRule, positive bool, now time.Time) *gorm.DB {
 	field := strings.ToLower(rule.Field)
 	value := rule.Value
 
@@ -826,7 +864,6 @@ func applyFilterRule(query *gorm.DB, rule FilterRule, positive bool) *gorm.DB {
 		return query
 	case "added_date":
 		if m, ok := value.(map[string]any); ok {
-			now := time.Now()
 			if newerThan := anyToInt(m["newerThan"]); newerThan > 0 {
 				unit, _ := m["newerThanUnit"].(string)
 				cutoff := subtractDur(now, newerThan, unit)
@@ -1227,7 +1264,13 @@ func insertRecent(cache map[string]map[string]time.Time, key, value string, ts t
 }
 
 func violatesSeparation(item models.MediaItem, recent map[string]map[string]time.Time, windows map[string]time.Duration) bool {
-	now := time.Now()
+	return violatesSeparationAt(item, recent, windows, time.Now())
+}
+
+// violatesSeparationAt is the deterministic variant; the age comparison uses
+// `now` rather than the wall clock so two control planes agree on whether a
+// cached timestamp sits inside the separation window.
+func violatesSeparationAt(item models.MediaItem, recent map[string]map[string]time.Time, windows map[string]time.Duration, now time.Time) bool {
 	if dur := windows["artist"]; dur > 0 {
 		if ts := lookupRecent(recent, "artist", item.Artist); !ts.IsZero() && now.Sub(ts) < dur {
 			return true
@@ -1328,8 +1371,13 @@ func toString(value interface{}) string {
 }
 
 func matchesFilters(item models.MediaItem, rules []FilterRule, positive bool) bool {
+	return matchesFiltersAt(item, rules, positive, time.Now())
+}
+
+// matchesFiltersAt is the deterministic variant used by Generate.
+func matchesFiltersAt(item models.MediaItem, rules []FilterRule, positive bool, now time.Time) bool {
 	for _, rule := range rules {
-		if !evaluateFilter(item, rule, positive) {
+		if !evaluateFilterAt(item, rule, positive, now) {
 			return false
 		}
 	}
@@ -1337,6 +1385,11 @@ func matchesFilters(item models.MediaItem, rules []FilterRule, positive bool) bo
 }
 
 func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool {
+	return evaluateFilterAt(item, rule, positive, time.Now())
+}
+
+// evaluateFilterAt is the deterministic variant; added_date cutoffs use `now`.
+func evaluateFilterAt(item models.MediaItem, rule FilterRule, positive bool, now time.Time) bool {
 	// SQL-only filter (handled by applyFilterRule). Skip in-memory evaluation so it doesn't
 	// accidentally exclude everything when used as an exclude rule.
 	switch strings.ToLower(rule.Field) {
@@ -1391,7 +1444,6 @@ func evaluateFilter(item models.MediaItem, rule FilterRule, positive bool) bool 
 	case "added_date":
 		match = true
 		if m, ok := rule.Value.(map[string]any); ok {
-			now := time.Now()
 			if newerThan := anyToInt(m["newerThan"]); newerThan > 0 {
 				unit, _ := m["newerThanUnit"].(string)
 				cutoff := subtractDur(now, newerThan, unit)

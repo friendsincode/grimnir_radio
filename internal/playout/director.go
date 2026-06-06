@@ -1848,6 +1848,10 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 		Duration:     duration.Milliseconds(),
 		StationID:    entry.StationID,
 		MountID:      entry.MountID,
+		// Anchor cutoffs to the entry's scheduled start so two control
+		// planes generating the same entry agree on which rows straddle
+		// separation/added_date boundaries (#238 C4/C5/C6).
+		Now: entry.StartsAt,
 	}
 
 	result, err := d.smartblockEng.Generate(ctx, req)
@@ -2104,6 +2108,10 @@ func (d *Director) startSmartBlockByID(ctx context.Context, entry models.Schedul
 		Duration:     duration.Milliseconds(),
 		StationID:    entry.StationID,
 		MountID:      entry.MountID,
+		// Anchor cutoffs to the entry's scheduled start so two control
+		// planes serving the same clock slot agree on candidate sets
+		// (#238 C4/C5/C6).
+		Now: entry.StartsAt,
 	}
 
 	result, err := d.smartblockEng.Generate(ctx, req)
