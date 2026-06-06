@@ -1047,6 +1047,61 @@ func (d *Director) clearPersistedMountState(ctx context.Context, mountID string)
 	}
 }
 
+// loadSmartBlockGeneration reads the persisted regeneration counter for a
+// smart block occurrence. Returns 0 if no row exists. Also seeds the
+// in-memory cache so subsequent reads in the same process avoid the DB.
+//
+// Lockstep: the counter is persisted (#238 C9) so two control planes serving
+// the same schedule agree on which shuffle cycle to seed, even after one of
+// them restarts mid-occurrence.
+func (d *Director) loadSmartBlockGeneration(ctx context.Context, entryID string, startsAt time.Time, playKey string) int {
+	d.mu.Lock()
+	if gen, ok := d.sbGeneration[playKey]; ok {
+		d.mu.Unlock()
+		return gen
+	}
+	d.mu.Unlock()
+
+	var row models.SmartBlockGeneration
+	err := d.db.WithContext(ctx).
+		Where("entry_id = ? AND occurrence_start = ?", entryID, startsAt.UTC()).
+		First(&row).Error
+	if err != nil {
+		// Not found is the common case for a first-cycle entry; treat any
+		// error as "no row" rather than failing the entry.
+		return 0
+	}
+	d.mu.Lock()
+	d.sbGeneration[playKey] = row.Generation
+	d.mu.Unlock()
+	return row.Generation
+}
+
+// bumpSmartBlockGeneration increments the regeneration counter for a smart
+// block occurrence in memory and writes the new value to DB. Called when a
+// smart block sequence is exhausted in handleTrackEnded.
+func (d *Director) bumpSmartBlockGeneration(ctx context.Context, entryID string, startsAt time.Time, playKey string) {
+	d.mu.Lock()
+	d.sbGeneration[playKey]++
+	gen := d.sbGeneration[playKey]
+	d.mu.Unlock()
+
+	row := models.SmartBlockGeneration{
+		EntryID:         entryID,
+		OccurrenceStart: startsAt.UTC(),
+		Generation:      gen,
+		UpdatedAt:       time.Now().UTC(),
+	}
+	if err := d.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "entry_id"}, {Name: "occurrence_start"}},
+			DoUpdates: clause.AssignmentColumns([]string{"generation", "updated_at"}),
+		}).
+		Create(&row).Error; err != nil {
+		d.logger.Debug().Err(err).Str("entry_id", entryID).Msg("failed to persist smart block generation")
+	}
+}
+
 func (d *Director) resumeEntryIfPossible(ctx context.Context, entry models.ScheduleEntry) bool {
 	// Only resume for sources that are non-deterministic without state.
 	switch entry.SourceType {
@@ -1839,9 +1894,10 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 	// produces a different shuffle order rather than replaying the same sequence.
 	duration := entry.EndsAt.Sub(entry.StartsAt)
 	playKey := playbackKey(entry.ID, entry.StartsAt)
-	d.mu.Lock()
-	gen := d.sbGeneration[playKey]
-	d.mu.Unlock()
+	// Read from DB so the seed matches across instances even after one of
+	// them restarted mid-occurrence (#238 C9). loadSmartBlockGeneration
+	// memoises the value in d.sbGeneration after the first read.
+	gen := d.loadSmartBlockGeneration(ctx, entry.ID, entry.StartsAt, playKey)
 	req := smartblock.GenerateRequest{
 		SmartBlockID: block.ID,
 		Seed:         deterministicSmartBlockSeed(entry, block.ID, gen),
@@ -3165,12 +3221,14 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 			// Clear active and played state so the next tick picks this entry up fresh.
 			// Increment sbGeneration so the next cycle uses a different shuffle seed,
 			// preventing the same track order from repeating on every exhaustion.
+			// The counter is persisted (#238 C9) so two control planes stay in
+			// sync across director restarts.
 			playKey := playbackKey(entry.ID, entry.StartsAt)
 			d.mu.Lock()
 			delete(d.active, entry.MountID)
 			delete(d.played, playKey)
-			d.sbGeneration[playKey]++
 			d.mu.Unlock()
+			d.bumpSmartBlockGeneration(context.Background(), entry.ID, entry.StartsAt, playKey)
 			// Remove the exhausted persisted state so we don't resume from an invalid position.
 			_ = d.db.Where("mount_id = ?", entry.MountID).Delete(&models.MountPlayoutState{}).Error
 			return

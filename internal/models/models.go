@@ -776,6 +776,25 @@ type MountPlayoutState struct {
 	TrackPositionAt time.Time `gorm:"index"`
 }
 
+// SmartBlockGeneration persists the regeneration counter for a smart block
+// occurrence so two control planes serving the same schedule stay in lockstep
+// across director restarts. Incremented when a smart block sequence is
+// exhausted in handleTrackEnded; read on every startSmartBlockEntry to seed
+// the shuffle (#238 C9).
+//
+// The (entry_id, occurrence_start) pair matches the in-memory playKey used by
+// Director.sbGeneration; the same recurring entry generates a fresh counter
+// for each occurrence.
+type SmartBlockGeneration struct {
+	EntryID         string    `gorm:"type:varchar(64);primaryKey;column:entry_id"`
+	OccurrenceStart time.Time `gorm:"primaryKey;column:occurrence_start"`
+	Generation      int       `gorm:"not null;default:0"`
+	UpdatedAt       time.Time `gorm:"index"`
+}
+
+// TableName pins the table name so GORM doesn't pluralize to a stutter.
+func (SmartBlockGeneration) TableName() string { return "smart_block_generations" }
+
 // Playlist represents a static playlist of media items.
 type Playlist struct {
 	ID             string         `gorm:"type:uuid;primaryKey"`

@@ -44,6 +44,7 @@ func Migrate(database *gorm.DB) error {
 		&models.ScheduleEntry{},
 		&models.PlayHistory{},
 		&models.MountPlayoutState{},
+		&models.SmartBlockGeneration{},
 		&models.PlayoutQueueItem{},
 		&models.AnalysisJob{},
 		&models.PrioritySource{},

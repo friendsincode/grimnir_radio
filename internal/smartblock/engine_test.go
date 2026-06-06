@@ -9,6 +9,7 @@ package smartblock
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -1074,4 +1075,210 @@ func containsID(seq []string, id string) bool {
 		}
 	}
 	return false
+}
+
+// TestTailFillBumpers_DeterministicAcrossInstances guards #238 C7: the bumper
+// rng seed must derive from req.Seed, not from time.Now(). Two engines on
+// separate processes calling Generate with the same request produce the same
+// bumper sequence even when several bumpers share the best-fit duration and
+// the rng's between-iteration shuffle is the only thing distinguishing ties.
+func TestTailFillBumpers_DeterministicAcrossInstances(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-tailfill-det"
+
+	// Main content: one short main track so the bumper tail-fill dominates.
+	main := models.MediaItem{ID: "main-1", StationID: stationID, Title: "Main", Artist: "Main Artist", Duration: 1 * time.Minute, AnalysisState: models.AnalysisComplete}
+
+	// Six bumpers, all the same duration. Identical duration means every
+	// pick after the first is a tie on the longest-fitting heuristic; the
+	// rng-driven shuffle is the only thing breaking ties.
+	bumpers := []models.MediaItem{
+		{ID: "b1", StationID: stationID, Title: "B1", Artist: "VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+		{ID: "b2", StationID: stationID, Title: "B2", Artist: "VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+		{ID: "b3", StationID: stationID, Title: "B3", Artist: "VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+		{ID: "b4", StationID: stationID, Title: "B4", Artist: "VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+		{ID: "b5", StationID: stationID, Title: "B5", Artist: "VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+		{ID: "b6", StationID: stationID, Title: "B6", Artist: "VO", Duration: 30 * time.Second, AnalysisState: models.AnalysisComplete},
+	}
+	all := append([]models.MediaItem{main}, bumpers...)
+	if err := db.Create(&all).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	mainPL := models.Playlist{ID: "pl-main-tf", StationID: stationID, Name: "Main"}
+	bumperPL := models.Playlist{ID: "pl-bumpers-tf", StationID: stationID, Name: "Bumpers"}
+	if err := db.Create(&[]models.Playlist{mainPL, bumperPL}).Error; err != nil {
+		t.Fatalf("create playlists: %v", err)
+	}
+	playlistItems := []models.PlaylistItem{
+		{ID: "pli-main-tf", PlaylistID: mainPL.ID, MediaID: main.ID, Position: 0},
+	}
+	for i, b := range bumpers {
+		playlistItems = append(playlistItems, models.PlaylistItem{
+			ID:         fmt.Sprintf("pli-tf-%s", b.ID),
+			PlaylistID: bumperPL.ID,
+			MediaID:    b.ID,
+			Position:   i,
+		})
+	}
+	if err := db.Create(&playlistItems).Error; err != nil {
+		t.Fatalf("create playlist items: %v", err)
+	}
+
+	sb := models.SmartBlock{
+		ID:        "sb-tailfill-det",
+		StationID: stationID,
+		Name:      "Tailfill Determinism",
+		Rules: map[string]any{
+			"sourcePlaylists": []string{mainPL.ID},
+			"bumpers": map[string]any{
+				"enabled":    true,
+				"sourceType": "playlist",
+				"playlistID": bumperPL.ID,
+				"maxPerGap":  5,
+			},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smart block: %v", err)
+	}
+
+	req := GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         1234567,
+		Duration:     int64((1*time.Minute + 5*30*time.Second) / time.Millisecond),
+		StationID:    stationID,
+		MountID:      "mount-tf",
+	}
+
+	gen := func() []string {
+		t.Helper()
+		eng := New(db, zerolog.Nop())
+		res, err := eng.Generate(context.Background(), req)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		ids := make([]string, len(res.Items))
+		for i, it := range res.Items {
+			ids[i] = it.MediaID
+		}
+		return ids
+	}
+
+	seqA := gen()
+	// Sleep so any time.Now()-based seeding would diverge between calls.
+	time.Sleep(15 * time.Millisecond)
+	seqB := gen()
+
+	if !sameOrder(seqA, seqB) {
+		t.Fatalf("bumper sequence diverged between calls with same req.Seed: A=%v B=%v", seqA, seqB)
+	}
+	// Sanity check: the tail-fill actually ran.
+	bumperCount := 0
+	for _, id := range seqA {
+		if id != main.ID {
+			bumperCount++
+		}
+	}
+	if bumperCount < 2 {
+		t.Fatalf("expected tail-fill to add multiple bumpers, got sequence %v", seqA)
+	}
+
+	// Different seed should produce a different bumper order (otherwise the
+	// rng is doing nothing and this test proves nothing).
+	req2 := req
+	req2.Seed = 7654321
+	engC := New(db, zerolog.Nop())
+	resC, err := engC.Generate(context.Background(), req2)
+	if err != nil {
+		t.Fatalf("generate seed-2: %v", err)
+	}
+	seqC := make([]string, len(resC.Items))
+	for i, it := range resC.Items {
+		seqC[i] = it.MediaID
+	}
+	if sameOrder(seqA, seqC) {
+		t.Logf("note: different seeds produced same bumper order (acceptable but unusual): %v", seqA)
+	}
+}
+
+// TestFetchCandidates_StableRowOrder guards #238 C8: the underlying SELECT
+// must apply ORDER BY id ASC so two control planes see the candidate set in
+// the same row order regardless of Postgres physical row order.
+func TestFetchCandidates_StableRowOrder(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-fetch-order"
+
+	// Insert IDs in non-lexical order so a missing ORDER BY would have a
+	// chance to be visible.
+	insertOrder := []string{"m-z", "m-a", "m-m", "m-d", "m-q"}
+	for _, id := range insertOrder {
+		row := models.MediaItem{ID: id, StationID: stationID, Title: id, Artist: "X", Duration: 2 * time.Minute, AnalysisState: models.AnalysisComplete}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+	}
+
+	eng := New(db, zerolog.Nop())
+	cands, err := eng.fetchCandidatesAt(context.Background(), Definition{}, stationID, nil, time.Now())
+	if err != nil {
+		t.Fatalf("fetchCandidatesAt: %v", err)
+	}
+
+	got := make([]string, len(cands))
+	for i, c := range cands {
+		got[i] = c.Item.ID
+	}
+	want := []string{"m-a", "m-d", "m-m", "m-q", "m-z"}
+	if !sameOrder(got, want) {
+		t.Fatalf("candidates not in ascending id order: got=%v want=%v", got, want)
+	}
+}
+
+// TestSelectCandidate_DeterministicWithSameSeed guards the second half of
+// #238 C8: with the same input and the same rng seed, selectCandidate must
+// return the same index every time. The SliceStable + idx tiebreaker also
+// ensures that a fresh-seeded rng yielding the same jitter draws can't pick a
+// different candidate just because Go's sort.Slice happened to swap equals.
+func TestSelectCandidate_DeterministicWithSameSeed(t *testing.T) {
+	t.Parallel()
+
+	cands := []candidate{
+		{Item: models.MediaItem{ID: "alpha"}, Score: 1.0, Energy: 0.5},
+		{Item: models.MediaItem{ID: "beta"}, Score: 1.0, Energy: 0.5},
+		{Item: models.MediaItem{ID: "gamma"}, Score: 1.0, Energy: 0.5},
+		{Item: models.MediaItem{ID: "delta"}, Score: 1.0, Energy: 0.5},
+	}
+	qs := newQuotaState(nil)
+
+	first := -1
+	for i := 0; i < 25; i++ {
+		rng := rand.New(rand.NewSource(42))
+		idx := selectCandidate(rng, cands, qs, 0)
+		if i == 0 {
+			first = idx
+			continue
+		}
+		if idx != first {
+			t.Fatalf("selectCandidate non-deterministic with same seed: iter %d returned %d, first returned %d", i, idx, first)
+		}
+	}
 }

@@ -83,6 +83,96 @@ func TestDirector_PersistAndLoadMountState(t *testing.T) {
 	}
 }
 
+// TestSmartBlockGeneration_PersistsAcrossDirectors guards #238 C9: the
+// sbGeneration counter is persisted on smart_block_generations and is
+// re-read after a fresh Director is constructed against the same DB. Two
+// HA control planes serving the same schedule rely on this so the shuffle
+// seed stays in sync even if one of them restarts mid-occurrence.
+func TestSmartBlockGeneration_PersistsAcrossDirectors(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SmartBlockGeneration{}); err != nil {
+		t.Fatalf("automigrate: %v", err)
+	}
+
+	entryID := uuid.NewString()
+	startsAt := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	playKey := entryID + "@" + startsAt.Format(time.RFC3339Nano)
+	ctx := context.Background()
+
+	d1 := &Director{
+		db:           db,
+		logger:       zerolog.Nop(),
+		sbGeneration: make(map[string]int),
+	}
+
+	// Fresh: nothing in DB, nothing in memory → 0.
+	if got := d1.loadSmartBlockGeneration(ctx, entryID, startsAt, playKey); got != 0 {
+		t.Fatalf("expected initial generation 0, got %d", got)
+	}
+
+	// Bump twice (simulating two smart-block exhaustions in handleTrackEnded).
+	d1.bumpSmartBlockGeneration(ctx, entryID, startsAt, playKey)
+	d1.bumpSmartBlockGeneration(ctx, entryID, startsAt, playKey)
+
+	if got := d1.loadSmartBlockGeneration(ctx, entryID, startsAt, playKey); got != 2 {
+		t.Fatalf("after two bumps in-process, expected 2, got %d", got)
+	}
+
+	// New director (simulating a process restart, or instance B coming up
+	// while instance A has been running): map is empty, must read from DB.
+	d2 := &Director{
+		db:           db,
+		logger:       zerolog.Nop(),
+		sbGeneration: make(map[string]int),
+	}
+	if got := d2.loadSmartBlockGeneration(ctx, entryID, startsAt, playKey); got != 2 {
+		t.Fatalf("after restart, expected DB-persisted generation 2, got %d", got)
+	}
+
+	// In-process cache should also be populated now so a second read avoids DB.
+	d2.mu.Lock()
+	cached, ok := d2.sbGeneration[playKey]
+	d2.mu.Unlock()
+	if !ok || cached != 2 {
+		t.Fatalf("expected in-memory cache to be primed (ok=%v val=%d) after first load", ok, cached)
+	}
+
+	// One more bump on the fresh director — should land on 3 (it loaded 2,
+	// in-memory increments to 3, persists 3).
+	d2.bumpSmartBlockGeneration(ctx, entryID, startsAt, playKey)
+
+	d3 := &Director{
+		db:           db,
+		logger:       zerolog.Nop(),
+		sbGeneration: make(map[string]int),
+	}
+	if got := d3.loadSmartBlockGeneration(ctx, entryID, startsAt, playKey); got != 3 {
+		t.Fatalf("after second restart, expected DB-persisted generation 3, got %d", got)
+	}
+
+	// Distinct occurrence (same entry, different start) must not collide.
+	otherStart := startsAt.Add(24 * time.Hour)
+	otherKey := entryID + "@" + otherStart.Format(time.RFC3339Nano)
+	if got := d3.loadSmartBlockGeneration(ctx, entryID, otherStart, otherKey); got != 0 {
+		t.Fatalf("distinct occurrence should start at 0, got %d", got)
+	}
+
+	// And the row count matches what we expect: 2 distinct (entry, occurrence) pairs.
+	var count int64
+	if err := db.Model(&models.SmartBlockGeneration{}).Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	// The 'otherStart' read doesn't insert; only bumps insert. So we expect 1.
+	if count != 1 {
+		t.Fatalf("expected 1 persisted row, got %d", count)
+	}
+}
+
 func TestRun_GracefulShutdown_FlushesPositions(t *testing.T) {
 	d, _ := newMockDirector(t)
 

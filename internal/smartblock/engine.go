@@ -174,7 +174,7 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 		// Tail-fill with bumper tracks if enabled and sequence is underfilled.
 		if def.Bumpers.Enabled && result.TotalMS < target {
 			result.BumperLimit = def.Bumpers.MaxPerGap
-			e.tailFillBumpers(ctx, &result, def.Bumpers, req.StationID, target)
+			e.tailFillBumpers(ctx, &result, def.Bumpers, req.StationID, target, req.Seed)
 			if result.BumperCount >= def.Bumpers.MaxPerGap && result.TotalMS < target {
 				result.BumperLimitReached = true
 				result.Warnings = append(result.Warnings, "bumper_limit_reached")
@@ -444,13 +444,22 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 }
 
 // tailFillBumpers appends short tracks from a bumper source to fill remaining time.
-func (e *Engine) tailFillBumpers(ctx context.Context, result *GenerateResult, cfg BumperConfig, stationID string, targetMS int64) {
+//
+// The rng seed is derived from the caller's request seed (XORed with a
+// bumper-distinct constant) rather than the wall clock. This keeps two control
+// planes in lockstep on bumper sequencing when more than one bumper has the
+// same best-fit duration (#238 C7).
+func (e *Engine) tailFillBumpers(ctx context.Context, result *GenerateResult, cfg BumperConfig, stationID string, targetMS int64, reqSeed int64) {
 	bumpers, err := e.fetchBumperCandidates(ctx, cfg, stationID)
 	if err != nil || len(bumpers) == 0 {
 		return
 	}
 
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	// bumperSeedSalt is an arbitrary 64-bit constant that distinguishes the
+	// bumper rng stream from other rng streams seeded off req.Seed. Value is
+	// the ASCII bytes "BumpeRNG" reinterpreted as a uint64.
+	const bumperSeedSalt int64 = 0x42756d7065524e47
+	rng := rand.New(rand.NewSource(reqSeed ^ bumperSeedSalt))
 	lastID := ""
 	prevID := ""
 	added := 0
@@ -736,7 +745,11 @@ func (e *Engine) fetchCandidatesAt(ctx context.Context, def Definition, stationI
 	}
 
 	var items []models.MediaItem
-	if err := query.Find(&items).Error; err != nil {
+	// ORDER BY id ASC is load-bearing for lockstep: without an explicit order
+	// Postgres makes no row-order guarantee, so two control planes can see the
+	// same candidate set in different orders and resolve score ties differently
+	// (#238 C8).
+	if err := query.Order("id ASC").Find(&items).Error; err != nil {
 		return nil, err
 	}
 
@@ -1120,7 +1133,16 @@ func selectCandidate(rng *rand.Rand, candidates []candidate, quotaState *quotaSt
 		return -1
 	}
 
-	sort.Slice(scoredList, func(i, j int) bool { return scoredList[i].score > scoredList[j].score })
+	// SliceStable plus an explicit idx tiebreaker so equal scores resolve in
+	// candidate-input order. Combined with the ORDER BY id ASC in
+	// fetchCandidates this makes selection a deterministic function of DB
+	// state + req.Seed (#238 C8).
+	sort.SliceStable(scoredList, func(i, j int) bool {
+		if scoredList[i].score != scoredList[j].score {
+			return scoredList[i].score > scoredList[j].score
+		}
+		return scoredList[i].idx < scoredList[j].idx
+	})
 	return scoredList[0].idx
 }
 
