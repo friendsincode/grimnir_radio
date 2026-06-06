@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package grimnirfanout
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -297,6 +298,58 @@ type SessionMgr struct {
 	sessions map[string]*Session
 
 	totalServed atomic.Int64
+
+	// replicator mirrors session state into Redis on Create / Remove /
+	// heartbeat ticks. nil disables replication entirely (single-node
+	// deploys, tests that don't care about HA).
+	replicator *SessionReplicator
+}
+
+// SetReplicator wires (or unwires; pass nil) the Redis replicator.
+// Replication writes happen synchronously on Create / Remove; the 5s
+// heartbeat tick is driven by RunReplicationHeartbeat.
+func (m *SessionMgr) SetReplicator(r *SessionReplicator) {
+	m.mu.Lock()
+	m.replicator = r
+	m.mu.Unlock()
+}
+
+// RunReplicationHeartbeat refreshes the Redis hash for every live session
+// on every tick. Returns when ctx is cancelled. interval is the tick
+// period (production: 5s; well inside the 60s key TTL).
+//
+// Safe to call even when no replicator is wired; it simply waits on ctx.
+func (m *SessionMgr) RunReplicationHeartbeat(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.heartbeatOnce(ctx)
+		}
+	}
+}
+
+func (m *SessionMgr) heartbeatOnce(ctx context.Context) {
+	m.mu.RLock()
+	r := m.replicator
+	if r == nil {
+		m.mu.RUnlock()
+		return
+	}
+	snap := make([]*Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		snap = append(snap, s)
+	}
+	m.mu.RUnlock()
+	for _, s := range snap {
+		_ = r.Replicate(ctx, s)
+	}
 }
 
 // NewSessionMgr returns a manager using the system clock and a random-UUID
@@ -326,7 +379,22 @@ func NewSessionMgrWithDeps(idgen IDGenerator, clock Clock) *SessionMgr {
 func (m *SessionMgr) Create(proto Protocol) *Session {
 	s := newSessionWithDeps(m.idgen.NewID(), proto, m.clock.Now())
 	m.Add(s)
+	m.replicate(s)
 	return s
+}
+
+// replicate fires a Redis write for s if a replicator is wired. Uses
+// context.Background because callers (Create / Remove) are synchronous
+// short paths; replication failures are intentionally swallowed since
+// they must not break the live-input control flow.
+func (m *SessionMgr) replicate(s *Session) {
+	m.mu.RLock()
+	r := m.replicator
+	m.mu.RUnlock()
+	if r == nil || s == nil {
+		return
+	}
+	_ = r.Replicate(context.Background(), s)
 }
 
 // Add registers an externally-constructed Session. Used by tests; production
@@ -357,7 +425,11 @@ func (m *SessionMgr) Get(id string) (*Session, bool) {
 func (m *SessionMgr) Remove(id string) {
 	m.mu.Lock()
 	delete(m.sessions, id)
+	r := m.replicator
 	m.mu.Unlock()
+	if r != nil {
+		_ = r.Delete(context.Background(), id)
+	}
 }
 
 // Count returns the number of currently-active sessions.
