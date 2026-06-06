@@ -115,6 +115,9 @@ func Migrate(database *gorm.DB) error {
 	if err := applyContentHashUniqueIndex(database); err != nil {
 		return err
 	}
+	if err := applyPlayHistoryUniqueIndex(database); err != nil {
+		return err
+	}
 	if err := applyPostgresScheduleOverlapGuard(database); err != nil {
 		return err
 	}
@@ -232,6 +235,23 @@ func deduplicateMediaItems(database *gorm.DB) error {
 		}
 		return nil
 	})
+}
+
+// applyPlayHistoryUniqueIndex adds a partial unique index on
+// (entry_id, position, started_at) so PlayHistory writes are idempotent under
+// HA lockstep — two control planes writing the same logical play produce
+// exactly one row. The second writer hits ON CONFLICT DO NOTHING in
+// internal/playout/director.go::recordPlayHistory. See issue #239.
+//
+// Partial WHERE: rows without entry_id (pre-#239 history rows that have the
+// GORM default empty string) do not participate in the constraint. Both
+// Postgres & SQLite support partial indexes with this syntax.
+func applyPlayHistoryUniqueIndex(database *gorm.DB) error {
+	return database.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_play_history_entry_position_started
+		 ON play_histories (entry_id, position, started_at)
+		 WHERE entry_id <> ''`,
+	).Error
 }
 
 func applyPostgresScheduleOverlapGuard(database *gorm.DB) error {

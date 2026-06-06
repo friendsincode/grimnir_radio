@@ -702,11 +702,20 @@ type ScheduleSuppression struct {
 }
 
 // PlayHistory stores executed playout events.
+//
+// EntryID + Position + StartedAt form the idempotency key for HA-lockstep
+// double-write protection (issue #239). A partial unique index over
+// (entry_id, position, started_at) WHERE entry_id <> ” is created in
+// internal/db/migrate.go::applyPlayHistoryUniqueIndex. Two control planes
+// both running recordPlayHistory race on INSERT; the second hits
+// ON CONFLICT DO NOTHING and exactly one row lands.
 type PlayHistory struct {
 	ID         string         `gorm:"type:uuid;primaryKey" json:"id"`
 	StationID  string         `gorm:"type:uuid;index:idx_history_station_time" json:"station_id"`
 	MountID    string         `gorm:"type:uuid;index" json:"mount_id"`
 	MediaID    string         `gorm:"type:uuid;index" json:"media_id"`
+	EntryID    string         `gorm:"type:uuid;index" json:"entry_id"`
+	Position   int            `json:"position"`
 	Artist     string         `gorm:"index" json:"artist"`
 	Title      string         `gorm:"index" json:"title"`
 	Album      string         `gorm:"index" json:"album"`

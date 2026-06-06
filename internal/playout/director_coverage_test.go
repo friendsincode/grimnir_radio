@@ -35,6 +35,16 @@ func newCoverageDirector(t *testing.T, tables ...any) *Director {
 	if err := db.AutoMigrate(all...); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
+	// Mirror internal/db/migrate.go::applyPlayHistoryUniqueIndex so the
+	// ON CONFLICT clause in recordPlayHistory has a unique index to target.
+	// See issue #239.
+	if err := db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_play_history_entry_position_started
+		 ON play_histories (entry_id, position, started_at)
+		 WHERE entry_id <> ''`,
+	).Error; err != nil {
+		t.Fatalf("create play_history unique index: %v", err)
+	}
 	return &Director{
 		db:     db,
 		active: make(map[string]playoutState),

@@ -210,6 +210,16 @@ func setupSharedTestDB(t *testing.T) *gorm.DB {
 	); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
+	// Mirror internal/db/migrate.go::applyPlayHistoryUniqueIndex so
+	// recordPlayHistory's ON CONFLICT clause has a unique index to target
+	// (issue #239).
+	if err := db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_play_history_entry_position_started
+		 ON play_histories (entry_id, position, started_at)
+		 WHERE entry_id <> ''`,
+	).Error; err != nil {
+		t.Fatalf("create play_history unique index: %v", err)
+	}
 	return db
 }
 
@@ -473,6 +483,79 @@ func TestLockstep_TwoDirectorsAgainstSameSchedule(t *testing.T) {
 		return
 	}
 	t.Logf("Lockstep verified: %d manager calls byte-identical across two directors", len(c1))
+}
+
+// TestPlayHistory_UPSERTIdempotent is the acceptance test for #239. Two
+// directors share one DB & both call recordPlayHistory for the same logical
+// play (same entry_id + position, same truncated-to-second started_at). The
+// partial unique index over (entry_id, position, started_at) plus the
+// ON CONFLICT DO NOTHING clause must yield exactly one row.
+//
+// Without #239's UPSERT we'd see two rows: one INSERT from each director,
+// each with its own uuid.NewString() primary key — the bug that doubled
+// listener-facing play counts under HA lockstep.
+func TestPlayHistory_UPSERTIdempotent(t *testing.T) {
+	db := setupSharedTestDB(t)
+
+	ids := newScenarioIDs()
+	epoch := time.Now().UTC()
+	insertRepresentativeSchedule(t, db, ids, epoch)
+
+	d1, _ := newDirectorOnDB(t, db, smartblock.New(db, zerolog.Nop()))
+	d2, _ := newDirectorOnDB(t, db, smartblock.New(db, zerolog.Nop()))
+
+	// Same entry, same position, same media. Both directors record the play.
+	// recordPlayHistory uses time.Now().UTC().Truncate(time.Second); within a
+	// single test goroutine the two calls fall in the same second, so the
+	// composite key is identical → conflict path exercised.
+	entry := models.ScheduleEntry{
+		ID:         ids.entryIDs[0],
+		StationID:  ids.stationID,
+		MountID:    ids.mountID,
+		SourceType: "media",
+		SourceID:   ids.mediaIDs[0],
+		StartsAt:   epoch,
+		EndsAt:     epoch.Add(5 * time.Minute),
+	}
+	payload := map[string]any{
+		"media_id": ids.mediaIDs[0],
+		"title":    "track-0",
+		"artist":   "artist-0",
+		"position": 0,
+	}
+
+	d1.recordPlayHistory(entry, payload)
+	d2.recordPlayHistory(entry, payload)
+
+	var count int64
+	if err := db.Model(&models.PlayHistory{}).
+		Where("entry_id = ? AND position = ?", entry.ID, 0).
+		Count(&count).Error; err != nil {
+		t.Fatalf("count play_history rows: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 row after two lockstep writes, got %d (UPSERT broken — issue #239 regression)", count)
+	}
+
+	// Negative control: a different position for the same entry must produce
+	// a new row. Otherwise the constraint is too broad & loses playlist plays.
+	payload2 := map[string]any{
+		"media_id": ids.mediaIDs[1],
+		"title":    "track-1",
+		"artist":   "artist-1",
+		"position": 1,
+	}
+	d1.recordPlayHistory(entry, payload2)
+
+	var total int64
+	if err := db.Model(&models.PlayHistory{}).
+		Where("entry_id = ?", entry.ID).
+		Count(&total).Error; err != nil {
+		t.Fatalf("count play_history rows after second position: %v", err)
+	}
+	if total != 2 {
+		t.Errorf("expected 2 rows (pos=0 + pos=1), got %d — constraint over-collapses positions", total)
+	}
 }
 
 // TestLockstep_SmartBlockGenerationPersistedAcrossInstances is a focused

@@ -3882,6 +3882,12 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 	artist, _ := extra["artist"].(string)
 	album, _ := extra["album"].(string)
 	mediaID, _ := extra["media_id"].(string)
+	// Position within the entry (playlist/smart_block); 0 for one-shots like
+	// live and webstream. Both lockstep instances compute the same value (C1-C9).
+	position := 0
+	if p, ok := extra["position"].(int); ok {
+		position = p
+	}
 
 	// For webstreams, use webstream name as title
 	if entry.SourceType == "webstream" {
@@ -3907,9 +3913,12 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 		return
 	}
 
-	// Use actual current time for started_at, not schedule entry time
-	now := time.Now().UTC()
-	startedAt := now
+	// started_at is truncated to the second so two control planes writing the
+	// same logical play in HA lockstep produce identical key values. The
+	// executor tick is 250ms and both instances fire recordPlayHistory off the
+	// same broadcast event; one-second granularity easily covers the drift.
+	// This is the composite key for the ON CONFLICT clause below (#239).
+	startedAt := time.Now().UTC().Truncate(time.Second)
 
 	// Try to get media duration to estimate end time
 	var endedAt time.Time
@@ -3929,6 +3938,8 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 		StationID: entry.StationID,
 		MountID:   entry.MountID,
 		MediaID:   mediaID,
+		EntryID:   entry.ID,
+		Position:  position,
 		Artist:    artist,
 		Title:     title,
 		Album:     album,
@@ -3937,7 +3948,18 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 		Metadata:  extra,
 	}
 
-	tx := d.db
+	// UPSERT on (entry_id, position, started_at) — see #239. The second writer
+	// hits the partial unique index and DoNothing makes its write a no-op,
+	// leaving exactly one row per logical play even under HA lockstep. The
+	// TargetWhere mirrors the partial-index WHERE so SQLite & Postgres both
+	// accept the conflict target as a match for the index.
+	tx := d.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "entry_id"}, {Name: "position"}, {Name: "started_at"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{
+			clause.Expr{SQL: "entry_id <> ''"},
+		}},
+		DoNothing: true,
+	})
 	if mediaID == "" {
 		tx = tx.Omit("MediaID")
 	}
