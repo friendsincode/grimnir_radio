@@ -90,7 +90,7 @@ func newPromoteReplicaCmd() *cobra.Command {
 		Use:   "promote-replica",
 		Short: "Promote the Postgres replica to primary; repoint pgbouncer; rebuild new replica",
 		Long:  "Postgres failover runbook. Verifies the replica is in streaming state and lag < 5s, promotes via pg_ctl promote, updates pgbouncer's primary_conninfo to point at the new primary, demotes the old primary to replica via pg_basebackup. See docs/runbooks/promote-replica.md.",
-		RunE:  func(cmd *cobra.Command, args []string) error { return errNotImplemented },
+		RunE:  realPromoteReplicaRunE,
 	}
 	c.Flags().Bool("dry-run", false, "print the planned actions; do not mutate the cluster")
 	c.Flags().Bool("skip-rebuild", false, "promote only; do not rebuild the old primary as replica (use when old primary is dead)")
