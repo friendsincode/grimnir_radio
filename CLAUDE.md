@@ -76,6 +76,7 @@ make run-media
 - `internal/webstream/` - HTTP stream relay with failover
 - `internal/live/` - Live DJ input (Icecast, RTP, SRT, WebRTC)
 - `internal/migration/` - Import tools for AzuraCast and LibreTime
+- `internal/metrics/` - HA-specific Prometheus metrics with per-binary registries. Add new HA metrics here; use `internal/telemetry/` for legacy/cross-binary shared metrics.
 - `proto/mediaengine/v1/` - Protobuf definitions for media engine gRPC
 
 ### Data Flow
