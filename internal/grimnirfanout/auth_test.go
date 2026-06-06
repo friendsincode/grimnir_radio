@@ -154,9 +154,9 @@ func TestDJAuthClient_Validate_DistinctKeys(t *testing.T) {
 	c := newTestAuthClient(t, addr)
 
 	_, _ = c.Validate(context.Background(), "/live", "a", "harbor")
-	_, _ = c.Validate(context.Background(), "/live", "b", "harbor")  // different token
-	_, _ = c.Validate(context.Background(), "/news", "a", "harbor")  // different mount
-	_, _ = c.Validate(context.Background(), "/live", "a", "webrtc")  // different protocol => still same cache (protocol is audit-only)
+	_, _ = c.Validate(context.Background(), "/live", "b", "harbor") // different token
+	_, _ = c.Validate(context.Background(), "/news", "a", "harbor") // different mount
+	_, _ = c.Validate(context.Background(), "/live", "a", "webrtc") // different protocol => still same cache (protocol is audit-only)
 	if srv.callCount() != 3 {
 		t.Errorf("server calls = %d, want 3 (4th is cache hit on (/live, a))", srv.callCount())
 	}

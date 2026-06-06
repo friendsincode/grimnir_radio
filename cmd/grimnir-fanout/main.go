@@ -31,6 +31,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/metrics"
 	pb "github.com/friendsincode/grimnir_radio/proto/grimnirfanout/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Version is set at build time via ldflags; mirrors the other binaries.
@@ -69,6 +70,42 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 		engines = append(engines, cfg.EngineBRTP)
 	}
 
+	// DJAuth gRPC client (Chunk 7.3). Optional: when CONTROL_PLANE_GRPC is
+	// unset the ingresses fall back to AcceptAllAuthenticator so dev rigs &
+	// integration tests don't need a running control plane. Production HA
+	// must set it.
+	var (
+		authClient *grimnirfanout.DJAuthClient
+		harborAuth grimnirfanout.HarborAuthenticator
+		webrtcAuth grimnirfanout.WebRTCAuthenticator
+	)
+	if cfg.ControlPlaneGRPC != "" {
+		authClient, err = grimnirfanout.NewDJAuthClient(grimnirfanout.DJAuthClientConfig{
+			Addr:    cfg.ControlPlaneGRPC,
+			Timeout: 3 * time.Second,
+			MaxTTL:  5 * time.Minute,
+			DialOptions: []grpc.DialOption{
+				// TODO(chunk-7.x): swap to mTLS once the control plane exposes
+				// the cert bundle via Vault. Plaintext is acceptable because
+				// the control plane & fan-out both live inside the broadcast
+				// LAN (per the HA brainstorm doc).
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "grimnir-fanout: DJAuth client: %v\n", err)
+			return 2
+		}
+		defer func() { _ = authClient.Close() }()
+		harborAuth = grimnirfanout.NewHarborAuthAdapter(authClient)
+		webrtcAuth = authClient
+		fmt.Fprintf(stdout, "grimnir-fanout: DJAuth client wired -> %s\n", cfg.ControlPlaneGRPC)
+	} else {
+		harborAuth = grimnirfanout.AcceptAllAuthenticator{}
+		webrtcAuth = nil
+		fmt.Fprintln(stdout, "grimnir-fanout: WARNING — no CONTROL_PLANE_GRPC set; using AcceptAllAuthenticator (dev mode only)")
+	}
+
 	// Harbor (Icecast SOURCE/PUT) TCP listener — Chunk 3 wire line.
 	harborLis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.HarborPort))
 	if err != nil {
@@ -77,7 +114,7 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	}
 	harbor := grimnirfanout.NewHarborListener(grimnirfanout.HarborListenerConfig{
 		Listener: harborLis,
-		Auth:     grimnirfanout.AcceptAllAuthenticator{}, // Chunk 7 replaces with real auth
+		Auth:     harborAuth,
 		Sink:     grimnirfanout.NewPipelineHarborSink(engines),
 		Sessions: sessionMgr,
 	})
@@ -117,10 +154,11 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 
 	// WebRTC (browser WebDJ) signaling + ingest — Chunk 6 wire line.
 	webrtcIng, err := grimnirfanout.NewWebRTCIngress(grimnirfanout.WebRTCIngressConfig{
-		BindAddr:   cfg.BindAddr,
-		Port:       cfg.WebRTCHTTPPort,
-		Engines:    engines,
-		SessionMgr: sessionMgr,
+		BindAddr:      cfg.BindAddr,
+		Port:          cfg.WebRTCHTTPPort,
+		Engines:       engines,
+		SessionMgr:    sessionMgr,
+		Authenticator: webrtcAuth,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "grimnir-fanout: webrtc ingress: %v\n", err)

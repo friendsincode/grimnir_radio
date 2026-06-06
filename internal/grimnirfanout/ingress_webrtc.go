@@ -23,6 +23,14 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+// WebRTCAuthenticator is the contract the WebRTC ingress uses to validate
+// the (mount, token) the browser sends in the offer body. Matches the subset
+// of DJAuthClient.ValidateWebRTC the ingress actually needs so unit tests
+// can inject a fake without dialing real gRPC.
+type WebRTCAuthenticator interface {
+	ValidateWebRTC(ctx context.Context, mount, token string) (AuthClaims, error)
+}
+
 // WebRTCIngressConfig configures the inbound WebRTC signaling server for the
 // fan-out. The browser-side WebDJ client POSTs an SDP offer to /offer; the
 // ingress builds a pion PeerConnection that accepts a single Opus audio track,
@@ -33,12 +41,19 @@ import (
 //
 // Clock is optional; when non-nil it's passed straight to PipelineConfig so
 // the fanned-out PCM-RTP carries NetClock-aligned timestamps.
+//
+// Authenticator is optional. When set, the ingress expects the POST body to
+// be a wrapped {"sdp": {...}, "mount": "...", "token": "..."} object & calls
+// Authenticator.ValidateWebRTC before allocating the PeerConnection; bare
+// SessionDescription bodies are 401'd. When nil, the ingress accepts any
+// SDP offer (single-node / dev mode, pre-Chunk 7).
 type WebRTCIngressConfig struct {
-	BindAddr   string
-	Port       int
-	Engines    []string
-	SessionMgr *SessionMgr
-	Clock      *gst.Clock
+	BindAddr      string
+	Port          int
+	Engines       []string
+	SessionMgr    *SessionMgr
+	Clock         *gst.Clock
+	Authenticator WebRTCAuthenticator
 
 	// PipelineBuilder is the factory the ingress calls per accepted peer to
 	// build the fan-out pipeline. Nil = use NewPipeline directly. Tests can
@@ -161,16 +176,32 @@ func (ing *WebRTCIngress) handleOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var offer webrtc.SessionDescription
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&offer); err != nil {
+	offer, mount, token, err := parseWebRTCOfferBody(r.Body)
+	if err != nil {
 		http.Error(w, "bad offer json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if offer.Type != webrtc.SDPTypeOffer {
 		http.Error(w, "expected SDP type 'offer'", http.StatusBadRequest)
 		return
+	}
+
+	// Auth gate (Chunk 7.3). Authenticator==nil means single-node / dev mode
+	// where the listener accepts anyone; production HA wiring always passes a
+	// DJAuthClient.
+	var authClaims AuthClaims
+	if ing.cfg.Authenticator != nil {
+		if mount == "" || token == "" {
+			http.Error(w, "missing mount or token", http.StatusUnauthorized)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		authClaims, err = ing.cfg.Authenticator.ValidateWebRTC(ctx, mount, token)
+		cancel()
+		if err != nil {
+			http.Error(w, "auth: "+err.Error(), http.StatusUnauthorized)
+			return
+		}
 	}
 
 	pc, err := ing.api.NewPeerConnection(webrtc.Configuration{})
@@ -189,6 +220,9 @@ func (ing *WebRTCIngress) handleOffer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	session := ing.cfg.SessionMgr.Create(ProtocolWebRTC)
+	if ing.cfg.Authenticator != nil {
+		session.AuthClaims = authClaims
+	}
 	peerCtx, cancel := context.WithCancel(context.Background())
 	peer := &webrtcPeer{
 		id:      session.ID,
@@ -400,6 +434,43 @@ func (ing *WebRTCIngress) tearDownPeer(p *webrtcPeer) {
 	if p.session != nil {
 		ing.cfg.SessionMgr.Remove(p.session.ID)
 	}
+}
+
+// parseWebRTCOfferBody decodes the POST /offer body, supporting two shapes:
+//
+//  1. Wrapped: {"sdp": {"type":"offer","sdp":"..."}, "mount":"/live", "token":"..."}
+//  2. Bare:    {"type":"offer", "sdp":"..."}
+//
+// Wrapped form is what production WebDJ clients send (carries the auth
+// token); bare form keeps every pre-Chunk-7 caller working when the ingress
+// has Authenticator==nil. We don't use DisallowUnknownFields because the
+// frontend may add forward-compat fields ("client_version", etc).
+func parseWebRTCOfferBody(r io.Reader) (offer webrtc.SessionDescription, mount, token string, err error) {
+	raw, err := io.ReadAll(io.LimitReader(r, 1<<20)) // 1 MiB cap
+	if err != nil {
+		return offer, "", "", err
+	}
+	// Try wrapped first: a wrapped body has a "sdp" key that's an object,
+	// not a string. The bare SessionDescription's "sdp" is a string.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err == nil {
+		if sdpRaw, ok := probe["sdp"]; ok && len(sdpRaw) > 0 && sdpRaw[0] == '{' {
+			var w struct {
+				SDP   webrtc.SessionDescription `json:"sdp"`
+				Mount string                    `json:"mount"`
+				Token string                    `json:"token"`
+			}
+			if err := json.Unmarshal(raw, &w); err != nil {
+				return offer, "", "", err
+			}
+			return w.SDP, w.Mount, w.Token, nil
+		}
+	}
+	// Fall through: bare SessionDescription.
+	if err := json.Unmarshal(raw, &offer); err != nil {
+		return offer, "", "", err
+	}
+	return offer, "", "", nil
 }
 
 // ensure imports stay used even when one path strips the rtp import (helps
