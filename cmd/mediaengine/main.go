@@ -209,6 +209,12 @@ func main() {
 	// Register media engine service
 	pb.RegisterMediaEngineServer(grpcServer, engine)
 
+	// Register the live-input control service. The fan-out node calls
+	// SetLiveInput(true/false) on connect/disconnect. See
+	// proto/mediaengine/v1/liveinput.proto for the wire contract.
+	liveInputCtrl := mediaengine.NewLiveInputController(logger)
+	grpcServer.RegisterService(liveInputCtrl.ServiceDesc(), liveInputCtrl)
+
 	// Register reflection service for development
 	reflection.Register(grpcServer)
 

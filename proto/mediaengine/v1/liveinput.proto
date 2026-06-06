@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+// Live-input control service for the media engine. Kept in a separate .proto
+// file so it can evolve without forcing a regeneration of the much-larger
+// mediaengine.proto (which encodes the audio playback contract). The wire
+// implementation uses google.protobuf.BoolValue for the request body &
+// google.protobuf.Empty for the response, with `source_addr` & `session_id`
+// carried as gRPC metadata. This keeps the hand-rolled binding compact while
+// the audio path is still being shaken out.
+
+package mediaengine.v1;
+
+import "google/protobuf/wrappers.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1;mediaenginev1";
+
+// LiveInputControl receives toggles from the fan-out node. When a DJ
+// connects (active=true) the fan-out begins delivering PCM/RTP to the
+// engine's GRIMNIR_LIVE_INPUT_PORT & calls SetLiveInput(true). When the DJ
+// disconnects the fan-out calls SetLiveInput(false). The engine pipeline's
+// always-on audiomixer takes care of the actual crossfade.
+service LiveInputControl {
+  // SetLiveInput toggles the engine's DJ-active boolean.
+  //
+  // Wire format: BoolValue.value carries `active`. gRPC metadata
+  // "x-grimnir-source-addr" carries source_addr; "x-grimnir-session-id"
+  // carries session_id. Both metadata keys are optional.
+  rpc SetLiveInput(google.protobuf.BoolValue) returns (google.protobuf.Empty);
+}

@@ -48,6 +48,10 @@ service MediaEngine {
   rpc StopRecording(StopRecordingRequest) returns (StopRecordingResponse);
 }
 
+// NOTE: SetLiveInput is exposed via a separate, small service so that this
+// file does not need to be regenerated on every fan-out-related change. See
+// proto/mediaengine/v1/liveinput.proto.
+
 // LoadGraphRequest contains DSP graph configuration
 message LoadGraphRequest {
   string station_id = 1;
