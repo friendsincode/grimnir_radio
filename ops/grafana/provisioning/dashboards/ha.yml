@@ -1,0 +1,16 @@
+# Grafana dashboard provisioning — Grimnir HA suite
+# Reference: https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards
+apiVersion: 1
+
+providers:
+  - name: grimnir
+    orgId: 1
+    folder: Grimnir
+    folderUid: grimnir
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/grimnir
+      foldersFromFilesStructure: false

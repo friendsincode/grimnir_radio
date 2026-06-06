@@ -1,0 +1,17 @@
+# Grafana datasource provisioning — Prometheus
+# Reference: https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Override via environment: GF_DATASOURCES_PROMETHEUS_URL or edit before mounting.
+    url: ${PROMETHEUS_URL:-http://prometheus:9090}
+    uid: prometheus
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+      manageAlerts: false

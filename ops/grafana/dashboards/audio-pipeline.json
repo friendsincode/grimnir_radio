@@ -1,0 +1,174 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "RTP PCM packets/sec arriving at the edge encoder, broken out by engine + source.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "packets/sec",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {"group": "A", "mode": "none"}
+          },
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "unit": "pps"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "legend": {"calcs": ["last", "min"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "rate(grimnir_pcm_input_packets_total[1m])",
+          "legendFormat": "{{engine}}/{{source}}",
+          "refId": "A"
+        }
+      ],
+      "title": "PCM input packets/sec per engine-source",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Bytes/sec shipped to listeners, per encoder node. Both nodes flat at 0 during a soak window trips the auto-rollback alert.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "bytes/sec",
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {"group": "A", "mode": "none"}
+          },
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 9},
+      "id": 2,
+      "options": {
+        "legend": {"calcs": ["last", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "rate(grimnir_edge_encoder_bytes_total[1m])",
+          "legendFormat": "{{node}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Edge encoder bytes/sec per node",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Listener reconnect rate over 5m, per mount.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "reconnects/sec",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 18},
+      "id": 3,
+      "options": {
+        "legend": {"calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "rate(grimnir_listener_reconnect_total[5m])",
+          "legendFormat": "{{mount}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Listener reconnects/sec per mount (5m rate)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Cumulative listener reconnects since process start.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 18},
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "grimnir_listener_reconnect_total",
+          "legendFormat": "{{mount}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Listener reconnect totals",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["grimnir", "audio"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Grimnir audio pipeline",
+  "uid": "grimnir-audio-pipeline",
+  "version": 1,
+  "weekStart": ""
+}

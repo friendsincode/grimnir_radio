@@ -1,0 +1,181 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "An increment on this counter IS the tier-2 alert condition. Watch during every deploy.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "grimnir_deploy_history_failed_total",
+          "legendFormat": "failed deploys",
+          "refId": "A"
+        }
+      ],
+      "title": "Deploy failures (total)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Failure increments in the last 1h. Anything > 0 deserves a postmortem.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "failures",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"}
+          },
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 16, "x": 8, "y": 0},
+      "id": 2,
+      "options": {
+        "legend": {"calcs": ["sum"], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "increase(grimnir_deploy_history_failed_total[1h])",
+          "legendFormat": "failures/hour",
+          "refId": "A"
+        }
+      ],
+      "title": "Deploy failure rate (1h buckets)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Cumulative seconds Redis has been unreachable. Tier-2 alert > 60s.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "seconds",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "thresholdsStyle": {"mode": "line"}
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 60}
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "id": 3,
+      "options": {
+        "legend": {"calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "grimnir_redis_unreachable_seconds",
+          "legendFormat": "redis unreachable",
+          "refId": "A"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "increase(grimnir_redis_unreachable_seconds[5m])",
+          "legendFormat": "5m delta",
+          "refId": "B"
+        }
+      ],
+      "title": "Redis unreachable seconds",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Audit-log write throughput; flat or zero may mean the audit pipeline is broken (no events recorded).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "events/sec",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "id": 4,
+      "options": {
+        "legend": {"calcs": ["last", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "rate(grimnir_audit_log_writes_total[5m])",
+          "legendFormat": "{{action}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Audit log activity (rate, 5m)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["grimnir", "deploy", "audit"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Grimnir deploy & audit",
+  "uid": "grimnir-deploy-audit",
+  "version": 1,
+  "weekStart": ""
+}
