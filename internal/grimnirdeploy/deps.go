@@ -18,6 +18,7 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/audit"
 	"github.com/friendsincode/grimnir_radio/internal/grimnirdeploy/pause"
+	"github.com/friendsincode/grimnir_radio/internal/notify"
 )
 
 // Deps is the bag of cluster connections a subcommand needs. Later chunks
@@ -79,7 +80,13 @@ func wireDeps(ctx context.Context, cfg *Config) (*Deps, error) {
 		}
 		deps.DB = db
 		deps.Store = audit.NewStore(db)
-		rec := audit.NewRecorder(deps.Store, nil, "")
+		// Wire the tier-aware notify client into the audit Wrapper. When
+		// GRIMNIR_NTFY_URL is unset, FromEnv returns a NopNotifier so dev
+		// boxes don't need a real ntfy endpoint; the adapter is still
+		// constructed so deploy / failure events traverse the same code path
+		// in dev as in prod.
+		poster := audit.NewNotifierPoster(notify.FromEnv())
+		rec := audit.NewRecorder(deps.Store, poster, "")
 		deps.Wrapper = audit.NewWrapper(rec, cfg.Operator, localSourceIP())
 	} else {
 		// Wrapper with nil recorder; Wrap still runs fn but skips DB writes.
