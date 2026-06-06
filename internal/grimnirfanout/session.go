@@ -97,11 +97,10 @@ type Session struct {
 	AuthClaims any
 
 	// Pipeline is the per-session go-gst pipeline owning audioconvert -> RTP
-	// -> multiudpsink. Concrete type is *Pipeline (defined in pipeline.go by
-	// Task 2.2); held as any here so this file stays decoupled from go-gst
-	// in tests that don't need it. Nil until the protocol terminator
-	// (Chunks 3-6) attaches one.
-	Pipeline any
+	// -> multiudpsink. Concrete type defined in pipeline.go (Task 2.2). Nil
+	// until the protocol terminator (Chunks 3-6) attaches one via
+	// AttachPipeline.
+	Pipeline *Pipeline
 
 	mu    sync.Mutex
 	state SessionState
@@ -162,6 +161,15 @@ func (s *Session) markPacket(at time.Time) {
 // telemetry snapshot can show DJ-side backpressure. Wired by the pipeline.
 func (s *Session) setEncoderQueued(level uint32) {
 	s.encoderQueued.Store(level)
+}
+
+// AttachPipeline associates a constructed Pipeline with the session. The
+// protocol terminator (Chunks 3-6) calls this after a successful auth
+// validation, before transitioning to SessionActive.
+func (s *Session) AttachPipeline(p *Pipeline) {
+	s.mu.Lock()
+	s.Pipeline = p
+	s.mu.Unlock()
 }
 
 // Telemetry returns a point-in-time snapshot of the session's counters.

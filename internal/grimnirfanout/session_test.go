@@ -63,6 +63,20 @@ func TestSession_TelemetryAccumulates(t *testing.T) {
 	}
 }
 
+func TestSession_AttachPipeline(t *testing.T) {
+	gstInit()
+	p, err := NewPipeline(PipelineConfig{Engines: []string{"127.0.0.1:65000"}})
+	if err != nil {
+		t.Fatalf("NewPipeline: %v", err)
+	}
+	defer p.Stop()
+	s := newSessionWithDeps("sess-pipe", ProtocolHarbor, time.Now())
+	s.AttachPipeline(p)
+	if s.Pipeline != p {
+		t.Errorf("Session.Pipeline = %v, want %v", s.Pipeline, p)
+	}
+}
+
 func TestSessionMgr_AddGetRemove(t *testing.T) {
 	mgr := NewSessionMgr()
 	if mgr.Count() != 0 {
