@@ -110,6 +110,30 @@ type Session struct {
 	bytesIn       atomic.Uint64
 	lastPacketNs  atomic.Int64
 	encoderQueued atomic.Uint32
+
+	// recovering is set when the session was hydrated from Redis on
+	// fan-out startup (Chunk 8). The audio pipeline only re-spawns once
+	// the real DJ reconnects & re-asserts the session ID.
+	recovering atomic.Bool
+}
+
+// MarkRecovering flags this Session as a placeholder rehydrated from Redis
+// peer state. The protocol acceptor clears the flag (see ClearRecovering)
+// once the DJ reconnects with a valid session id.
+func (s *Session) MarkRecovering() {
+	s.recovering.Store(true)
+}
+
+// ClearRecovering removes the recovery placeholder flag once the DJ has
+// reconnected & the real pipeline has been re-attached.
+func (s *Session) ClearRecovering() {
+	s.recovering.Store(false)
+}
+
+// IsRecovering reports whether this Session is a hydrated placeholder
+// awaiting the original DJ's reconnect.
+func (s *Session) IsRecovering() bool {
+	return s.recovering.Load()
 }
 
 // newSessionWithDeps constructs a Session with explicit ID / protocol / start
