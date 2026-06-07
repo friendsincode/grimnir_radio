@@ -147,6 +147,7 @@ Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variabl
 - `GRIMNIR_NETCLOCK_PORT` - TCP port the master serves clock time on. Default: 9094.
 - `GRIMNIR_NETCLOCK_REGION` - Region identifier; part of the Redis lease key `grimnir-netclock-master-<region>`. Required when NetClock enabled.
 - `GRIMNIR_NETCLOCK_MASTER_ADDR` - Slaves dial this `host:port`. Optional; future versions will auto-discover via Redis.
+- `GRIMNIR_VRRP_VIPS` - Comma-separated VIP names (e.g., `listener,dj`) the control plane polls out of Redis hash `grimnir:vrrp:<name>` to update the `grimnir_vrrp_holder_count` gauge. Empty disables the poller. Required when keepalived (Track A step 7) is installed; see `docs/runbooks/keepalived-install.md`.
 - `GRIMNIR_REGION` - Region short name; defaults to `default`. Drives ntfy topic naming (`grimnir-region-<region>-page`, `grimnir-audit-<region>`).
 - `GRIMNIR_NTFY_URL` - Self-hosted ntfy.sh base URL (e.g., `https://ntfy.grimnir.example`). When unset, `notify.FromEnv` returns a NopNotifier so dev binaries don't fail to start.
 - `GRIMNIR_NTFY_TOKEN_PAGE` - Publisher token for the per-region page topic.

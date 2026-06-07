@@ -52,6 +52,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/syndication"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/friendsincode/grimnir_radio/internal/underwriting"
+	"github.com/friendsincode/grimnir_radio/internal/vrrphealth"
 	"github.com/friendsincode/grimnir_radio/internal/web"
 	"github.com/friendsincode/grimnir_radio/internal/webdj"
 	"github.com/friendsincode/grimnir_radio/internal/webhooks"
@@ -738,6 +739,23 @@ func (s *Server) startBackgroundWorkers() {
 			defer s.bgWG.Done()
 			s.runCacheInvalidationListener(ctx)
 		}()
+	}
+
+	// Start VRRP holder-count poller. Reads keepalived state out of Redis
+	// (written by ops/keepalived/notify.sh) & exposes grimnir_vrrp_holder_count
+	// per VIP. No-op when GRIMNIR_VRRP_VIPS is empty.
+	if len(s.cfg.VRRPVIPs) > 0 {
+		rdb, _, err := vrrphealth.Start(ctx, vrrphealth.Config{
+			RedisAddr:     s.cfg.RedisAddr,
+			RedisPassword: s.cfg.RedisPassword,
+			RedisDB:       s.cfg.RedisDB,
+			VIPs:          s.cfg.VRRPVIPs,
+		}, s.logger)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("VRRP poller failed to start; continuing without it")
+		} else if rdb != nil {
+			s.DeferClose(func() error { return rdb.Close() })
+		}
 	}
 }
 

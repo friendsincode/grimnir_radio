@@ -19,6 +19,7 @@
 | Auto-rollback fired during deploy | Read the rollback ntfy + `audit_log` row; do NOT redeploy without root cause | [deploy.md § auto-rollback](./deploy.md), `internal/grimnirdeploy/autorollback/` |
 | Alert firing in tier-2 (page) | Check the ntfy push + open the Grafana dashboard linked in the alert annotation | [docs/observability/README.md](../observability/README.md) |
 | Rotate a secret (routine or post-leak) | `grimnir-deploy rotate-secret --name=X --new-value=...` | [secrets/rotation.md](./secrets/rotation.md) |
+| Initial bring-up of VIP failover (per region) | apt install keepalived; copy configs from `ops/keepalived/` | [keepalived-install.md](./keepalived-install.md) |
 
 Every subcommand:
 

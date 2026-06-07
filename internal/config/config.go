@@ -129,6 +129,13 @@ type Config struct {
 	// engine->fanout health hints). Required when LiveInputEnabled is true.
 	LiveInputFanoutAddr string
 
+	// VRRPVIPs is the set of VIP application names this control plane should
+	// poll out of Redis for the grimnir_vrrp_holder_count gauge. Names are
+	// arbitrary identifiers (e.g., "listener", "dj") that keepalived's
+	// notify.sh writes into the Redis hash `grimnir:vrrp:<name>`. Empty
+	// disables the poller. Populated from GRIMNIR_VRRP_VIPS (comma-separated).
+	VRRPVIPs []string
+
 	LegacyEnvWarnings []string
 }
 
@@ -212,6 +219,15 @@ func Load() (*Config, error) {
 			t = strings.TrimSpace(t)
 			if t != "" {
 				cfg.HAPCMRTPTargets = append(cfg.HAPCMRTPTargets, t)
+			}
+		}
+	}
+
+	if raw := getEnvAny([]string{"GRIMNIR_VRRP_VIPS"}, ""); raw != "" {
+		for _, v := range strings.Split(raw, ",") {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				cfg.VRRPVIPs = append(cfg.VRRPVIPs, v)
 			}
 		}
 	}

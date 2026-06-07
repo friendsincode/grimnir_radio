@@ -121,6 +121,38 @@ func TestHAPCMRTPConfig(t *testing.T) {
 	})
 }
 
+func TestVRRPVIPsConfig(t *testing.T) {
+	setBase := func(t *testing.T) {
+		t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
+		t.Setenv("GRIMNIR_JWT_SIGNING_KEY", "supersecret")
+	}
+
+	t.Run("empty by default", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_VRRP_VIPS", "")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(c.VRRPVIPs) != 0 {
+			t.Errorf("VRRPVIPs = %v, want empty", c.VRRPVIPs)
+		}
+	})
+
+	t.Run("parses comma list with whitespace", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_VRRP_VIPS", " listener , dj ")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"listener", "dj"}
+		if !reflect.DeepEqual(c.VRRPVIPs, want) {
+			t.Errorf("VRRPVIPs = %v, want %v", c.VRRPVIPs, want)
+		}
+	})
+}
+
 func TestLiveInputConfig(t *testing.T) {
 	setBase := func(t *testing.T) {
 		t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
