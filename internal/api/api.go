@@ -243,6 +243,10 @@ func (a *API) Routes(r chi.Router) {
 		r.Get("/public/stations/{stationID}/logo", a.handleStationLogo)
 		r.Get("/stations/{stationID}/logo", a.handleStationLogo)
 
+		// Listener-facing streams list (custom JS player, Track B-3).
+		// Public so the browser player can fetch it on page load.
+		r.Get("/stations/{stationID}/streams", a.handleStreamsGet)
+
 		// Public schedule endpoints (Phase 8G)
 		a.AddPublicScheduleRoutes(r)
 
