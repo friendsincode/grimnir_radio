@@ -21,14 +21,58 @@
   #log { background: #f4f4f4; padding: 0.5rem; height: 240px; overflow-y: scroll; font: 12px/1.3 monospace; white-space: pre-wrap; }
   ol { padding-left: 1.25rem; }
   li { margin-bottom: 0.4rem; }
-  #unavailable { display: none; padding: 0.75rem; border: 1px solid #b00020; background: #fff4f4; color: #b00020; margin-top: 0.5rem; }
-  #unavailable.shown { display: block; }
+
+  /* Operator-style overlay on the in-container UI (Chunk 4). The module
+     emits unstyled DOM with [data-grimnir-role="..."] hooks; this CSS shows
+     one example of how an operator might dress it up. */
+  #player-container {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #ccc; border-radius: 6px;
+    background: #fafafa;
+    position: relative; min-height: 44px;
+  }
+  #player-container [data-grimnir-role="ui-root"] {
+    display: flex; align-items: center; gap: 0.5rem; flex: 1;
+  }
+  #player-container [data-grimnir-role="toggle"] {
+    padding: 0.35rem 0.9rem; font-weight: 600;
+  }
+  #player-container [data-grimnir-role="label"] {
+    color: #888; font-size: 0.85em;
+  }
+  #player-container [data-grimnir-role="status"] {
+    color: #b07000; font-size: 0.85em;
+  }
+  #player-container [data-grimnir-role="progress"] {
+    display: none;
+    position: absolute; left: 0; bottom: 0;
+    height: 2px; width: 100%;
+    background: linear-gradient(90deg, transparent, #b07000, transparent);
+    background-size: 200% 100%;
+    animation: grimnir-progress 1.2s linear infinite;
+  }
+  #player-container[data-grimnir-reconnect-ui="progress"] [data-grimnir-role="progress"],
+  #player-container[data-grimnir-reconnect-ui="text"] [data-grimnir-role="progress"] {
+    display: block;
+  }
+  @keyframes grimnir-progress {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  #player-container[data-grimnir-state="reconnecting"] [data-grimnir-role="toggle"] {
+    opacity: 0.7;
+  }
+  #player-container[data-grimnir-state="unavailable"] {
+    border-color: #b00020; background: #fff4f4;
+  }
+  #player-container [data-grimnir-role="retry"][data-grimnir-hidden="1"] { display: none; }
 </style>
 </head>
 <body>
 
 <h1>Grimnir player — manual reconnect test harness</h1>
-<p class="meta">Chunk 3 of <code>2026-06-06-custom-js-player.md</code>. Loads <code>player.js</code> as an ES module &amp; drives it from this page.</p>
+<p class="meta">Chunks 2, 3, 4 of <code>2026-06-06-custom-js-player.md</code>. Loads <code>player.js</code> as an ES module &amp; drives it from this page.</p>
 
 <fieldset>
   <legend>Station</legend>
@@ -38,8 +82,8 @@
   <p class="meta">Or short-circuit the fetch with a literal stream list (JSON array of <code>{url,label,priority}</code>); leave blank to use the station ID above.</p>
   <textarea id="streamsOverride" placeholder='[{"url":"https://<public-hostname>/main/hq","label":"HQ","priority":1},{"url":"https://<public-hostname>/main/lq","label":"LQ","priority":2}]'></textarea>
   <p>
-    <button id="btn-play">Play</button>
-    <button id="btn-pause">Pause</button>
+    <button id="btn-play">Play (external)</button>
+    <button id="btn-pause">Pause (external)</button>
     <button id="btn-stop">Stop &amp; tear down</button>
     <button id="btn-rebuild">Rebuild player</button>
   </p>
@@ -47,22 +91,22 @@
      · Active stream: <span id="activeLabel">—</span>
      · Reconnects in 30s: <span id="reconnects">0</span>
      · Escalations: <span id="escalations">0</span></p>
-
-  <div id="unavailable">
-    <b>Stream temporarily unavailable.</b>
-    Every stream URL in the list failed.
-    <button id="btn-retry">Retry from HQ</button>
-  </div>
 </fieldset>
 
 <fieldset>
-  <legend>How to test (Chunks 2 + 3)</legend>
+  <legend>In-container player UI (Chunk 4 renders this)</legend>
+  <div id="player-container"></div>
+  <p class="meta">The module paints play/pause, status, progress bar &amp; quality dropdown directly into <code>#player-container</code>. The CSS above is one operator's overlay; remove it &amp; you get unstyled DOM.</p>
+</fieldset>
+
+<fieldset>
+  <legend>How to test (Chunks 2 + 3 + 4)</legend>
   <ol>
-    <li>Pick a station ID with multiple streams configured (HQ + LQ). Hit <b>Play</b>. State should go to <b>playing</b>; <b>Active stream</b> should show <code>HQ</code>.</li>
-    <li>Kill the HQ stream upstream. After 3 reconnect attempts inside 30s, the player should auto-degrade — Active stream flips to <code>LQ</code>, Escalations increments, and playback resumes.</li>
+    <li>Pick a station ID with multiple streams configured (HQ + LQ). Hit the in-container <b>Play</b> button. State should go to <b>playing</b>; <b>Active stream</b> should show <code>HQ</code>.</li>
+    <li>Kill the HQ stream upstream. After 3 reconnect attempts inside 30s, the player should auto-degrade — Active stream flips to <code>LQ</code>, Escalations increments, &amp; playback resumes. Watch for the "Reconnecting..." text flash.</li>
     <li>Bring HQ back. Within 60s the background HEAD probe should succeed &amp; the player should step back up to <code>HQ</code>.</li>
-    <li>Kill BOTH streams. After exhausting the list, state should go <b>unavailable</b> and the red Retry panel should appear. Bring streams back &amp; hit <b>Retry from HQ</b> to restart from priority 1.</li>
-    <li>The <b>Streams override</b> textarea bypasses the API fetch — paste a JSON list to test offline or against arbitrary URLs.</li>
+    <li>Kill BOTH streams. State goes <b>unavailable</b>; the in-container <b>Retry</b> button appears (the toggle button also turns into "Retry"). Bring streams back &amp; click Retry.</li>
+    <li>Pick a specific quality from the dropdown — the player pins to it (auto-degrade off until you switch back to Auto).</li>
   </ol>
 </fieldset>
 
@@ -81,9 +125,7 @@
   const reconnectsEl = document.getElementById('reconnects');
   const escalationsEl = document.getElementById('escalations');
   const logEl = document.getElementById('log');
-  const unavailableEl = document.getElementById('unavailable');
-  const container = document.createElement('div');
-  document.body.appendChild(container);
+  const container = document.getElementById('player-container');
 
   let player = null;
   let escalations = 0;
@@ -112,18 +154,13 @@
       log('previous player destroyed');
     }
     escalations = 0;
-    unavailableEl.classList.remove('shown');
+    container.innerHTML = '';
 
     const opts = {
       onStateChange: (s) => {
         stateEl.textContent = s;
         stateEl.className = s;
         log(`state -> ${s}`);
-        if (s === 'unavailable') {
-          unavailableEl.classList.add('shown');
-        } else {
-          unavailableEl.classList.remove('shown');
-        }
       },
       onStreamChange: (stream) => {
         updateActiveLabel();
@@ -137,9 +174,7 @@
           to: info.to && info.to.label,
         })}`);
       },
-      onExhausted: () => {
-        log('EXHAUSTED: every stream URL failed');
-      },
+      onExhausted: () => { log('EXHAUSTED: every stream URL failed'); },
     };
 
     let arg;
@@ -175,13 +210,8 @@
     if (player) { player.stop(); log('stop() called'); }
   });
   document.getElementById('btn-rebuild').addEventListener('click', build);
-  document.getElementById('btn-retry').addEventListener('click', () => {
-    if (!player) return;
-    log('retry() called');
-    player.retry()
-      .then(() => updateActiveLabel())
-      .catch((e) => log(`retry() rejected: ${e.name || e.message}`));
-  });
+
+  build();
 </script>
 
 </body>

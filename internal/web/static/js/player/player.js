@@ -1,4 +1,4 @@
-// player.js — Grimnir Radio listener player (Chunks 2 + 3)
+// player.js — Grimnir Radio listener player (Chunks 2 + 3 + 4)
 //
 // Vanilla JS ES module. No build step. No framework.
 //
@@ -18,42 +18,44 @@
 // higher-preference URL every 60s. On 2xx, the player switches back via the
 // same recycle path.
 //
-// Exhaustion: when every URL in the list has failed in turn, the player calls
-// `onExhausted` (the test harness paints a "temporarily unavailable" panel
-// with a Retry button — Chunk 4 builds the prod UI on the same hook).
+// Exhaustion: when every URL in the list has failed in turn, the player paints
+// a "Stream unavailable" panel inside the container & fires `onExhausted`.
+//
+// UI (Chunk 4)
+// ------------
+// The module renders minimal HTML inside `containerEl`:
+//   - play/pause button         [data-grimnir-role="toggle"]
+//   - status text region        [data-grimnir-role="status"]
+//   - thin progress bar         [data-grimnir-role="progress"]
+//   - quality label             [data-grimnir-role="label"]
+//   - quality <select>          [data-grimnir-role="quality"]
+// The container element carries [data-grimnir-state="..."] so operator CSS can
+// target every state. Reconnect UI is tiered:
+//   - <500ms          silent
+//   - 500ms..3s       progress bar visible
+//   - 3+ attempts     "Reconnecting..." text for ~1s, then resume silently
 //
 // Public surface
 // --------------
 //   const player = createPlayer(containerEl, stationIdOrUrl, {
-//     // Pre-supplied list short-circuits the fetch (useful in tests):
-//     streams: [{url, label, priority, ...}, ...],
-//     onEscalate:    (info)   => { /* informational; fires AFTER auto-degrade */ },
-//     onStateChange: (state)  => { /* "playing" | "reconnecting" | "stopped" | "unavailable" */ },
-//     onStreamChange:(stream) => { /* fires when the active URL changes */ },
-//     onExhausted:   ()       => { /* every URL failed; prompt the user */ },
-//     autoplay: true,
+//     streams: [{url, label, priority, ...}, ...], // optional pre-supply
+//     onEscalate, onStateChange, onStreamChange, onExhausted,
+//     autoplay: false,
+//     apiBase: '',
 //   });
-//   player.play();              // user-gesture entry point
-//   player.pause();
-//   player.stop();              // tears down completely
-//   player.retry();             // restart from priority 1 after exhaustion
-//   player.getState();
-//   player.getReconnectCount();
-//   player.getActiveStream();   // current {url, label, ...} or null
+//   player.play() / pause() / stop() / retry() / destroy();
+//   player.getState() / getReconnectCount() / getActiveStream() / getStreams();
+//   player.setActiveIndex(i);    // listener picks a quality (auto-pin)
 
 const RECONNECT_WINDOW_MS = 30_000;
 const RECONNECT_ESCALATE_AT = 3;
-
-// Events that mean "the stream just died or stalled hard enough to need a
-// fresh socket." `waiting` fires for normal buffering too, so we debounce it
-// before treating it as a failure (see WAITING_GRACE_MS).
 const WAITING_GRACE_MS = 1_500;
-
-// Background HEAD probe cadence while degraded.
 const UPGRADE_PROBE_INTERVAL_MS = 60_000;
 
-// Looks-like-a-URL check used to keep the legacy `createPlayer(el, url, ...)`
-// signature working while the rollout swaps callers over to station IDs.
+// UI thresholds for the tiered reconnect indicator (Chunk 4).
+const RECONNECT_UI_SILENT_MS = 500;
+const RECONNECT_TEXT_FLASH_MS = 1_000;
+
 function looksLikeUrl(s) {
   return typeof s === 'string' && /^https?:\/\//i.test(s);
 }
@@ -73,14 +75,13 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   const autoplay = options.autoplay === true;
   const apiBase = typeof options.apiBase === 'string' ? options.apiBase : '';
 
-  // Stream list resolution. Three input modes, in priority order:
-  //   1. options.streams pre-supplied (tests, server-rendered embeds)
-  //   2. first arg is a URL -> single-item list (legacy compat)
-  //   3. first arg is a station id -> fetch /api/v1/stations/<id>/streams
   let streams = [];
   let activeIndex = 0;
   let streamsLoaded = false;
   let streamsLoadPromise = null;
+  // pinnedIndex disables auto-degrade/upgrade when set (listener picked a
+  // specific quality via the dropdown).
+  let pinnedIndex = null;
 
   if (Array.isArray(options.streams) && options.streams.length > 0) {
     streams = options.streams.slice();
@@ -94,25 +95,34 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
       streams = list;
       streamsLoaded = true;
       activeIndex = 0;
+      renderQualityOptions();
+      updateUI();
     }).catch((err) => {
       console.error('grimnir-player: stream list fetch failed', err);
     });
   }
 
-  let audio = null;             // current <audio> element
-  let waitingTimer = null;      // pending "waiting → treat as failure" timer
-  let reconnectAttempts = [];   // timestamps (ms since epoch) of recent reconnects
-  let state = 'stopped';        // "stopped" | "playing" | "reconnecting" | "unavailable"
+  let audio = null;
+  let waitingTimer = null;
+  let reconnectAttempts = [];
+  let state = 'stopped';
   let destroyed = false;
-  let userPaused = false;       // true if user explicitly hit pause
-  let upgradeTimer = null;      // setInterval handle for the HEAD probe
+  let userPaused = false;
+  let upgradeTimer = null;
+
+  // Reconnect-UI tracking (Chunk 4).
+  let disconnectStartedAt = 0;     // ms timestamp when the latest reconnect cycle began
+  let reconnectUiTimer = null;     // setTimeout handle for the progress-bar reveal
+  let reconnectTextTimer = null;   // setTimeout handle for clearing the "Reconnecting..." flash
 
   function setState(next) {
     if (state === next) return;
     state = next;
+    containerEl.setAttribute('data-grimnir-state', state);
     if (onStateChange) {
       try { onStateChange(state); } catch (e) { console.error('onStateChange threw', e); }
     }
+    updateUI();
   }
 
   function activeStream() {
@@ -126,28 +136,24 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   }
 
   function fireStreamChange() {
+    updateUI();
     if (!onStreamChange) return;
     try { onStreamChange(activeStream()); } catch (e) { console.error('onStreamChange threw', e); }
   }
 
   function clearWaitingTimer() {
-    if (waitingTimer !== null) {
-      clearTimeout(waitingTimer);
-      waitingTimer = null;
-    }
+    if (waitingTimer !== null) { clearTimeout(waitingTimer); waitingTimer = null; }
   }
-
+  function clearReconnectUiTimers() {
+    if (reconnectUiTimer !== null) { clearTimeout(reconnectUiTimer); reconnectUiTimer = null; }
+    if (reconnectTextTimer !== null) { clearTimeout(reconnectTextTimer); reconnectTextTimer = null; }
+  }
   function stopUpgradeProbe() {
-    if (upgradeTimer !== null) {
-      clearInterval(upgradeTimer);
-      upgradeTimer = null;
-    }
+    if (upgradeTimer !== null) { clearInterval(upgradeTimer); upgradeTimer = null; }
   }
-
   function startUpgradeProbe() {
     stopUpgradeProbe();
-    // Nothing to upgrade to if we're already on priority 1.
-    if (activeIndex <= 0) return;
+    if (activeIndex <= 0 || pinnedIndex !== null) return;
     upgradeTimer = setInterval(probeForUpgrade, UPGRADE_PROBE_INTERVAL_MS);
   }
 
@@ -163,9 +169,8 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
       audio.removeEventListener('pause', onPause);
       audio.pause();
       audio.removeAttribute('src');
-      audio.load(); // forces the element to drop its current network resource
+      audio.load();
     } catch (e) {
-      // best-effort teardown; never let it block the reconnect
       console.warn('grimnir-player: detach failed', e);
     }
     if (audio.parentNode === containerEl) {
@@ -177,19 +182,16 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   function buildAudio() {
     const url = activeUrl();
     if (!url) return null;
-
     const el = document.createElement('audio');
     el.preload = 'none';
     el.crossOrigin = 'anonymous';
     el.src = url;
-
     el.addEventListener('error', onFailure);
     el.addEventListener('stalled', onFailure);
     el.addEventListener('ended', onFailure);
     el.addEventListener('waiting', onWaiting);
     el.addEventListener('playing', onPlaying);
     el.addEventListener('pause', onPause);
-
     containerEl.appendChild(el);
     return el;
   }
@@ -212,21 +214,17 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
 
   function onPlaying() {
     clearWaitingTimer();
+    disconnectStartedAt = 0;
+    clearReconnectUiTimers();
     setState('playing');
   }
 
   function onPause() {
-    if (userPaused) {
-      setState('stopped');
-    }
+    if (userPaused) setState('stopped');
   }
 
-  // degradeOrExhaust steps activeIndex to the next URL. Returns true if it
-  // advanced, false if there's nothing left (exhausted).
   function degradeOrExhaust() {
-    if (activeIndex + 1 >= streams.length) {
-      return false;
-    }
+    if (activeIndex + 1 >= streams.length) return false;
     activeIndex += 1;
     reconnectAttempts = [];
     fireStreamChange();
@@ -236,37 +234,33 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   function enterUnavailable() {
     detachCurrentAudio();
     stopUpgradeProbe();
+    clearReconnectUiTimers();
     setState('unavailable');
     if (onExhausted) {
       try { onExhausted(); } catch (e) { console.error('onExhausted threw', e); }
     }
   }
 
-  // Switch to whatever activeIndex currently points at. Used by both the
-  // degrade path (after onFailure escalation) and the upgrade path (after a
-  // successful HEAD probe).
   function recycleToActive() {
     detachCurrentAudio();
     audio = buildAudio();
     if (!audio) return;
-    const playPromise = audio.play();
-    if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch((err) => {
-        console.warn('grimnir-player: post-recycle play() rejected', err);
-      });
+    const p = audio.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => console.warn('grimnir-player: post-recycle play() rejected', err));
     }
   }
 
   function onFailure(evt) {
     if (destroyed || userPaused) return;
 
-    // Streams list still loading -> can't reconnect intelligently yet. Mark
-    // reconnecting; play() will retry once the list arrives.
     if (!streamsLoaded) {
+      beginReconnectUi();
       setState('reconnecting');
       return;
     }
 
+    beginReconnectUi();
     setState('reconnecting');
 
     const count = recordReconnectAttempt();
@@ -276,53 +270,41 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     );
 
     if (count >= RECONNECT_ESCALATE_AT) {
-      const advanced = degradeOrExhaust();
-      if (!advanced) {
-        enterUnavailable();
-        return;
-      }
-      // Fire the informational hook AFTER the auto-degrade has picked the next
-      // URL. Old semantics (caller decides where to go) are gone; the player
-      // owns the decision now.
-      if (onEscalate) {
-        try {
-          onEscalate({
-            attempts: count,
-            windowMs: RECONNECT_WINDOW_MS,
-            from: cur,
-            to: activeStream(),
-          });
-        } catch (e) {
-          console.error('grimnir-player: onEscalate threw', e);
-        }
-      }
-      // We just degraded; kick off the upgrade probe so HQ can come back.
-      startUpgradeProbe();
-    }
+      // Tier 3 UI: flash "Reconnecting..." text for ~1s, then proceed silently.
+      flashReconnectingText();
 
+      // Pinned listeners stay on their chosen URL even after 3 failures — we
+      // just keep cycling that URL and surfacing the reconnect text.
+      if (pinnedIndex === null) {
+        const advanced = degradeOrExhaust();
+        if (!advanced) {
+          enterUnavailable();
+          return;
+        }
+        if (onEscalate) {
+          try {
+            onEscalate({
+              attempts: count, windowMs: RECONNECT_WINDOW_MS,
+              from: cur, to: activeStream(),
+            });
+          } catch (e) { console.error('grimnir-player: onEscalate threw', e); }
+        }
+        startUpgradeProbe();
+      }
+    }
     recycleToActive();
   }
 
-  // probeForUpgrade fires a HEAD against the next-higher-priority URL. On 2xx,
-  // we step activeIndex back up & recycle. We probe one step at a time so a
-  // transient HQ recovery doesn't yank a listener off a stable LQ.
   async function probeForUpgrade() {
     if (destroyed || userPaused) return;
-    if (activeIndex <= 0) {
-      stopUpgradeProbe();
-      return;
-    }
+    if (pinnedIndex !== null) { stopUpgradeProbe(); return; }
+    if (activeIndex <= 0) { stopUpgradeProbe(); return; }
     const target = streams[activeIndex - 1];
-    if (!target) {
-      stopUpgradeProbe();
-      return;
-    }
+    if (!target) { stopUpgradeProbe(); return; }
     try {
       const resp = await fetch(target.url, { method: 'HEAD', cache: 'no-store' });
       if (!resp.ok) return;
-    } catch (e) {
-      return; // network error -> still down, try again next tick
-    }
+    } catch (e) { return; }
     activeIndex -= 1;
     reconnectAttempts = [];
     fireStreamChange();
@@ -331,20 +313,162 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     recycleToActive();
   }
 
-  // Public methods --------------------------------------------------------
+  // --- Reconnect UI tiers (Chunk 4) -------------------------------------
+
+  function beginReconnectUi() {
+    if (disconnectStartedAt === 0) {
+      disconnectStartedAt = Date.now();
+    }
+    clearReconnectUiTimers();
+    // Tier 1: silent for the first 500ms. We do not touch the DOM beyond the
+    // [data-grimnir-state="reconnecting"] attribute that setState() will set.
+    // Tier 2: at 500ms, reveal the progress bar.
+    reconnectUiTimer = setTimeout(() => {
+      reconnectUiTimer = null;
+      if (state === 'reconnecting') {
+        containerEl.setAttribute('data-grimnir-reconnect-ui', 'progress');
+        updateUI();
+      }
+    }, RECONNECT_UI_SILENT_MS);
+  }
+
+  function flashReconnectingText() {
+    containerEl.setAttribute('data-grimnir-reconnect-ui', 'text');
+    updateUI();
+    if (reconnectTextTimer !== null) clearTimeout(reconnectTextTimer);
+    reconnectTextTimer = setTimeout(() => {
+      reconnectTextTimer = null;
+      // Drop back to progress-bar mode so the rest of the cycle stays subtle.
+      if (state === 'reconnecting') {
+        containerEl.setAttribute('data-grimnir-reconnect-ui', 'progress');
+      } else {
+        containerEl.removeAttribute('data-grimnir-reconnect-ui');
+      }
+      updateUI();
+    }, RECONNECT_TEXT_FLASH_MS);
+  }
+
+  // --- DOM scaffolding (Chunk 4) ---------------------------------------
+
+  let uiRoot = null;
+  let toggleBtn = null;
+  let statusEl = null;
+  let progressEl = null;
+  let labelEl = null;
+  let qualitySel = null;
+  let retryBtn = null;
+
+  function renderShell() {
+    uiRoot = document.createElement('div');
+    uiRoot.setAttribute('data-grimnir-role', 'ui-root');
+
+    toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.setAttribute('data-grimnir-role', 'toggle');
+    toggleBtn.textContent = 'Play';
+    toggleBtn.addEventListener('click', () => {
+      if (state === 'unavailable') { retry(); return; }
+      if (state === 'playing' || state === 'reconnecting') pause();
+      else play();
+    });
+
+    statusEl = document.createElement('span');
+    statusEl.setAttribute('data-grimnir-role', 'status');
+
+    progressEl = document.createElement('div');
+    progressEl.setAttribute('data-grimnir-role', 'progress');
+    progressEl.setAttribute('aria-hidden', 'true');
+
+    labelEl = document.createElement('span');
+    labelEl.setAttribute('data-grimnir-role', 'label');
+
+    qualitySel = document.createElement('select');
+    qualitySel.setAttribute('data-grimnir-role', 'quality');
+    qualitySel.addEventListener('change', () => {
+      const v = qualitySel.value;
+      if (v === 'auto') {
+        pinnedIndex = null;
+        return;
+      }
+      const i = parseInt(v, 10);
+      if (Number.isFinite(i) && i >= 0 && i < streams.length) setActiveIndex(i);
+    });
+
+    retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.setAttribute('data-grimnir-role', 'retry');
+    retryBtn.textContent = 'Retry';
+    retryBtn.addEventListener('click', () => retry());
+
+    uiRoot.appendChild(toggleBtn);
+    uiRoot.appendChild(labelEl);
+    uiRoot.appendChild(qualitySel);
+    uiRoot.appendChild(statusEl);
+    uiRoot.appendChild(progressEl);
+    uiRoot.appendChild(retryBtn);
+    containerEl.appendChild(uiRoot);
+
+    renderQualityOptions();
+    containerEl.setAttribute('data-grimnir-state', state);
+    updateUI();
+  }
+
+  function renderQualityOptions() {
+    if (!qualitySel) return;
+    qualitySel.innerHTML = '';
+    const auto = document.createElement('option');
+    auto.value = 'auto';
+    auto.textContent = 'Auto';
+    qualitySel.appendChild(auto);
+    streams.forEach((s, i) => {
+      const o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = s.label || `Stream ${i + 1}`;
+      qualitySel.appendChild(o);
+    });
+    qualitySel.value = pinnedIndex === null ? 'auto' : String(pinnedIndex);
+  }
+
+  function updateUI() {
+    if (!uiRoot) return;
+    if (toggleBtn) {
+      if (state === 'unavailable') toggleBtn.textContent = 'Retry';
+      else if (state === 'playing' || state === 'reconnecting') toggleBtn.textContent = 'Pause';
+      else toggleBtn.textContent = 'Play';
+    }
+    if (statusEl) {
+      const reconnectUi = containerEl.getAttribute('data-grimnir-reconnect-ui');
+      if (state === 'unavailable') {
+        statusEl.textContent = 'Stream unavailable';
+      } else if (state === 'reconnecting' && reconnectUi === 'text') {
+        statusEl.textContent = 'Reconnecting...';
+      } else {
+        statusEl.textContent = '';
+      }
+    }
+    if (labelEl) {
+      const s = activeStream();
+      labelEl.textContent = s && s.label ? s.label : '';
+    }
+    if (retryBtn) {
+      retryBtn.setAttribute('data-grimnir-hidden', state === 'unavailable' ? '0' : '1');
+    }
+    if (qualitySel) {
+      const desired = pinnedIndex === null ? 'auto' : String(pinnedIndex);
+      if (qualitySel.value !== desired) qualitySel.value = desired;
+    }
+  }
+
+  // --- Public methods --------------------------------------------------
 
   function play() {
     if (destroyed) return Promise.reject(new Error('player destroyed'));
     userPaused = false;
 
-    // If the streams list is still in-flight, defer play() until it lands.
     if (!streamsLoaded && streamsLoadPromise) {
       return streamsLoadPromise.then(() => {
         if (destroyed || userPaused) return;
-        if (streams.length === 0) {
-          enterUnavailable();
-          return;
-        }
+        if (streams.length === 0) { enterUnavailable(); return; }
         if (!audio) audio = buildAudio();
         if (!audio) return;
         const p = audio.play();
@@ -352,10 +476,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
       });
     }
 
-    if (streams.length === 0) {
-      enterUnavailable();
-      return Promise.resolve();
-    }
+    if (streams.length === 0) { enterUnavailable(); return Promise.resolve(); }
     if (!audio) audio = buildAudio();
     if (!audio) return Promise.resolve();
     const p = audio.play();
@@ -366,6 +487,8 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     userPaused = true;
     if (audio) audio.pause();
     stopUpgradeProbe();
+    clearReconnectUiTimers();
+    containerEl.removeAttribute('data-grimnir-reconnect-ui');
     setState('stopped');
   }
 
@@ -373,6 +496,8 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     userPaused = true;
     detachCurrentAudio();
     stopUpgradeProbe();
+    clearReconnectUiTimers();
+    containerEl.removeAttribute('data-grimnir-reconnect-ui');
     setState('stopped');
   }
 
@@ -380,18 +505,36 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     destroyed = true;
     detachCurrentAudio();
     stopUpgradeProbe();
+    clearReconnectUiTimers();
     reconnectAttempts = [];
+    if (uiRoot && uiRoot.parentNode === containerEl) {
+      containerEl.removeChild(uiRoot);
+    }
+    uiRoot = null;
   }
 
-  // retry: full reset after exhaustion. Walks back to priority 1 & restarts.
   function retry() {
     if (destroyed) return Promise.reject(new Error('player destroyed'));
-    activeIndex = 0;
+    activeIndex = pinnedIndex !== null ? pinnedIndex : 0;
     reconnectAttempts = [];
     userPaused = false;
     fireStreamChange();
     setState('stopped');
     return play();
+  }
+
+  // setActiveIndex pins the player to a specific stream (listener choice via
+  // the quality dropdown). Disables auto-degrade/upgrade until reset to auto.
+  function setActiveIndex(i) {
+    if (i < 0 || i >= streams.length) return;
+    pinnedIndex = i;
+    activeIndex = i;
+    reconnectAttempts = [];
+    stopUpgradeProbe();
+    fireStreamChange();
+    if (state === 'playing' || state === 'reconnecting') {
+      recycleToActive();
+    }
   }
 
   function getState() { return state; }
@@ -402,7 +545,10 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   function getActiveStream() { return activeStream(); }
   function getStreams() { return streams.slice(); }
 
-  // Autoplay path. Same defer-until-loaded rule as play().
+  // --- Init ------------------------------------------------------------
+
+  renderShell();
+
   if (autoplay) {
     if (streamsLoaded) {
       if (streams.length > 0) {
@@ -428,29 +574,17 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   }
 
   return {
-    play,
-    pause,
-    stop,
-    destroy,
-    retry,
-    getState,
-    getReconnectCount,
-    getActiveStream,
-    getStreams,
+    play, pause, stop, destroy, retry,
+    getState, getReconnectCount, getActiveStream, getStreams,
+    setActiveIndex,
   };
 }
 
-// fetchStreams hits the control-plane endpoint Chunk 1 shipped. Exposed
-// (un-exported) so tests can stub the network via the `streams:` option.
 async function fetchStreams(apiBase, stationId) {
   const url = `${apiBase}/api/v1/stations/${encodeURIComponent(stationId)}/streams`;
   const resp = await fetch(url, { cache: 'no-store' });
-  if (!resp.ok) {
-    throw new Error(`streams fetch ${resp.status}`);
-  }
+  if (!resp.ok) throw new Error(`streams fetch ${resp.status}`);
   const body = await resp.json();
-  if (!body || !Array.isArray(body.streams)) {
-    throw new Error('streams response shape unexpected');
-  }
+  if (!body || !Array.isArray(body.streams)) throw new Error('streams response shape unexpected');
   return body.streams;
 }
