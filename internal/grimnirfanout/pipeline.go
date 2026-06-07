@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-gst/go-gst/gst"
 	"github.com/go-gst/go-gst/gst/app"
@@ -58,11 +59,12 @@ type Pipeline struct {
 	appsrc *app.Source
 	bus    *gst.Bus
 
-	mu       sync.Mutex
-	started  bool
-	stopped  bool
-	doneCh   chan struct{}
-	doneOnce sync.Once
+	mu        sync.Mutex
+	started   bool
+	busActive bool // true once consumeBus goroutine is running
+	stopped   bool
+	doneCh    chan struct{}
+	doneOnce  sync.Once
 }
 
 // NewPipeline builds the per-session pipeline from cfg. Does NOT call
@@ -129,6 +131,9 @@ func (p *Pipeline) Start() error {
 		_ = p.gst.SetState(gst.StateNull)
 		return fmt.Errorf("set state PLAYING: %w", err)
 	}
+	p.mu.Lock()
+	p.busActive = true
+	p.mu.Unlock()
 	go p.consumeBus(doneCh)
 	return nil
 }
@@ -160,7 +165,11 @@ func (p *Pipeline) PushPCM(pcm []byte) error {
 }
 
 // Stop transitions the pipeline to NULL and unblocks any consumer waiting on
-// Done(). Idempotent.
+// Done(). Idempotent & safe to call concurrently with the bus-consumer
+// goroutine: we drive the bus to EOS, wait for consumeBus to exit, & only
+// then call SetState(NULL). Tearing down the pipeline while consumeBus is
+// blocked inside gst_bus_timed_pop has caused intermittent CGo SIGSEGVs in
+// gst_element_set_state under -race.
 func (p *Pipeline) Stop() error {
 	p.mu.Lock()
 	if p.stopped {
@@ -168,14 +177,33 @@ func (p *Pipeline) Stop() error {
 		return nil
 	}
 	p.stopped = true
+	doneCh := p.doneCh
+	busActive := p.busActive
 	p.mu.Unlock()
 
 	if p.appsrc != nil {
 		p.appsrc.EndStream()
 	}
 	if p.bus != nil {
+		// Posting EOS wakes consumeBus's TimedPop so it exits & closes
+		// doneCh. The defer in consumeBus runs doneOnce.Do(close(doneCh)).
 		p.bus.Post(gst.NewEOSMessage(p.gst))
 	}
+
+	// Only wait for the bus goroutine if it was actually launched (Start
+	// completed successfully). Belt-&-braces: 2s timeout so a misbehaving
+	// bus can't deadlock Stop.
+	if busActive {
+		select {
+		case <-doneCh:
+		case <-time.After(2 * time.Second):
+		}
+	} else {
+		// consumeBus was never launched; nobody will close doneCh. Close
+		// it here so callers waiting on Done() unblock.
+		p.doneOnce.Do(func() { close(doneCh) })
+	}
+
 	return p.gst.SetState(gst.StateNull)
 }
 

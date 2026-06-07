@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package grimnirfanout
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -161,5 +162,94 @@ func TestPipeline_StopIsIdempotent(t *testing.T) {
 	}
 	if err := p.Stop(); err != nil {
 		t.Errorf("second Stop: %v", err)
+	}
+}
+
+// TestPipeline_ConcurrentStopRace exercises the shutdown path under -race.
+// Several goroutines call Stop() & Done() concurrently while the consumeBus
+// goroutine is still draining bus messages. Before the Stop-waits-for-bus
+// fix this triggered a CGo SIGSEGV in gst_element_set_state ~once per few
+// dozen iterations.
+func TestPipeline_ConcurrentStopRace(t *testing.T) {
+	gstInit()
+	const iterations = 50
+	for i := 0; i < iterations; i++ {
+		p, err := NewPipeline(PipelineConfig{
+			Engines:      []string{"127.0.0.1:65000"},
+			SourceLaunch: "audiotestsrc is-live=true samplesperbuffer=480",
+		})
+		if err != nil {
+			t.Fatalf("iter %d NewPipeline: %v", i, err)
+		}
+		if err := p.Start(); err != nil {
+			t.Fatalf("iter %d Start: %v", i, err)
+		}
+
+		// Fire several concurrent Stop()s plus a Done() reader to mimic the
+		// real shutdown shape: SRTListener.Serve has one Stop in the
+		// select-case, but the bus goroutine, ctx cancel, and a test defer
+		// can all race to call Stop or read Done.
+		var wg sync.WaitGroup
+		for g := 0; g < 4; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = p.Stop()
+			}()
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case <-p.Done():
+			case <-time.After(2 * time.Second):
+			}
+		}()
+		wg.Wait()
+	}
+}
+
+// TestSRT_ServeLifecycleStress runs the full SRTListener.Serve lifecycle
+// (Create session, build + start pipeline, cancel, Stop, Remove session)
+// many times in a row to flush out CGo SIGSEGVs in the shutdown path.
+// Pre-fix this could SEGV intermittently inside gst_element_set_state.
+func TestSRT_ServeLifecycleStress(t *testing.T) {
+	if testing.Short() {
+		t.Skip("stress test; use -short to skip")
+	}
+	gstInit()
+	const iterations = 25
+	for i := 0; i < iterations; i++ {
+		mgr := NewSessionMgr()
+		lis, err := NewSRTListener(SRTListenerConfig{
+			BindAddr:             "127.0.0.1",
+			Port:                 0,
+			Engines:              []string{"127.0.0.1:65000"},
+			Sessions:             mgr,
+			SourceLaunchOverride: "audiotestsrc is-live=true samplesperbuffer=480",
+		})
+		if err != nil {
+			t.Fatalf("iter %d NewSRTListener: %v", i, err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- lis.Serve(ctx) }()
+
+		// Let the pipeline actually reach PLAYING before yanking it.
+		time.Sleep(40 * time.Millisecond)
+		cancel()
+
+		select {
+		case err := <-done:
+			if err != nil && err != context.Canceled {
+				t.Fatalf("iter %d Serve: %v", i, err)
+			}
+		case <-time.After(4 * time.Second):
+			t.Fatalf("iter %d Serve did not return", i)
+		}
+		if n := mgr.CountByProtocol(ProtocolSRT); n != 0 {
+			t.Fatalf("iter %d dangling sessions: %d", i, n)
+		}
 	}
 }
