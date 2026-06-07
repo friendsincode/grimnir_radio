@@ -74,6 +74,10 @@ type API struct {
 	logBuffer            *logbuffer.Buffer
 	maxUploadBytes       int64
 	logger               zerolog.Logger
+	// listenerEventLimiter rate-limits anonymous JS-player telemetry posts to
+	// /api/v1/listener-events (10 req/min/IP). Process-local; see
+	// internal/api/listener_events.go.
+	listenerEventLimiter *listenerEventRateLimiter
 }
 
 // New creates the API router wrapper.
@@ -84,24 +88,25 @@ func New(db *gorm.DB, jwtSecret []byte, scheduler *scheduler.Service, analyzer *
 	migrationHandler := NewMigrationHandler(db, media, bus, logger)
 
 	return &API{
-		db:               db,
-		jwtSecret:        jwtSecret,
-		scheduler:        scheduler,
-		analyzer:         analyzer,
-		media:            media,
-		live:             live,
-		webstreamSvc:     webstreamSvc,
-		playout:          playout,
-		prioritySvc:      prioritySvc,
-		executorStateMgr: executorStateMgr,
-		auditSvc:         auditSvc,
-		integritySvc:     integritySvc,
-		migrationHandler: migrationHandler,
-		logBuffer:        logBuf,
-		maxUploadBytes:   maxUploadBytes,
-		broadcast:        broadcastSrv,
-		bus:              bus,
-		logger:           logger,
+		db:                   db,
+		jwtSecret:            jwtSecret,
+		scheduler:            scheduler,
+		analyzer:             analyzer,
+		media:                media,
+		live:                 live,
+		webstreamSvc:         webstreamSvc,
+		playout:              playout,
+		prioritySvc:          prioritySvc,
+		executorStateMgr:     executorStateMgr,
+		auditSvc:             auditSvc,
+		integritySvc:         integritySvc,
+		migrationHandler:     migrationHandler,
+		logBuffer:            logBuf,
+		maxUploadBytes:       maxUploadBytes,
+		broadcast:            broadcastSrv,
+		bus:                  bus,
+		logger:               logger,
+		listenerEventLimiter: newListenerEventRateLimiter(),
 	}
 }
 
@@ -246,6 +251,11 @@ func (a *API) Routes(r chi.Router) {
 		// Listener-facing streams list (custom JS player, Track B-3).
 		// Public so the browser player can fetch it on page load.
 		r.Get("/stations/{stationID}/streams", a.handleStreamsGet)
+
+		// Anonymous listener-event telemetry (custom JS player, Track B-3,
+		// Chunk 5). Public; rate-limited per socket IP. The IP is never
+		// stored on the row, only used for the in-memory token bucket.
+		r.Post("/listener-events", a.handleListenerEventCreate)
 
 		// Public schedule endpoints (Phase 8G)
 		a.AddPublicScheduleRoutes(r)

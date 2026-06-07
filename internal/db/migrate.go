@@ -37,6 +37,7 @@ func Migrate(database *gorm.DB) error {
 		// Station resources
 		&models.Mount{},
 		&models.StationStream{},
+		&models.ListenerEvent{},
 		&models.EncoderPreset{},
 		&models.MediaItem{},
 		&models.Tag{},
