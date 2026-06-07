@@ -15,6 +15,7 @@
 | Network partition between HA nodes is recovering | `grimnir-deploy recover-partition` | [recover-partition.md](./recover-partition.md) |
 | Quarterly: verify backups actually restore | `grimnir-deploy backup-drill --region=R --drill-host=H` | [backup-drill.md](./backup-drill.md) |
 | Triage: is the cluster healthy right now? | `grimnir-deploy verify` | [verify.md](./verify.md) |
+| DJ can't connect; live ingest unreachable | Check `/healthz` on both fan-outs; restart the failing node | [fanout-down.md](./fanout-down.md) |
 | Auto-rollback fired during deploy | Read the rollback ntfy + `audit_log` row; do NOT redeploy without root cause | [deploy.md § auto-rollback](./deploy.md), `internal/grimnirdeploy/autorollback/` |
 | Alert firing in tier-2 (page) | Check the ntfy push + open the Grafana dashboard linked in the alert annotation | [docs/observability/README.md](../observability/README.md) |
 | Rotate a secret (routine or post-leak) | `grimnir-deploy rotate-secret --name=X --new-value=...` | [secrets/rotation.md](./secrets/rotation.md) |

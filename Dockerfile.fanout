@@ -1,0 +1,69 @@
+# syntax=docker/dockerfile:1
+# Build stage — go-gst + libsrt CGo build, mirrors Dockerfile.mediaengine
+FROM golang:1.24-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    pkg-config \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libsrt-openssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY proto/ proto/
+COPY internal/ internal/
+COPY cmd/grimnir-fanout/ cmd/grimnir-fanout/
+
+ARG VERSION=""
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    VERSION_VAL="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')}" && \
+    VERSION_VAL="${VERSION_VAL#v}" && \
+    CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s -X main.Version=${VERSION_VAL}" \
+    -o grimnir-fanout \
+    ./cmd/grimnir-fanout
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    libgstreamer1.0-0 \
+    libgstreamer-plugins-base1.0-0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav \
+    libsrt1.5-openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r fanout && useradd -r -g fanout fanout
+
+COPY --from=builder /build/grimnir-fanout /usr/local/bin/grimnir-fanout
+
+RUN mkdir -p /usr/share/licenses/grimnir-radio
+COPY LICENSE /usr/share/licenses/grimnir-radio/LICENSE
+COPY THIRD_PARTY_NOTICES.md /usr/share/licenses/grimnir-radio/THIRD_PARTY_NOTICES.md
+
+USER fanout
+
+# Harbor 8000, RTP 5006/udp, SRT 1935/udp, WebRTC HTTP 8004,
+# gRPC 9093, /healthz 8003, /metrics 9193
+EXPOSE 8000 5006/udp 1935/udp 8004 9093 8003 9193
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8003/healthz || exit 1
+
+ENTRYPOINT ["/usr/local/bin/grimnir-fanout"]

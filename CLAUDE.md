@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Grimnir Radio is a broadcast automation system built in Go 1.24. It uses a **two-binary architecture** (three when HA is enabled):
+Grimnir Radio is a broadcast automation system built in Go 1.24. It uses a **two-binary architecture** (four when HA is enabled):
 
 - **Control Plane (`cmd/grimnirradio`)**: HTTP API server, scheduler, executor, authentication
 - **Media Engine (`cmd/mediaengine`)**: GStreamer-based audio processing with gRPC control interface
-- **Edge Encoder (`cmd/edge-encoder`, v2 HA path)**: Ingests raw PCM via RTP from N media engines, sample-aligned input switching on engine failure, serves HTTP/ICY + HLS to listeners. Uses **go-gst CGo bindings** (the only binary that does — gst-launch subprocess can't do runtime input switching). See `cmd/edge-encoder/README.md`.
+- **Edge Encoder (`cmd/edge-encoder`, v2 HA path)**: Ingests raw PCM via RTP from N media engines, sample-aligned input switching on engine failure, serves HTTP/ICY + HLS to listeners. Uses **go-gst CGo bindings** (gst-launch subprocess can't do runtime input switching). See `cmd/edge-encoder/README.md`.
+- **Fan-out (`cmd/grimnir-fanout`, v2 HA path)**: Accepts a single DJ over Harbor / RTP / SRT / WebRTC & duplicates the audio as PCM-over-RTP toward every media engine. Engine pipelines hold an always-on `audiomixer` branch; fan-out flips engine-side `LiveInputControl.SetLiveInput(active)` to mix the DJ in/out. Also uses go-gst CGo bindings. See `cmd/grimnir-fanout/README.md`.
 
 The control plane communicates with the media engine via gRPC for low-latency audio control. The edge encoder ingests PCM-over-RTP from each media engine and is the listener-facing endpoint in HA mode.
 
@@ -82,6 +83,8 @@ make run-media
 - `internal/alertbridge/` - Alertmanager webhook -> ntfy adapter. Runs as a loopback sidecar via `cmd/alertmanager-ntfy`.
 - `internal/dbhealth/` - Postgres replication-lag probe; exports `grimnir_pg_replication_lag_seconds`.
 - `internal/vrrphealth/` - VRRP master-count + state probe; exports `grimnir_vrrp_master_count` and `grimnir_vrrp_state` (split-brain detector).
+- `internal/grimnirfanout/` - Per-protocol DJ ingress (Harbor, RTP, SRT, WebRTC), per-session GStreamer pipeline, DJ auth client w/ LRU+TTL cache + event-bus revocation, Redis-backed cross-instance session replication. Paired with `cmd/grimnir-fanout/`.
+- `cmd/grimnir-fanout/` - Live-input fan-out binary. See its README for ports, env vars, & run examples.
 - `internal/grimnirdeploy/autorollback/` - Soak-window Prometheus poller. Flips deploy verdict to Rollback when listener reconnects / 5xx rate / page-and-rollback alerts breach defaults.
 - `ops/prometheus/`, `ops/alertmanager/`, `ops/grafana/` - HA observability provisioning. `make prometheus-validate` runs promtool against the rules + tests.
 - `docs/observability/README.md` - HA observability topology: what scrapes what, where alerts go, how secrets resolve.
@@ -156,6 +159,18 @@ Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variabl
 - `GRIMNIR_DEPLOY_AUTOROLLBACK_ENABLED` - `true` (default) or `false`/`0`/`no`/`off`. Disables the soak-window observer; tests use `false` to avoid needing a live Prometheus.
 - `GRIMNIR_DEPLOY_AUTOROLLBACK_PROM_URL` - Override Prometheus URL for auto-rollback only (per-region differentiation).
 - `GRIMNIR_DEPLOY_AUTOROLLBACK_TICK` - Poll interval during the soak window. Default `15s`.
+- `FANOUT_ENGINE_A_RTP` - Required. `host:port` of media engine A's PCM RTP ingress; `grimnir-fanout` ships every session's PCM here via `multiudpsink`.
+- `FANOUT_ENGINE_B_RTP` - `host:port` of engine B. Empty for single-engine deployments.
+- `FANOUT_HARBOR_PORT` / `FANOUT_RTP_PORT` / `FANOUT_SRT_PORT` / `FANOUT_WEBRTC_HTTP_PORT` - Per-protocol DJ ingress ports. Defaults: 8000 / 5006 / 1935 / 8004.
+- `FANOUT_GRPC_PORT` / `FANOUT_HTTP_PORT` / `FANOUT_METRICS_PORT` - Control surface ports. Defaults: 9093 / 8003 / 9193.
+- `FANOUT_CONTROL_PLANE_GRPC` - Control-plane gRPC for `DJAuth` lookups. When empty the binary boots in `AcceptAllAuthenticator` mode (dev only).
+- `FANOUT_REDIS_ADDR` - Redis for cross-fanout session replication. When empty, sessions are single-node only.
+- `FANOUT_NETCLOCK_ENABLED` / `FANOUT_NETCLOCK_MASTER_ADDR` - Bind per-session pipelines to the region's NetClock master so engine mixer output is sample-aligned across both engines.
+- See `cmd/grimnir-fanout/README.md` for the full table.
+
+## Architectural note: engine-side live-input mixer (v2.0.0-alpha.7+)
+
+Starting with v2.0.0-alpha.7 the media engine pipeline holds an always-on `audiomixer` branch with a `udpsrc → rtpL16depay` input on `GRIMNIR_LIVE_INPUT_PORT`. The fan-out's gRPC `LiveInputControl.SetLiveInput(active bool)` flips whether the DJ branch contributes to the mixer output; the crossfade is driven by the mixer's per-pad volume property rather than `input-selector`. The engine accepts the call with `x-grimnir-source-addr` & `x-grimnir-session-id` as gRPC metadata so the audit log can trace which DJ session caused a given mixer transition. See `proto/mediaengine/v1/liveinput.proto` & `internal/mediaengine/liveinput_controller.go`.
 
 ## Architectural note: programmatic GStreamer (v2.0.0-alpha.3+)
 

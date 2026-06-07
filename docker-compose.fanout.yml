@@ -1,0 +1,67 @@
+# docker-compose overlay for the live-input fan-out (v2 HA path).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.fanout.yml up -d
+#
+# The fan-out is operator-installable; it's NOT in the default
+# docker-compose.yml because v1 deployments don't run it & the SRT/WebRTC
+# port grab would conflict with sites that already expose those ports for
+# something else.
+#
+# Required env (set in your .env or override file):
+#   FANOUT_ENGINE_A_RTP   host:port of media engine A's PCM RTP ingress
+#   FANOUT_ENGINE_B_RTP   host:port of media engine B (empty = single-engine)
+#   FANOUT_CONTROL_PLANE_GRPC   control plane gRPC for DJ auth
+#   FANOUT_REDIS_ADDR     Redis address for cross-instance session replication
+#
+# See cmd/grimnir-fanout/README.md for the full env table.
+
+services:
+  grimnir-fanout:
+    build:
+      context: .
+      dockerfile: Dockerfile.fanout
+    image: ghcr.io/friendsincode/grimnir_fanout:latest
+    container_name: grimnir-fanout
+    depends_on:
+      redis:
+        condition: service_healthy
+      mediaengine:
+        condition: service_healthy
+    environment:
+      FANOUT_BIND_ADDR: 0.0.0.0
+      FANOUT_GRPC_PORT: 9093
+      FANOUT_HTTP_PORT: 8003
+      FANOUT_METRICS_PORT: 9193
+      FANOUT_HARBOR_PORT: 8000
+      FANOUT_RTP_PORT: 5006
+      FANOUT_SRT_PORT: 1935
+      FANOUT_WEBRTC_HTTP_PORT: 8004
+
+      FANOUT_ENGINE_A_RTP: ${FANOUT_ENGINE_A_RTP:-mediaengine:5104}
+      FANOUT_ENGINE_B_RTP: ${FANOUT_ENGINE_B_RTP:-}
+
+      FANOUT_CONTROL_PLANE_GRPC: ${FANOUT_CONTROL_PLANE_GRPC:-grimnir:9090}
+      FANOUT_REDIS_ADDR: ${FANOUT_REDIS_ADDR:-redis:6379}
+
+      FANOUT_NETCLOCK_ENABLED: ${FANOUT_NETCLOCK_ENABLED:-false}
+      FANOUT_NETCLOCK_MASTER_ADDR: ${FANOUT_NETCLOCK_MASTER_ADDR:-}
+
+      FANOUT_LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${FANOUT_HARBOR_PORT_PUBLIC:-8000}:8000"
+      - "${FANOUT_RTP_PORT_PUBLIC:-5006}:5006/udp"
+      - "${FANOUT_SRT_PORT_PUBLIC:-1935}:1935/udp"
+      - "${FANOUT_WEBRTC_HTTP_PORT_PUBLIC:-8004}:8004"
+      - "${FANOUT_GRPC_PORT_PUBLIC:-9093}:9093"
+      - "${FANOUT_HTTP_PORT_PUBLIC:-8003}:8003"
+      - "${FANOUT_METRICS_PORT_PUBLIC:-9193}:9193"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8003/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - grimnir-network
+    restart: unless-stopped
