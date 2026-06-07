@@ -30,6 +30,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/grimnirfanout"
 	"github.com/friendsincode/grimnir_radio/internal/metrics"
 	pb "github.com/friendsincode/grimnir_radio/proto/grimnirfanout/v1"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -63,6 +64,21 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 		sessionMgr,
 		func() time.Duration { return time.Since(startTime) },
 	)
+
+	// Redis-backed session replication (Chunk 8). When FANOUT_REDIS_ADDR is
+	// set, every Session lifecycle event mirrors into Redis so a peer fan-out
+	// can rehydrate state on takeover. Unset means single-node deploy; the
+	// replicator stays nil & every replication path becomes a no-op.
+	var rdb *redis.Client
+	if cfg.RedisAddr != "" {
+		rdb = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+		sessionMgr.SetReplicator(grimnirfanout.NewSessionReplicator(rdb))
+		hbCtx, hbCancel := context.WithCancel(ctx)
+		defer hbCancel()
+		go sessionMgr.RunReplicationHeartbeat(hbCtx, 5*time.Second)
+		defer func() { _ = rdb.Close() }()
+		fmt.Fprintf(stdout, "grimnir-fanout: session replication wired -> %s\n", cfg.RedisAddr)
+	}
 
 	// Engine targets for every per-session multiudpsink fanout.
 	engines := []string{cfg.EngineARTP}
