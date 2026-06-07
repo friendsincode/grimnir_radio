@@ -72,7 +72,7 @@
 <body>
 
 <h1>Grimnir player — manual reconnect test harness</h1>
-<p class="meta">Chunks 2, 3, 4 of <code>2026-06-06-custom-js-player.md</code>. Loads <code>player.js</code> as an ES module &amp; drives it from this page.</p>
+<p class="meta">Chunks 2, 3, 4, 5 of <code>2026-06-06-custom-js-player.md</code>. Loads <code>player.js</code> as an ES module &amp; drives it from this page.</p>
 
 <fieldset>
   <legend>Station</legend>
@@ -81,6 +81,7 @@
   </label>
   <p class="meta">Or short-circuit the fetch with a literal stream list (JSON array of <code>{url,label,priority}</code>); leave blank to use the station ID above.</p>
   <textarea id="streamsOverride" placeholder='[{"url":"https://<public-hostname>/main/hq","label":"HQ","priority":1},{"url":"https://<public-hostname>/main/lq","label":"LQ","priority":2}]'></textarea>
+  <label><input type="checkbox" id="noTelemetry"> Disable telemetry (sets <code>data-grimnir-no-telemetry="1"</code> on the container)</label>
   <p>
     <button id="btn-play">Play (external)</button>
     <button id="btn-pause">Pause (external)</button>
@@ -100,13 +101,15 @@
 </fieldset>
 
 <fieldset>
-  <legend>How to test (Chunks 2 + 3 + 4)</legend>
+  <legend>How to test (Chunks 2 + 3 + 4 + 5)</legend>
   <ol>
     <li>Pick a station ID with multiple streams configured (HQ + LQ). Hit the in-container <b>Play</b> button. State should go to <b>playing</b>; <b>Active stream</b> should show <code>HQ</code>.</li>
     <li>Kill the HQ stream upstream. After 3 reconnect attempts inside 30s, the player should auto-degrade — Active stream flips to <code>LQ</code>, Escalations increments, &amp; playback resumes. Watch for the "Reconnecting..." text flash.</li>
     <li>Bring HQ back. Within 60s the background HEAD probe should succeed &amp; the player should step back up to <code>HQ</code>.</li>
     <li>Kill BOTH streams. State goes <b>unavailable</b>; the in-container <b>Retry</b> button appears (the toggle button also turns into "Retry"). Bring streams back &amp; click Retry.</li>
     <li>Pick a specific quality from the dropdown — the player pins to it (auto-degrade off until you switch back to Auto).</li>
+    <li>Check Network tab: POSTs to <code>/api/v1/listener-events</code> on play, stop, reconnect, degrade, upgrade, exhausted. Tick the telemetry checkbox above &amp; rebuild to confirm they stop.</li>
+    <li>Lock-screen / OS media controls (Chunk 5.1): on a phone or with the system media-key shortcut, the play/pause keys should drive the player; metadata shows the station name.</li>
   </ol>
 </fieldset>
 
@@ -120,6 +123,7 @@
 
   const stationIdInput = document.getElementById('stationId');
   const overrideInput = document.getElementById('streamsOverride');
+  const noTelemetryCb = document.getElementById('noTelemetry');
   const stateEl = document.getElementById('state');
   const activeLabelEl = document.getElementById('activeLabel');
   const reconnectsEl = document.getElementById('reconnects');
@@ -155,8 +159,14 @@
     }
     escalations = 0;
     container.innerHTML = '';
+    if (noTelemetryCb.checked) {
+      container.setAttribute('data-grimnir-no-telemetry', '1');
+    } else {
+      container.removeAttribute('data-grimnir-no-telemetry');
+    }
 
     const opts = {
+      stationName: 'Grimnir test station',
       onStateChange: (s) => {
         stateEl.textContent = s;
         stateEl.className = s;
@@ -187,6 +197,8 @@
         return;
       }
       arg = stationIdInput.value || 'override';
+      // URL-mode: pass stationId explicitly so telemetry still POSTs.
+      opts.stationId = stationIdInput.value || '';
       log(`player built (override list, ${opts.streams.length} streams)`);
     } else {
       arg = stationIdInput.value.trim();

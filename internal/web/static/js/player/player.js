@@ -1,4 +1,4 @@
-// player.js — Grimnir Radio listener player (Chunks 2 + 3 + 4)
+// player.js — Grimnir Radio listener player (Chunks 2 + 3 + 4 + 5)
 //
 // Vanilla JS ES module. No build step. No framework.
 //
@@ -35,10 +35,19 @@
 //   - 500ms..3s       progress bar visible
 //   - 3+ attempts     "Reconnecting..." text for ~1s, then resume silently
 //
+// Telemetry (Chunk 5)
+// -------------------
+// Anonymous events POST to `/api/v1/listener-events` for: play, stop,
+// reconnect (with duration_ms), degrade, upgrade, exhausted. Uses sendBeacon
+// when available; falls back to fetch keepalive. Opt out by setting
+// `data-grimnir-no-telemetry="1"` on the container element.
+//
 // Public surface
 // --------------
 //   const player = createPlayer(containerEl, stationIdOrUrl, {
 //     streams: [{url, label, priority, ...}, ...], // optional pre-supply
+//     stationId:   string,    // for telemetry when arg 2 is a URL
+//     stationName: string,    // for MediaSession metadata
 //     onEscalate, onStateChange, onStreamChange, onExhausted,
 //     autoplay: false,
 //     apiBase: '',
@@ -55,6 +64,8 @@ const UPGRADE_PROBE_INTERVAL_MS = 60_000;
 // UI thresholds for the tiered reconnect indicator (Chunk 4).
 const RECONNECT_UI_SILENT_MS = 500;
 const RECONNECT_TEXT_FLASH_MS = 1_000;
+
+const TELEMETRY_PATH = '/api/v1/listener-events';
 
 function looksLikeUrl(s) {
   return typeof s === 'string' && /^https?:\/\//i.test(s);
@@ -74,6 +85,17 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   const onExhausted = typeof options.onExhausted === 'function' ? options.onExhausted : null;
   const autoplay = options.autoplay === true;
   const apiBase = typeof options.apiBase === 'string' ? options.apiBase : '';
+  const stationName = typeof options.stationName === 'string' ? options.stationName : 'Grimnir Radio';
+
+  // Station ID for telemetry. When arg 2 is a URL we have no station; caller
+  // can still provide one via options.stationId so the events POST.
+  const telemetryStationId = looksLikeUrl(stationIdOrUrl)
+    ? (typeof options.stationId === 'string' ? options.stationId : '')
+    : stationIdOrUrl;
+
+  // Telemetry opt-out: honors data-grimnir-no-telemetry="1" on the container.
+  const telemetryDisabled =
+    containerEl.getAttribute && containerEl.getAttribute('data-grimnir-no-telemetry') === '1';
 
   let streams = [];
   let activeIndex = 0;
@@ -214,6 +236,13 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
 
   function onPlaying() {
     clearWaitingTimer();
+    // Reconnect succeeded — emit a reconnect telemetry event with duration if we
+    // were previously in the reconnecting state. duration_ms = time from
+    // disconnect to recovery.
+    if (state === 'reconnecting' && disconnectStartedAt > 0) {
+      const duration = Date.now() - disconnectStartedAt;
+      sendTelemetry('reconnect', duration);
+    }
     disconnectStartedAt = 0;
     clearReconnectUiTimers();
     setState('playing');
@@ -236,6 +265,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     stopUpgradeProbe();
     clearReconnectUiTimers();
     setState('unavailable');
+    sendTelemetry('exhausted');
     if (onExhausted) {
       try { onExhausted(); } catch (e) { console.error('onExhausted threw', e); }
     }
@@ -281,6 +311,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
           enterUnavailable();
           return;
         }
+        sendTelemetry('degrade');
         if (onEscalate) {
           try {
             onEscalate({
@@ -310,6 +341,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     fireStreamChange();
     if (activeIndex <= 0) stopUpgradeProbe();
     console.info(`grimnir-player: upgrade -> ${activeStream() && activeStream().label}`);
+    sendTelemetry('upgrade');
     recycleToActive();
   }
 
@@ -359,6 +391,8 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   let retryBtn = null;
 
   function renderShell() {
+    // Build once. The <audio> elements live as siblings of uiRoot inside
+    // containerEl so detachCurrentAudio() can still remove them by parentNode.
     uiRoot = document.createElement('div');
     uiRoot.setAttribute('data-grimnir-role', 'ui-root');
 
@@ -431,11 +465,13 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
 
   function updateUI() {
     if (!uiRoot) return;
+    // Toggle button text.
     if (toggleBtn) {
       if (state === 'unavailable') toggleBtn.textContent = 'Retry';
       else if (state === 'playing' || state === 'reconnecting') toggleBtn.textContent = 'Pause';
       else toggleBtn.textContent = 'Play';
     }
+    // Status text.
     if (statusEl) {
       const reconnectUi = containerEl.getAttribute('data-grimnir-reconnect-ui');
       if (state === 'unavailable') {
@@ -446,16 +482,76 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
         statusEl.textContent = '';
       }
     }
+    // Active label (de-emphasized — operators style via CSS).
     if (labelEl) {
       const s = activeStream();
       labelEl.textContent = s && s.label ? s.label : '';
     }
+    // Retry button only visible in the unavailable state.
     if (retryBtn) {
       retryBtn.setAttribute('data-grimnir-hidden', state === 'unavailable' ? '0' : '1');
     }
+    // Quality select reflects current selection.
     if (qualitySel) {
       const desired = pinnedIndex === null ? 'auto' : String(pinnedIndex);
       if (qualitySel.value !== desired) qualitySel.value = desired;
+    }
+  }
+
+  // --- MediaSession (Chunk 5.1) ----------------------------------------
+
+  function wireMediaSession() {
+    if (typeof navigator === 'undefined' || !navigator.mediaSession) return;
+    try {
+      if (typeof MediaMetadata !== 'undefined') {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: stationName,
+          artist: 'Grimnir Radio',
+        });
+      }
+      navigator.mediaSession.setActionHandler('play', () => { play(); });
+      navigator.mediaSession.setActionHandler('pause', () => { pause(); });
+    } catch (e) {
+      console.warn('grimnir-player: MediaSession wiring failed', e);
+    }
+  }
+
+  // --- Telemetry (Chunk 5.2/5.3) ---------------------------------------
+
+  function sendTelemetry(eventType, durationMs) {
+    if (telemetryDisabled) return;
+    if (!telemetryStationId) return;
+    const s = activeStream();
+    if (!s) return;
+    const payload = {
+      event_type: eventType,
+      station_id: telemetryStationId,
+      stream_label: s.label || 'unknown',
+    };
+    if (typeof durationMs === 'number' && durationMs >= 0) {
+      payload.duration_ms = Math.round(durationMs);
+    }
+    const url = `${apiBase}${TELEMETRY_PATH}`;
+    const json = JSON.stringify(payload);
+    try {
+      // sendBeacon is best-effort; survives page unload. It uses
+      // text/plain by default, but the handler only cares about the JSON body.
+      if (typeof navigator !== 'undefined' &&
+          typeof navigator.sendBeacon === 'function' &&
+          typeof Blob !== 'undefined') {
+        const blob = new Blob([json], { type: 'application/json' });
+        const ok = navigator.sendBeacon(url, blob);
+        if (ok) return;
+      }
+      // Fallback: fetch with keepalive so the request survives a quick unload.
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: json,
+        keepalive: true,
+      }).catch((e) => console.warn('grimnir-player: telemetry POST failed', e));
+    } catch (e) {
+      console.warn('grimnir-player: telemetry threw', e);
     }
   }
 
@@ -469,6 +565,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
       return streamsLoadPromise.then(() => {
         if (destroyed || userPaused) return;
         if (streams.length === 0) { enterUnavailable(); return; }
+        sendTelemetry('play');
         if (!audio) audio = buildAudio();
         if (!audio) return;
         const p = audio.play();
@@ -477,6 +574,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     }
 
     if (streams.length === 0) { enterUnavailable(); return Promise.resolve(); }
+    sendTelemetry('play');
     if (!audio) audio = buildAudio();
     if (!audio) return Promise.resolve();
     const p = audio.play();
@@ -490,6 +588,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     clearReconnectUiTimers();
     containerEl.removeAttribute('data-grimnir-reconnect-ui');
     setState('stopped');
+    sendTelemetry('stop');
   }
 
   function stop() {
@@ -499,6 +598,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     clearReconnectUiTimers();
     containerEl.removeAttribute('data-grimnir-reconnect-ui');
     setState('stopped');
+    sendTelemetry('stop');
   }
 
   function destroy() {
@@ -548,10 +648,12 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
   // --- Init ------------------------------------------------------------
 
   renderShell();
+  wireMediaSession();
 
   if (autoplay) {
     if (streamsLoaded) {
       if (streams.length > 0) {
+        sendTelemetry('play');
         audio = buildAudio();
         if (audio) {
           const p = audio.play();
@@ -563,6 +665,7 @@ export function createPlayer(containerEl, stationIdOrUrl, options = {}) {
     } else if (streamsLoadPromise) {
       streamsLoadPromise.then(() => {
         if (destroyed || userPaused || streams.length === 0) return;
+        sendTelemetry('play');
         audio = buildAudio();
         if (!audio) return;
         const p = audio.play();
