@@ -20,6 +20,7 @@
 | Alert firing in tier-2 (page) | Check the ntfy push + open the Grafana dashboard linked in the alert annotation | [docs/observability/README.md](../observability/README.md) |
 | Rotate a secret (routine or post-leak) | `grimnir-deploy rotate-secret --name=X --new-value=...` | [secrets/rotation.md](./secrets/rotation.md) |
 | Initial bring-up of VIP failover (per region) | apt install keepalived; copy configs from `ops/keepalived/` | [keepalived-install.md](./keepalived-install.md) |
+| One-time media cutover from local disk to Cloudflare R2 | rclone sync + `GRIMNIR_MEDIA_BACKEND=s3` | [migrate-media-to-r2.md](./migrate-media-to-r2.md) |
 
 Every subcommand:
 

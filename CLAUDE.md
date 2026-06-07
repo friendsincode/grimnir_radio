@@ -139,7 +139,15 @@ Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variabl
 - `GRIMNIR_DB_DSN` - Database connection string
 - `GRIMNIR_REDIS_ADDR` - Redis address for events/leadership
 - `GRIMNIR_MEDIA_ENGINE_GRPC_ADDR` - Media engine gRPC address (default: localhost:9091)
-- `GRIMNIR_MEDIA_ROOT` - Base directory for media files (e.g., /var/lib/grimnir/media)
+- `GRIMNIR_MEDIA_ROOT` - Base directory for media files (e.g., /var/lib/grimnir/media). Still required when backend=`s3`; it's the on-disk read-through cache.
+- `GRIMNIR_MEDIA_BACKEND` - `fs` (default) or `s3`. Selects the `internal/media/` backend the control plane uses. `s3` requires `GRIMNIR_S3_BUCKET`. The factory in `internal/media/service.go` dispatches on this value.
+- `GRIMNIR_S3_BUCKET` - Bucket name. Required when `GRIMNIR_MEDIA_BACKEND=s3`.
+- `GRIMNIR_S3_ENDPOINT` - Endpoint URL (e.g., `https://<account-id>.r2.cloudflarestorage.com` for R2). Empty defaults to AWS S3.
+- `GRIMNIR_S3_REGION` - Default `auto` (R2 convention). Set to `us-east-1` etc. for AWS S3.
+- `GRIMNIR_S3_ACCESS_KEY` - Access key. Legacy alias: `GRIMNIR_S3_ACCESS_KEY_ID`; falls back to `AWS_ACCESS_KEY_ID`.
+- `GRIMNIR_S3_SECRET_KEY` - Secret key. Legacy alias: `GRIMNIR_S3_SECRET_ACCESS_KEY`; falls back to `AWS_SECRET_ACCESS_KEY`.
+- `GRIMNIR_S3_PATH_STYLE` - Default `true` (R2 & MinIO friendly). Set `false` for AWS virtual-host addressing.
+- `GRIMNIR_S3_PUBLIC_BASE_URL` - Optional CDN base URL (e.g., a Cloudflare custom hostname in front of R2). When unset, URLs are constructed from the endpoint.
 - `GRIMNIR_JWT_SIGNING_KEY` - JWT signing secret
 - `GRIMNIR_HA_PCM_RTP_ENABLED` - When true, media engine emits raw L16 PCM via RTP to the configured edge encoders (in addition to the legacy fdsink output). Required for the HA architecture (Track A step 4). Default: false.
 - `GRIMNIR_HA_PCM_RTP_TARGETS` - Comma-separated list of `host:port` for PCM-RTP delivery. Required when HA enabled. Example: `<node-a-ip>:5004,<node-b-ip>:5004`. Each entry receives the same RTP stream via `multiudpsink`.
