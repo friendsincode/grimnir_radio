@@ -4,9 +4,15 @@
 [![Coverage](https://img.shields.io/endpoint?url=https://<public-hostname>/api/v1/public/coverage/badge)](https://<public-hostname>/api/v1/public/coverage)
 [![Coverage Target](https://img.shields.io/endpoint?url=https://<public-hostname>/api/v1/public/coverage/target-badge)](https://<public-hostname>/api/v1/public/coverage)
 
-**Version:** 1.31.1
+**Version:** 2.0.0-rc.1 (v1.31.1 still supported)
 
-Grimnir Radio is a modern, production-ready broadcast automation system built in Go. It features a multi-process architecture with separated control plane and media engine, live DJ input, HTTP stream relay with automatic failover, horizontal scaling, and comprehensive observability.
+Grimnir Radio is a broadcast automation system built in Go. v1 ships a control plane + media engine split. v2 adds an HA topology: two proxmox VMs, four binaries per node, VRRP-floated VIPs, shared Postgres + Redis, & Cloudflare R2 for media + backups.
+
+## v2 is in release candidate (rc.1)
+
+The v1.x binary pair (`grimnirradio` + `mediaengine`) is unchanged & still ships in every release. v2 adds two more binaries (`edge-encoder` + `grimnir-fanout`) plus an operator CLI (`grimnir-deploy`); v2 is opt-in.
+
+If you're upgrading a v1 prod deployment to v2, start with [`docs/v2/UPGRADE.md`](docs/v2/UPGRADE.md). It walks every phase from "v1 in prod today" to "v2 cutover complete & v1 decommissioned" with rollback at each step. Architecture: [`docs/v2/ARCHITECTURE.md`](docs/v2/ARCHITECTURE.md). What changed: [`docs/v2/RELEASE_NOTES.md`](docs/v2/RELEASE_NOTES.md). 3am-page runbook directory: [`docs/runbooks/index.md`](docs/runbooks/index.md).
 
 ## Architecture
 

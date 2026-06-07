@@ -4,14 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Grimnir Radio is a broadcast automation system built in Go 1.24. It uses a **two-binary architecture** (four when HA is enabled):
+Grimnir Radio is a broadcast automation system built in Go 1.24. v2 is a **four-binary HA architecture** running on two proxmox VMs with VRRP-floated VIPs in front, shared Postgres + Redis behind, & Cloudflare R2 for media + backups. v1's two-binary topology is still supported & v2 is opt-in.
 
-- **Control Plane (`cmd/grimnirradio`)**: HTTP API server, scheduler, executor, authentication
-- **Media Engine (`cmd/mediaengine`)**: GStreamer-based audio processing with gRPC control interface
-- **Edge Encoder (`cmd/edge-encoder`, v2 HA path)**: Ingests raw PCM via RTP from N media engines, sample-aligned input switching on engine failure, serves HTTP/ICY + HLS to listeners. Uses **go-gst CGo bindings** (gst-launch subprocess can't do runtime input switching). See `cmd/edge-encoder/README.md`.
-- **Fan-out (`cmd/grimnir-fanout`, v2 HA path)**: Accepts a single DJ over Harbor / RTP / SRT / WebRTC & duplicates the audio as PCM-over-RTP toward every media engine. Engine pipelines hold an always-on `audiomixer` branch; fan-out flips engine-side `LiveInputControl.SetLiveInput(active)` to mix the DJ in/out. Also uses go-gst CGo bindings. See `cmd/grimnir-fanout/README.md`.
+**Start here for v2 operators**: [`docs/v2/UPGRADE.md`](docs/v2/UPGRADE.md). Architecture overview: [`docs/v2/ARCHITECTURE.md`](docs/v2/ARCHITECTURE.md). Release notes: [`docs/v2/RELEASE_NOTES.md`](docs/v2/RELEASE_NOTES.md).
 
-The control plane communicates with the media engine via gRPC for low-latency audio control. The edge encoder ingests PCM-over-RTP from each media engine and is the listener-facing endpoint in HA mode.
+The four binaries:
+
+- **Control Plane (`cmd/grimnirradio`)**: HTTP API server, scheduler, executor, authentication, DJAuth gRPC server.
+- **Media Engine (`cmd/mediaengine`)**: GStreamer-based audio processing with gRPC control interface. Always-on `audiomixer` branch for DJ input. Emits mixed PCM via RTP to N edge encoders when `GRIMNIR_HA_PCM_RTP_ENABLED=true`.
+- **Edge Encoder (`cmd/edge-encoder`)**: Ingests raw PCM via RTP from N media engines, sample-aligned input switching on engine failure, serves HTTP/ICY + HLS to listeners. Uses **go-gst CGo bindings** (gst-launch subprocess can't do runtime input switching). See `cmd/edge-encoder/README.md`.
+- **Fan-out (`cmd/grimnir-fanout`)**: Accepts a single DJ over Harbor / RTP / SRT / WebRTC & duplicates the audio as PCM-over-RTP toward every media engine. Engine pipelines hold an always-on `audiomixer` branch; fan-out flips engine-side `LiveInputControl.SetLiveInput(active)` to mix the DJ in/out. Also uses go-gst CGo bindings. See `cmd/grimnir-fanout/README.md`.
+
+Plus the operator CLI: **`cmd/grimnir-deploy`** is the single entry point for every mutating cluster operation. Every subcommand writes an `audit_log` row & posts to ntfy. The 3am-page index is [`docs/runbooks/index.md`](docs/runbooks/index.md).
+
+The control plane communicates with the media engine via gRPC for low-latency audio control. The edge encoder ingests PCM-over-RTP from each media engine and is the listener-facing endpoint in HA mode. The fan-out is the DJ-facing endpoint & talks to both engines so the cross-node mixer output stays aligned.
 
 ## Common Commands
 

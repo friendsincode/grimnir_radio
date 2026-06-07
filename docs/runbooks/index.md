@@ -4,6 +4,7 @@
 
 | Symptom | Subcommand | Long-form runbook |
 |---|---|---|
+| Upgrading v1 prod to v2 HA | (multi-phase; start here) | [docs/v2/UPGRADE.md](../v2/UPGRADE.md) |
 | New release ready to ship | `grimnir-deploy deploy vX.Y.Z` | [deploy.md](./deploy.md) |
 | Just-shipped release is causing problems | `grimnir-deploy deploy --rollback --reason="..."` | [deploy.md](./deploy.md) |
 | Active incident; freeze all deploys | `grimnir-deploy emergency-pause --reason="..."` | [emergency-pause.md](./emergency-pause.md) |
