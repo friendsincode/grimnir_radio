@@ -55,6 +55,7 @@ func (h *Handler) Routes(r chi.Router) {
 			// Embeddable widgets (Phase 8G)
 			r.Get("/embed/schedule", h.EmbedSchedule)
 			r.Get("/embed/now-playing", h.EmbedNowPlaying)
+			r.Get("/embed/player", h.EmbedPlayer)
 			r.Get("/embed/schedule.js", h.EmbedScheduleJS)
 
 			// Landing page assets (public)

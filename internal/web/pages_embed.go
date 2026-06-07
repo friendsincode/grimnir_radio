@@ -109,6 +109,46 @@ func (h *Handler) EmbedNowPlaying(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// EmbedPlayer renders an embeddable JS-player widget for one station. The
+// page boots `/static/js/player/player.js` & calls createPlayer() against
+// a single mount, so embedding a Grimnir player into a third-party page is
+// one `<iframe src="/embed/player?station=<id>">` away.
+//
+// Query params:
+//   - station: required, station UUID
+//   - theme:   "light" (default) | "dark"
+func (h *Handler) EmbedPlayer(w http.ResponseWriter, r *http.Request) {
+	stationID := r.URL.Query().Get("station")
+	if stationID == "" {
+		http.Error(w, "station parameter required", http.StatusBadRequest)
+		return
+	}
+
+	var station models.Station
+	if err := h.db.First(&station, "id = ?", stationID).Error; err != nil {
+		http.Error(w, "Station not found", http.StatusNotFound)
+		return
+	}
+	if !station.Public {
+		http.Error(w, "Station not found", http.StatusNotFound)
+		return
+	}
+
+	theme := r.URL.Query().Get("theme")
+	if theme == "" {
+		theme = "light"
+	}
+
+	h.Render(w, r, "pages/embed/player", PageData{
+		Title: station.Name + " - Player",
+		Data: map[string]any{
+			"StationID":   stationID,
+			"StationName": station.Name,
+			"Theme":       theme,
+		},
+	})
+}
+
 // EmbedScheduleJS serves a JavaScript snippet for embedding schedules.
 func (h *Handler) EmbedScheduleJS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")

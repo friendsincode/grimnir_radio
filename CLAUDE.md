@@ -173,6 +173,17 @@ Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variabl
 
 Starting with v2.0.0-alpha.7 the media engine pipeline holds an always-on `audiomixer` branch with a `udpsrc → rtpL16depay` input on `GRIMNIR_LIVE_INPUT_PORT`. The fan-out's gRPC `LiveInputControl.SetLiveInput(active bool)` flips whether the DJ branch contributes to the mixer output; the crossfade is driven by the mixer's per-pad volume property rather than `input-selector`. The engine accepts the call with `x-grimnir-source-addr` & `x-grimnir-session-id` as gRPC metadata so the audit log can trace which DJ session caused a given mixer transition. See `proto/mediaengine/v1/liveinput.proto` & `internal/mediaengine/liveinput_controller.go`.
 
+## Architectural note: custom JS player (v2.0.0-alpha.10+)
+
+The listener-facing browser player is a vanilla JS ES module at `internal/web/static/js/player/player.js`. No framework, no build step. It wraps `<audio>`, recycles the element on `error`/`stalled`/`waiting`/`ended`, & steps HQ -> LQ after 3 failures inside 30s. A background HEAD probe every 60s recovers back to HQ when the upstream returns. MediaSession metadata wires up lock-screen play/pause. See `internal/web/static/js/player/README.md` for the full API.
+
+The module talks to two public control-plane endpoints:
+
+- `GET /api/v1/stations/<id>/streams` — returns the ordered `StationStream` list (HQ first, LQ second). Handler: `internal/api/streams.go`.
+- `POST /api/v1/listener-events` — anonymous reconnect telemetry (events: `play`, `stop`, `reconnect`, `degrade`, `upgrade`, `exhausted`). Process-local rate limit of 10/min/IP; the IP is logged but never stored. Handler: `internal/api/listener_events.go`.
+
+Both endpoints are unauthenticated so the browser can call them directly. The legacy `GlobalPlayer` class in `internal/web/static/js/app.js` is still wired into the dashboard layout for cross-page playback; the new module only owns the public `/listen` page & the `/embed/player?station=<id>` widget.
+
 ## Architectural note: programmatic GStreamer (v2.0.0-alpha.3+)
 
 Starting with v2.0.0-alpha.3 the edge encoder (`cmd/edge-encoder`) uses go-gst CGo bindings instead of `gst-launch-1.0` subprocess. Starting with v2.0.0-alpha.4 the media engine (`cmd/grimnirradio` playout layer) also uses programmatic go-gst — pipeline strings in `internal/playout/director.go` are preserved unchanged, but the spawning layer (`internal/playout/pipeline.go`) is now `gst.NewPipelineFromString(...)` so `pipeline.ForceClock(...)` is callable. Build dependencies: `libgstreamer1.0-dev` + plugin packs (see `cmd/edge-encoder/README.md`).

@@ -20,33 +20,17 @@
 
                     {{$station := .Station}}
                     {{if .Mounts}}
-                    <div class="list-group">
-                        {{range .Mounts}}
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div>
-                                <strong>{{.Name}}</strong>
-                                <span class="badge bg-secondary ms-2">{{.Format}}</span>
-                                {{if .Bitrate}}
-                                <span class="text-body-secondary small">{{.Bitrate}}kbps</span>
-                                {{end}}
-                            </div>
-                            <div class="btn-group" role="group">
-                                <button class="btn btn-primary btn-sm"
-                                        onclick="playStream('{{.URL}}', '{{$station.Name}}', '{{$station.ID}}')"
-                                        data-mount-id="{{.ID}}"
-                                        title="High Quality">
-                                    <i class="bi bi-play-fill me-1"></i>HQ
-                                </button>
-                                <button class="btn btn-outline-primary btn-sm"
-                                        onclick="playStream('{{.LQURL}}', '{{$station.Name}}', '{{$station.ID}}')"
-                                        data-mount-id="{{.ID}}-lq"
-                                        title="Low Quality - Save Bandwidth">
-                                    <i class="bi bi-play-fill me-1"></i>LQ
-                                </button>
-                            </div>
-                        </div>
-                        {{end}}
-                    </div>
+                    <!-- Grimnir JS player (Track B-3). Replaces the legacy
+                         per-mount HQ/LQ buttons; the module fetches the
+                         ordered stream list from /api/v1/stations/<id>/streams
+                         & handles HQ -> LQ degrade + recovery internally. -->
+                    <div class="grimnir-player-mount"
+                         data-grimnir-player
+                         data-station-id="{{$station.ID}}"
+                         data-station-name="{{$station.Name}}"></div>
+                    <noscript>
+                        <p class="text-body-secondary">JavaScript is required to play the live stream.</p>
+                    </noscript>
                     {{else}}
                     <p class="text-body-secondary">No streams available</p>
                     {{end}}
@@ -58,70 +42,58 @@
             </div>
             {{end}}
 
-            <!-- Audio Player -->
-            <div id="playerCard" class="card bg-body-tertiary sticky-bottom d-none" style="bottom: 1rem;">
-                <div class="card-body py-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <button id="playPauseBtn" class="btn btn-primary btn-lg rounded-circle" onclick="togglePlay()" title="Play/Pause">
-                            <i class="bi bi-pause-fill" id="playPauseIcon"></i>
-                        </button>
-                        <div class="flex-grow-1">
-                            <p class="mb-0 fw-bold" id="playerStreamName">Stream</p>
-                            <p class="mb-0 text-body-secondary small" id="playerStatus">Playing</p>
-                        </div>
-                        <div class="d-flex align-items-center gap-2">
-                            <i class="bi bi-volume-up"></i>
-                            <input type="range" class="form-range" style="width: 100px;"
-                                   id="volumeSlider" min="0" max="100" value="80"
-                                   onchange="setVolume(this.value)">
-                        </div>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="closePlayer()" title="Close player">
-                            <i class="bi bi-x-lg"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 </div>
+
+<style>
+/* Minimal styling for the Grimnir JS player. Operators can override these
+   in a site stylesheet; the module only adds [data-grimnir-state] +
+   [data-grimnir-reconnect-ui] attributes & lets CSS do the rest. */
+.grimnir-player-mount {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .75rem; border: 1px solid var(--bs-border-color);
+    border-radius: .5rem; background: var(--bs-tertiary-bg);
+}
+.grimnir-player-mount [data-grimnir-role="ui-root"] {
+    display: flex; align-items: center; gap: .75rem; width: 100%;
+}
+.grimnir-player-mount [data-grimnir-role="toggle"] {
+    padding: .35rem .9rem; border: 0; border-radius: .35rem;
+    background: var(--bs-primary); color: #fff; cursor: pointer;
+}
+.grimnir-player-mount [data-grimnir-role="label"] { font-weight: 600; }
+.grimnir-player-mount [data-grimnir-role="quality"] {
+    padding: .2rem .4rem; border: 1px solid var(--bs-border-color);
+    border-radius: .25rem; background: var(--bs-body-bg);
+}
+.grimnir-player-mount [data-grimnir-role="status"] {
+    color: var(--bs-secondary-color); font-size: .9rem; flex: 1;
+}
+.grimnir-player-mount [data-grimnir-role="progress"] {
+    width: 80px; height: 3px; background: transparent; border-radius: 2px;
+}
+.grimnir-player-mount[data-grimnir-reconnect-ui="progress"] [data-grimnir-role="progress"],
+.grimnir-player-mount[data-grimnir-reconnect-ui="text"] [data-grimnir-role="progress"] {
+    background: linear-gradient(90deg, var(--bs-primary) 0%, transparent 100%);
+    animation: grimnir-progress 1.2s linear infinite;
+}
+@keyframes grimnir-progress { from { opacity: .3 } to { opacity: 1 } }
+.grimnir-player-mount [data-grimnir-role="retry"][data-grimnir-hidden="1"] { display: none; }
+</style>
 {{end}}
 
 {{define "scripts"}}
-<script>
-// Use the global player for persistent playback across page navigation
-function playStream(url, name, stationId) {
-    if (window.globalPlayer) {
-        // Check if already playing a stream (switching quality)
-        // Add nobuffer=1 to maintain audio sync when switching
-        let streamUrl = url;
-        if (window.globalPlayer.isLive && !window.globalPlayer.audio.paused) {
-            streamUrl = url + (url.includes('?') ? '&' : '?') + 'nobuffer=1';
-        }
-        // Use the global player which persists across navigation
-        window.globalPlayer.playLive(streamUrl, name, stationId);
-        // Hide the local player card since we use the global one
-        document.getElementById('playerCard').classList.add('d-none');
-    }
-}
+<script type="module">
+import { createPlayer } from '/static/js/player/player.js';
 
-function togglePlay() {
-    if (window.globalPlayer) {
-        window.globalPlayer.togglePlayPause();
-    }
-}
-
-function setVolume(value) {
-    if (window.globalPlayer && window.globalPlayer.audio) {
-        window.globalPlayer.audio.volume = value / 100;
-    }
-}
-
-function closePlayer() {
-    if (audio) {
-        audio.pause();
-        audio = null;
-    }
-    document.getElementById('playerCard').classList.add('d-none');
-}
+// One createPlayer() call per mount on the page. The module owns the
+// <audio> element, reconnect lifecycle, MediaSession metadata, & telemetry.
+document.querySelectorAll('[data-grimnir-player]').forEach((el) => {
+    const stationId = el.getAttribute('data-station-id');
+    const stationName = el.getAttribute('data-station-name') || 'Grimnir Radio';
+    if (!stationId) return;
+    createPlayer(el, stationId, { stationName });
+});
 </script>
 {{end}}
