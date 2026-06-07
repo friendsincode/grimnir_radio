@@ -24,16 +24,35 @@ func TestNewService(t *testing.T) {
 		expectError         bool
 	}{
 		{
-			name: "filesystem storage when no S3 bucket configured",
+			name: "filesystem storage when MediaBackend is fs",
 			cfg: &config.Config{
-				MediaRoot: "/tmp/media",
-				S3Bucket:  "",
+				MediaBackend: "fs",
+				MediaRoot:    "/tmp/media",
+				S3Bucket:     "",
 			},
 			expectedStorageType: "filesystem",
 			expectError:         false,
 		},
-		// Note: S3 storage test would require valid AWS credentials or mocking
-		// We test S3Storage separately with proper mocking
+		{
+			name: "filesystem storage when MediaBackend is empty (back-compat)",
+			cfg: &config.Config{
+				MediaBackend: "",
+				MediaRoot:    "/tmp/media",
+				S3Bucket:     "",
+			},
+			expectedStorageType: "filesystem",
+			expectError:         false,
+		},
+		{
+			name: "unknown backend returns error",
+			cfg: &config.Config{
+				MediaBackend: "azure-blob",
+				MediaRoot:    "/tmp/media",
+			},
+			expectError: true,
+		},
+		// Note: S3 storage exercised separately via the fake-server tests in
+		// storage_s3_test.go and TestNewService_S3Backend below.
 	}
 
 	for _, tt := range tests {
@@ -71,6 +90,30 @@ func TestNewService(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestNewService_S3Backend verifies the factory wires up S3Storage when
+// GRIMNIR_MEDIA_BACKEND=s3 and a bucket is set. The fake S3 server stands in
+// for R2 / MinIO / AWS during the test so CI doesn't need real creds.
+func TestNewService_S3Backend(t *testing.T) {
+	srv := fakeS3Server(t)
+	cfg := &config.Config{
+		MediaBackend:      "s3",
+		MediaRoot:         "/tmp/media",
+		S3Bucket:          "test-bucket",
+		S3Endpoint:        srv.URL,
+		S3Region:          "auto",
+		S3AccessKeyID:     "fakekey",
+		S3SecretAccessKey: "fakesecret",
+		S3UsePathStyle:    true,
+	}
+	svc, err := NewService(cfg, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("NewService(s3) error: %v", err)
+	}
+	if _, ok := svc.storage.(*S3Storage); !ok {
+		t.Errorf("NewService storage = %T, want *S3Storage", svc.storage)
 	}
 }
 

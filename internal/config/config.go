@@ -39,14 +39,21 @@ type Config struct {
 	MetricsBind        string
 	MaxUploadSizeMB    int // Optional global multipart upload limit override for web handlers (MB)
 
-	// S3 Object Storage configuration
+	// MediaBackend selects which storage backend the media service uses.
+	// `fs` (default) writes to GRIMNIR_MEDIA_ROOT; `s3` writes to the
+	// configured S3 / R2 / MinIO bucket. Anything else fails Load().
+	MediaBackend string
+
+	// S3 Object Storage configuration. Suitable for Cloudflare R2 (region
+	// `auto`, path-style on), AWS S3 (region `us-east-1` etc., path-style off),
+	// MinIO, and DigitalOcean Spaces.
 	S3AccessKeyID     string
 	S3SecretAccessKey string
 	S3Region          string
 	S3Bucket          string
-	S3Endpoint        string // For S3-compatible services (MinIO, Spaces, etc.)
+	S3Endpoint        string // For S3-compatible services (R2, MinIO, Spaces, etc.)
 	S3PublicBaseURL   string // Optional CDN/CloudFront URL
-	S3UsePathStyle    bool   // Required for MinIO
+	S3UsePathStyle    bool   // Required for MinIO; R2 accepts either
 
 	// Tracing configuration
 	TracingEnabled    bool
@@ -156,14 +163,20 @@ func Load() (*Config, error) {
 		MetricsBind:        getEnvAny([]string{"GRIMNIR_METRICS_BIND", "RLM_METRICS_BIND"}, "127.0.0.1:9000"),
 		MaxUploadSizeMB:    getEnvIntAny([]string{"GRIMNIR_MAX_UPLOAD_SIZE_MB", "RLM_MAX_UPLOAD_SIZE_MB"}, 0),
 
-		// S3 Object Storage configuration
-		S3AccessKeyID:     getEnvAny([]string{"GRIMNIR_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"}, ""),
-		S3SecretAccessKey: getEnvAny([]string{"GRIMNIR_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"}, ""),
-		S3Region:          getEnvAny([]string{"GRIMNIR_S3_REGION", "AWS_REGION"}, "us-east-1"),
+		// Media backend selector. Default `fs` preserves the single-instance
+		// on-disk deployment; `s3` switches to the R2 / S3 / MinIO backend.
+		MediaBackend: getEnvAny([]string{"GRIMNIR_MEDIA_BACKEND"}, "fs"),
+
+		// S3 Object Storage configuration. R2-friendly defaults: region `auto`,
+		// path-style addressing on. Set GRIMNIR_S3_REGION explicitly for AWS S3
+		// (e.g. `us-east-1`) and GRIMNIR_S3_PATH_STYLE=false for AWS virtual-host.
+		S3AccessKeyID:     getEnvAny([]string{"GRIMNIR_S3_ACCESS_KEY", "GRIMNIR_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"}, ""),
+		S3SecretAccessKey: getEnvAny([]string{"GRIMNIR_S3_SECRET_KEY", "GRIMNIR_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"}, ""),
+		S3Region:          getEnvAny([]string{"GRIMNIR_S3_REGION", "AWS_REGION"}, "auto"),
 		S3Bucket:          getEnvAny([]string{"GRIMNIR_S3_BUCKET", "S3_BUCKET"}, ""),
 		S3Endpoint:        getEnvAny([]string{"GRIMNIR_S3_ENDPOINT", "S3_ENDPOINT"}, ""),
 		S3PublicBaseURL:   getEnvAny([]string{"GRIMNIR_S3_PUBLIC_BASE_URL", "S3_PUBLIC_BASE_URL"}, ""),
-		S3UsePathStyle:    getEnvBoolAny([]string{"GRIMNIR_S3_USE_PATH_STYLE", "S3_USE_PATH_STYLE"}, false),
+		S3UsePathStyle:    getEnvBoolAny([]string{"GRIMNIR_S3_PATH_STYLE", "GRIMNIR_S3_USE_PATH_STYLE", "S3_USE_PATH_STYLE"}, true),
 
 		// Tracing configuration
 		TracingEnabled:    getEnvBoolAny([]string{"GRIMNIR_TRACING_ENABLED", "RLM_TRACING_ENABLED"}, false),
@@ -241,6 +254,15 @@ func Load() (*Config, error) {
 
 	if cfg.LiveInputEnabled && cfg.LiveInputFanoutAddr == "" {
 		return nil, fmt.Errorf("GRIMNIR_LIVE_INPUT_ENABLED=true requires non-empty GRIMNIR_LIVE_INPUT_FANOUT_ADDR")
+	}
+
+	switch cfg.MediaBackend {
+	case "fs", "s3":
+	default:
+		return nil, fmt.Errorf("GRIMNIR_MEDIA_BACKEND %q is not recognized; use `fs` or `s3`", cfg.MediaBackend)
+	}
+	if cfg.MediaBackend == "s3" && cfg.S3Bucket == "" {
+		return nil, fmt.Errorf("GRIMNIR_MEDIA_BACKEND=s3 requires non-empty GRIMNIR_S3_BUCKET")
 	}
 
 	if cfg.DBBackend != DatabasePostgres && cfg.DBBackend != DatabaseMySQL && cfg.DBBackend != DatabaseSQLite {

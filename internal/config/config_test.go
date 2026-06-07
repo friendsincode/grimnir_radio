@@ -210,6 +210,87 @@ func TestLiveInputConfig(t *testing.T) {
 	})
 }
 
+func TestMediaBackendConfig(t *testing.T) {
+	setBase := func(t *testing.T) {
+		t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")
+		t.Setenv("GRIMNIR_JWT_SIGNING_KEY", "supersecret")
+	}
+
+	t.Run("defaults to fs", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_MEDIA_BACKEND", "")
+		c, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if c.MediaBackend != "fs" {
+			t.Errorf("MediaBackend = %q, want fs", c.MediaBackend)
+		}
+	})
+
+	t.Run("s3 requires bucket", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_MEDIA_BACKEND", "s3")
+		t.Setenv("GRIMNIR_S3_BUCKET", "")
+		if _, err := Load(); err == nil {
+			t.Error("Load with MEDIA_BACKEND=s3 and empty S3_BUCKET: want error, got nil")
+		}
+	})
+
+	t.Run("s3 with bucket succeeds", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_MEDIA_BACKEND", "s3")
+		t.Setenv("GRIMNIR_S3_BUCKET", "grimnir-media-prod")
+		t.Setenv("GRIMNIR_S3_ENDPOINT", "https://acc.r2.cloudflarestorage.com")
+		t.Setenv("GRIMNIR_S3_ACCESS_KEY", "k")
+		t.Setenv("GRIMNIR_S3_SECRET_KEY", "s")
+		c, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if c.MediaBackend != "s3" {
+			t.Errorf("MediaBackend = %q, want s3", c.MediaBackend)
+		}
+		if c.S3Bucket != "grimnir-media-prod" {
+			t.Errorf("S3Bucket = %q, want grimnir-media-prod", c.S3Bucket)
+		}
+		if c.S3AccessKeyID != "k" {
+			t.Errorf("S3AccessKeyID = %q, want k (from GRIMNIR_S3_ACCESS_KEY)", c.S3AccessKeyID)
+		}
+		if c.S3SecretAccessKey != "s" {
+			t.Errorf("S3SecretAccessKey = %q, want s (from GRIMNIR_S3_SECRET_KEY)", c.S3SecretAccessKey)
+		}
+	})
+
+	t.Run("unknown backend rejected", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_MEDIA_BACKEND", "gcs")
+		if _, err := Load(); err == nil {
+			t.Error("Load with MEDIA_BACKEND=gcs: want error, got nil")
+		}
+	})
+
+	t.Run("R2-friendly defaults: region=auto path-style=true", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("GRIMNIR_MEDIA_BACKEND", "fs")
+		t.Setenv("GRIMNIR_S3_REGION", "")
+		t.Setenv("AWS_REGION", "")
+		t.Setenv("GRIMNIR_S3_PATH_STYLE", "")
+		t.Setenv("GRIMNIR_S3_USE_PATH_STYLE", "")
+		t.Setenv("S3_USE_PATH_STYLE", "")
+		c, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if c.S3Region != "auto" {
+			t.Errorf("S3Region default = %q, want auto", c.S3Region)
+		}
+		if !c.S3UsePathStyle {
+			t.Errorf("S3UsePathStyle default = false, want true (R2-friendly)")
+		}
+	})
+}
+
 func TestNetClockConfig(t *testing.T) {
 	setBase := func(t *testing.T) {
 		t.Setenv("GRIMNIR_DB_DSN", "host=localhost user=test dbname=test sslmode=disable")

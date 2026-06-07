@@ -35,12 +35,29 @@ type Service struct {
 	logger        zerolog.Logger
 }
 
-// NewService creates a media service using filesystem or S3 storage based on config.
+// NewService creates a media service using the backend selected by
+// GRIMNIR_MEDIA_BACKEND (`fs` default, `s3` for R2 / S3 / MinIO).
 func NewService(cfg *config.Config, logger zerolog.Logger) (*Service, error) {
-	var storage Storage
+	storage, err := buildStorage(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
 
-	// Use S3 storage if bucket is configured
-	if cfg.S3Bucket != "" {
+	return &Service{
+		storage:   storage,
+		mediaRoot: cfg.MediaRoot,
+		logger:    logger,
+	}, nil
+}
+
+// buildStorage returns the concrete Storage implementation for cfg.MediaBackend.
+// `fs` -> on-disk under cfg.MediaRoot.
+// `s3` -> R2 / S3 / MinIO under cfg.S3Bucket via NewS3Storage.
+// Unknown backends are rejected at config Load(); this is a defensive default
+// so a future backend doesn't silently degrade to filesystem.
+func buildStorage(cfg *config.Config, logger zerolog.Logger) (Storage, error) {
+	switch cfg.MediaBackend {
+	case "s3":
 		s3cfg := S3Config{
 			AccessKeyID:     cfg.S3AccessKeyID,
 			SecretAccessKey: cfg.S3SecretAccessKey,
@@ -51,27 +68,19 @@ func NewService(cfg *config.Config, logger zerolog.Logger) (*Service, error) {
 			UsePathStyle:    cfg.S3UsePathStyle,
 			ForcePathStyle:  cfg.S3UsePathStyle,
 		}
-
-		// Use default values if not configured
 		if s3cfg.AccessKeyID == "" || s3cfg.SecretAccessKey == "" {
-			logger.Warn().Msg("S3 credentials not configured, some operations may fail")
+			logger.Warn().Msg("S3 credentials not configured; uploads & deletes will fail")
 		}
-
 		s3Storage, err := NewS3Storage(context.Background(), s3cfg, logger)
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize S3 storage: %w", err)
+			return nil, fmt.Errorf("initialize S3 storage: %w", err)
 		}
-		storage = s3Storage
-	} else {
-		// Default to filesystem storage
-		storage = NewFilesystemStorage(cfg.MediaRoot, logger)
+		return s3Storage, nil
+	case "fs", "":
+		return NewFilesystemStorage(cfg.MediaRoot, logger), nil
+	default:
+		return nil, fmt.Errorf("unknown media backend %q", cfg.MediaBackend)
 	}
-
-	return &Service{
-		storage:   storage,
-		mediaRoot: cfg.MediaRoot,
-		logger:    logger,
-	}, nil
 }
 
 // Store saves an uploaded file and returns the storage path.
