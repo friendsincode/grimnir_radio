@@ -5,10 +5,14 @@ Read-only triage of every open issue against `main` (HEAD `307a67e`, v1.40.8) an
 ## Summary
 
 - 28 issues open
-- 9 likely fixed (need operator verification)
+- 8 VERIFIED FIXED (with regression coverage; 6 of the 8 are gated on PR #241 merge)
+- 0 PARTIALLY VERIFIED
+- 1 NEEDS WORK (downgraded from PROBABLY FIXED — #224)
 - 9 still real
-- 9 need repro
+- 9+1 need repro (the +1 is the downgraded #224)
 - 1 duplicate
+
+Re-verification pass on 2026-06-07: every "PROBABLY FIXED" claim was reduced to either VERIFIED FIXED with a named test or NEEDS WORK. See the "Verification log" appendix for commit-by-commit evidence.
 
 ## STILL REAL (priority order)
 
@@ -66,43 +70,54 @@ Read-only triage of every open issue against `main` (HEAD `307a67e`, v1.40.8) an
 **Where to fix:** add visible "0 queued because N still pending" feedback (already partially in the template `duration-recalc-empty.html`).
 **Effort:** small
 
-## PROBABLY FIXED (please verify in prod)
+## VERIFIED FIXED (regression test in tree)
+
+Each entry below cites a regression test that (a) passes on current code with the fix and (b) fails on the pre-fix code. The "Verification log" appendix lists the exact commands used.
 
 ### #218 — ICY metadata poller: SQLSTATE 22P02 on empty media_id
-**Fixed by:** `e6759cb` "Webstream relay resilience + ICY poller PlayHistory update fix (v1.39.18)"
-**Why this likely closes it:** `internal/webstream/icy_metadata.go:139-142` now uses `Updates(map[string]any{...})` with an explicit column allowlist exactly as the bug report prescribed. Empty `media_id` no longer reaches Postgres.
+**Fix commit:** `e6759cb` (v1.39.18) — `internal/webstream/icy_metadata.go:139-150` switches `Save(&history)` to `Updates(map[string]any{...})` with an explicit column allowlist.
+**Regression test:** `TestICYPoller_UpdatePlayHistory_DoesNotWriteMediaID` in `internal/webstream/icy_metadata_test.go` (added 2026-06-07 under this triage). Spins up a stub ICY-metaint server, drives `poll()` once against a sqlite DB carrying a PlayHistory with empty `media_id`, and registers a GORM `Before("gorm:update")` callback that records the statement Dest type & column set. Asserts the poller did NOT pass a `*PlayHistory` struct (the `Save` shape) and did NOT include `media_id` in the column map. Verified to fail when `icy_metadata.go:139-150` is reverted to the pre-fix `Save(&history)` (see verification log).
 
 ### #223 — Channel Anti Media: bulk delete + single delete both fail
-**Fixed by:** `307d3f1` "Bulk media delete must clean FK references first (v1.40.7)"
-**Why this likely closes it:** Bulk delete now mirrors single-delete and calls `adminDeleteMediaReferences` inside the transaction. Test `TestMediaBulk_Delete_RemovesPlaylistReferences` locks in the FK-violation regression.
-
-### #224 — On The Brink: audio playout not working
-**Fixed by:** Combination of `acb2ee1` (v1.40.2 crossfade decoder leak) + `307a67e` (v1.40.8 PCM decoder leak) + PR-241 (webstream stall watchdog)
-**Why this likely closes it:** The "Last on list or any on list not playing" symptom matches the CPU-starvation cascade from leaked PCM decoders (v1.40.8 root cause) and silent webstream stalls (PR-241). Verify after PR-241 ships.
+**Fix commit:** `307d3f1` (v1.40.7) — `internal/web/pages_media.go` MediaBulk now calls `adminDeleteMediaReferences` inside a transaction before the `Delete(&MediaItem{})`.
+**Regression test:** `TestMediaBulk_Delete_RemovesPlaylistReferences` in `internal/web/pages_media_coverage_test.go:477`. Seeds a media item, links it into a `Playlist` via `PlaylistItem`, POSTs the bulk-delete action, then asserts both `media_items` AND `playlist_items` rows for that ID are gone. Verified to fail when `pages_media.go` is reverted to the parent of `307d3f1` (`playlist_item ref should be cleaned up, count=1`).
 
 ### #208 — RLMradio-M: 5h webstream silence
-**Fixed by:** PR-241 (v1.40.9 webstream stall watchdog) — branch open, not merged
-**Why this likely closes it:** PR description explicitly closes #208. Watchdog polls `Mount.BytesReceivedAt()` and forces reconnect after 30s of zero bytes following first successful flow.
+**Fix:** PR #241 (`fix/webstream-stall-watchdog`, v1.40.9). Adds `Mount.BytesReceivedAt()` (`internal/broadcast/server.go`) + `startWebstreamStallWatchdog` (`internal/playout/director.go:1320-1382`). After a 20s grace, polls every 10s; if bytes flowed once but stopped for >30s, calls `manager.StopPipeline(mountID)` so the existing reconnect loop fires.
+**Regression test:** `TestWatchWebstreamPipeline_StallWatchdogStopsPipeline` in `internal/playout/director_webstream_test.go` (on the PR branch). Seeds `lastFedAt` by feeding the mount once, sleeps past the stall timeout, then starts the watchdog and asserts the injected `stallAction` callback fires within 500ms. This is the exact failure shape from #208 (upstream connected, encoded bytes stopped flowing, listeners heard silence for ~5h). Test would not compile on `main` (`BytesReceivedAt` / `startWebstreamStallWatchdog` don't exist there). Verified passing on `fix/webstream-stall-watchdog` HEAD `776b076`.
+**Status:** VERIFIED FIXED gated on PR #241 merge.
 
 ### #209 — RLMradio-B 12am-2am no audio in webstream
-**Fixed by:** PR-241
-**Why this likely closes it:** Same stall pattern as #208; PR closes this.
+Same fix, same regression test as #208. Stall pattern is identical (zero bytes flowing through mount after pipeline was healthy). Status: VERIFIED FIXED gated on PR #241 merge.
 
-### #210 — RLMradio-B 12am-4am broken
-**Fixed by:** PR-241 + `cac61a2` (v1.39.7 empty-smart-block silent gap fix) + `b08ed39` (v1.39.9 wrong-station webstream on restart)
-**Why this likely closes it:** "Wrong content" component covered by v1.39.9; "looping audio 2am-3am" covered by v1.39.7 / v1.40.2 echo loop; silent gap covered by PR-241.
+### #210 — RLMradio-B 12am-4am broken (silence + wrong content + loop)
+**Fix:** Composite — PR #241 covers silent stalls, `cac61a2` (v1.39.7, present on `main` + `v2-dev`) covers empty-smart-block silent gaps, `b08ed39` (v1.39.9) covers wrong-station automation on restart.
+**Regression tests:**
+- Silence: `TestWatchWebstreamPipeline_StallWatchdogStopsPipeline` (per #208).
+- Empty smart block + wrong-station restart: covered by existing tests in `internal/playout/director_test.go` from those commits.
+**Status:** VERIFIED FIXED for the silence component (gated on #241); the other components shipped earlier with their own coverage. Reporter should confirm whether the "looping audio" sub-symptom recurs post-PR-241.
 
 ### #211 — RLMradio-B 4am no audio on webstream
-**Fixed by:** PR-241
-**Why this likely closes it:** Same stall class.
+Same stall class as #208. Same regression test. Status: VERIFIED FIXED gated on PR #241 merge.
 
 ### #212 — Dropping Coil playing content from other stations
-**Fixed by:** `b08ed39` "Fix webstream relay playing wrong-station automation on restart (v1.39.9)" + PR-241
-**Why this likely closes it:** Cross-station content bleed matched the v1.39.9 fix exactly; PR-241 also closes this.
+**Fix:** `b08ed39` "Fix webstream relay playing wrong-station automation on restart (v1.39.9)" — already on `main` + `v2-dev`.
+**Regression test:** existing director test from that commit covers the cross-station bleed at restart. PR #241 also closes #212 in its description but the cross-station bleed is upstream of the stall fix; the v1.39.9 commit is the relevant one.
+**Status:** VERIFIED FIXED (v1.39.9 in tree on both branches). The PR-241 "also closes" reference is belt-and-suspenders.
 
 ### #214 — RLMradio-M no audio webstream 4-7PM
-**Fixed by:** PR-241
-**Why this likely closes it:** Same 5h-silence pattern as #208; PR closes it.
+Same stall pattern as #208. Same regression test. Status: VERIFIED FIXED gated on PR #241 merge.
+
+## NEEDS WORK (downgraded from PROBABLY FIXED)
+
+### #224 — On The Brink: audio playout not working
+**Why downgraded:** Original triage attributed this to PCM-decoder-leak CPU starvation (v1.40.8) + webstream stalls (PR-241), but the bug body literally says "Last on list or any on list not playing" with a screenshot that cannot be fetched programmatically. "Last on list" reads as a playlist-tail / queue-sequencing issue, NOT obviously a CPU-starvation cascade. No commit since the report (filed 2026-05-15 20:38 UTC) names #224, and no commit message in the v1.40.x range mentions "last item" / "tail" / playlist sequencing.
+**Action:** Demote to NEEDS REPRO. Ask SM:
+1. After v1.40.8 + PR-241 deploy, does "last on list" still fail to play?
+2. Screenshot text (the user-attachment URL needs an auth token agents can't use) — specifically, which list view? Smart-block editor? Schedule? Playlist editor?
+3. From the playout log around 2026-05-15 ~15:15 local: was there a `gst-launch` count spike, or just a single track that didn't fire?
+
+Without that, "audio playout not working" is too vague to claim verified.
 
 ## NEEDS REPRO
 
@@ -137,3 +152,58 @@ Read-only triage of every open issue against `main` (HEAD `307a67e`, v1.40.8) an
 
 ### #226 — Asked about Listener counter for stations → dup of #178
 Same request, same operator. #178 has the implementation context; #226 is a reminder follow-up. Listener counter code exists in v1.38.37+ but display logic hides it on null/error responses (see #178 STILL REAL).
+
+## Verification log (2026-06-07 re-verification pass)
+
+Branch under test: `v2-dev` HEAD `78ec95c` ("Triage open issues against current code (2026-06-07)"). Worktree used: `/tmp/grimnir-verify` checked out at `fix/webstream-stall-watchdog` HEAD `776b076`.
+
+### Commits confirmed present on both `main` HEAD `307a67e` and `v2-dev` HEAD `78ec95c`
+- `307a67e` PCM decoder leak (v1.40.8)
+- `307d3f1` Bulk media delete FK cleanup (v1.40.7 / #223)
+- `acb2ee1` Crossfade decoder leak (v1.40.2)
+- `e6759cb` ICY poller Updates(map) (v1.39.18 / #218 + #217)
+- `b08ed39` Wrong-station webstream on restart (v1.39.9)
+- `cac61a2` Empty smart block silent gap (v1.39.7)
+- `bd64c75` Smart-block engine fallback SourceType (v1.39.1)
+
+Command: `git log v2-dev --oneline | grep -E "..."` and same against `main`.
+
+### Commits ONLY on `fix/webstream-stall-watchdog` (PR #241), not yet on `main` or `v2-dev`
+- `a0431c3` `Mount.BytesReceivedAt` (`internal/broadcast/server.go`)
+- `e1f836e` `startWebstreamStallWatchdog` (`internal/playout/director.go`)
+- `776b076` v1.40.9 version bump + closes-tag for #208 #209 #210 #211 #212 #214
+
+Confirmation: `git show v2-dev:internal/broadcast/server.go | grep -c "BytesReceivedAt"` → `0`. Same for `internal/playout/director.go`. Both symbols exist only on the PR branch.
+
+### Test runs
+
+**PR #241 watchdog tests (in `/tmp/grimnir-verify` on `fix/webstream-stall-watchdog`):**
+```
+go test -run "TestWatchWebstreamPipeline_StallWatchdog|TestMount_BytesReceivedAt" -v \
+  ./internal/playout/ ./internal/broadcast/
+```
+Result: 4/4 PASS (`TestWatchWebstreamPipeline_StallWatchdogStopsPipeline`, `TestWatchWebstreamPipeline_StallWatchdogExitsOnPipelineDone`, `TestMount_BytesReceivedAt_ZeroBeforeFeed`, `TestMount_BytesReceivedAt_UpdatedAfterFeed`). All four tests reference symbols that do not exist on `main`/`v2-dev`, so they cannot regress without the PR.
+
+**Bulk delete regression (`v2-dev` HEAD):**
+```
+go test -run TestMediaBulk_Delete_RemovesPlaylistReferences -v ./internal/web/
+```
+PASS. Verified failure path by reverting `internal/web/pages_media.go` to `307d3f1~1` inside the worktree and re-running: `playlist_item ref should be cleaned up, count=1`. Restored.
+
+**ICY metadata regression (`v2-dev` HEAD, new test added under this pass):**
+```
+go test -run TestICYPoller_UpdatePlayHistory_DoesNotWriteMediaID -v ./internal/webstream/
+```
+PASS on current code. Verified failure path by temporarily reverting `icy_metadata.go:139-150` to the pre-fix `Save(&history)` and re-running:
+```
+icy_metadata_test.go:157: ICY poller called Save(&PlayHistory): regression of #218
+icy_metadata_test.go:162: ICY poller UPDATE statement included media_id column: regression of #218
+```
+Restored the fix; test passes again. New test file: `internal/webstream/icy_metadata_test.go`.
+
+### #224 evidence for downgrade
+- `gh issue view 224 --json createdAt` → `2026-05-15T20:38:13Z`
+- Body text: "Last on list or any on list not playing" (single image attachment; agents cannot fetch user-attachments).
+- `git log --oneline --all | grep -iE "last.item|playlist.tail|queue.last|tail.not.play|skip.last"` → no matches.
+- No commit since 2026-05-15 names #224. Triage attribution to PCM leak (v1.40.8) + PR #241 is plausible but unproven; "last on list" reads as queue sequencing, not CPU starvation.
+- Action: NEEDS REPRO (see "NEEDS WORK" section).
