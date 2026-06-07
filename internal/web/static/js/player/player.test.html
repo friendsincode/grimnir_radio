@@ -9,46 +9,60 @@
   .meta { color: #666; margin-bottom: 1.5rem; }
   fieldset { margin-bottom: 1rem; padding: 0.75rem 1rem; border: 1px solid #ccc; }
   legend { font-weight: 600; }
-  input[type=text] { width: 100%; padding: 0.4rem; font-family: monospace; }
+  input[type=text] { width: 100%; padding: 0.4rem; font-family: monospace; box-sizing: border-box; }
+  textarea { width: 100%; height: 90px; font: 12px/1.3 monospace; box-sizing: border-box; }
   button { padding: 0.4rem 0.8rem; margin-right: 0.4rem; cursor: pointer; }
   #state { font-weight: 600; }
   #state.playing { color: #1a7a1a; }
   #state.reconnecting { color: #b07000; }
   #state.stopped { color: #555; }
+  #state.unavailable { color: #b00020; }
+  #activeLabel { font-weight: 600; padding: 1px 6px; border: 1px solid #ccc; border-radius: 3px; background: #f4f4f4; }
   #log { background: #f4f4f4; padding: 0.5rem; height: 240px; overflow-y: scroll; font: 12px/1.3 monospace; white-space: pre-wrap; }
   ol { padding-left: 1.25rem; }
   li { margin-bottom: 0.4rem; }
+  #unavailable { display: none; padding: 0.75rem; border: 1px solid #b00020; background: #fff4f4; color: #b00020; margin-top: 0.5rem; }
+  #unavailable.shown { display: block; }
 </style>
 </head>
 <body>
 
 <h1>Grimnir player — manual reconnect test harness</h1>
-<p class="meta">Chunk 2 of <code>2026-06-06-custom-js-player.md</code>. Loads <code>player.js</code> as an ES module &amp; drives it from this page.</p>
+<p class="meta">Chunk 3 of <code>2026-06-06-custom-js-player.md</code>. Loads <code>player.js</code> as an ES module &amp; drives it from this page.</p>
 
 <fieldset>
-  <legend>Stream</legend>
-  <label>URL
-    <input type="text" id="url" value="https://<public-hostname>/main/hq">
+  <legend>Station</legend>
+  <label>Station ID
+    <input type="text" id="stationId" value="b8eb301f">
   </label>
+  <p class="meta">Or short-circuit the fetch with a literal stream list (JSON array of <code>{url,label,priority}</code>); leave blank to use the station ID above.</p>
+  <textarea id="streamsOverride" placeholder='[{"url":"https://<public-hostname>/main/hq","label":"HQ","priority":1},{"url":"https://<public-hostname>/main/lq","label":"LQ","priority":2}]'></textarea>
   <p>
     <button id="btn-play">Play</button>
     <button id="btn-pause">Pause</button>
     <button id="btn-stop">Stop &amp; tear down</button>
-    <button id="btn-rebuild">Rebuild player (with current URL)</button>
+    <button id="btn-rebuild">Rebuild player</button>
   </p>
   <p>State: <span id="state" class="stopped">stopped</span>
-     · Reconnects in 30s window: <span id="reconnects">0</span>
+     · Active stream: <span id="activeLabel">—</span>
+     · Reconnects in 30s: <span id="reconnects">0</span>
      · Escalations: <span id="escalations">0</span></p>
+
+  <div id="unavailable">
+    <b>Stream temporarily unavailable.</b>
+    Every stream URL in the list failed.
+    <button id="btn-retry">Retry from HQ</button>
+  </div>
 </fieldset>
 
 <fieldset>
-  <legend>How to test reconnect (the whole point of this page)</legend>
+  <legend>How to test (Chunks 2 + 3)</legend>
   <ol>
-    <li>Paste any working ICY/MP3 stream URL above &amp; hit <b>Play</b>. State should go to <b>playing</b>.</li>
-    <li>Kill the stream upstream (e.g. <code>./grimnir down</code>, or block the host with <code>sudo iptables -A OUTPUT -d &lt;ip&gt; -j DROP</code>). You should see one or two reconnect log lines, then state stays <b>reconnecting</b>.</li>
-    <li>Bring the stream back. State should return to <b>playing</b> within a second or two.</li>
-    <li>Kill the stream and leave it dead. The reconnect counter should hit 3, the <b>Escalations</b> counter should increment, &amp; the log should print the escalate payload. (Chunk 3 wires this to multi-URL degrade; here it just logs.)</li>
-    <li>Try the <b>Pause</b> button mid-playback &amp; mid-reconnect. Pause should freeze the player &amp; stop the reconnect loop.</li>
+    <li>Pick a station ID with multiple streams configured (HQ + LQ). Hit <b>Play</b>. State should go to <b>playing</b>; <b>Active stream</b> should show <code>HQ</code>.</li>
+    <li>Kill the HQ stream upstream. After 3 reconnect attempts inside 30s, the player should auto-degrade — Active stream flips to <code>LQ</code>, Escalations increments, and playback resumes.</li>
+    <li>Bring HQ back. Within 60s the background HEAD probe should succeed &amp; the player should step back up to <code>HQ</code>.</li>
+    <li>Kill BOTH streams. After exhausting the list, state should go <b>unavailable</b> and the red Retry panel should appear. Bring streams back &amp; hit <b>Retry from HQ</b> to restart from priority 1.</li>
+    <li>The <b>Streams override</b> textarea bypasses the API fetch — paste a JSON list to test offline or against arbitrary URLs.</li>
   </ol>
 </fieldset>
 
@@ -60,11 +74,14 @@
 <script type="module">
   import { createPlayer } from './player.js';
 
-  const urlInput = document.getElementById('url');
+  const stationIdInput = document.getElementById('stationId');
+  const overrideInput = document.getElementById('streamsOverride');
   const stateEl = document.getElementById('state');
+  const activeLabelEl = document.getElementById('activeLabel');
   const reconnectsEl = document.getElementById('reconnects');
   const escalationsEl = document.getElementById('escalations');
   const logEl = document.getElementById('log');
+  const unavailableEl = document.getElementById('unavailable');
   const container = document.createElement('div');
   document.body.appendChild(container);
 
@@ -83,29 +100,73 @@
   }
   setInterval(refreshCounters, 500);
 
+  function updateActiveLabel() {
+    if (!player) { activeLabelEl.textContent = '—'; return; }
+    const s = player.getActiveStream();
+    activeLabelEl.textContent = s ? s.label : '—';
+  }
+
   function build() {
     if (player) {
       player.destroy();
       log('previous player destroyed');
     }
     escalations = 0;
-    player = createPlayer(container, urlInput.value, {
+    unavailableEl.classList.remove('shown');
+
+    const opts = {
       onStateChange: (s) => {
         stateEl.textContent = s;
         stateEl.className = s;
         log(`state -> ${s}`);
+        if (s === 'unavailable') {
+          unavailableEl.classList.add('shown');
+        } else {
+          unavailableEl.classList.remove('shown');
+        }
+      },
+      onStreamChange: (stream) => {
+        updateActiveLabel();
+        log(`stream -> ${stream ? stream.label : '(none)'}`);
       },
       onEscalate: (info) => {
         escalations += 1;
-        log(`ESCALATE: ${JSON.stringify(info)}`);
+        log(`ESCALATE: ${JSON.stringify({
+          attempts: info.attempts,
+          from: info.from && info.from.label,
+          to: info.to && info.to.label,
+        })}`);
       },
-    });
-    log(`player built for ${urlInput.value}`);
+      onExhausted: () => {
+        log('EXHAUSTED: every stream URL failed');
+      },
+    };
+
+    let arg;
+    const overrideRaw = overrideInput.value.trim();
+    if (overrideRaw) {
+      try {
+        opts.streams = JSON.parse(overrideRaw);
+      } catch (e) {
+        log(`override JSON parse error: ${e.message}`);
+        return;
+      }
+      arg = stationIdInput.value || 'override';
+      log(`player built (override list, ${opts.streams.length} streams)`);
+    } else {
+      arg = stationIdInput.value.trim();
+      log(`player built for station=${arg}`);
+    }
+
+    player = createPlayer(container, arg, opts);
+    updateActiveLabel();
   }
 
   document.getElementById('btn-play').addEventListener('click', () => {
     if (!player) build();
-    player.play().then(() => log('play() resolved')).catch((e) => log(`play() rejected: ${e.name || e.message}`));
+    player.play()
+      .then(() => { log('play() resolved'); updateActiveLabel(); })
+      .catch((e) => log(`play() rejected: ${e.name || e.message}`));
   });
   document.getElementById('btn-pause').addEventListener('click', () => {
     if (player) { player.pause(); log('pause() called'); }
@@ -114,6 +175,13 @@
     if (player) { player.stop(); log('stop() called'); }
   });
   document.getElementById('btn-rebuild').addEventListener('click', build);
+  document.getElementById('btn-retry').addEventListener('click', () => {
+    if (!player) return;
+    log('retry() called');
+    player.retry()
+      .then(() => updateActiveLabel())
+      .catch((e) => log(`retry() rejected: ${e.name || e.message}`));
+  });
 </script>
 
 </body>
