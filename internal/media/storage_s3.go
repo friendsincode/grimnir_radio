@@ -147,10 +147,17 @@ func NewS3Storage(ctx context.Context, cfg S3Config, logger zerolog.Logger) (*S3
 }
 
 // Store uploads a file to S3-compatible storage.
-// Path format: media/{station_id}/{media_id}/{filename}
+// Key shape matches FilesystemStorage so a rclone sync from disk to R2 leaves
+// the object addressable by the same database `media_items.path` row:
+// `station_id/ab/cd/<media_id>.audio` (or `station_id/<media_id>.audio` for
+// media IDs shorter than 4 chars). The previous `media/{station}/{id}` shape
+// was incompatible with the filesystem layout & broke disk→R2 migration.
 func (s3s *S3Storage) Store(ctx context.Context, stationID, mediaID string, file io.Reader) (string, error) {
-	// Generate S3 key
-	key := fmt.Sprintf("media/%s/%s", stationID, mediaID)
+	// Match the filesystem backend's hierarchical path; .audio is the default
+	// extension used by FilesystemStorage.Store as well.
+	key := buildMediaPath(stationID, mediaID, ".audio")
+	// Normalize Windows separators just in case; S3 keys are slash-delimited.
+	key = filepath.ToSlash(key)
 
 	s3s.logger.Debug().
 		Str("bucket", s3s.bucket).

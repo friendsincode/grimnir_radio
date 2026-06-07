@@ -155,7 +155,7 @@ func TestS3Storage_Store_Success(t *testing.T) {
 	s3s := newFakeS3Storage(t, srv)
 	ctx := context.Background()
 
-	key, err := s3s.Store(ctx, "station1", "mediaID123", bytes.NewReader([]byte("audio data")))
+	key, err := s3s.Store(ctx, "station1", "abcdef1234567890", bytes.NewReader([]byte("audio data")))
 	if err != nil {
 		t.Fatalf("Store() error: %v", err)
 	}
@@ -165,6 +165,43 @@ func TestS3Storage_Store_Success(t *testing.T) {
 	// Key should be in the expected format.
 	if !strings.Contains(key, "station1") {
 		t.Errorf("Store() key = %q, should contain station1", key)
+	}
+}
+
+// TestS3Storage_Store_KeyShape_MatchesFilesystem verifies the R2/S3 backend
+// produces the same `station_id/ab/cd/<media_id>.audio` shape as the filesystem
+// backend so a rclone sync from disk -> R2 leaves keys playable without rewrite.
+func TestS3Storage_Store_KeyShape_MatchesFilesystem(t *testing.T) {
+	srv := fakeS3Server(t)
+	s3s := newFakeS3Storage(t, srv)
+	ctx := context.Background()
+
+	stationID := "st1"
+	mediaID := "abcdef1234567890"
+	key, err := s3s.Store(ctx, stationID, mediaID, bytes.NewReader([]byte("audio")))
+	if err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+	want := "st1/ab/cd/abcdef1234567890.audio"
+	if key != want {
+		t.Errorf("Store() key = %q, want %q (must match FilesystemStorage shape)", key, want)
+	}
+}
+
+// TestS3Storage_Store_ShortMediaID_FlatShape confirms the short-mediaID path
+// stays flat (`station/<id>.audio`) so the filesystem & S3 paths still match.
+func TestS3Storage_Store_ShortMediaID_FlatShape(t *testing.T) {
+	srv := fakeS3Server(t)
+	s3s := newFakeS3Storage(t, srv)
+	ctx := context.Background()
+
+	key, err := s3s.Store(ctx, "st2", "ab", bytes.NewReader([]byte("x")))
+	if err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+	want := "st2/ab.audio"
+	if key != want {
+		t.Errorf("Store() short-mediaID key = %q, want %q", key, want)
 	}
 }
 
