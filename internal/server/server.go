@@ -75,6 +75,7 @@ type Server struct {
 	webHandler           *web.Handler
 	scheduler            *scheduler.Service
 	leaderAwareScheduler *scheduler.LeaderAwareScheduler
+	election             *leadership.Election
 	analyzer             *analyzer.Service
 	playout              *playout.Manager
 	director             *playout.Director
@@ -285,6 +286,7 @@ func (s *Server) initDependencies() error {
 		if err != nil {
 			return fmt.Errorf("create leader election: %w", err)
 		}
+		s.election = election
 
 		s.leaderAwareScheduler = scheduler.NewLeaderAware(s.scheduler, election, s.logger)
 		s.DeferClose(func() error { return s.leaderAwareScheduler.Stop() })
@@ -361,7 +363,19 @@ func (s *Server) initDependencies() error {
 	priorityService := priority.NewService(database, s.bus, s.logger)
 	executorStateMgr := executor.NewStateManager(database, s.logger)
 
-	s.director = playout.NewDirector(database, s.cfg, s.playout, s.bus, webstreamService, broadcastSrv, s.logger, playout.WithStateResetter(executorStateMgr), playout.WithClock(netClock))
+	directorOpts := []playout.DirectorOption{
+		playout.WithStateResetter(executorStateMgr),
+		playout.WithClock(netClock),
+	}
+	if s.election != nil {
+		// Pin the function reference for popNextQueuedMedia (issue #240).
+		// IsLeader() is cheap (one bool load) so calling it on every queue
+		// pop is fine. When leader election is disabled, the option is
+		// omitted & the director defaults to "always leader".
+		election := s.election
+		directorOpts = append(directorOpts, playout.WithLeaderFunc(func() bool { return election.IsLeader() }))
+	}
+	s.director = playout.NewDirector(database, s.cfg, s.playout, s.bus, webstreamService, broadcastSrv, s.logger, directorOpts...)
 	s.listenerAnalyticsSvc = analytics.NewListenerAnalyticsService(database, s.director, s.logger)
 
 	// Live service depends on priority service

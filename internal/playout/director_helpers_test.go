@@ -871,6 +871,7 @@ func newCoverageDirectorWithQueue(t *testing.T) *Director {
 		&models.MountPlayoutState{},
 		&models.MediaItem{},
 		&models.PlayoutQueueItem{},
+		&models.PlayoutQueueDecision{},
 	); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}

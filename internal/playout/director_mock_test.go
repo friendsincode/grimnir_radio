@@ -38,6 +38,7 @@ func newMockDirector(t *testing.T, tables ...any) (*Director, *mockManager) {
 		&models.Mount{},
 		&models.Station{},
 		&models.PlayoutQueueItem{},
+		&models.PlayoutQueueDecision{},
 		&models.Webstream{},
 	}
 	all = append(all, tables...)

@@ -157,6 +157,14 @@ type Director struct {
 	// when GstClock() returns nil, pipelines fall back to the default
 	// GstSystemClock. Set via WithClock at construction.
 	netClock *Clock
+
+	// isLeaderFn reports whether this control-plane instance is the scheduler
+	// leader. Used by popNextQueuedMedia (issue #240) so the leader pops the
+	// user-queue & writes a decision row, while the follower reads the
+	// decision instead of racing the leader for the SELECT ... FOR UPDATE.
+	// Defaults to "always leader" (single-instance deploys keep working).
+	// Set via WithLeaderFunc at construction.
+	isLeaderFn func() bool
 }
 
 // NewDirector creates a playout director.
@@ -183,6 +191,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager ManagerInterface, bus 
 		tzCache:       make(map[string]cachedStationTimezone),
 		scheduleCache: cachedScheduleSnapshot{dirty: true},
 		icyPollers:    make(map[string]webstream.MetadataPoller),
+		isLeaderFn:    func() bool { return true },
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -207,6 +216,21 @@ func WithStateResetter(sr StateResetter) DirectorOption {
 func WithClock(c *Clock) DirectorOption {
 	return func(d *Director) {
 		d.netClock = c
+	}
+}
+
+// WithLeaderFunc supplies the leader-detection callback used by
+// popNextQueuedMedia (issue #240). When fn returns true the director treats
+// itself as the scheduler leader & pops from playout_queue_items, writing a
+// decision row that followers read on their own pop. When fn returns false,
+// the director reads the most-recent decision row instead. If unset the
+// director defaults to "always leader" — correct for single-instance deploys
+// & for code paths where leader election is disabled.
+func WithLeaderFunc(fn func() bool) DirectorOption {
+	return func(d *Director) {
+		if fn != nil {
+			d.isLeaderFn = fn
+		}
 	}
 }
 
@@ -243,6 +267,24 @@ func (d *Director) Run(ctx context.Context) error {
 					return
 				}
 				d.markScheduleDirty()
+			}
+		}
+	}()
+
+	// Background sweep of expired playout_queue_decisions rows (issue #240).
+	// Runs on the leader & follower alike — the WHERE expires_at <= now
+	// clause is idempotent; redundant sweeps cost one indexed DELETE.
+	go func() {
+		t := time.NewTicker(1 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := d.sweepExpiredQueueDecisions(ctx); err != nil {
+					d.logger.Debug().Err(err).Msg("sweep expired queue decisions failed")
+				}
 			}
 		}
 	}()
@@ -3330,7 +3372,24 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 	d.playRandomNextTrack(entry, mountName)
 }
 
+// queueDecisionTTL bounds how long a leader's popped-queue decision stays
+// readable by a follower. Long enough for a follower's next handleTrackEnded
+// tick to find it (typical handleTrackEnded latency is sub-second; we
+// give two orders of magnitude headroom); short enough that abandoned rows
+// don't compound across an hour of broadcast. Issue #240.
+const queueDecisionTTL = 15 * time.Second
+
 func (d *Director) popNextQueuedMedia(ctx context.Context, stationID, mountID string) (*models.MediaItem, *models.PlayoutQueueItem, error) {
+	if d.isLeaderFn != nil && !d.isLeaderFn() {
+		return d.readQueueDecisionAsFollower(ctx, stationID, mountID)
+	}
+	return d.popQueueAndRecordDecision(ctx, stationID, mountID)
+}
+
+// popQueueAndRecordDecision is the leader path. It pops the head of
+// playout_queue_items as before, then writes a transient decision row so the
+// follower's read in readQueueDecisionAsFollower returns the same media.
+func (d *Director) popQueueAndRecordDecision(ctx context.Context, stationID, mountID string) (*models.MediaItem, *models.PlayoutQueueItem, error) {
 	var picked models.PlayoutQueueItem
 	var media models.MediaItem
 
@@ -3373,6 +3432,22 @@ func (d *Director) popNextQueuedMedia(ctx context.Context, stationID, mountID st
 				return err
 			}
 
+			// Record the decision so a follower's pop returns this same media
+			// instead of racing the leader for the (now-gone) queue row.
+			now := time.Now().UTC()
+			decision := models.PlayoutQueueDecision{
+				ID:                uuid.NewString(),
+				StationID:         stationID,
+				MountID:           mountID,
+				MediaID:           m.ID,
+				SourceQueueItemID: item.ID,
+				DecidedAt:         now,
+				ExpiresAt:         now.Add(queueDecisionTTL),
+			}
+			if err := tx.Create(&decision).Error; err != nil {
+				return err
+			}
+
 			picked = item
 			media = m
 			return nil
@@ -3386,6 +3461,58 @@ func (d *Director) popNextQueuedMedia(ctx context.Context, stationID, mountID st
 		return nil, nil, nil
 	}
 	return &media, &picked, nil
+}
+
+// readQueueDecisionAsFollower is the follower path. It looks up the most
+// recent decision row written by the leader for this (station, mount) within
+// the TTL, loads the media, & returns it. A nil/nil/nil result means there's
+// no decision — the caller falls through to its normal source-type branch.
+func (d *Director) readQueueDecisionAsFollower(ctx context.Context, stationID, mountID string) (*models.MediaItem, *models.PlayoutQueueItem, error) {
+	now := time.Now().UTC()
+	var decision models.PlayoutQueueDecision
+	err := d.db.WithContext(ctx).
+		Where("station_id = ? AND mount_id = ? AND expires_at > ?", stationID, mountID, now).
+		Order("decided_at DESC").
+		First(&decision).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var media models.MediaItem
+	if err := d.db.WithContext(ctx).
+		Where("id = ? AND station_id = ?", decision.MediaID, stationID).
+		First(&media).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Media got deleted between leader pop & follower read; treat as
+			// "no decision" so the follower falls through to its fallback.
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+
+	// Synthesize a queue item from the decision so the caller's signature
+	// stays the same. The ID matches the original (source_queue_item_id) so
+	// telemetry & played-history downstream see one logical play, not two.
+	item := models.PlayoutQueueItem{
+		ID:        decision.SourceQueueItemID,
+		StationID: stationID,
+		MountID:   mountID,
+		MediaID:   decision.MediaID,
+	}
+	return &media, &item, nil
+}
+
+// sweepExpiredQueueDecisions deletes decision rows whose ExpiresAt has
+// passed. Called on a 1-minute tick from Director.Run so the table stays
+// bounded at roughly (stations * mounts * decisions-per-minute) rows.
+func (d *Director) sweepExpiredQueueDecisions(ctx context.Context) error {
+	now := time.Now().UTC()
+	return d.db.WithContext(ctx).
+		Where("expires_at <= ?", now).
+		Delete(&models.PlayoutQueueDecision{}).Error
 }
 
 // updateEntryPosition persists the current playlist position to entry metadata.

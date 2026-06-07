@@ -202,6 +202,7 @@ func setupSharedTestDB(t *testing.T) *gorm.DB {
 		&models.MountPlayoutState{},
 		&models.SmartBlockGeneration{},
 		&models.PlayoutQueueItem{},
+		&models.PlayoutQueueDecision{},
 		&models.PlayHistory{},
 		&models.Webstream{},
 		&models.Clock{},
@@ -589,5 +590,193 @@ func TestLockstep_SmartBlockGenerationPersistedAcrossInstances(t *testing.T) {
 	d2, _ := newDirectorOnDB(t, db, sbEng)
 	if got := d2.loadSmartBlockGeneration(ctx, entryID, startsAt, playKey); got != 2 {
 		t.Fatalf("d2 after d1 bumps: expected gen 2 from DB, got %d (C9 regression — sbGeneration not persisted)", got)
+	}
+}
+
+// TestLockstep_QueuePopAgreement is the acceptance test for #240. Two
+// directors share a DB & a single user-queued track. The leader pops & writes
+// a decision row; the follower reads the decision & returns the same media.
+// Without the decision-row indirection, the follower would either get an
+// empty pop (and fall back to a random pick) or, on SQLite where SELECT FOR
+// UPDATE is a no-op, double-consume the queue & one of them would still play
+// the wrong track on its next call.
+func TestLockstep_QueuePopAgreement(t *testing.T) {
+	db := setupSharedTestDB(t)
+
+	ids := newScenarioIDs()
+	epoch := time.Now().UTC()
+	insertRepresentativeSchedule(t, db, ids, epoch)
+
+	// One user-queued track at the head of the mount's queue.
+	queueItemID := "40000000-0000-0000-0000-000000000001"
+	queuedMediaID := ids.mediaIDs[5] // distinct from any sortedMedia[:3] in the playlist
+	if err := db.Create(&models.PlayoutQueueItem{
+		ID:        queueItemID,
+		StationID: ids.stationID,
+		MountID:   ids.mountID,
+		MediaID:   queuedMediaID,
+		Position:  1,
+	}).Error; err != nil {
+		t.Fatalf("seed queue item: %v", err)
+	}
+
+	sbEng := smartblock.New(db, zerolog.Nop())
+	dLeader, _ := newDirectorOnDB(t, db, sbEng)
+	dFollower, _ := newDirectorOnDB(t, db, sbEng)
+	dLeader.isLeaderFn = func() bool { return true }
+	dFollower.isLeaderFn = func() bool { return false }
+
+	ctx := context.Background()
+
+	leaderMedia, leaderItem, err := dLeader.popNextQueuedMedia(ctx, ids.stationID, ids.mountID)
+	if err != nil {
+		t.Fatalf("leader pop: %v", err)
+	}
+	if leaderMedia == nil || leaderItem == nil {
+		t.Fatal("leader pop returned nil media/item (expected the queued track)")
+	}
+	if leaderMedia.ID != queuedMediaID {
+		t.Fatalf("leader pop returned wrong media: got %q want %q", leaderMedia.ID, queuedMediaID)
+	}
+
+	// Follower runs immediately after the leader's pop. It must return the
+	// same media even though playout_queue_items is now empty.
+	followerMedia, followerItem, err := dFollower.popNextQueuedMedia(ctx, ids.stationID, ids.mountID)
+	if err != nil {
+		t.Fatalf("follower pop: %v", err)
+	}
+	if followerMedia == nil {
+		t.Fatal("follower pop returned nil media (issue #240 regression — follower fell through to fallback)")
+	}
+	if followerMedia.ID != leaderMedia.ID {
+		t.Fatalf("LOCKSTEP BROKEN: follower played different track than leader. leader=%q follower=%q (issue #240)",
+			leaderMedia.ID, followerMedia.ID)
+	}
+	// Follower must NOT have consumed a queue row of its own; the queueItem
+	// it returns is the leader's decision, not a second pop.
+	if followerItem == nil {
+		t.Fatal("follower pop returned nil queue item (decision row missing)")
+	}
+	if followerItem.ID != leaderItem.ID {
+		t.Fatalf("follower returned different queue item id %q than leader %q — second-pop instead of read-decision",
+			followerItem.ID, leaderItem.ID)
+	}
+
+	// The queue itself must contain zero items: leader consumed the only
+	// row, follower never touched playout_queue_items.
+	var remaining int64
+	if err := db.Model(&models.PlayoutQueueItem{}).Count(&remaining).Error; err != nil {
+		t.Fatalf("count remaining queue items: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected playout_queue_items empty after leader pop, got %d", remaining)
+	}
+
+	// And exactly one decision row was written.
+	var decisions int64
+	if err := db.Model(&models.PlayoutQueueDecision{}).Count(&decisions).Error; err != nil {
+		t.Fatalf("count decisions: %v", err)
+	}
+	if decisions != 1 {
+		t.Fatalf("expected exactly 1 decision row, got %d", decisions)
+	}
+}
+
+// TestLockstep_FollowerEmptyQueueReturnsNil verifies the follower's read path
+// returns (nil, nil, nil) when there's no recent decision row & the queue is
+// empty — i.e. the source-type fallback in handleTrackEnded still fires when
+// genuinely nothing was queued, instead of accidentally synthesizing a play.
+func TestLockstep_FollowerEmptyQueueReturnsNil(t *testing.T) {
+	db := setupSharedTestDB(t)
+
+	ids := newScenarioIDs()
+	epoch := time.Now().UTC()
+	insertRepresentativeSchedule(t, db, ids, epoch)
+
+	sbEng := smartblock.New(db, zerolog.Nop())
+	dFollower, _ := newDirectorOnDB(t, db, sbEng)
+	dFollower.isLeaderFn = func() bool { return false }
+
+	media, item, err := dFollower.popNextQueuedMedia(context.Background(), ids.stationID, ids.mountID)
+	if err != nil {
+		t.Fatalf("follower pop on empty queue: %v", err)
+	}
+	if media != nil || item != nil {
+		t.Fatal("expected nil for follower with no queue & no decision")
+	}
+}
+
+// TestLockstep_ExpiredDecisionIgnored verifies the 15-second TTL: a follower
+// arriving after the decision row's expires_at must NOT pick up a stale
+// decision (otherwise a track queued for entry N would replay on entry N+2
+// hours later).
+func TestLockstep_ExpiredDecisionIgnored(t *testing.T) {
+	db := setupSharedTestDB(t)
+
+	ids := newScenarioIDs()
+	epoch := time.Now().UTC()
+	insertRepresentativeSchedule(t, db, ids, epoch)
+
+	// Stale decision row from an hour ago.
+	if err := db.Create(&models.PlayoutQueueDecision{
+		ID:                uuid.NewString(),
+		StationID:         ids.stationID,
+		MountID:           ids.mountID,
+		MediaID:           ids.mediaIDs[3],
+		SourceQueueItemID: uuid.NewString(),
+		DecidedAt:         time.Now().UTC().Add(-1 * time.Hour),
+		ExpiresAt:         time.Now().UTC().Add(-1*time.Hour + 15*time.Second),
+	}).Error; err != nil {
+		t.Fatalf("seed stale decision: %v", err)
+	}
+
+	sbEng := smartblock.New(db, zerolog.Nop())
+	dFollower, _ := newDirectorOnDB(t, db, sbEng)
+	dFollower.isLeaderFn = func() bool { return false }
+
+	media, item, err := dFollower.popNextQueuedMedia(context.Background(), ids.stationID, ids.mountID)
+	if err != nil {
+		t.Fatalf("follower pop with stale decision: %v", err)
+	}
+	if media != nil || item != nil {
+		t.Fatal("expected nil — stale decision must not be returned")
+	}
+}
+
+// TestSweepExpiredQueueDecisions verifies the background cleanup deletes
+// expired decision rows so the table doesn't grow without bound.
+func TestSweepExpiredQueueDecisions(t *testing.T) {
+	db := setupSharedTestDB(t)
+
+	ids := newScenarioIDs()
+	epoch := time.Now().UTC()
+	insertRepresentativeSchedule(t, db, ids, epoch)
+
+	now := time.Now().UTC()
+	// Two expired, one live.
+	rows := []models.PlayoutQueueDecision{
+		{ID: uuid.NewString(), StationID: ids.stationID, MountID: ids.mountID, MediaID: ids.mediaIDs[0], SourceQueueItemID: uuid.NewString(), DecidedAt: now.Add(-2 * time.Minute), ExpiresAt: now.Add(-90 * time.Second)},
+		{ID: uuid.NewString(), StationID: ids.stationID, MountID: ids.mountID, MediaID: ids.mediaIDs[1], SourceQueueItemID: uuid.NewString(), DecidedAt: now.Add(-5 * time.Minute), ExpiresAt: now.Add(-4 * time.Minute)},
+		{ID: uuid.NewString(), StationID: ids.stationID, MountID: ids.mountID, MediaID: ids.mediaIDs[2], SourceQueueItemID: uuid.NewString(), DecidedAt: now, ExpiresAt: now.Add(15 * time.Second)},
+	}
+	for _, r := range rows {
+		if err := db.Create(&r).Error; err != nil {
+			t.Fatalf("seed decision %s: %v", r.ID, err)
+		}
+	}
+
+	sbEng := smartblock.New(db, zerolog.Nop())
+	d, _ := newDirectorOnDB(t, db, sbEng)
+
+	if err := d.sweepExpiredQueueDecisions(context.Background()); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	var remaining int64
+	if err := db.Model(&models.PlayoutQueueDecision{}).Count(&remaining).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if remaining != 1 {
+		t.Fatalf("expected 1 live decision after sweep, got %d", remaining)
 	}
 }

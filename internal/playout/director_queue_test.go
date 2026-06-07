@@ -17,7 +17,7 @@ func newQueueTestDirector(t *testing.T) *Director {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.MediaItem{}, &models.PlayoutQueueItem{}); err != nil {
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.PlayoutQueueItem{}, &models.PlayoutQueueDecision{}); err != nil {
 		t.Fatalf("auto migrate queue test tables: %v", err)
 	}
 

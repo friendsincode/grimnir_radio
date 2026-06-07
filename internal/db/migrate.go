@@ -50,6 +50,7 @@ func Migrate(database *gorm.DB) error {
 		&models.MountPlayoutState{},
 		&models.SmartBlockGeneration{},
 		&models.PlayoutQueueItem{},
+		&models.PlayoutQueueDecision{},
 		&models.AnalysisJob{},
 		&models.PrioritySource{},
 		&models.ExecutorState{},
