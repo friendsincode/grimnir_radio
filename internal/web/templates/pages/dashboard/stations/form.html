@@ -34,8 +34,15 @@
 
                     <div class="mb-3">
                         <label for="name" class="form-label">Station Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="name" name="name"
+                        <input type="text"
+                               class="form-control{{if and .Data.FieldErrors (index .Data.FieldErrors "name")}} is-invalid{{end}}"
+                               id="name" name="name"
                                value="{{.Data.Station.Name}}" required>
+                        {{if and .Data.FieldErrors (index .Data.FieldErrors "name")}}
+                        <div class="invalid-feedback" data-field-error="name">
+                            {{index .Data.FieldErrors "name"}}
+                        </div>
+                        {{end}}
                     </div>
 
                     <div class="mb-3">
@@ -132,10 +139,49 @@
             }
         }
 
+        function clearFieldErrors() {
+            document.querySelectorAll('[data-field-error]').forEach(function (el) {
+                el.remove();
+            });
+            document.querySelectorAll('.form-control.is-invalid, .form-select.is-invalid').forEach(function (el) {
+                el.classList.remove('is-invalid');
+            });
+        }
+
+        function attachFieldError(field, message) {
+            const input = document.getElementById(field);
+            if (!input) return false;
+            input.classList.add('is-invalid');
+            const fb = document.createElement('div');
+            fb.className = 'invalid-feedback';
+            fb.setAttribute('data-field-error', field);
+            fb.textContent = message;
+            input.parentNode.appendChild(fb);
+            input.focus();
+            return true;
+        }
+
         if (form) {
             form.addEventListener('htmx:responseError', function (evt) {
                 if (!alertBox) return;
-                const msg = evt.detail?.xhr?.responseText || 'Failed to save station. Please check the description and try again.';
+                clearFieldErrors();
+                const xhr = evt.detail?.xhr;
+                const msg = xhr?.responseText || 'Failed to save station. Please check the form and try again.';
+                const ctype = (xhr?.getResponseHeader && xhr.getResponseHeader('Content-Type')) || '';
+                if (ctype.indexOf('application/json') !== -1) {
+                    try {
+                        const data = JSON.parse(msg);
+                        const placed = data.field && attachFieldError(data.field, data.error || '');
+                        if (!placed) {
+                            alertBox.innerHTML = '<div class="alert alert-danger">' + escapeHtml(data.error || msg) + '</div>';
+                        } else {
+                            alertBox.innerHTML = '';
+                        }
+                        return;
+                    } catch (_) {
+                        // fall through to default rendering
+                    }
+                }
                 if (msg.trim().startsWith('<')) {
                     alertBox.innerHTML = msg;
                     return;

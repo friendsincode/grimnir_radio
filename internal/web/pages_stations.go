@@ -7,13 +7,17 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
@@ -101,13 +105,30 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 		station.Timezone = "UTC"
 	}
 
+	// Pre-check duplicate name so we can return a clean 409 with a field-targeted
+	// message instead of leaking the generic DB error path. The same uniqueIndex
+	// also guards us in the INSERT below for race-condition safety.
+	var dupCount int64
+	if err := h.db.Model(&models.Station{}).Where("name = ?", station.Name).Count(&dupCount).Error; err != nil {
+		h.logger.Error().Err(err).Msg("station create: duplicate-name pre-check failed")
+		h.renderStationCreateError(w, r, station, http.StatusInternalServerError, "name", "Database error: "+err.Error())
+		return
+	}
+	if dupCount > 0 {
+		h.logger.Info().Str("name", station.Name).Msg("station create rejected: duplicate name")
+		msg := fmt.Sprintf("A station named %q already exists. Pick a different name.", station.Name)
+		h.renderStationCreateError(w, r, station, http.StatusConflict, "name", msg)
+		return
+	}
+
 	// Create station in transaction with owner association
 	tx := h.db.Begin()
 
 	if err := tx.Create(&station).Error; err != nil {
 		tx.Rollback()
-		h.logger.Error().Err(err).Msg("failed to create station")
-		h.renderStationFormError(w, r, station, true, "Failed to create station")
+		status, field, msg := classifyDBError(err, "station", station.Name)
+		h.logger.Error().Err(err).Str("field", field).Msg("failed to create station")
+		h.renderStationCreateError(w, r, station, status, field, msg)
 		return
 	}
 
@@ -121,8 +142,9 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 
 	if err := tx.Create(&stationUser).Error; err != nil {
 		tx.Rollback()
+		status, field, msg := classifyDBError(err, "station-user link", "")
 		h.logger.Error().Err(err).Msg("failed to create station-user association")
-		h.renderStationFormError(w, r, station, true, "Failed to create station")
+		h.renderStationCreateError(w, r, station, status, field, msg)
 		return
 	}
 
@@ -145,15 +167,16 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 
 	if err := tx.Create(&mount).Error; err != nil {
 		tx.Rollback()
+		status, field, msg := classifyDBError(err, "default mount", mountName)
 		h.logger.Error().Err(err).Msg("failed to create default mount")
-		h.renderStationFormError(w, r, station, true, "Failed to create station")
+		h.renderStationCreateError(w, r, station, status, field, msg)
 		return
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
 		h.logger.Error().Err(err).Msg("failed to commit station create transaction")
-		h.renderStationFormError(w, r, station, true, "Failed to create station")
+		h.renderStationCreateError(w, r, station, http.StatusInternalServerError, "", "Database error: "+err.Error())
 		return
 	}
 
@@ -511,6 +534,125 @@ func (h *Handler) renderStationFormError(w http.ResponseWriter, r *http.Request,
 			"IsNew":   isNew,
 		},
 	})
+}
+
+// renderStationCreateError emits a structured per-field error for the station
+// create path. HTMX callers get JSON ({"error": "...", "field": "name"}) so the
+// client-side handler can attach the message to the offending input; plain form
+// posts get the form re-rendered with a flash plus a per-field error so the
+// operator can correct the input in place without losing what they typed.
+func (h *Handler) renderStationCreateError(w http.ResponseWriter, r *http.Request, station models.Station, status int, field, message string) {
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": message,
+			"field": field,
+		})
+		return
+	}
+
+	w.WriteHeader(status)
+	fieldErrors := map[string]string{}
+	if field != "" {
+		fieldErrors[field] = message
+	}
+	h.Render(w, r, "pages/dashboard/stations/form", PageData{
+		Title:    "Station",
+		Stations: h.LoadStations(r),
+		Flash:    &FlashMessage{Type: "error", Message: message},
+		Data: map[string]any{
+			"Station":     station,
+			"IsNew":       true,
+			"FieldErrors": fieldErrors,
+		},
+	})
+}
+
+// sqliteUniqueRE matches SQLite's "UNIQUE constraint failed: stations.name" so
+// the dev/test path (sqlite) gets the same friendly classification as Postgres.
+var sqliteUniqueRE = regexp.MustCompile(`UNIQUE constraint failed:\s*([^.]+)\.([^\s]+)`)
+
+// classifyDBError maps a raw DB error to (HTTP status, field name, user-facing
+// message). It understands Postgres SQLSTATE codes via pgconn.PgError and falls
+// back to parsing SQLite's UNIQUE-violation text so the dev environment & tests
+// see the same shape. The operator gets actionable feedback; the raw SQL stays
+// in the server logs.
+func classifyDBError(err error, resource, value string) (int, string, string) {
+	if err == nil {
+		return http.StatusOK, "", ""
+	}
+
+	// Postgres path
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505": // unique_violation
+			field := pgErr.ColumnName
+			if field == "" {
+				field = guessFieldFromConstraint(pgErr.ConstraintName)
+			}
+			label := value
+			if label == "" {
+				label = resource
+			}
+			return http.StatusConflict, field, fmt.Sprintf(
+				"A %s with that %s already exists (%q). Pick a different value.",
+				resource, displayField(field), label,
+			)
+		case "23502": // not_null_violation
+			return http.StatusBadRequest, pgErr.ColumnName, fmt.Sprintf(
+				"Missing required field: %s.", displayField(pgErr.ColumnName),
+			)
+		case "23503": // foreign_key_violation
+			return http.StatusBadRequest, pgErr.ColumnName, fmt.Sprintf(
+				"Referenced record not found for field: %s.", displayField(pgErr.ColumnName),
+			)
+		default:
+			return http.StatusInternalServerError, "", fmt.Sprintf(
+				"Database error (%s): %s", pgErr.Code, pgErr.Message,
+			)
+		}
+	}
+
+	// SQLite path (dev & tests)
+	if m := sqliteUniqueRE.FindStringSubmatch(err.Error()); m != nil {
+		field := m[2]
+		label := value
+		if label == "" {
+			label = resource
+		}
+		return http.StatusConflict, field, fmt.Sprintf(
+			"A %s with that %s already exists (%q). Pick a different value.",
+			resource, displayField(field), label,
+		)
+	}
+
+	return http.StatusInternalServerError, "", "Database error: " + err.Error()
+}
+
+// guessFieldFromConstraint pulls a column name out of a constraint name like
+// "stations_name_key" or "idx_stations_name". Returns empty string if we can't
+// confidently extract one.
+func guessFieldFromConstraint(constraint string) string {
+	if constraint == "" {
+		return ""
+	}
+	c := strings.TrimSuffix(constraint, "_key")
+	c = strings.TrimPrefix(c, "idx_")
+	parts := strings.Split(c, "_")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[len(parts)-1]
+}
+
+// displayField turns a snake_case column name into a human-readable label.
+func displayField(field string) string {
+	if field == "" {
+		return "(unknown)"
+	}
+	return strings.ReplaceAll(field, "_", " ")
 }
 
 // Mount handlers

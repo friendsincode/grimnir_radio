@@ -8,6 +8,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -321,6 +322,79 @@ func TestStationCreate_NonAdminUser_CreatesStation(t *testing.T) {
 	// Non-admin can create stations too
 	if rr.Code != http.StatusSeeOther {
 		t.Fatalf("expected 303 redirect, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestStationCreate_DuplicateName_HXReturns409JSON(t *testing.T) {
+	db := newStationsTestDB(t)
+	h := newStationsTestHandler(t, db)
+	admin := seedAdminUser(t, db)
+	seedStation(t, db, "existing1", "Talk Radio")
+
+	form := url.Values{"name": {"Talk Radio"}, "timezone": {"UTC"}}
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/stations", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser, &admin))
+
+	rr := httptest.NewRecorder()
+	h.StationCreate(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("expected JSON content-type, got %q", ct)
+	}
+
+	var payload struct {
+		Error string `json:"error"`
+		Field string `json:"field"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("response not valid JSON: %v: %s", err, rr.Body.String())
+	}
+	if payload.Field != "name" {
+		t.Fatalf("expected field=name, got %q", payload.Field)
+	}
+	if !strings.Contains(payload.Error, "Talk Radio") {
+		t.Fatalf("expected error to name the duplicate, got %q", payload.Error)
+	}
+	if !strings.Contains(strings.ToLower(payload.Error), "already") {
+		t.Fatalf("expected friendly duplicate message, got %q", payload.Error)
+	}
+
+	// Confirm the duplicate was NOT inserted.
+	var count int64
+	db.Model(&models.Station{}).Where("name = ?", "Talk Radio").Count(&count)
+	if count != 1 {
+		t.Fatalf("expected exactly 1 station named 'Talk Radio', got %d", count)
+	}
+}
+
+func TestStationCreate_DuplicateName_NonHX_RendersFormWith409(t *testing.T) {
+	db := newStationsTestDB(t)
+	h := newStationsTestHandler(t, db)
+	admin := seedAdminUser(t, db)
+	seedStation(t, db, "existing2", "Morning Show")
+
+	form := url.Values{"name": {"Morning Show"}, "timezone": {"UTC"}}
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/stations", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser, &admin))
+
+	rr := httptest.NewRecorder()
+	h.StationCreate(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Morning Show") {
+		t.Fatalf("expected response to name the duplicate, got: %s", body)
+	}
+	if !strings.Contains(strings.ToLower(body), "already") {
+		t.Fatalf("expected friendly duplicate message in body, got: %s", body)
 	}
 }
 
