@@ -1118,12 +1118,21 @@ func (s *Service) pickRandomTrack(ctx context.Context, stationID, mountID string
 		dur = 3 * time.Minute
 	}
 
+	// Issue #227: clip the emergency fallback entry to the slot boundary so a
+	// long emergency track can't eat the next show. The director's hard-cut
+	// sweep enforces this at playout time; we mirror the boundary in the
+	// scheduled EndsAt so the operator-visible schedule is honest.
+	endsAt := plan.StartsAt.Add(dur)
+	if !plan.EndsAt.IsZero() && endsAt.After(plan.EndsAt) {
+		endsAt = plan.EndsAt
+	}
+
 	entry := models.ScheduleEntry{
 		ID:         uuid.NewString(),
 		StationID:  stationID,
 		MountID:    mountID,
 		StartsAt:   plan.StartsAt,
-		EndsAt:     plan.StartsAt.Add(dur),
+		EndsAt:     endsAt,
 		SourceType: "media",
 		SourceID:   item.ID,
 		IsInstance: true,

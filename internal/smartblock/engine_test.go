@@ -778,10 +778,12 @@ func TestGenerate_BumpersRespectMaxPerGap(t *testing.T) {
 // search for shorter tracks rather than stopping prematurely (fixing the gap issue
 // where a 2-hour slot got only 1 hour of content because the first post-amtest pick
 // was a long track).
-// TestGenerate_LongTrackClampedWhenNothingFits verifies that when all remaining
-// tracks are longer than the residual slot time, the engine picks one anyway and
-// clamps its EndsAtMS to the slot boundary rather than leaving a silence gap.
-func TestGenerate_LongTrackClampedWhenNothingFits(t *testing.T) {
+// TestGenerate_LongTrackEmptyWhenNothingFits verifies the issue #227 behavior:
+// when all candidate tracks are longer than the slot, the engine returns an empty
+// schedule rather than picking + clamping a long track. The previous clamp strategy
+// was unreliable because the executor played the file to its natural end, eating
+// the next slot. Silence is preferable to overflow.
+func TestGenerate_LongTrackEmptyWhenNothingFits(t *testing.T) {
 	t.Parallel()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -836,19 +838,16 @@ func TestGenerate_LongTrackClampedWhenNothingFits(t *testing.T) {
 		StationID:    stationID,
 		MountID:      "mount-clamp",
 	})
-	if err != nil {
-		t.Fatalf("generate: %v", err)
+	// Issue #227 fix: when every candidate is longer than the slot, the engine
+	// either returns ErrUnresolved or an empty sequence — both mean "silence
+	// this slot." The previous clamp-and-overflow strategy was unreliable
+	// because the executor played the file to its natural end, eating the next
+	// slot. Silence is preferable to overflow.
+	if err == nil && len(res.Items) != 0 {
+		t.Fatalf("expected empty sequence (or ErrUnresolved) when no track fits; got %d items", len(res.Items))
 	}
-
-	if len(res.Items) == 0 {
-		t.Fatal("expected at least one item; got none (silence gap)")
-	}
-	last := res.Items[len(res.Items)-1]
-	if last.EndsAtMS > target {
-		t.Errorf("last track EndsAtMS %d exceeds slot target %d ms", last.EndsAtMS, target)
-	}
-	if last.EndsAtMS != target {
-		t.Errorf("expected last track clamped to %d ms; got %d ms", target, last.EndsAtMS)
+	if err != nil && err != ErrUnresolved {
+		t.Fatalf("expected ErrUnresolved or nil; got %v", err)
 	}
 }
 
@@ -1280,5 +1279,78 @@ func TestSelectCandidate_DeterministicWithSameSeed(t *testing.T) {
 		if idx != first {
 			t.Fatalf("selectCandidate non-deterministic with same seed: iter %d returned %d, first returned %d", i, idx, first)
 		}
+	}
+}
+
+// TestSelectSequence_FirstTrackMustFit reproduces issue #227: a 2-hour smart block
+// was picking a 5-hour file as its first (and only) track because the fit filter
+// in selectSequence only ran when cursor > 0. The first track must also fit
+// within the remaining slot duration; otherwise the slot returns empty (silence)
+// rather than overflowing into the next show.
+func TestSelectSequence_FirstTrackMustFit(t *testing.T) {
+	t.Parallel()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MediaItem{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{}, &models.PlayHistory{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	stationID := "station-227"
+	// Single 5-hour file; slot is 2 hours. The pre-fix engine would pick this
+	// 5h track because cursor == 0 skipped the fit filter.
+	media := models.MediaItem{
+		ID:            "rpss-5h",
+		StationID:     stationID,
+		Title:         "Red Pill Sunday School (5h)",
+		Artist:        "RPSS",
+		Duration:      5 * time.Hour,
+		AnalysisState: models.AnalysisComplete,
+	}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	pl := models.Playlist{ID: "pl-227", StationID: stationID, Name: "Long Only"}
+	if err := db.Create(&pl).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	if err := db.Create(&models.PlaylistItem{ID: "pli-rpss", PlaylistID: pl.ID, MediaID: media.ID, Position: 0}).Error; err != nil {
+		t.Fatalf("create playlist item: %v", err)
+	}
+
+	sb := models.SmartBlock{
+		ID:        "sb-227",
+		StationID: stationID,
+		Name:      "RPSS 2h block",
+		Rules: map[string]any{
+			"sourcePlaylists": []string{pl.ID},
+		},
+	}
+	if err := db.Create(&sb).Error; err != nil {
+		t.Fatalf("create smart block: %v", err)
+	}
+
+	target := int64(2 * time.Hour / time.Millisecond)
+	eng := New(db, zerolog.Nop())
+	res, err := eng.Generate(context.Background(), GenerateRequest{
+		SmartBlockID: sb.ID,
+		Seed:         227,
+		Duration:     target,
+		StationID:    stationID,
+		MountID:      "mount-227",
+	})
+
+	// Expect empty: the only candidate doesn't fit, so silence is correct.
+	// Generate returns ErrUnresolved when no relaxation level yields a sequence;
+	// either ErrUnresolved or an empty result is acceptable — both signal "silence."
+	if err == nil && len(res.Items) != 0 {
+		t.Fatalf("expected empty sequence; got %d items (first dur=%dms, slot=%dms)",
+			len(res.Items), res.Items[0].EndsAtMS-res.Items[0].StartsAtMS, target)
+	}
+	if err != nil && err != ErrUnresolved {
+		t.Fatalf("expected ErrUnresolved or nil; got %v", err)
 	}
 }

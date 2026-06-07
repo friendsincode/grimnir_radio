@@ -1031,29 +1031,31 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 			targetEnergy = curve[idx%len(curve)]
 		}
 
-		// Prefer tracks that fit the remaining time window. If none fit, fall
-		// back to the full pool — the selected track will be clamped to the slot
-		// boundary and the executor will hard-cut it. This eliminates silence
-		// gaps caused by all remaining tracks being longer than the residual time.
-		pickFrom := remaining
-		if cursor > 0 {
-			maxDurMS := targetMS + tolerance - cursor
-			var fitting []candidate
-			for _, c := range remaining {
-				d := c.Item.Duration
-				if d <= 0 {
-					d = 3 * time.Minute
-				}
-				if d.Milliseconds() <= maxDurMS {
-					fitting = append(fitting, c)
-				}
+		// Issue #227: pick only tracks that fit the remaining slot — including
+		// the first track (cursor == 0). The previous behavior gated this filter
+		// on cursor > 0, so a 5h file could be chosen as the first (and only)
+		// track of a 2h slot. The executor was supposed to hard-cut the clamped
+		// EndsAtMS, but the GStreamer filesrc pipeline played the file to its
+		// natural end, eating subsequent shows.
+		//
+		// Behavior change: when NO candidate fits the remaining slot duration,
+		// the loop breaks and the slot may be returned underfilled (or empty
+		// on the first iteration). Silence is preferable to overflow into the
+		// next show. Operators relying on the old clamp behavior will see a
+		// schedule gap; the director's hard-cut sweep is the safety net for
+		// any path that still produces an oversized item.
+		maxDurMS := targetMS + tolerance - cursor
+		var fitting []candidate
+		for _, c := range remaining {
+			d := c.Item.Duration
+			if d <= 0 {
+				d = 3 * time.Minute
 			}
-			if len(fitting) > 0 {
-				pickFrom = fitting
+			if d.Milliseconds() <= maxDurMS {
+				fitting = append(fitting, c)
 			}
-			// If no fitting tracks, pickFrom stays as remaining and the
-			// selected track's EndsAtMS will be clamped to targetMS below.
 		}
+		pickFrom := fitting
 
 		selectedIdx := selectCandidate(rng, pickFrom, quotaState, targetEnergy)
 		if selectedIdx == -1 {

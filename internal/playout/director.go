@@ -318,6 +318,17 @@ func (d *Director) tick(ctx context.Context) error {
 		return err
 	}
 
+	// Issue #227 hard-cut sweep: stop any media/smart_block pipeline whose
+	// state.Ends has elapsed, even when no new schedule entry has arrived to
+	// preempt it. The per-entry preemption block below only fires when a
+	// DIFFERENT entry.ID becomes due — so a long file (e.g. a 5h track inside
+	// a 2h smart-block slot, or a media item whose entry ended with no
+	// successor queued) would otherwise play to its natural end and eat the
+	// next slot. Scoped to media + smart_block; webstream/live have their
+	// own duration semantics. A 1s grace avoids racing with the normal
+	// entry-transition path at the slot boundary.
+	d.sweepOverrunEntries(now)
+
 	for _, rawEntry := range entries {
 		loc := d.getStationTimezone(ctx, rawEntry.StationID)
 		entry, playKey, playUntil, ok := resolveEntryForNow(rawEntry, now, loc)
@@ -389,6 +400,55 @@ func (d *Director) tick(ctx context.Context) error {
 	d.checkDeadAir(ctx, now)
 	d.emitHealthSnapshot()
 	return nil
+}
+
+// sweepOverrunEntries hard-cuts any active media/smart_block pipeline whose
+// state.Ends time has passed. This is the safety net for issue #227: the
+// per-entry preemption block in tick() only fires when a different entry.ID
+// is due. If a long file is playing inside a single entry whose slot has
+// ended (and no successor entry has arrived yet), nothing else cuts it.
+//
+// Scope: source_type IN ('media', 'smart_block'). Webstream and live have
+// their own duration semantics and are not bounded by state.Ends in the same
+// way (webstream runs continuously; live is operator-driven). A 1-second
+// grace avoids racing with the entry-transition path at the exact boundary.
+func (d *Director) sweepOverrunEntries(now time.Time) {
+	const overrunGrace = 1 * time.Second
+
+	type cut struct {
+		mountID string
+		entryID string
+		ends    time.Time
+	}
+	var cuts []cut
+
+	d.mu.Lock()
+	for mountID, state := range d.active {
+		if state.SourceType != "media" && state.SourceType != "smart_block" {
+			continue
+		}
+		if state.Ends.IsZero() {
+			continue
+		}
+		if !now.After(state.Ends.Add(overrunGrace)) {
+			continue
+		}
+		cuts = append(cuts, cut{mountID: mountID, entryID: state.EntryID, ends: state.Ends})
+		delete(d.active, mountID)
+	}
+	d.mu.Unlock()
+
+	for _, c := range cuts {
+		d.logger.Info().
+			Str("mount", c.mountID).
+			Str("entry", c.entryID).
+			Time("ends", c.ends).
+			Dur("overrun", now.Sub(c.ends)).
+			Msg("hard-cut: state.Ends elapsed; stopping pipeline to prevent slot overflow")
+		if err := d.manager.StopPipeline(c.mountID); err != nil {
+			d.logger.Debug().Err(err).Str("mount", c.mountID).Msg("hard-cut stop pipeline")
+		}
+	}
 }
 
 // checkDeadAir detects schedule entries that should be playing but have no active pipeline.

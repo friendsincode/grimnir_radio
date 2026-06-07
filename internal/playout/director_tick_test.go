@@ -496,6 +496,105 @@ func TestTick_HardBoundaryPreemption_ClearsOldActiveBeforeStartingNew(t *testing
 	}
 }
 
+// TestDirector_HardCutOnEntryEnds reproduces issue #227: a media/smart_block
+// state whose Ends time has elapsed must be hard-cut even when no new schedule
+// entry has arrived to displace it. The pre-fix director only preempted when
+// a DIFFERENT entry.ID was due, so a 5h file inside a 2h smart-block slot
+// (constant entry.ID) would play to its natural file end, eating subsequent
+// slots.
+func TestDirector_HardCutOnEntryEnds(t *testing.T) {
+	d, mgr := newMockDirector(t, &models.ScheduleEntry{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{})
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	entryID := uuid.NewString()
+	mediaID := uuid.NewString()
+
+	mount := models.Mount{
+		ID:         mountID,
+		StationID:  stationID,
+		Name:       "hc-overrun-" + mountID[:8],
+		Format:     "mp3",
+		Bitrate:    128,
+		SampleRate: 44100,
+		Channels:   2,
+	}
+	if err := d.db.Create(&mount).Error; err != nil {
+		t.Fatalf("seed mount: %v", err)
+	}
+
+	media := models.MediaItem{
+		ID:            mediaID,
+		StationID:     stationID,
+		Path:          "/tmp/5h-file.mp3",
+		Duration:      5 * time.Hour,
+		AnalysisState: models.AnalysisComplete,
+	}
+	if err := d.db.Create(&media).Error; err != nil {
+		t.Fatalf("seed media: %v", err)
+	}
+
+	now := time.Now().UTC()
+	// The entry's slot ended 5 minutes ago, but no successor entry is queued.
+	// Pre-fix: tick sees no new entry and never preempts; the 5h file plays on.
+	// Post-fix: the hard-cut sweep stops the pipeline and clears active state.
+	entry := models.ScheduleEntry{
+		ID:         entryID,
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "smart_block",
+		SourceID:   uuid.NewString(),
+		StartsAt:   now.Add(-2 * time.Hour),
+		EndsAt:     now.Add(-5 * time.Minute),
+	}
+	if err := d.db.Create(&entry).Error; err != nil {
+		t.Fatalf("seed entry: %v", err)
+	}
+
+	// Prime an active pipeline for this entry; Ends is 5 minutes in the past.
+	// TrackEndsAt is far in the future (matching the 5h file's natural end) to
+	// prove that the hard-cut path fires off state.Ends rather than the stuck-track
+	// watchdog at TrackEndsAt.
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		EntryID:     entryID,
+		StationID:   stationID,
+		MediaID:     mediaID,
+		Started:     now.Add(-2 * time.Hour),
+		Ends:        entry.EndsAt,
+		SourceType:  "smart_block",
+		TrackEndsAt: now.Add(3 * time.Hour),
+		MountName:   mount.Name,
+	}
+	d.mu.Unlock()
+
+	d.broadcast.CreateMount(mount.Name, "audio/mpeg", 128)
+	d.broadcast.CreateMount(mount.Name+"-lq", "audio/mpeg", 64)
+	// Seed a pipeline so we can observe its removal by StopPipeline.
+	if err := mgr.EnsurePipeline(context.Background(), mountID, "fakesrc ! fakesink"); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+	if mgr.pipelines[mountID] == nil {
+		t.Fatalf("precondition: expected pipeline registered for mount")
+	}
+
+	if err := d.tick(context.Background()); err != nil {
+		t.Errorf("tick returned error: %v", err)
+	}
+
+	// After tick: pipeline should be stopped and active state cleared so that
+	// dead-air recovery or the next entry can take over cleanly.
+	if _, stillRunning := mgr.pipelines[mountID]; stillRunning {
+		t.Errorf("expected pipeline stopped after overrun; still in pipelines map")
+	}
+	d.mu.Lock()
+	state, stillActive := d.active[mountID]
+	d.mu.Unlock()
+	if stillActive {
+		t.Errorf("expected active state cleared after hard-cut; got %+v", state)
+	}
+}
+
 func TestCheckDeadAir_RestartsIdleMount(t *testing.T) {
 	d, _ := newMockDirector(t, &models.ScheduleEntry{})
 
