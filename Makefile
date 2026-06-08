@@ -8,7 +8,7 @@ PROTO_OUT ?= proto
 
 .PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan build-edge-encoder build-fanout build-grimnir-deploy build-alertmanager-ntfy verify ci proto proto-clean \
         dev-db dev-redis dev-stack run-control run-media migration-lint migration-lint-ci \
-        prometheus-validate
+        uuid-trap-lint prometheus-validate
 
 help:
 	@echo "Common targets:"
@@ -20,6 +20,7 @@ help:
 	@echo "  make coverage    # run coverage report (default target 80%)"
 	@echo "  make coverage-check # enforce coverage threshold (set COVERAGE_MIN)"
 	@echo "  make build       # build cmd/$(BIN)"
+	@echo "  make uuid-trap-lint # fail if any non-test .go binds \"\" to *_id"
 	@echo ""
 	@echo "Frontend testing targets:"
 	@echo "  make test-e2e    # Run E2E browser tests (go-rod)"
@@ -59,6 +60,12 @@ migration-lint-ci:
 	else \
 		$(GO) run ./cmd/migration-lint --dir=migrations; \
 	fi
+
+# uuid-trap-lint fails the build if any non-test Go file binds "" to a *_id
+# column. Postgres rejects "" on uuid columns with SQLSTATE 22P02; the bug
+# survives SQLite-backed tests & detonates in prod (issues #223, #228, #242).
+uuid-trap-lint:
+	@$(GO) run ./cmd/uuid-trap-lint --root=.
 
 tidy:
 	@$(GO) mod tidy
@@ -106,7 +113,7 @@ prometheus-validate:
 
 verify: tidy fmt vet lint test
 
-ci: verify fmt-check migration-lint-ci
+ci: verify fmt-check migration-lint-ci uuid-trap-lint
 
 proto:
 	@echo "Generating protobuf code..."
