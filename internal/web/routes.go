@@ -170,6 +170,7 @@ func (h *Handler) Routes(r chi.Router) {
 					r.With(h.RequireStationPermission("edit_metadata")).Post("/reanalyze-durations", h.MediaReanalyzeDurations)
 					r.With(h.RequireStationPermission("edit_metadata")).Get("/reanalyze-durations/status", h.MediaReanalyzeDurationsStatus)
 					r.With(h.RequireStationPermission("edit_metadata")).Get("/reanalyze-durations/current-status", h.MediaReanalyzeDurationsCurrentStatus)
+					r.With(h.RequireStationPermission("edit_metadata")).Post("/reanalyze-durations/reset-stuck", h.MediaReanalyzeDurationsResetStuck)
 					r.Get("/upload", h.MediaUploadPage)
 					r.Post("/upload", h.MediaUpload)
 					r.Get("/{id}", h.MediaDetail)

@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
@@ -1045,6 +1046,126 @@ func TestMediaReanalyzeDurations_WithMedia(t *testing.T) {
 	h.MediaReanalyzeDurations(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// Issue #222 regression: when the operator clicks recalc but the queue is
+// blocked by stale pending jobs (analyzer died, never marked failed), the
+// handler used to render a vague "No media queued (already pending/running
+// or no media found)" alert; the operator couldn't tell whether nothing
+// needed work or whether the queue was stuck. Now the empty response must
+// expose the stuck-job count + the oldest timestamp + a reset hint, so the
+// user can act.
+func TestMediaReanalyzeDurations_StuckJobs_SurfacesCountInPartial(t *testing.T) {
+	h, user, station := newMediaAnalysisTestHandler(t)
+	// Seed a media item with a pending job created 25h ago (well past the
+	// 1-hour staleness cutoff).
+	m := models.MediaItem{
+		ID: "stuck-m1", StationID: station.ID, Title: "Stuck Track",
+		Path: "stuck.mp3", AnalysisState: models.AnalysisPending,
+	}
+	if err := h.db.Create(&m).Error; err != nil {
+		t.Fatalf("seed media: %v", err)
+	}
+	staleAt := time.Now().UTC().Add(-25 * time.Hour)
+	job := models.AnalysisJob{
+		ID: "stuck-j1", MediaID: m.ID, Status: "pending",
+		CreatedAt: staleAt, UpdatedAt: staleAt,
+	}
+	if err := h.db.Create(&job).Error; err != nil {
+		t.Fatalf("seed job: %v", err)
+	}
+
+	req := mediaReq(http.MethodPost, "/", &user, &station)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+	h.MediaReanalyzeDurations(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "1 job") && !strings.Contains(body, "1 stuck") {
+		t.Fatalf("expected stuck-job count in body, got: %s", body)
+	}
+	if !strings.Contains(body, "reset") && !strings.Contains(body, "Reset") {
+		t.Fatalf("expected reset hint/link in body, got: %s", body)
+	}
+}
+
+// MediaReanalyzeDurations_ResetStuckJobs marks pending+running jobs older
+// than the staleness cutoff as failed so the next recalc click can re-queue
+// them. Should not touch jobs younger than the cutoff (no friendly fire).
+func TestMediaReanalyzeDurations_ResetStuckJobs_OnlyAffectsStale(t *testing.T) {
+	h, user, station := newMediaAnalysisTestHandler(t)
+	// Two media: one with a stale pending job (>1h), one with a fresh running
+	// job (<1m old that should NOT be touched).
+	staleMedia := models.MediaItem{
+		ID: "stale-m1", StationID: station.ID, Title: "Stale",
+		Path: "stale.mp3", AnalysisState: models.AnalysisPending,
+	}
+	freshMedia := models.MediaItem{
+		ID: "fresh-m1", StationID: station.ID, Title: "Fresh",
+		Path: "fresh.mp3", AnalysisState: models.AnalysisPending,
+	}
+	if err := h.db.Create(&staleMedia).Error; err != nil {
+		t.Fatalf("seed stale media: %v", err)
+	}
+	if err := h.db.Create(&freshMedia).Error; err != nil {
+		t.Fatalf("seed fresh media: %v", err)
+	}
+	staleAt := time.Now().UTC().Add(-25 * time.Hour)
+	freshAt := time.Now().UTC().Add(-30 * time.Second)
+	if err := h.db.Create(&models.AnalysisJob{
+		ID: "stale-j", MediaID: staleMedia.ID, Status: "pending",
+		CreatedAt: staleAt, UpdatedAt: staleAt,
+	}).Error; err != nil {
+		t.Fatalf("seed stale job: %v", err)
+	}
+	if err := h.db.Create(&models.AnalysisJob{
+		ID: "fresh-j", MediaID: freshMedia.ID, Status: "running",
+		CreatedAt: freshAt, UpdatedAt: freshAt,
+	}).Error; err != nil {
+		t.Fatalf("seed fresh job: %v", err)
+	}
+
+	req := mediaReq(http.MethodPost, "/", &user, &station)
+	rr := httptest.NewRecorder()
+	h.MediaReanalyzeDurationsResetStuck(rr, req)
+	if rr.Code != http.StatusOK && rr.Code != http.StatusSeeOther {
+		t.Fatalf("expected 200 or 303, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var staleAfter models.AnalysisJob
+	if err := h.db.First(&staleAfter, "id = ?", "stale-j").Error; err != nil {
+		t.Fatalf("reload stale job: %v", err)
+	}
+	if staleAfter.Status != "failed" {
+		t.Fatalf("expected stale job to be marked failed, got %q", staleAfter.Status)
+	}
+
+	var freshAfter models.AnalysisJob
+	if err := h.db.First(&freshAfter, "id = ?", "fresh-j").Error; err != nil {
+		t.Fatalf("reload fresh job: %v", err)
+	}
+	if freshAfter.Status != "running" {
+		t.Fatalf("expected fresh job to remain running (no friendly fire), got %q", freshAfter.Status)
+	}
+}
+
+func TestMediaReanalyzeDurations_ResetStuckJobs_RequiresEditMetadata(t *testing.T) {
+	h, _, station := newMediaAnalysisTestHandler(t)
+	noPermsUser := models.User{ID: "noperms-reset", Email: "noperms-reset@example.com", Password: "x"}
+	if err := h.db.Create(&noPermsUser).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxKeyUser, &noPermsUser)
+	ctx = context.WithValue(ctx, ctxKeyStation, &station)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+	h.MediaReanalyzeDurationsResetStuck(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rr.Code)
 	}
 }
 

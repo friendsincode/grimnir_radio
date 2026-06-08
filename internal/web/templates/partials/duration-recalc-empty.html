@@ -3,6 +3,22 @@
     {{.Message}}
 </div>
 
+{{if and .StuckCount (gt .StuckCount 0)}}
+<div class="alert alert-warning mb-3">
+    <strong>{{.StuckCount}} stuck job(s)</strong> blocking the queue.
+    {{if not .OldestStuck.IsZero}}
+    Oldest from {{.OldestStuck.Format "2006-01-02 15:04 UTC"}}.
+    {{end}}
+    <form method="post"
+          hx-post="/dashboard/media/reanalyze-durations/reset-stuck"
+          hx-target="#durationRecalcResult"
+          hx-swap="innerHTML"
+          class="mt-2">
+        <button type="submit" class="btn btn-sm btn-warning">Reset stuck jobs</button>
+    </form>
+</div>
+{{end}}
+
 <div id="durationRecalcQueueStatus"
      hx-get="/dashboard/media/reanalyze-durations/current-status"
      hx-trigger="load, every 5s"
@@ -10,4 +26,3 @@
     <div class="text-body-secondary small">Loading analyzer queue status...</div>
 </div>
 {{end}}
-

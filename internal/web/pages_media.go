@@ -61,19 +61,32 @@ func (h *Handler) MediaReanalyzeDurations(w http.ResponseWriter, r *http.Request
 	}
 
 	if len(mediaIDs) == 0 {
+		// Count stuck jobs (pending/running older than the staleness cutoff)
+		// so the operator can see that a previous batch left work in limbo.
+		// Without this signal, recalc looks broken when in fact the queue
+		// is blocked. Closes #222.
+		stuckCount, oldestStuck := h.countStuckAnalysisJobs(station.ID)
+
 		msg := "No media queued (already pending/running or no media found)"
+		if stuckCount > 0 {
+			msg = fmt.Sprintf("No new jobs queued — %d job(s) from a previous batch are still pending. Reset stuck jobs to re-queue them.", stuckCount)
+		}
 		if r.Header.Get("HX-Request") == "true" {
 			h.RenderPartial(w, r, "partials/duration-recalc-empty", map[string]any{
-				"Message":   msg,
-				"StationID": station.ID,
+				"Message":     msg,
+				"StationID":   station.ID,
+				"StuckCount":  stuckCount,
+				"OldestStuck": oldestStuck,
 			})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status":  "ok",
-			"queued":  0,
-			"message": msg,
+			"status":       "ok",
+			"queued":       0,
+			"message":      msg,
+			"stuck_count":  stuckCount,
+			"oldest_stuck": oldestStuck,
 		})
 		return
 	}
@@ -118,6 +131,114 @@ func (h *Handler) MediaReanalyzeDurations(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status": "ok",
 		"queued": len(jobs),
+	})
+}
+
+// analysisJobStaleCutoff is how long an analysis job can sit in
+// pending/running before MediaReanalyzeDurationsResetStuck will mark it
+// failed. Jobs younger than this are assumed to be legitimately in flight.
+const analysisJobStaleCutoff = time.Hour
+
+// countStuckAnalysisJobs returns how many analysis jobs for the given station
+// have been in pending/running state for longer than analysisJobStaleCutoff,
+// along with the oldest stuck job's UpdatedAt timestamp (zero if none).
+// Used by the recalc handler to surface the stuck-queue condition that was
+// the root cause of #222.
+func (h *Handler) countStuckAnalysisJobs(stationID string) (int64, time.Time) {
+	cutoff := time.Now().UTC().Add(-analysisJobStaleCutoff)
+	var count int64
+	if err := h.db.
+		Table("analysis_jobs aj").
+		Joins("JOIN media_items m ON m.id = aj.media_id").
+		Where("m.station_id = ? AND aj.status IN ? AND aj.updated_at < ?",
+			stationID, []string{"pending", "running"}, cutoff).
+		Count(&count).Error; err != nil {
+		h.logger.Warn().Err(err).Str("station_id", stationID).Msg("count stuck analysis jobs failed")
+		return 0, time.Time{}
+	}
+	if count == 0 {
+		return 0, time.Time{}
+	}
+	var oldest models.AnalysisJob
+	_ = h.db.
+		Table("analysis_jobs aj").
+		Select("aj.*").
+		Joins("JOIN media_items m ON m.id = aj.media_id").
+		Where("m.station_id = ? AND aj.status IN ? AND aj.updated_at < ?",
+			stationID, []string{"pending", "running"}, cutoff).
+		Order("aj.updated_at ASC").
+		Limit(1).
+		Scan(&oldest).Error
+	return count, oldest.UpdatedAt
+}
+
+// MediaReanalyzeDurationsResetStuck marks stale pending/running analysis jobs
+// (older than analysisJobStaleCutoff) as "failed" so the next recalc click
+// can re-queue them. This is the recovery path for the #222 condition where
+// an analyzer crash leaves jobs in limbo and blocks fresh batches.
+//
+// Only touches jobs older than the cutoff to avoid friendly fire on legit
+// in-flight work; requires the same edit_metadata permission as the parent
+// reanalyze endpoint.
+func (h *Handler) MediaReanalyzeDurationsResetStuck(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+	if !h.HasStationPermission(r, "edit_metadata") {
+		http.Error(w, "Permission denied", http.StatusForbidden)
+		return
+	}
+
+	cutoff := time.Now().UTC().Add(-analysisJobStaleCutoff)
+	// Collect stale job IDs first so we can update them by primary key (the
+	// underlying driver may not support UPDATE...JOIN portably).
+	var staleIDs []string
+	if err := h.db.
+		Table("analysis_jobs aj").
+		Select("aj.id").
+		Joins("JOIN media_items m ON m.id = aj.media_id").
+		Where("m.station_id = ? AND aj.status IN ? AND aj.updated_at < ?",
+			station.ID, []string{"pending", "running"}, cutoff).
+		Pluck("aj.id", &staleIDs).Error; err != nil {
+		h.logger.Error().Err(err).Str("station_id", station.ID).Msg("collect stale jobs for reset failed")
+		http.Error(w, "Failed to reset stuck jobs", http.StatusInternalServerError)
+		return
+	}
+
+	var resetCount int64
+	if len(staleIDs) > 0 {
+		res := h.db.Model(&models.AnalysisJob{}).
+			Where("id IN ?", staleIDs).
+			Updates(map[string]any{
+				"status": "failed",
+				"error":  "reset by operator (job stuck > 1h)",
+			})
+		if res.Error != nil {
+			h.logger.Error().Err(res.Error).Str("station_id", station.ID).Msg("reset stuck analysis jobs failed")
+			http.Error(w, "Failed to reset stuck jobs", http.StatusInternalServerError)
+			return
+		}
+		resetCount = res.RowsAffected
+		h.logger.Info().
+			Str("station_id", station.ID).
+			Int64("reset", resetCount).
+			Msg("operator reset stuck analysis jobs")
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		// Re-render the empty partial so the operator sees the result in place.
+		h.RenderPartial(w, r, "partials/duration-recalc-empty", map[string]any{
+			"Message":   fmt.Sprintf("Reset %d stuck job(s). Click Recalculate again to re-queue.", resetCount),
+			"StationID": station.ID,
+		})
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok",
+		"reset":  resetCount,
 	})
 }
 
