@@ -1578,17 +1578,22 @@ func adminDeleteMediaReferences(tx *gorm.DB, mediaIDs []string) error {
 		return fmt.Errorf("delete ScheduleEntry refs: %w", err)
 	}
 
-	// MountPlayoutState: clear MediaID
+	// MountPlayoutState: clear MediaID. Bind nil (SQL NULL) rather than ""
+	// because the column is a Postgres uuid; "" trips SQLSTATE 22P02
+	// ("invalid input syntax for type uuid") & rolls back the whole delete.
+	// SQLite accepts empty strings here, which is why the v1.40.7 fix passed
+	// every test but still 500'd in prod (issues #223, #228, #242).
 	if err := tx.Model(&models.MountPlayoutState{}).
 		Where("media_id IN ?", mediaIDs).
-		Update("media_id", "").Error; err != nil {
+		Update("media_id", nil).Error; err != nil {
 		return fmt.Errorf("clear MountPlayoutState.MediaID: %w", err)
 	}
 
-	// PlayHistory: clear MediaID (keep historical row)
+	// PlayHistory: clear MediaID (keep historical row). Same uuid-vs-empty
+	// constraint as above.
 	if err := tx.Model(&models.PlayHistory{}).
 		Where("media_id IN ?", mediaIDs).
-		Update("media_id", "").Error; err != nil {
+		Update("media_id", nil).Error; err != nil {
 		return fmt.Errorf("clear PlayHistory.MediaID: %w", err)
 	}
 
