@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -325,4 +326,136 @@ func TestShowsAPI_Errors(t *testing.T) {
 			t.Fatalf("expected 401, got %d", rr.Code)
 		}
 	})
+}
+
+// captureEmptyUUIDBind wires a post-update GORM callback that flips the bool
+// at *seen when the helper binds "" to a column matching colSuffix. Mirrors
+// the technique from TestAdminDeleteMediaReferences_WritesNullNotEmptyString.
+// Driver-agnostic; works on SQLite even though SQLite would accept the bind.
+func captureEmptyUUIDBind(t *testing.T, db *gorm.DB, colSuffix string, seen *bool) {
+	t.Helper()
+	cbName := "test:capture_empty_uuid_" + colSuffix
+	err := db.Callback().Update().After("gorm:update").Register(cbName, func(tx *gorm.DB) {
+		if tx.Statement == nil {
+			return
+		}
+		sql := strings.ToLower(tx.Statement.SQL.String())
+		if !strings.Contains(sql, "`"+colSuffix+"`=") && !strings.Contains(sql, `"`+colSuffix+`"=`) {
+			return
+		}
+		for _, v := range tx.Statement.Vars {
+			if s, ok := v.(string); ok && s == "" {
+				*seen = true
+			}
+		}
+	})
+	if err != nil {
+		t.Fatalf("register callback %s: %v", cbName, err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(cbName) })
+}
+
+// TestShowsUpdate_EmptyHostUserID_BindsNull regresses the v2.0.0-rc.8 audit.
+//
+// handleShowsUpdate accepted `{"host_user_id":""}` as the "clear the host"
+// signal & set updates["host_user_id"] = "". Same uuid-vs-empty trap as
+// issue #242: Postgres rejects "" on the shows.host_user_id column
+// (type:uuid) with SQLSTATE 22P02, the PUT 500s, & the UI silently fails.
+// SQLite accepts "", which is why the bug survived every existing test.
+func TestShowsUpdate_EmptyHostUserID_BindsNull(t *testing.T) {
+	a, db := newShowsAPITest(t)
+
+	// Seed a show with a real host so the UPDATE matches > 0 rows.
+	existingHost := "11111111-1111-1111-1111-111111111111"
+	show := models.Show{
+		ID:                     "show-clear-host",
+		StationID:              "s1",
+		Name:                   "Friday Drive",
+		HostUserID:             &existingHost,
+		DefaultDurationMinutes: 60,
+		DTStart:                time.Now().Add(time.Hour),
+		Timezone:               "UTC",
+		Active:                 true,
+	}
+	if err := db.Create(&show).Error; err != nil {
+		t.Fatalf("seed show: %v", err)
+	}
+
+	var sawEmpty bool
+	captureEmptyUUIDBind(t, db, "host_user_id", &sawEmpty)
+
+	emptyHost := ""
+	body, _ := json.Marshal(map[string]any{"host_user_id": &emptyHost})
+	req := httptest.NewRequest("PUT", "/"+show.ID, bytes.NewReader(body))
+	req = withAdminClaims(req)
+	req = withChiParam(req, "showID", show.ID)
+	rr := httptest.NewRecorder()
+	a.handleShowsUpdate(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update show: got %d, want 200, body=%s", rr.Code, rr.Body.String())
+	}
+
+	if sawEmpty {
+		t.Fatal("handleShowsUpdate bound \"\" to host_user_id; Postgres rejects this with SQLSTATE 22P02. Use nil.")
+	}
+
+	// Verify the host actually got cleared on the row.
+	var got models.Show
+	if err := db.First(&got, "id = ?", show.ID).Error; err != nil {
+		t.Fatalf("reload show: %v", err)
+	}
+	if got.HostUserID != nil && *got.HostUserID != "" {
+		t.Errorf("want HostUserID cleared, got %q", *got.HostUserID)
+	}
+}
+
+// TestInstancesUpdate_EmptyHostUserID_BindsNull regresses the same trap on
+// the show-instance update path (api/shows.go:639).
+func TestInstancesUpdate_EmptyHostUserID_BindsNull(t *testing.T) {
+	a, db := newShowsAPITest(t)
+
+	existingHost := "22222222-2222-2222-2222-222222222222"
+	dtstart := time.Now().Add(time.Hour)
+	show := models.Show{
+		ID:                     "show-inst-host",
+		StationID:              "s1",
+		Name:                   "X",
+		DefaultDurationMinutes: 60,
+		DTStart:                dtstart,
+		Timezone:               "UTC",
+		Active:                 true,
+	}
+	if err := db.Create(&show).Error; err != nil {
+		t.Fatalf("seed show: %v", err)
+	}
+	instance := models.ShowInstance{
+		ID:         "inst-host",
+		ShowID:     show.ID,
+		StationID:  show.StationID,
+		StartsAt:   dtstart,
+		EndsAt:     dtstart.Add(time.Hour),
+		Status:     models.ShowInstanceScheduled,
+		HostUserID: &existingHost,
+	}
+	if err := db.Create(&instance).Error; err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+
+	var sawEmpty bool
+	captureEmptyUUIDBind(t, db, "host_user_id", &sawEmpty)
+
+	emptyHost := ""
+	body, _ := json.Marshal(map[string]any{"host_user_id": &emptyHost})
+	req := httptest.NewRequest("PUT", "/"+instance.ID, bytes.NewReader(body))
+	req = withAdminClaims(req)
+	req = withChiParam(req, "instanceID", instance.ID)
+	rr := httptest.NewRecorder()
+	a.handleInstancesUpdate(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update instance: got %d, want 200, body=%s", rr.Code, rr.Body.String())
+	}
+
+	if sawEmpty {
+		t.Fatal("handleInstancesUpdate bound \"\" to host_user_id; Postgres rejects this with SQLSTATE 22P02. Use nil.")
+	}
 }

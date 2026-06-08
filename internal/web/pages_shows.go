@@ -358,7 +358,14 @@ func (h *Handler) ShowUpdate(w http.ResponseWriter, r *http.Request) {
 		updates["description"] = *input.Description
 	}
 	if input.HostUserID != nil {
-		updates["host_user_id"] = *input.HostUserID
+		// "" from the client means clear the host. Bind nil; shows.host_user_id
+		// is a Postgres uuid column & rejects "" with SQLSTATE 22P02. See the
+		// rc.7 fix for issue #242.
+		if *input.HostUserID == "" {
+			updates["host_user_id"] = nil
+		} else {
+			updates["host_user_id"] = *input.HostUserID
+		}
 	}
 	if input.DefaultDurationMinutes != nil {
 		updates["default_duration_minutes"] = *input.DefaultDurationMinutes
@@ -558,10 +565,17 @@ func (h *Handler) ShowInstanceUpdate(w http.ResponseWriter, r *http.Request) {
 		instance.EndsAt = endsAt
 	}
 	if input.HostUserID != nil {
-		updates["host_user_id"] = *input.HostUserID
-		if input.ExceptionType == nil && *input.HostUserID != "" {
-			exType := models.ShowExceptionSubstitute
-			updates["exception_type"] = exType
+		// "" means clear the host. Bind nil; show_instances.host_user_id is
+		// a Postgres uuid that rejects "" with SQLSTATE 22P02 (issue #242).
+		// Substitute marker only fires for a real (non-empty) new host id.
+		if *input.HostUserID == "" {
+			updates["host_user_id"] = nil
+		} else {
+			updates["host_user_id"] = *input.HostUserID
+			if input.ExceptionType == nil {
+				exType := models.ShowExceptionSubstitute
+				updates["exception_type"] = exType
+			}
 		}
 	}
 	if input.ExceptionType != nil {
@@ -586,8 +600,13 @@ func (h *Handler) ShowInstanceUpdate(w http.ResponseWriter, r *http.Request) {
 			case "ends_at":
 				instance.EndsAt = v.(time.Time)
 			case "host_user_id":
-				s := v.(string)
-				instance.HostUserID = &s
+				// v is nil for "clear host" or a string id otherwise.
+				if v == nil {
+					instance.HostUserID = nil
+				} else {
+					s := v.(string)
+					instance.HostUserID = &s
+				}
 			case "exception_type":
 				instance.ExceptionType = v.(models.ShowExceptionType)
 			case "exception_note":

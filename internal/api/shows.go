@@ -268,7 +268,14 @@ func (a *API) handleShowsUpdate(w http.ResponseWriter, r *http.Request) {
 		updates["artwork_path"] = *req.ArtworkPath
 	}
 	if req.HostUserID != nil {
-		updates["host_user_id"] = *req.HostUserID
+		// Empty string from the client means "clear the host." Bind nil
+		// (SQL NULL) rather than ""; shows.host_user_id is a Postgres uuid
+		// column & rejects "" with SQLSTATE 22P02. Same trap as issue #242.
+		if *req.HostUserID == "" {
+			updates["host_user_id"] = nil
+		} else {
+			updates["host_user_id"] = *req.HostUserID
+		}
 	}
 	if req.DefaultDurationMinutes != nil {
 		updates["default_duration_minutes"] = *req.DefaultDurationMinutes
@@ -636,11 +643,18 @@ func (a *API) handleInstancesUpdate(w http.ResponseWriter, r *http.Request) {
 		updates["ends_at"] = endsAt
 	}
 	if req.HostUserID != nil {
-		updates["host_user_id"] = *req.HostUserID
-		// Mark as substitute if host changed
-		if req.ExceptionType == nil && *req.HostUserID != "" {
-			exType := models.ShowExceptionSubstitute
-			updates["exception_type"] = exType
+		// Empty string from the client means "clear the host." Bind nil; the
+		// show_instances.host_user_id column is a Postgres uuid that rejects
+		// "" with SQLSTATE 22P02 (issue #242). Substitute marker still keys
+		// off non-empty real host ids.
+		if *req.HostUserID == "" {
+			updates["host_user_id"] = nil
+		} else {
+			updates["host_user_id"] = *req.HostUserID
+			if req.ExceptionType == nil {
+				exType := models.ShowExceptionSubstitute
+				updates["exception_type"] = exType
+			}
 		}
 	}
 	if req.ExceptionType != nil {

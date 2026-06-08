@@ -1404,3 +1404,108 @@ func TestShowUpdate_EmptyUpdates_StillReturns200(t *testing.T) {
 		t.Fatalf("expected 200, got %d (body: %s)", rr.Code, rr.Body.String())
 	}
 }
+
+// captureWebEmptyUUIDBind: same callback-based capture as the api-package
+// test helper, scoped to this package. Fails the *seen flag the moment the
+// SQL generator binds "" to any column ending in colName.
+func captureWebEmptyUUIDBind(t *testing.T, db *gorm.DB, colName string, seen *bool) {
+	t.Helper()
+	cbName := "test:capture_web_empty_uuid_" + colName
+	err := db.Callback().Update().After("gorm:update").Register(cbName, func(tx *gorm.DB) {
+		if tx.Statement == nil {
+			return
+		}
+		sql := strings.ToLower(tx.Statement.SQL.String())
+		if !strings.Contains(sql, "`"+colName+"`=") && !strings.Contains(sql, `"`+colName+`"=`) {
+			return
+		}
+		for _, v := range tx.Statement.Vars {
+			if s, ok := v.(string); ok && s == "" {
+				*seen = true
+			}
+		}
+	})
+	if err != nil {
+		t.Fatalf("register callback %s: %v", cbName, err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(cbName) })
+}
+
+// TestShowUpdate_EmptyHostUserID_BindsNull regresses the v2.0.0-rc.8 audit.
+// `{"host_user_id":""}` means "clear the host"; the handler used to set
+// updates["host_user_id"] = "", which Postgres rejects on the uuid column
+// with SQLSTATE 22P02 (issue #242).
+func TestShowUpdate_EmptyHostUserID_BindsNull(t *testing.T) {
+	db := newShowsTestDB(t)
+	h := newShowsTestHandler(t, db)
+	s := seedShowsStation(t, db)
+	existingHost := "11111111-1111-1111-1111-111111111111"
+	show := models.Show{
+		ID:                     "show-empty-host",
+		StationID:              s.ID,
+		Name:                   "Show",
+		HostUserID:             &existingHost,
+		DefaultDurationMinutes: 60,
+		DTStart:                time.Now().Add(time.Hour),
+		Timezone:               "UTC",
+		Active:                 true,
+		Color:                  "#6366f1",
+	}
+	if err := db.Create(&show).Error; err != nil {
+		t.Fatalf("seed show: %v", err)
+	}
+
+	var sawEmpty bool
+	captureWebEmptyUUIDBind(t, db, "host_user_id", &sawEmpty)
+
+	payload := []byte(`{"host_user_id":""}`)
+	req := showsBytesReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, payload)
+	rr := httptest.NewRecorder()
+	h.ShowUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if sawEmpty {
+		t.Fatal("ShowUpdate bound \"\" to host_user_id; Postgres rejects this with SQLSTATE 22P02. Use nil.")
+	}
+}
+
+// TestShowInstanceUpdate_EmptyHostUserID_BindsNull regresses the same trap on
+// the show-instance update path (pages_shows.go:561).
+func TestShowInstanceUpdate_EmptyHostUserID_BindsNull(t *testing.T) {
+	db := newShowsTestDB(t)
+	h := newShowsTestHandler(t, db)
+	s := seedShowsStation(t, db)
+	show := seedShow(t, db, s.ID)
+
+	existingHost := "22222222-2222-2222-2222-222222222222"
+	dtstart := time.Now().Add(time.Hour)
+	instance := models.ShowInstance{
+		ID:         "inst-empty-host",
+		ShowID:     show.ID,
+		StationID:  s.ID,
+		StartsAt:   dtstart,
+		EndsAt:     dtstart.Add(time.Hour),
+		Status:     models.ShowInstanceScheduled,
+		HostUserID: &existingHost,
+	}
+	if err := db.Create(&instance).Error; err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+
+	var sawEmpty bool
+	captureWebEmptyUUIDBind(t, db, "host_user_id", &sawEmpty)
+
+	payload := []byte(`{"host_user_id":""}`)
+	req := showsBytesReqWithStationAndID(http.MethodPut, "/api/show-instances/"+instance.ID, &s, "id", instance.ID, payload)
+	rr := httptest.NewRecorder()
+	h.ShowInstanceUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if sawEmpty {
+		t.Fatal("ShowInstanceUpdate bound \"\" to host_user_id; Postgres rejects this with SQLSTATE 22P02. Use nil.")
+	}
+}
