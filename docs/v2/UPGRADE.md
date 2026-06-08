@@ -79,10 +79,15 @@ If any of those fail, fix the substrate before continuing. v2 binaries assume th
 # Clone the repo on the operator workstation:
 git clone https://github.com/friendsincode/grimnir_radio.git
 cd grimnir_radio
-git checkout v2.0.0-rc.1
+git checkout v2.0.0-rc.5
 
 # Build the binary:
 go build -o /usr/local/bin/grimnir-deploy ./cmd/grimnir-deploy
+
+# Make sure your SSH key reaches both proxmox VMs (<node-a-ip> + <node-b-ip>)
+# before continuing; grimnir-deploy uses standard ssh, no agent forwarding:
+ssh-copy-id <ssh-user>@<node-a-ip>
+ssh-copy-id <ssh-user>@<node-b-ip>
 
 # Configure it:
 mkdir -p ~/.config/grimnir-deploy
@@ -167,10 +172,13 @@ A3 means "two nodes, alpha 3 binaries, fan-out & VIP not yet wired". The point o
 ssh <ssh-user>@<node-a-ip>
 git clone https://github.com/friendsincode/grimnir_radio.git /srv/docker/grimnir_radio
 cd /srv/docker/grimnir_radio
-git checkout v2.0.0-rc.1
-cp docker-compose.v2.example.yml docker-compose.override.yml
-# Edit docker-compose.override.yml: point DB_DSN, REDIS_ADDR at the substrate.
-# Don't set HA_PCM_RTP_ENABLED yet; this phase runs both nodes independent.
+git checkout v2.0.0-rc.5
+cp docker-compose.override.yml.example docker-compose.override.yml
+# Edit docker-compose.override.yml: point GRIMNIR_DB_DSN, GRIMNIR_REDIS_ADDR
+# at the substrate; copy values out of .env.v2.example as a starting point.
+# Don't set GRIMNIR_HA_PCM_RTP_ENABLED yet; this phase runs both nodes
+# independent. The fan-out overlay (docker-compose.fanout.yml) is opt-in for
+# Phase 5 once keepalived VIPs are up.
 
 ./grimnir up -d
 ./grimnir ps   # expect grimnir-radio, grimnir-mediaengine, grimnir-edge-encoder, grimnir-fanout all running
