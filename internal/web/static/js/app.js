@@ -846,6 +846,10 @@ class GlobalPlayer {
 
         // Load public stations for the station selector
         this.loadPublicStations();
+
+        // Start listener-count polling at page load so the badge is
+        // populated before any play action. Closes #178.
+        this.startListenerPolling();
     }
 
     stopTitleAutoScroll() {
@@ -1502,7 +1506,7 @@ class GlobalPlayer {
         }
         this.fetchListenerCount();
         this.listenerPollInterval = setInterval(() => {
-            if (this.isLive) this.fetchListenerCount();
+            this.fetchListenerCount();
         }, 15000);
     }
 
@@ -1511,16 +1515,18 @@ class GlobalPlayer {
             clearInterval(this.listenerPollInterval);
             this.listenerPollInterval = null;
         }
-        if (this.listenersEl) this.listenersEl.style.display = 'none';
+        // Keep the badge visible with the last value; the counter is a
+        // station-wide listener count that's still meaningful when this
+        // browser isn't actively playing.
     }
 
     fetchListenerCount() {
         fetch('/api/v1/public/listeners')
             .then(r => r.ok ? r.json() : null)
             .then(data => {
-                if (!data || !this.listenerCountEl || !this.listenersEl) return;
-                this.listenerCountEl.textContent = data.total;
-                this.listenersEl.style.display = '';
+                if (!this.listenerCountEl) return;
+                const total = data && typeof data.total === 'number' ? data.total : 0;
+                this.listenerCountEl.textContent = total;
             })
             .catch(() => {});
     }
