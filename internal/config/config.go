@@ -8,6 +8,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -28,6 +29,8 @@ type Config struct {
 	Environment        string
 	HTTPBind           string
 	HTTPPort           int
+	GRPCBind           string // Bind addr for the control-plane gRPC server (DJAuth). Empty => disabled.
+	GRPCPort           int    // Default 9095. Distinct from media-engine gRPC (9091) & netclock master (9094).
 	BaseURL            string // Public base URL (e.g., http://192.168.195.6:8080)
 	DBBackend          DatabaseBackend
 	DBDSN              string
@@ -152,6 +155,8 @@ func Load() (*Config, error) {
 		Environment:        getEnvAny([]string{"GRIMNIR_ENV", "RLM_ENV"}, "development"),
 		HTTPBind:           getEnvAny([]string{"GRIMNIR_HTTP_BIND", "RLM_HTTP_BIND"}, "0.0.0.0"),
 		HTTPPort:           getEnvIntAny([]string{"GRIMNIR_HTTP_PORT", "RLM_HTTP_PORT"}, 8080),
+		GRPCBind:           getEnvAny([]string{"GRIMNIR_GRPC_BIND"}, "0.0.0.0"),
+		GRPCPort:           getEnvIntAny([]string{"GRIMNIR_GRPC_PORT"}, 9095),
 		BaseURL:            getEnvAny([]string{"GRIMNIR_BASE_URL", "RLM_BASE_URL"}, ""),
 		DBBackend:          DatabaseBackend(getEnvAny([]string{"GRIMNIR_DB_BACKEND", "RLM_DB_BACKEND"}, string(DatabasePostgres))),
 		DBDSN:              getEnvAny([]string{"GRIMNIR_DB_DSN", "RLM_DB_DSN"}, ""),
@@ -283,6 +288,19 @@ func Load() (*Config, error) {
 		}
 	}
 	cfg.LegacyEnvWarnings = detectLegacyEnvWarnings()
+
+	// GRIMNIR_GRPC_ADDR ("host:port") is a convenience override that wins
+	// over the split BIND/PORT pair. Operators on a single-host dev rig
+	// usually just want "set this one var to :9095" instead of two.
+	if addr := strings.TrimSpace(os.Getenv("GRIMNIR_GRPC_ADDR")); addr != "" {
+		host, port, splitErr := net.SplitHostPort(addr)
+		if splitErr == nil {
+			cfg.GRPCBind = host
+			if p, perr := strconv.Atoi(port); perr == nil {
+				cfg.GRPCPort = p
+			}
+		}
+	}
 
 	return cfg, nil
 }

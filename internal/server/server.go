@@ -89,6 +89,7 @@ type Server struct {
 	recordingTracker     *recording.MetadataTracker
 	autoRecordHandler    *recording.AutoRecordHandler
 	harbor               *harbor.Server
+	liveService          *live.Service
 
 	bgCancel context.CancelFunc
 	bgWG     sync.WaitGroup
@@ -380,6 +381,7 @@ func (s *Server) initDependencies() error {
 
 	// Live service depends on priority service
 	liveService := live.NewService(database, priorityService, s.bus, s.logger)
+	s.liveService = liveService
 
 	// Harbor (built-in Icecast source receiver)
 	if s.cfg.HarborEnabled {
@@ -545,6 +547,13 @@ func (s *Server) initDependencies() error {
 // HTTPServer exposes the underlying net/http server.
 func (s *Server) HTTPServer() *http.Server {
 	return s.httpServer
+}
+
+// LiveService returns the wired *live.Service so the binary can register it
+// against a gRPC server (DJAuth) or other transports. nil until
+// initDependencies has run successfully.
+func (s *Server) LiveService() *live.Service {
+	return s.liveService
 }
 
 // LogBuffer returns the server's log buffer for attaching to zerolog.

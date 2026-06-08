@@ -316,6 +316,43 @@ func (s *Service) HandleDisconnect(ctx context.Context, sessionID string) error 
 		"duration_seconds": duration.Seconds(),
 	})
 
+	// Tell any fan-out cache subscribers the token is invalid now. Look up
+	// the mount name so the cache key on the fan-out side resolves the same
+	// way the validator stored it.
+	mountPath := ""
+	var mount models.Mount
+	if err := s.db.WithContext(ctx).First(&mount, "id = ?", session.MountID).Error; err == nil {
+		mountPath = "/" + mount.Name
+	}
+	s.PublishDJAuthRevoke(mountPath, session.Token)
+
+	return nil
+}
+
+// RevokeToken explicitly invalidates a live session token. Used by the admin
+// "end session" path or by any future "DJ account disabled" handler. It marks
+// the session disconnected (if it isn't already) & publishes the revoke
+// event so fan-out caches drop their entry. Idempotent: revoking an unknown
+// or already-disconnected token is silent.
+func (s *Service) RevokeToken(ctx context.Context, sessionID string) error {
+	var session models.LiveSession
+	if err := s.db.WithContext(ctx).First(&session, "id = ?", sessionID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return fmt.Errorf("query session: %w", err)
+	}
+	// If the session is still active, run the disconnect path (which itself
+	// publishes the revoke event). Otherwise publish directly.
+	if session.IsActive() {
+		return s.HandleDisconnect(ctx, sessionID)
+	}
+	mountPath := ""
+	var mount models.Mount
+	if err := s.db.WithContext(ctx).First(&mount, "id = ?", session.MountID).Error; err == nil {
+		mountPath = "/" + mount.Name
+	}
+	s.PublishDJAuthRevoke(mountPath, session.Token)
 	return nil
 }
 

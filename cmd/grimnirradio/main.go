@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,10 +18,12 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
 	"gorm.io/gorm"
 
 	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/friendsincode/grimnir_radio/internal/db"
+	"github.com/friendsincode/grimnir_radio/internal/live"
 	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/logging"
 	"github.com/friendsincode/grimnir_radio/internal/server"
@@ -117,6 +120,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Start the DJAuth gRPC server. The fan-out binary dials this to
+	// validate live-input credentials. When the live service is nil
+	// (degraded boot path) or the port is zero, we skip the listen.
+	grpcServer, grpcStop := startDJAuthGRPC(cfg, srv.LiveService(), logger)
+	if grpcStop != nil {
+		defer grpcStop()
+	}
+	_ = grpcServer // currently no other services share this listener; keep handle for future expansion
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -141,4 +153,48 @@ func runServe(cmd *cobra.Command, args []string) error {
 // initDatabase initializes the database connection (used by import commands)
 func initDatabase() (*gorm.DB, error) {
 	return db.Connect(cfg)
+}
+
+// startDJAuthGRPC binds a gRPC listener on (cfg.GRPCBind, cfg.GRPCPort) and
+// registers the DJAuth service against the wired *live.Service. Returns the
+// server (so future RPC services can register on the same listener) & a stop
+// func the caller defers. nil/nil means "disabled or failed to bind"; the
+// fan-out keeps falling back to AcceptAllAuthenticator in that case.
+func startDJAuthGRPC(cfg *config.Config, liveSvc *live.Service, logger zerolog.Logger) (*grpc.Server, func()) {
+	if liveSvc == nil {
+		logger.Warn().Msg("DJAuth gRPC: live service nil; not starting")
+		return nil, nil
+	}
+	if cfg.GRPCPort == 0 {
+		logger.Info().Msg("DJAuth gRPC: GRIMNIR_GRPC_PORT=0; disabled")
+		return nil, nil
+	}
+	addr := net.JoinHostPort(cfg.GRPCBind, fmt.Sprintf("%d", cfg.GRPCPort))
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		logger.Error().Err(err).Str("addr", addr).Msg("DJAuth gRPC: listen failed; fan-out auth degraded")
+		return nil, nil
+	}
+	gs := grpc.NewServer(grpc.ForceServerCodecV2(live.DJAuthJSONCodec()))
+	live.RegisterDJAuthServer(gs, liveSvc)
+	go func() {
+		logger.Info().Str("addr", addr).Msg("DJAuth gRPC listening")
+		if serveErr := gs.Serve(lis); serveErr != nil {
+			logger.Error().Err(serveErr).Msg("DJAuth gRPC server exited")
+		}
+	}()
+	return gs, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		done := make(chan struct{})
+		go func() {
+			gs.GracefulStop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			gs.Stop()
+		}
+	}
 }

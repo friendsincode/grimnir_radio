@@ -225,6 +225,23 @@ This phase wires the two VRRP VIPs (listener + DJ) & turns on the live-input fan
 
 **Keepalived**: follow `docs/runbooks/keepalived-install.md`. The runbook covers the per-region VIP table, the install steps on both nodes, the health-check scripts, and how to confirm the VIP can actually float (drop priority on the master and watch the backup take over within 3s).
 
+**Fan-out DJ auth (v2.0.0-rc.6+)**: the control plane now ships a real `DJAuth` gRPC server (port `9095` by default, env `GRIMNIR_GRPC_ADDR`). Point `FANOUT_CONTROL_PLANE_GRPC` at the control-plane host & the fan-out validates every Harbor / WebRTC token against the live-session table before accepting the source. Previous release notes warned the server was a stub returning `ErrDJAuthGRPCNotWired`; that is no longer the case as of rc.6. If you leave `FANOUT_CONTROL_PLANE_GRPC` empty the fan-out keeps booting in `AcceptAllAuthenticator` mode (dev only).
+
+```bash
+# On the control-plane host docker-compose.override.yml under the grimnir env:
+GRIMNIR_GRPC_ADDR=0.0.0.0:9095
+
+# On the fan-out host env:
+FANOUT_CONTROL_PLANE_GRPC=<control-plane-host>:9095
+```
+
+Verify end-to-end after `up -d`:
+```bash
+# Mint a token via the dashboard, then on the fan-out host:
+docker logs grimnir-fanout 2>&1 | grep "DJAuth client wired"
+# expected: "grimnir-fanout: DJAuth client wired -> <host>:9095"
+```
+
 **grimnir-fanout**: it's already running from Phase 3 (it's one of the four containers in the v2 compose stack). What you're doing here is enabling the engine-side mixer branch & turning on cross-node session replication:
 
 ```bash

@@ -168,6 +168,8 @@ Fix: bump every `v2.0.0-rc.1` reference in `docs/v2/UPGRADE.md` to `v2.0.0-rc.5`
 
 **W-1** — Control-plane DJAuth gRPC server is still a stub returning `ErrDJAuthGRPCNotWired`. Fan-out auth runs in `AcceptAllAuthenticator` mode unless the operator wires `FANOUT_CONTROL_PLANE_GRPC`. The Day 0 checklist surfaces this in Phase 5 with a recommendation: until a follow-up release lands the server, either keep DJ ingress on the v1 path or accept the dev-mode warning behind a private network ACL.
 
+**RESOLVED in v2.0.0-rc.6**: `internal/live/djauth_grpc.go` registers the `grimnirradio.v1.DJAuth` service against a real `*grpc.Server` started from `cmd/grimnirradio/main.go`'s `startDJAuthGRPC()`. The handler wraps `Service.AuthorizeSource` so v1 auth logic is the single source of truth. `Service.HandleDisconnect` now publishes `dj.auth.revoke` events on the existing `events.Bus`, which the fan-out's `AuthRevocationSubscriber` consumes to evict cached entries. Default bind `0.0.0.0:9095` (override `GRIMNIR_GRPC_ADDR`). Tests: 8 new in `internal/live/djauth_grpc_test.go` (validates good token, rejects bad token, rejects mount mismatch, normalizes mount path, rejects empty inputs, publishes revoke single + all-form, round-trips through a real gRPC listener).
+
 **W-2** — `.env.example` & `.env.docker.example` are v1-era. The delivered `.env.v2.example` covers the v2 surface; reference it from UPGRADE.md so operators find it.
 
 **W-3** — `CLAUDE.md` Environment Variables section lists 9 vars; the v2 binary set reads 49+ (control-plane) + 14 (fan-out) + 15 (edge-encoder) + 13 (deploy-tool). Per-binary READMEs are accurate but CLAUDE.md is stale. Either point CLAUDE.md at the READMEs or expand the section.

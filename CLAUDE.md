@@ -145,6 +145,9 @@ Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variabl
 - `GRIMNIR_DB_DSN` - Database connection string
 - `GRIMNIR_REDIS_ADDR` - Redis address for events/leadership
 - `GRIMNIR_MEDIA_ENGINE_GRPC_ADDR` - Media engine gRPC address (default: localhost:9091)
+- `GRIMNIR_GRPC_ADDR` - Combined `host:port` for the control-plane gRPC server (DJAuth service). Convenience override for the split `GRIMNIR_GRPC_BIND` + `GRIMNIR_GRPC_PORT` pair. Default: `0.0.0.0:9095`. The fan-out binary dials this via `FANOUT_CONTROL_PLANE_GRPC`. Port 9095 is chosen so it does not collide with media-engine gRPC (9091) or NetClock master (9094).
+- `GRIMNIR_GRPC_BIND` - Bind address for the control-plane gRPC server. Default: `0.0.0.0`.
+- `GRIMNIR_GRPC_PORT` - Port for the control-plane gRPC server. Default: `9095`. Set to `0` to disable.
 - `GRIMNIR_MEDIA_ROOT` - Base directory for media files (e.g., /var/lib/grimnir/media). Still required when backend=`s3`; it's the on-disk read-through cache.
 - `GRIMNIR_MEDIA_BACKEND` - `fs` (default) or `s3`. Selects the `internal/media/` backend the control plane uses. `s3` requires `GRIMNIR_S3_BUCKET`. The factory in `internal/media/service.go` dispatches on this value.
 - `GRIMNIR_S3_BUCKET` - Bucket name. Required when `GRIMNIR_MEDIA_BACKEND=s3`.
