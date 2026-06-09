@@ -31,7 +31,7 @@ type Config struct {
 	HTTPPort           int
 	GRPCBind           string // Bind addr for the control-plane gRPC server (DJAuth). Empty => disabled.
 	GRPCPort           int    // Default 9095. Distinct from media-engine gRPC (9091) & netclock master (9094).
-	BaseURL            string // Public base URL (e.g., http://192.168.195.6:8080)
+	BaseURL            string // Public base URL (e.g., http://192.0.2.1:8080)
 	DBBackend          DatabaseBackend
 	DBDSN              string
 	MediaRoot          string

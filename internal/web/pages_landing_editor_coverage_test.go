@@ -1109,10 +1109,10 @@ func TestGetClientIP_XForwardedFor(t *testing.T) {
 
 func TestGetClientIP_XForwardedForSingle(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Forwarded-For", "<example-db-host>")
+	req.Header.Set("X-Forwarded-For", "10.255.255.1")
 	ip := getClientIP(req)
-	if ip != "<example-db-host>" {
-		t.Fatalf("expected <example-db-host>, got %q", ip)
+	if ip != "10.255.255.1" {
+		t.Fatalf("expected 10.255.255.1, got %q", ip)
 	}
 }
 

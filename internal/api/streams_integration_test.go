@@ -72,7 +72,7 @@ func TestStreams_Integration_FullRouter(t *testing.T) {
 		{
 			ID:          "stream-int-lq",
 			StationID:   "st-int-1",
-			URL:         "https://<public-hostname>/main/lq",
+			URL:         "https://example.com/main/lq",
 			Format:      "mp3",
 			BitrateKbps: 64,
 			Label:       "LQ",
@@ -81,7 +81,7 @@ func TestStreams_Integration_FullRouter(t *testing.T) {
 		{
 			ID:          "stream-int-hq",
 			StationID:   "st-int-1",
-			URL:         "https://<public-hostname>/main/hq",
+			URL:         "https://example.com/main/hq",
 			Format:      "mp3",
 			BitrateKbps: 128,
 			Label:       "HQ",
@@ -127,14 +127,14 @@ func TestStreams_Integration_FullRouter(t *testing.T) {
 	}
 
 	// HQ first (priority 1)
-	if got := resp.Streams[0]; got.URL != "https://<public-hostname>/main/hq" ||
+	if got := resp.Streams[0]; got.URL != "https://example.com/main/hq" ||
 		got.Format != "mp3" ||
 		got.BitrateKbps != 128 ||
 		got.Label != "HQ" {
 		t.Fatalf("HQ row mismatch: %+v", got)
 	}
 	// LQ second (priority 2)
-	if got := resp.Streams[1]; got.URL != "https://<public-hostname>/main/lq" ||
+	if got := resp.Streams[1]; got.URL != "https://example.com/main/lq" ||
 		got.Format != "mp3" ||
 		got.BitrateKbps != 64 ||
 		got.Label != "LQ" {

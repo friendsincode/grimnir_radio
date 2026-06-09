@@ -105,7 +105,7 @@ func TestStreams_Get_OrderedByPriority(t *testing.T) {
 	lq := models.StationStream{
 		ID:          "stream-lq",
 		StationID:   "s1",
-		URL:         "https://<public-hostname>/main/lq",
+		URL:         "https://example.com/main/lq",
 		Format:      "mp3",
 		BitrateKbps: 64,
 		Label:       "LQ",
@@ -114,7 +114,7 @@ func TestStreams_Get_OrderedByPriority(t *testing.T) {
 	hq := models.StationStream{
 		ID:          "stream-hq",
 		StationID:   "s1",
-		URL:         "https://<public-hostname>/main/hq",
+		URL:         "https://example.com/main/hq",
 		Format:      "mp3",
 		BitrateKbps: 128,
 		Label:       "HQ",
@@ -147,7 +147,7 @@ func TestStreams_Get_OrderedByPriority(t *testing.T) {
 	if resp.Streams[0].Label != "HQ" {
 		t.Fatalf("HQ must sort first; got %q", resp.Streams[0].Label)
 	}
-	if resp.Streams[0].URL != "https://<public-hostname>/main/hq" {
+	if resp.Streams[0].URL != "https://example.com/main/hq" {
 		t.Fatalf("HQ url: got %q", resp.Streams[0].URL)
 	}
 	if resp.Streams[0].BitrateKbps != 128 {

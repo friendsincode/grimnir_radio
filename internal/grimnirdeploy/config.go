@@ -29,7 +29,7 @@ type Config struct {
 	DeployWindowCron string        // 5-field cron expr; only consulted when DeployPolicy=="window"
 	SoakWindow       time.Duration // post-roll soak; default 5m
 	PeerHost         string        // hostname of the other HA node
-	PeerSSHUser      string        // SSH user for peer access; default "<ssh-user>"
+	PeerSSHUser      string        // SSH user for peer access; operator sets via GRIMNIR_DEPLOY_PEER_SSH_USER (no default)
 	PeerSSHPort      int           // SSH port for peer access; default 22
 	PeerSSHKey       string        // path to private key for peer SSH
 
@@ -65,7 +65,7 @@ func LoadConfig() (*Config, error) {
 		DeployWindowCron:         os.Getenv("GRIMNIR_DEPLOY_WINDOW_CRON"),
 		SoakWindow:               parseDurationOr(os.Getenv("GRIMNIR_DEPLOY_SOAK_WINDOW"), 5*time.Minute),
 		PeerHost:                 os.Getenv("GRIMNIR_DEPLOY_PEER_HOST"),
-		PeerSSHUser:              firstNonEmpty(os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_USER"), "<ssh-user>"),
+		PeerSSHUser:              os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_USER"),
 		PeerSSHPort:              parseIntOr(os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_PORT"), 22),
 		PeerSSHKey:               os.Getenv("GRIMNIR_DEPLOY_PEER_SSH_KEY"),
 		RollbackWindow:           parseDurationOr(os.Getenv("GRIMNIR_DEPLOY_ROLLBACK_WINDOW"), 30*time.Minute),

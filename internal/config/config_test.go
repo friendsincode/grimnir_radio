@@ -82,7 +82,7 @@ func TestHAPCMRTPConfig(t *testing.T) {
 	t.Run("parses target list", func(t *testing.T) {
 		setBase(t)
 		t.Setenv("GRIMNIR_HA_PCM_RTP_ENABLED", "true")
-		t.Setenv("GRIMNIR_HA_PCM_RTP_TARGETS", "<node-a-ip>:5004,<node-b-ip>:5004")
+		t.Setenv("GRIMNIR_HA_PCM_RTP_TARGETS", "10.255.255.1:5004,10.255.255.2:5004")
 		c, err := Load()
 		if err != nil {
 			t.Fatal(err)
@@ -90,7 +90,7 @@ func TestHAPCMRTPConfig(t *testing.T) {
 		if !c.HAPCMRTPEnabled {
 			t.Error("HAPCMRTPEnabled = false, want true")
 		}
-		want := []string{"<node-a-ip>:5004", "<node-b-ip>:5004"}
+		want := []string{"10.255.255.1:5004", "10.255.255.2:5004"}
 		if !reflect.DeepEqual(c.HAPCMRTPTargets, want) {
 			t.Errorf("HAPCMRTPTargets = %v, want %v", c.HAPCMRTPTargets, want)
 		}
@@ -99,12 +99,12 @@ func TestHAPCMRTPConfig(t *testing.T) {
 	t.Run("ignores whitespace in target list", func(t *testing.T) {
 		setBase(t)
 		t.Setenv("GRIMNIR_HA_PCM_RTP_ENABLED", "true")
-		t.Setenv("GRIMNIR_HA_PCM_RTP_TARGETS", " <node-a-ip>:5004 , <node-b-ip>:5004 ")
+		t.Setenv("GRIMNIR_HA_PCM_RTP_TARGETS", " 10.255.255.1:5004 , 10.255.255.2:5004 ")
 		c, err := Load()
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"<node-a-ip>:5004", "<node-b-ip>:5004"}
+		want := []string{"10.255.255.1:5004", "10.255.255.2:5004"}
 		if !reflect.DeepEqual(c.HAPCMRTPTargets, want) {
 			t.Errorf("HAPCMRTPTargets = %v, want %v", c.HAPCMRTPTargets, want)
 		}

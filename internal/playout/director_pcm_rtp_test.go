@@ -51,7 +51,7 @@ func TestBuildDualBroadcastPipeline_NoHAModeOmitsRTPBranch(t *testing.T) {
 func TestBuildDualBroadcastPipeline_HAModeAddsRTPBranch(t *testing.T) {
 	d, _ := newMockDirector(t)
 	d.cfg.HAPCMRTPEnabled = true
-	d.cfg.HAPCMRTPTargets = []string{"<node-a-ip>:5004", "<node-b-ip>:5004"}
+	d.cfg.HAPCMRTPTargets = []string{"10.255.255.1:5004", "10.255.255.2:5004"}
 
 	mount := models.Mount{
 		Name:       "test",
@@ -72,7 +72,7 @@ func TestBuildDualBroadcastPipeline_HAModeAddsRTPBranch(t *testing.T) {
 		"rtpL16pay",
 		"multiudpsink",
 		"format=S16BE",
-		"clients=<node-a-ip>:5004,<node-b-ip>:5004",
+		"clients=10.255.255.1:5004,10.255.255.2:5004",
 	} {
 		if !strings.Contains(pipeline, expected) {
 			t.Errorf("HA enabled but pipeline missing %q in:\n%s", expected, pipeline)
@@ -241,13 +241,13 @@ func TestBuildWebstreamBroadcastPipeline_LiveInputEnabledAddsMixerBranch(t *test
 func TestBuildWebstreamBroadcastPipeline_HAModeAddsRTPBranch(t *testing.T) {
 	d, _ := newMockDirector(t)
 	d.cfg.HAPCMRTPEnabled = true
-	d.cfg.HAPCMRTPTargets = []string{"<node-a-ip>:5004"}
+	d.cfg.HAPCMRTPTargets = []string{"10.255.255.1:5004"}
 	pipeline := buildWebstreamPipelineForTest(t, d)
 	for _, expected := range []string{
 		"rtpL16pay",
 		"multiudpsink",
 		"format=S16BE",
-		"clients=<node-a-ip>:5004",
+		"clients=10.255.255.1:5004",
 	} {
 		if !strings.Contains(pipeline, expected) {
 			t.Errorf("HA enabled but pipeline missing %q in:\n%s", expected, pipeline)
