@@ -250,7 +250,7 @@ Full table: `cmd/grimnir-fanout/README.md`.
 | `GRIMNIR_DEPLOY_SOAK_WINDOW` | `5m` | opt | Soak duration after node-a upgrade before node-b. |
 | `GRIMNIR_DEPLOY_ROLLBACK_WINDOW` | `30m` | opt | How long after a deploy `grimnir-deploy rollback` accepts the request. |
 | `GRIMNIR_DEPLOY_PEER_HOST` | empty | yes | SSH target for the peer VM. |
-| `GRIMNIR_DEPLOY_PEER_SSH_USER` | `<ssh-user>` | opt | SSH user. |
+| `GRIMNIR_DEPLOY_PEER_SSH_USER` | `<ssh-user>` | opt | SSH user (operator chooses; the default at code level is whatever the operator configures via env). |
 | `GRIMNIR_DEPLOY_PEER_SSH_PORT` | `22` | opt | SSH port. |
 | `GRIMNIR_DEPLOY_PEER_SSH_KEY` | empty | yes | Path to private key (e.g., `~/.ssh/grimnir-deploy-ed25519`). |
 | `GRIMNIR_DEPLOY_AUTOROLLBACK_ENABLED` | `true` | opt | Disables the soak-window observer (set `false`/`0`/`no`/`off`); tests use this. |

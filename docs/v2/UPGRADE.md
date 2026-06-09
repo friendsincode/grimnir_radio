@@ -40,6 +40,7 @@ These are external dependencies. Until each is checked off, don't start Phase 1.
   - `keepalived` package available via apt (don't install yet; Phase 5 does that)
 - [ ] **A free Postgres host**, either a third VM or managed (e.g. Cloudflare Hyperdrive, Neon, or a Crunchy instance). Postgres 16+. Both VMs must reach it on TCP 5432.
 - [ ] **A free Redis host** reachable from both VMs on TCP 6379. Either a third VM or managed.
+- [ ] **Per-region topology file filled in**. Copy `ops/operator-topology.template.yml` to `ops/operator-topology.local.yml` (already gitignored) and fill in the real node IPs, VIPs, SSH user, and hostnames. Every example in this runbook uses placeholders like `<node-a-ip>` and `<public-hostname>`; the topology file is where the real values live so you can grep one file when you forget them at 3am.
 
 Substrate sizing & decision rationale: `docs/superpowers/plans/2026-06-06-pgbackrest-config.md`.
 
