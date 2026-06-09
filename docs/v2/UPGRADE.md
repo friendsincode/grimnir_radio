@@ -175,7 +175,8 @@ cd /srv/docker/grimnir_radio
 git checkout v2.0.0-rc.5
 cp docker-compose.override.yml.example docker-compose.override.yml
 # Edit docker-compose.override.yml: point GRIMNIR_DB_DSN, GRIMNIR_REDIS_ADDR
-# at the substrate; copy values out of .env.v2.example as a starting point.
+# at the substrate; copy values out of .env.example as a starting point
+# (the v2 surface lives there; the v1 file is preserved as .env.v1.example).
 # Don't set GRIMNIR_HA_PCM_RTP_ENABLED yet; this phase runs both nodes
 # independent. The fan-out overlay (docker-compose.fanout.yml) is opt-in for
 # Phase 5 once keepalived VIPs are up.

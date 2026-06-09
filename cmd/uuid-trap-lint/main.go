@@ -147,6 +147,11 @@ func discoverGoFiles(root string) ([]string, error) {
 			return nil
 		}
 		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+			// Skip the linter's own source (regexp literals & docstrings
+			// carry the trap patterns; self-flagging is meaningless).
+			if strings.HasSuffix(filepath.ToSlash(path), "cmd/uuid-trap-lint/main.go") {
+				return nil
+			}
 			files = append(files, path)
 		}
 		return nil
@@ -158,13 +163,20 @@ func discoverGoFiles(root string) ([]string, error) {
 }
 
 // filterTracked turns `git ls-files` output into absolute paths, dropping
-// _test.go files. The lint is meant for production code only; test JSON
-// request bodies legitimately carry `"foo_id": ""` inside string literals.
+// _test.go files and the linter's own source (which carries the trap
+// patterns inside comments and regexp literals). The lint is meant for
+// production code only; test JSON request bodies legitimately carry
+// `"foo_id": ""` inside string literals.
 func filterTracked(root, out string) []string {
 	var files []string
 	for _, rel := range strings.Split(out, "\n") {
 		rel = strings.TrimSpace(rel)
 		if rel == "" || strings.HasSuffix(rel, "_test.go") {
+			continue
+		}
+		// Skip the linter's own source. The patterns appear in regexp
+		// literals & docstrings here; self-flagging is meaningless.
+		if rel == "cmd/uuid-trap-lint/main.go" {
 			continue
 		}
 		files = append(files, filepath.Join(root, rel))

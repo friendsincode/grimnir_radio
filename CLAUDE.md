@@ -140,51 +140,145 @@ For horizontal scaling, the system uses Redis-based leader election with CRC32 c
 
 ## Environment Variables
 
-Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). Key variables:
+Prefer `GRIMNIR_*` prefix (falls back to `RLM_*` for compatibility). The v2 binary set reads ~90 env vars across seven categories. The canonical operator-facing template is `.env.example` (v1 surface preserved at `.env.v1.example`); per-binary READMEs are the deep reference.
 
-- `GRIMNIR_DB_DSN` - Database connection string
-- `GRIMNIR_REDIS_ADDR` - Redis address for events/leadership
-- `GRIMNIR_MEDIA_ENGINE_GRPC_ADDR` - Media engine gRPC address (default: localhost:9091)
-- `GRIMNIR_GRPC_ADDR` - Combined `host:port` for the control-plane gRPC server (DJAuth service). Convenience override for the split `GRIMNIR_GRPC_BIND` + `GRIMNIR_GRPC_PORT` pair. Default: `0.0.0.0:9095`. The fan-out binary dials this via `FANOUT_CONTROL_PLANE_GRPC`. Port 9095 is chosen so it does not collide with media-engine gRPC (9091) or NetClock master (9094).
-- `GRIMNIR_GRPC_BIND` - Bind address for the control-plane gRPC server. Default: `0.0.0.0`.
-- `GRIMNIR_GRPC_PORT` - Port for the control-plane gRPC server. Default: `9095`. Set to `0` to disable.
-- `GRIMNIR_MEDIA_ROOT` - Base directory for media files (e.g., /var/lib/grimnir/media). Still required when backend=`s3`; it's the on-disk read-through cache.
-- `GRIMNIR_MEDIA_BACKEND` - `fs` (default) or `s3`. Selects the `internal/media/` backend the control plane uses. `s3` requires `GRIMNIR_S3_BUCKET`. The factory in `internal/media/service.go` dispatches on this value.
-- `GRIMNIR_S3_BUCKET` - Bucket name. Required when `GRIMNIR_MEDIA_BACKEND=s3`.
-- `GRIMNIR_S3_ENDPOINT` - Endpoint URL (e.g., `https://<account-id>.r2.cloudflarestorage.com` for R2). Empty defaults to AWS S3.
-- `GRIMNIR_S3_REGION` - Default `auto` (R2 convention). Set to `us-east-1` etc. for AWS S3.
-- `GRIMNIR_S3_ACCESS_KEY` - Access key. Legacy alias: `GRIMNIR_S3_ACCESS_KEY_ID`; falls back to `AWS_ACCESS_KEY_ID`.
-- `GRIMNIR_S3_SECRET_KEY` - Secret key. Legacy alias: `GRIMNIR_S3_SECRET_ACCESS_KEY`; falls back to `AWS_SECRET_ACCESS_KEY`.
-- `GRIMNIR_S3_PATH_STYLE` - Default `true` (R2 & MinIO friendly). Set `false` for AWS virtual-host addressing.
-- `GRIMNIR_S3_PUBLIC_BASE_URL` - Optional CDN base URL (e.g., a Cloudflare custom hostname in front of R2). When unset, URLs are constructed from the endpoint.
-- `GRIMNIR_JWT_SIGNING_KEY` - JWT signing secret
-- `GRIMNIR_HA_PCM_RTP_ENABLED` - When true, media engine emits raw L16 PCM via RTP to the configured edge encoders (in addition to the legacy fdsink output). Required for the HA architecture (Track A step 4). Default: false.
-- `GRIMNIR_HA_PCM_RTP_TARGETS` - Comma-separated list of `host:port` for PCM-RTP delivery. Required when HA enabled. Example: `<node-a-ip>:5004,<node-b-ip>:5004`. Each entry receives the same RTP stream via `multiudpsink`.
-- `GRIMNIR_NETCLOCK_ENABLED` - When true, media engine pipelines bind to a region-wide shared clock (NetClock master/slave) so PCM samples emitted by N engines are aligned at the wall-clock level. Required for sample-aligned PCM switching at the edge encoder. Default: false. See Track A step 5.
-- `GRIMNIR_NETCLOCK_PORT` - TCP port the master serves clock time on. Default: 9094.
-- `GRIMNIR_NETCLOCK_REGION` - Region identifier; part of the Redis lease key `grimnir-netclock-master-<region>`. Required when NetClock enabled.
-- `GRIMNIR_NETCLOCK_MASTER_ADDR` - Slaves dial this `host:port`. Optional; future versions will auto-discover via Redis.
-- `GRIMNIR_VRRP_VIPS` - Comma-separated VIP names (e.g., `listener,dj`) the control plane polls out of Redis hash `grimnir:vrrp:<name>` to update the `grimnir_vrrp_holder_count` gauge. Empty disables the poller. Required when keepalived (Track A step 7) is installed; see `docs/runbooks/keepalived-install.md`.
-- `GRIMNIR_REGION` - Region short name; defaults to `default`. Drives ntfy topic naming (`grimnir-region-<region>-page`, `grimnir-audit-<region>`).
-- `GRIMNIR_NTFY_URL` - Self-hosted ntfy.sh base URL (e.g., `https://ntfy.grimnir.example`). When unset, `notify.FromEnv` returns a NopNotifier so dev binaries don't fail to start.
-- `GRIMNIR_NTFY_TOKEN_PAGE` - Publisher token for the per-region page topic.
-- `GRIMNIR_NTFY_TOKEN_AUDIT` - Publisher token for the per-region audit topic.
-- `GRIMNIR_NTFY_TOKEN_ROLLBACK` - Publisher token for the per-region rollback topic.
-- `GRIMNIR_SECRETS_BACKEND` - `env` (default) or `vault`. Selects the `internal/secrets/` backend.
-- `GRIMNIR_SECRETS_ENV_FILE` - Path to the .env file (default `.env`). Used only when backend=`env`.
-- `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID` - Vault AppRole credentials. Required when backend=`vault`.
-- `GRIMNIR_PROMETHEUS_URL` - Prometheus base URL the auto-rollback observer polls (e.g., `http://prometheus:9090`). Falls back from the more specific `GRIMNIR_DEPLOY_AUTOROLLBACK_PROM_URL`.
-- `GRIMNIR_DEPLOY_AUTOROLLBACK_ENABLED` - `true` (default) or `false`/`0`/`no`/`off`. Disables the soak-window observer; tests use `false` to avoid needing a live Prometheus.
-- `GRIMNIR_DEPLOY_AUTOROLLBACK_PROM_URL` - Override Prometheus URL for auto-rollback only (per-region differentiation).
-- `GRIMNIR_DEPLOY_AUTOROLLBACK_TICK` - Poll interval during the soak window. Default `15s`.
-- `FANOUT_ENGINE_A_RTP` - Required. `host:port` of media engine A's PCM RTP ingress; `grimnir-fanout` ships every session's PCM here via `multiudpsink`.
-- `FANOUT_ENGINE_B_RTP` - `host:port` of engine B. Empty for single-engine deployments.
-- `FANOUT_HARBOR_PORT` / `FANOUT_RTP_PORT` / `FANOUT_SRT_PORT` / `FANOUT_WEBRTC_HTTP_PORT` - Per-protocol DJ ingress ports. Defaults: 8000 / 5006 / 1935 / 8004.
-- `FANOUT_GRPC_PORT` / `FANOUT_HTTP_PORT` / `FANOUT_METRICS_PORT` - Control surface ports. Defaults: 9093 / 8003 / 9193.
-- `FANOUT_CONTROL_PLANE_GRPC` - Control-plane gRPC for `DJAuth` lookups. When empty the binary boots in `AcceptAllAuthenticator` mode (dev only).
-- `FANOUT_REDIS_ADDR` - Redis for cross-fanout session replication. When empty, sessions are single-node only.
-- `FANOUT_NETCLOCK_ENABLED` / `FANOUT_NETCLOCK_MASTER_ADDR` - Bind per-session pipelines to the region's NetClock master so engine mixer output is sample-aligned across both engines.
-- See `cmd/grimnir-fanout/README.md` for the full table.
+Legend in the tables below: **Binary** = which binary reads it (CP = control plane `cmd/grimnirradio`, ME = media engine, EE = edge encoder, FO = fan-out, DP = `grimnir-deploy`, AB = `alertmanager-ntfy`). **Req** = required for that binary's role; **opt** = has a working default.
+
+### Substrate (shared by every binary in a region)
+
+| Variable | Binary | Default | Req | Description |
+|---|---|---|---|---|
+| `GRIMNIR_DB_DSN` (alias `RLM_DB_DSN`) | CP, DP | empty | yes | Postgres connection string. v2 requires Postgres 16+ in HA. |
+| `GRIMNIR_REDIS_ADDR` (alias `RLM_REDIS_ADDR`) | CP, ME, FO, DP | `localhost:6379` | yes (HA) | Redis address for leader election, event bus, NetClock lease, fan-out session replication. |
+| `GRIMNIR_REDIS_PASSWORD` (alias `RLM_REDIS_PASSWORD`, `REDIS_PW`) | CP, ME, DP | empty | depends | Redis auth. `grimnir-deploy` accepts `REDIS_PW` as a third fallback. |
+| `GRIMNIR_REDIS_DB` | CP | `0` | opt | Logical Redis DB index. |
+| `GRIMNIR_ENV` (alias `RLM_ENV`) | CP | `development` | opt | Environment band; affects dev-mode fallbacks (e.g. TURN credential check). |
+| `GRIMNIR_REGION` | CP, DP | `default` | yes (HA) | Drives ntfy topic naming & NetClock Redis lease keys. |
+| `GRIMNIR_INSTANCE_ID` (alias `RLM_INSTANCE_ID`) | CP | empty | yes (multi-instance) | Unique per node; used by leader election. |
+| `GRIMNIR_LEADER_ELECTION_ENABLED` (alias `RLM_LEADER_ELECTION_ENABLED`) | CP | `false` | yes (HA) | Enables Redis-backed leader election. |
+| `GRIMNIR_DB_BACKEND` (alias `RLM_DB_BACKEND`) | CP | `postgres` | opt | `postgres`, `mysql`, or `sqlite`. |
+
+### Control plane (`cmd/grimnirradio`)
+
+| Variable | Default | Req | Description |
+|---|---|---|---|
+| `GRIMNIR_HTTP_BIND` / `GRIMNIR_HTTP_PORT` (RLM_* aliases) | `0.0.0.0` / `8080` | opt | HTTP listener. |
+| `GRIMNIR_GRPC_ADDR` | empty | opt | Combined `host:port` override for the control-plane gRPC server (DJAuth). Wins over the split bind/port pair. Port 9095 is chosen so it does not collide with media-engine gRPC (9091) or NetClock master (9094). |
+| `GRIMNIR_GRPC_BIND` / `GRIMNIR_GRPC_PORT` | `0.0.0.0` / `9095` | opt | Split bind/port for DJAuth gRPC. Port `0` disables. |
+| `GRIMNIR_JWT_SIGNING_KEY` (alias `RLM_JWT_SIGNING_KEY`) | empty | yes | JWT signing secret. Must match across nodes in a region. |
+| `GRIMNIR_BASE_URL` (alias `RLM_BASE_URL`) | empty | opt | External URL used in webhook payloads, etc. |
+| `GRIMNIR_MEDIA_ROOT` (alias `RLM_MEDIA_ROOT`) | `./media` | yes | Filesystem media path. Still required when backend=`s3` (read-through cache). |
+| `GRIMNIR_MEDIA_BACKEND` | `fs` | opt | `fs` (default) or `s3`. `s3` requires `GRIMNIR_S3_BUCKET`. |
+| `GRIMNIR_S3_BUCKET` (alias `S3_BUCKET`) | empty | yes (s3) | Bucket name. |
+| `GRIMNIR_S3_ENDPOINT` (alias `S3_ENDPOINT`) | empty | opt | Endpoint URL; e.g., `https://<account-id>.r2.cloudflarestorage.com` for R2. Empty defaults to AWS S3. |
+| `GRIMNIR_S3_REGION` (alias `AWS_REGION`) | `auto` | opt | Set to `us-east-1` etc. for AWS S3. |
+| `GRIMNIR_S3_ACCESS_KEY` (aliases `GRIMNIR_S3_ACCESS_KEY_ID`, `AWS_ACCESS_KEY_ID`) | empty | yes (s3) | Access key. |
+| `GRIMNIR_S3_SECRET_KEY` (aliases `GRIMNIR_S3_SECRET_ACCESS_KEY`, `AWS_SECRET_ACCESS_KEY`) | empty | yes (s3) | Secret key. |
+| `GRIMNIR_S3_PATH_STYLE` (alias `S3_USE_PATH_STYLE`) | `true` | opt | `true` for R2 & MinIO; `false` for AWS virtual-host. |
+| `GRIMNIR_S3_PUBLIC_BASE_URL` (alias `S3_PUBLIC_BASE_URL`) | empty | opt | CDN base URL (e.g., a Cloudflare custom hostname in front of R2). |
+| `GRIMNIR_MEDIA_ENGINE_GRPC_ADDR` (alias `MEDIA_ENGINE_GRPC_ADDR`) | `mediaengine:9091` | yes | Loopback in v2; each VM runs its own engine. |
+| `GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES` (alias `RLM_*`) | `168` (h, not min) | opt | Lookahead horizon for schedule materialization. |
+| `GRIMNIR_METRICS_BIND` (alias `RLM_*`) | `127.0.0.1:9000` | opt | Prometheus metrics bind. |
+| `GRIMNIR_MAX_UPLOAD_SIZE_MB` (alias `RLM_*`) | `0` (endpoint defaults) | opt | Global multipart upload cap. |
+| `GRIMNIR_TRACING_ENABLED`, `GRIMNIR_OTLP_ENDPOINT`, `GRIMNIR_TRACING_SAMPLE_RATE` (RLM_* aliases) | `false` / `localhost:4317` / `1.0` | opt | OTLP tracing. |
+| `GRIMNIR_HARBOR_ENABLED` + `GRIMNIR_HARBOR_PORT`, `GRIMNIR_HARBOR_BIND`, `GRIMNIR_HARBOR_HOST`, `GRIMNIR_HARBOR_MOUNT_PREFIX`, `GRIMNIR_HARBOR_SSL`, `GRIMNIR_HARBOR_MAX_SOURCES`, `GRIMNIR_HARBOR_PUBLIC_PORT` (HARBOR_* aliases) | off / 8088 / 0.0.0.0 / — / — / false / 10 / 0 | opt | Built-in source receiver (legacy v1 path; v2 uses fan-out). |
+| `GRIMNIR_WEBRTC_ENABLED`, `GRIMNIR_WEBRTC_RTP_PORT`, `GRIMNIR_WEBRTC_STUN_URL`, `GRIMNIR_WEBRTC_TURN_URL`, `GRIMNIR_WEBRTC_TURN_USERNAME`, `GRIMNIR_WEBRTC_TURN_PASSWORD` (WEBRTC_* aliases) | true / 5004 / Google STUN / empty / empty / empty | opt | Legacy WebRTC ingest. In production, TURN_URL set requires the username+password pair. |
+
+### Media engine (`cmd/mediaengine`)
+
+| Variable | Default | Req | Description |
+|---|---|---|---|
+| `GRIMNIR_HA_PCM_RTP_ENABLED` (alias `RLM_*`) | `false` | yes (HA) | Emit raw L16 PCM via RTP to fan-out / edge-encoder downstream. |
+| `GRIMNIR_HA_PCM_RTP_TARGETS` (alias `RLM_*`) | empty | yes (HA) | Comma-separated `host:port` list; `multiudpsink` duplicates the stream. |
+| `GRIMNIR_NETCLOCK_ENABLED` (alias `RLM_*`) | `false` | yes (HA) | Bind pipelines to the region's shared GstNetClock. |
+| `GRIMNIR_NETCLOCK_PORT` (alias `RLM_*`) | `9094` | opt | TCP port the master serves clock time on. |
+| `GRIMNIR_NETCLOCK_REGION` (alias `RLM_*`) | empty | yes (NetClock on) | Region key for the Redis lease `grimnir-netclock-master-<region>`. |
+| `GRIMNIR_NETCLOCK_MASTER_ADDR` (alias `RLM_*`) | empty | opt | Slaves dial this `host:port`. Future: auto-discovered via Redis. |
+| `GRIMNIR_LIVE_INPUT_ENABLED` (alias `RLM_*`) | `false` | yes (fan-out wired) | Enables the always-on engine-side audiomixer branch for fan-out PCM ingest. |
+| `GRIMNIR_LIVE_INPUT_PORT` (alias `RLM_*`) | `5008` | opt | Engine's `udpsrc` port for fan-out's PCM-over-RTP. |
+| `GRIMNIR_LIVE_INPUT_FANOUT_ADDR` (alias `RLM_*`) | empty | yes (live-input on) | `host:port` of the fan-out the engine accepts gRPC `SetLiveInput` from. |
+| `GRIMNIR_GSTREAMER_BIN` (alias `RLM_*`) | `gst-launch-1.0` | opt | Pipeline spawner binary. |
+| `MEDIAENGINE_LOG_LEVEL` | `info` | opt | Engine log level. |
+
+### Edge encoder (`cmd/edge-encoder`)
+
+| Variable | Default | Req | Description |
+|---|---|---|---|
+| `EDGE_ENCODER_BIND_ADDR` | `0.0.0.0` | opt | gRPC + HTTP bind. |
+| `EDGE_ENCODER_GRPC_PORT` | `9092` | opt | gRPC port for `GetStatus`. |
+| `EDGE_ENCODER_HTTP_PORT` | `8001` | opt | HTTP/ICY listener (`/live`, `/healthz`). |
+| `EDGE_ENCODER_METRICS_PORT` | `9192` | opt | Prometheus metrics endpoint (reserved). |
+| `EDGE_ENCODER_RTP_PORT_A` / `EDGE_ENCODER_RTP_PORT_B` | `5004` / `5005` | opt | UDP ports for engine A & B RTP-L16. |
+| `EDGE_ENCODER_ENGINE_A_GRPC` / `EDGE_ENCODER_ENGINE_B_GRPC` | empty | opt | `host:port` of each engine's gRPC; empty disables the health subscription (falls back to pure packet-arrival health). |
+| `EDGE_ENCODER_OUTPUT_FORMAT` | `mp3` | opt | `mp3` or `aac`. |
+| `EDGE_ENCODER_OUTPUT_BITRATE_KBPS` | `128` | opt | Encoder bitrate. |
+| `EDGE_ENCODER_HLS_ENABLED` | `false` | opt | Also emit HLS segments to S3. |
+| `EDGE_ENCODER_HLS_S3_BUCKET`, `_REGION`, `_ENDPOINT`, `_USE_PATH_STYLE` | empty / `us-east-1` / empty / `false` | yes (HLS on) | HLS S3 destination. Set USE_PATH_STYLE=true for MinIO. |
+| `EDGE_ENCODER_HLS_SEGMENT_DIR` | `/tmp/grimnir-hls` | opt | Local staging dir before S3 upload. |
+| `EDGE_ENCODER_LOG_LEVEL` | `info` | opt | Log level. |
+
+Full table: `cmd/edge-encoder/README.md`.
+
+### Fan-out (`cmd/grimnir-fanout`)
+
+Variables namespaced `FANOUT_*` (legacy fallback `RLM_FANOUT_*`).
+
+| Variable | Default | Req | Description |
+|---|---|---|---|
+| `FANOUT_ENGINE_A_RTP` | empty | yes | `host:port` of engine A PCM RTP ingress. |
+| `FANOUT_ENGINE_B_RTP` | empty | opt | Engine B; empty = single-engine deployment. |
+| `FANOUT_BIND_ADDR` | `0.0.0.0` | opt | Bind for HTTP & gRPC. |
+| `FANOUT_GRPC_PORT` / `FANOUT_HTTP_PORT` / `FANOUT_METRICS_PORT` | `9093` / `8003` / `9193` | opt | Control surface ports. |
+| `FANOUT_HARBOR_PORT` / `FANOUT_RTP_PORT` / `FANOUT_SRT_PORT` / `FANOUT_WEBRTC_HTTP_PORT` | `8000` / `5006` / `1935` / `8004` | opt | DJ ingress per protocol. |
+| `FANOUT_CONTROL_PLANE_GRPC` | empty | yes (prod) | Dials the control plane's `DJAuth` gRPC. Empty boots in `AcceptAllAuthenticator` dev mode. |
+| `FANOUT_REDIS_ADDR` | empty | yes (HA) | Cross-fanout session replication. |
+| `FANOUT_NETCLOCK_ENABLED` / `FANOUT_NETCLOCK_MASTER_ADDR` | `false` / empty | yes (HA) | Bind per-session pipelines to the region's NetClock so engine mixer output is sample-aligned across both engines. |
+| `FANOUT_LOG_LEVEL` | `info` | opt | Log level. |
+
+Full table: `cmd/grimnir-fanout/README.md`.
+
+### grimnir-deploy (operator workstation only)
+
+| Variable | Default | Req | Description |
+|---|---|---|---|
+| `GRIMNIR_DEPLOY_DB_DSN` (falls back to `GRIMNIR_DB_DSN`) | empty | yes | Postgres DSN the deploy tool writes audit/history rows to. |
+| `GRIMNIR_DEPLOY_REDIS_ADDR` (falls back to `GRIMNIR_REDIS_ADDR`) | empty | yes | Redis for the deploy lock. |
+| `GRIMNIR_DEPLOY_REDIS_PASSWORD` (falls back to `GRIMNIR_REDIS_PASSWORD`, `REDIS_PW`) | empty | depends | Redis auth. |
+| `GRIMNIR_DEPLOY_OPERATOR` (falls back to `USER`) | `unknown` | opt | Operator name written into audit rows. |
+| `GRIMNIR_DEPLOY_POLICY` | `auto` | opt | `auto`, `manual`, `strict`. |
+| `GRIMNIR_DEPLOY_WINDOW_CRON` | empty | opt | Cron expression restricting deploy windows. |
+| `GRIMNIR_DEPLOY_SOAK_WINDOW` | `5m` | opt | Soak duration after node-a upgrade before node-b. |
+| `GRIMNIR_DEPLOY_ROLLBACK_WINDOW` | `30m` | opt | How long after a deploy `grimnir-deploy rollback` accepts the request. |
+| `GRIMNIR_DEPLOY_PEER_HOST` | empty | yes | SSH target for the peer VM. |
+| `GRIMNIR_DEPLOY_PEER_SSH_USER` | `<ssh-user>` | opt | SSH user. |
+| `GRIMNIR_DEPLOY_PEER_SSH_PORT` | `22` | opt | SSH port. |
+| `GRIMNIR_DEPLOY_PEER_SSH_KEY` | empty | yes | Path to private key (e.g., `~/.ssh/grimnir-deploy-ed25519`). |
+| `GRIMNIR_DEPLOY_AUTOROLLBACK_ENABLED` | `true` | opt | Disables the soak-window observer (set `false`/`0`/`no`/`off`); tests use this. |
+| `GRIMNIR_DEPLOY_AUTOROLLBACK_PROM_URL` (falls back to `GRIMNIR_PROMETHEUS_URL`) | empty | yes (auto-rollback on) | Prometheus base URL the observer polls. |
+| `GRIMNIR_DEPLOY_AUTOROLLBACK_TICK` | `15s` | opt | Observer poll interval. |
+| `GRIMNIR_LISTENER_VIP`, `GRIMNIR_DJ_VIP` | empty | opt | VIPs the partition-recovery runbook checks for split-brain. |
+
+### Observability (`cmd/alertmanager-ntfy` + control-plane ntfy publishers)
+
+| Variable | Default | Req | Description |
+|---|---|---|---|
+| `GRIMNIR_ALERTBRIDGE_ADDR` | `127.0.0.1:9095` | opt | Loopback HTTP bind for the Alertmanager-to-ntfy bridge. |
+| `GRIMNIR_NTFY_URL` | empty | opt | ntfy.sh base URL. Empty returns a NopNotifier so dev binaries don't fail to start. |
+| `GRIMNIR_NTFY_TOKEN_PAGE`, `_AUDIT`, `_ROLLBACK` | empty | yes (per-tier) | Publisher tokens. Topic names derive from `GRIMNIR_REGION`. |
+| `GRIMNIR_PROMETHEUS_URL` | empty | opt | Prometheus base URL the auto-rollback observer polls. |
+| `GRIMNIR_VRRP_VIPS` | empty | yes (keepalived) | Comma-separated VIP names (e.g., `listener,dj`) the control plane polls out of Redis hash `grimnir:vrrp:<name>` to update the `grimnir_vrrp_holder_count` gauge. See `docs/runbooks/keepalived-install.md`. |
+
+### Secrets backend
+
+| Variable | Default | Req | Description |
+|---|---|---|---|
+| `GRIMNIR_SECRETS_BACKEND` | `env` | opt | `env` (default) or `vault`. |
+| `GRIMNIR_SECRETS_ENV_FILE` | `.env` | opt | Path to the .env file. Used only when backend=`env`. |
+| `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID` | empty | yes (vault) | Vault AppRole credentials. |
+
+### Test-only & legacy aliases
+
+`CI`, `E2E_HEADLESS`, `SKIP_BROWSER_TESTS`, `TEST_DB_DSN`, `GRIMNIR_COVERAGE_PROFILE`, `GRIMNIR_COVERAGE_TARGET` are read by tests; `SSH_CLIENT` and `USER` populate audit attribution. Legacy aliases (`ENVIRONMENT`, `LEADER_ELECTION_ENABLED`, `JWT_SIGNING_KEY`, `TRACING_ENABLED`, `OTLP_ENDPOINT`, `TRACING_SAMPLE_RATE`) still parse but emit a warning at startup; prefer the `GRIMNIR_*` form.
 
 ## Architectural note: engine-side live-input mixer (v2.0.0-alpha.7+)
 

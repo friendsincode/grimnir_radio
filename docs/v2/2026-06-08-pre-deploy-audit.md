@@ -172,7 +172,11 @@ Fix: bump every `v2.0.0-rc.1` reference in `docs/v2/UPGRADE.md` to `v2.0.0-rc.5`
 
 **W-2** — `.env.example` & `.env.docker.example` are v1-era. The delivered `.env.v2.example` covers the v2 surface; reference it from UPGRADE.md so operators find it.
 
+**RESOLVED in v2.0.0-rc.9**: `.env.v2.example` renamed to `.env.example` (the conventional name new operators look for); v1 surface preserved at `.env.v1.example` with a header pointer. `docs/v2/UPGRADE.md` (Phase 3) and `docs/v2/DAY0-CHECKLIST.md` (Phase 0a + Reference) updated to reference the new filenames. `.env.docker.example` left untouched since it predates the v2 work and is referenced only by legacy v1 docs.
+
 **W-3** — `CLAUDE.md` Environment Variables section lists 9 vars; the v2 binary set reads 49+ (control-plane) + 14 (fan-out) + 15 (edge-encoder) + 13 (deploy-tool). Per-binary READMEs are accurate but CLAUDE.md is stale. Either point CLAUDE.md at the READMEs or expand the section.
+
+**RESOLVED in v2.0.0-rc.9**: CLAUDE.md § Environment Variables rebuilt as seven categorized tables (Substrate, Control plane, Media engine, Edge encoder, Fan-out, grimnir-deploy, Observability, Secrets backend, plus a test/legacy footnote). 87 distinct variables documented with `name | default | required? | description` columns; deep tables for fan-out and edge-encoder defer to `cmd/grimnir-fanout/README.md` and `cmd/edge-encoder/README.md` to keep CLAUDE.md scannable.
 
 **W-4** — `golangci-lint` is not installed on the audit host (`make ci` skips it with a warning). GitHub Actions has it via a separate installer step; rely on the PR check to catch lint failures before cutover.
 

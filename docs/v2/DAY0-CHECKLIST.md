@@ -45,8 +45,8 @@ These are external; until each ticks, don't start Phase 0b.
 - [ ] **SSH key** generated on operator workstation: `ssh-keygen -t ed25519 -f ~/.ssh/grimnir-deploy-ed25519 -C "grimnir-deploy"`
 - [ ] **SSH key authorized** on both proxmox VMs under the `<ssh-user>` (or your) user
 - [ ] **`grimnir-deploy` binary** built from rc.5 & on `$PATH`: `go build -o /usr/local/bin/grimnir-deploy ./cmd/grimnir-deploy`
-- [ ] **`/etc/grimnir/secrets.env`** created on each VM with 0600 perms, containing the credentials enumerated in `.env.v2.example`
-- [ ] **`.env`** copied to `/srv/docker/grimnir_radio/.env` on each VM (use `.env.v2.example` as the template)
+- [ ] **`/etc/grimnir/secrets.env`** created on each VM with 0600 perms, containing the credentials enumerated in `.env.example`
+- [ ] **`.env`** copied to `/srv/docker/grimnir_radio/.env` on each VM (use `.env.example` as the template; the v1 surface is preserved at `.env.v1.example` for reference)
 - [ ] **VRRP VIPs allocated**: listener VIP IP & DJ VIP IP recorded, both inside the same L2 segment as the two VMs
 - [ ] **DNS plan**: edge VPS upstream block already supports a swap from `<v1-prod-host>:8081` to `<listener-vip>:8001`
 
@@ -441,5 +441,5 @@ sudo rm -rf /srv/data/grimnir_radio/{media-data,postgres-data,media-data.pre-r2-
 - Master runbook: `docs/v2/UPGRADE.md` (with B-1 patch applied)
 - Per-subcommand: `docs/runbooks/index.md`
 - Pre-deploy audit: `docs/v2/2026-06-08-pre-deploy-audit.md`
-- v2 env template: `.env.v2.example`
+- v2 env template: `.env.example` (v1 reference preserved at `.env.v1.example`)
 - Parent design (876 lines): `docs/superpowers/plans/2026-06-01-ha-zero-loss-failover-design.md`
