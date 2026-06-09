@@ -1,0 +1,56 @@
+# Per-region operator topology — TEMPLATE
+#
+# Copy this file to `ops/operator-topology.local.yml` (already gitignored)
+# and fill in the real values for your region. The grimnir repo never
+# contains real IPs, hostnames, or SSH users; every doc, runbook, and
+# config template refers to the placeholders defined below so you can
+# grep one file when you forget a value at 3am.
+#
+# Placeholders used throughout the repo:
+#
+#   <node-a-ip>            — proxmox VM A management IP
+#   <node-b-ip>            — proxmox VM B management IP
+#   <listener-vip>         — VRRP listener VIP (edge-encoder HTTP/ICY/HLS, port 8001)
+#   <dj-vip>               — VRRP DJ VIP (grimnir-fanout Harbor/WebRTC/RTP/SRT)
+#   <redis-host>           — Redis host the keepalived notify.sh writes to
+#   <control-plane-host>   — control-plane host for FANOUT_CONTROL_PLANE_GRPC
+#   <v1-prod-host>         — legacy v1 single-VM prod host (cutover source)
+#   <edge-vps>             — TLS-terminating edge VPS (nginx reverse proxy)
+#   <example-db-host>      — example DB host for v1 LibreTime/AzuraCast import
+#   <ssh-user>             — SSH user that owns /srv/docker/grimnir_radio on each node
+#   <v1-hostname>          — legacy v1 hostname
+#   <public-hostname>      — public DNS hostname (the domain listeners hit)
+
+region: prod-us
+
+# HA nodes that run the v2 grimnir stack (control plane + media engine +
+# edge-encoder + grimnir-fanout, one of each per node).
+nodes:
+  node-a:
+    host: <node-a-ip>
+    ssh_user: <ssh-user>
+  node-b:
+    host: <node-b-ip>
+    ssh_user: <ssh-user>
+
+# VRRP-floated VIPs. Listener VIP is what the edge VPS upstream points at;
+# DJ VIP is what live-input clients connect to.
+vips:
+  listener: <listener-vip>
+  dj:       <dj-vip>
+
+# Substrate hosts. These usually live outside the two HA nodes.
+substrate:
+  redis_host:         <redis-host>
+  control_plane_host: <control-plane-host>
+
+# Legacy v1 single-VM prod (the migration source). Delete this block after
+# Phase 8 acceptance gates pass and v1 is decommissioned.
+v1:
+  host:     <v1-prod-host>
+  hostname: <v1-hostname>
+  edge_vps: <edge-vps>
+
+# Public-facing DNS hostname; the edge VPS terminates TLS for this.
+public:
+  hostname: <public-hostname>

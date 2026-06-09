@@ -65,3 +65,8 @@ docker-compose.override.yml
 CLAUDE.md
 .gomodcache/
 .claude/
+
+# Operator-private topology (real IPs, SSH user, hostnames). The repo only
+# ships the template (ops/operator-topology.template.yml); the *.local.yml
+# is filled in per region and never committed.
+ops/operator-topology.local.yml
