@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
@@ -30,7 +31,18 @@ type Mount struct {
 	logger     zerolog.Logger
 	inputDone  chan struct{}
 	inputCount int         // tracks active input feeds
+	lastFedAt  int64       // unix nano; updated atomically each time bytes are written
 	bus        *events.Bus // for publishing listener stats
+}
+
+// BytesReceivedAt returns the time bytes were last written to this mount by FeedFrom.
+// Returns zero time if no bytes have been written yet.
+func (m *Mount) BytesReceivedAt() time.Time {
+	ns := atomic.LoadInt64(&m.lastFedAt)
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
 }
 
 type client struct {
@@ -193,6 +205,7 @@ func (m *Mount) FeedFrom(r io.Reader) error {
 			data := make([]byte, n)
 			copy(data, buf[:n])
 			m.Broadcast(data)
+			atomic.StoreInt64(&m.lastFedAt, time.Now().UnixNano())
 		}
 		if err != nil {
 			if err == io.EOF {

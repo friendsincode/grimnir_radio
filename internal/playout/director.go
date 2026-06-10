@@ -44,6 +44,17 @@ type StateResetter interface {
 // Gives GStreamer time to deliver EOS for tracks that run slightly long (e.g. gapless edges).
 const trackWatchdogGrace = 5 * time.Minute
 
+// Webstream stall watchdog: detects zombie webstream pipelines that connected
+// upstream but stopped producing bytes to the broadcast mount. The GStreamer-level
+// watchdog (timeout=15000 in the pipeline string) catches no-input-buffer cases;
+// these constants catch the complementary case where GStreamer reports healthy
+// but zero encoded bytes reach the broadcast mount.
+const (
+	webstreamStallTimeout   = 30 * time.Second
+	webstreamStallGrace     = 20 * time.Second
+	webstreamStallCheckTick = 10 * time.Second
+)
+
 type playoutState struct {
 	MediaID   string
 	EntryID   string
@@ -1309,6 +1320,68 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 	return nil
 }
 
+// startWebstreamStallWatchdog monitors a webstream pipeline for audio stalls.
+// A stall is declared if bytes were received at some point (BytesReceivedAt is
+// non-zero) but then stopped flowing for longer than stallTimeout. When a stall
+// is detected, stallAction is called (typically: stop the pipeline so doneCh
+// fires and watchWebstreamPipeline can reconnect).
+//
+// The watchdog exits immediately when ctx is cancelled or pipelineDone fires.
+// grace, stallTimeout, and checkTick are injectable for testing; the production
+// caller passes webstreamStallGrace, webstreamStallTimeout, webstreamStallCheckTick.
+//
+// This function spawns the watcher goroutine internally and returns immediately;
+// do not call it with `go`.
+func (d *Director) startWebstreamStallWatchdog(
+	ctx context.Context,
+	mountID, mountName string,
+	hqMount *broadcast.Mount,
+	pipelineDone <-chan struct{},
+	grace, stallTimeout, checkTick time.Duration,
+	stallAction func(),
+) {
+	if hqMount == nil {
+		return
+	}
+	go func() {
+		// Grace period: give the pipeline time to connect and start producing bytes.
+		select {
+		case <-ctx.Done():
+			return
+		case <-pipelineDone:
+			return
+		case <-time.After(grace):
+		}
+
+		ticker := time.NewTicker(checkTick)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pipelineDone:
+				return
+			case <-ticker.C:
+				lastFed := hqMount.BytesReceivedAt()
+				if lastFed.IsZero() {
+					// No bytes ever received; GStreamer's own watchdog handles this.
+					continue
+				}
+				if time.Since(lastFed) > stallTimeout {
+					d.logger.Warn().
+						Str("mount", mountID).
+						Str("mount_name", mountName).
+						Dur("stall", time.Since(lastFed)).
+						Msg("webstream stall detected — forcing pipeline restart")
+					stallAction()
+					return
+				}
+			}
+		}
+	}()
+}
+
 // watchWebstreamPipeline monitors a webstream pipeline for crashes and attempts
 // reconnection with exponential backoff using the webstream's ReconnectDelayMS
 // and MaxReconnectAttempts settings.
@@ -1322,6 +1395,16 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 	if doneCh == nil {
 		return
 	}
+
+	// Start stall watchdog for the initial pipeline. If the upstream connects
+	// but stops sending bytes to the broadcast mount, force-stop the pipeline
+	// so the reconnect loop below kicks in.
+	d.startWebstreamStallWatchdog(ctx, entry.MountID, mountName,
+		d.broadcast.GetMount(mountName),
+		doneCh,
+		webstreamStallGrace, webstreamStallTimeout, webstreamStallCheckTick,
+		func() { _ = d.manager.StopPipeline(entry.MountID) },
+	)
 
 	baseDelay := time.Duration(ws.ReconnectDelayMS) * time.Millisecond
 	if baseDelay <= 0 {
@@ -1613,6 +1696,15 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 		if doneCh == nil {
 			return
 		}
+
+		// Start stall watchdog for the reconnected pipeline. Covers both fast-
+		// and slow-retry success paths, which both fall through to this block.
+		d.startWebstreamStallWatchdog(ctx, entry.MountID, mountName,
+			d.broadcast.GetMount(mountName),
+			doneCh,
+			webstreamStallGrace, webstreamStallTimeout, webstreamStallCheckTick,
+			func() { _ = d.manager.StopPipeline(entry.MountID) },
+		)
 	}
 }
 
