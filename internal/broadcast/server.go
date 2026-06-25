@@ -9,6 +9,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package broadcast
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"sync"
@@ -18,6 +19,15 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/rs/zerolog"
 )
+
+// writeTimeout bounds how long a single write or flush to a client may block.
+// A live stream pushes audio continuously, so a healthy client's kernel send
+// buffer drains well within this window; only a stalled or half-open client
+// (laptop slept, NAT dropped the flow) blocks longer. We disconnect those
+// instead of counting them as zombies, which otherwise linger until the kernel
+// TCP retransmit timeout (~15 min). Must stay below the keepalive interval.
+// It is a var, not a const, only so tests can shorten it.
+var writeTimeout = 10 * time.Second
 
 // Mount represents a single audio stream mount point.
 type Mount struct {
@@ -247,24 +257,27 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	m.buffer.mu.RUnlock()
 	m.logger.Debug().Int("buffer_pos", bufPos).Bool("skip_buffer", skipBuffer).Msg("client connecting, buffer state")
 
-	// Try to get the Flusher interface - check for wrapped writers
-	var flusher http.Flusher
-	if f, ok := w.(http.Flusher); ok {
-		flusher = f
-	} else {
-		// Try ResponseController as fallback (Go 1.20+)
-		rc := http.NewResponseController(w)
-		// Create a wrapper that uses ResponseController
-		flusher = &rcFlusher{rc: rc, logger: m.logger}
-	}
+	// ResponseController drives both flushing & per-write deadlines. A write
+	// deadline is what bounds a half-open client's lifetime: without it the
+	// serve goroutine parks inside w.Write on a dead socket until the kernel
+	// gives up (~15 min) & the client stays in the count the whole time.
+	rc := http.NewResponseController(w)
 
-	// Helper to write and flush data
+	// writeAndFlush writes a chunk under a fresh write deadline. Any error
+	// (a closed socket, or a deadline exceeded on a client that stopped
+	// draining) returns so the caller disconnects & the defer drops the client
+	// from the count. A writer that doesn't support deadlines or flushing
+	// (errors.ErrUnsupported) degrades to the prior best-effort behavior.
 	writeAndFlush := func(data []byte) error {
-		_, err := w.Write(data)
-		if err != nil {
+		if err := rc.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil && !errors.Is(err, errors.ErrUnsupported) {
 			return err
 		}
-		flusher.Flush()
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+		if err := rc.Flush(); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+			return err
+		}
 		return nil
 	}
 
@@ -374,10 +387,19 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			keepalive.Reset(30 * time.Second)
 		case <-keepalive.C:
-			// No data for 30 seconds - flush and continue waiting
-			// This keeps the connection alive during gaps between tracks
+			// No data for 30 seconds - flush under a write deadline so a dead
+			// or half-open client is detected during an idle gap between tracks
+			// instead of lingering in the count. A real flush error means the
+			// connection is gone; disconnect.
+			if err := rc.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+				m.logger.Info().Err(err).Int("writes", writeCount).Msg("keepalive deadline failed, disconnecting client")
+				return
+			}
+			if err := rc.Flush(); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+				m.logger.Info().Err(err).Int("writes", writeCount).Msg("keepalive flush failed, disconnecting client")
+				return
+			}
 			m.logger.Debug().Int("writes", writeCount).Msg("keepalive flush")
-			flusher.Flush()
 			keepalive.Reset(30 * time.Second)
 		}
 	}
@@ -424,20 +446,6 @@ func (m *Mount) Close() {
 		c.mu.Unlock()
 	}
 	m.clients = make(map[*client]struct{})
-}
-
-// rcFlusher wraps http.ResponseController to implement http.Flusher
-type rcFlusher struct {
-	rc        *http.ResponseController
-	logger    zerolog.Logger
-	errLogged bool // only log flush errors once per connection
-}
-
-func (f *rcFlusher) Flush() {
-	if err := f.rc.Flush(); err != nil && !f.errLogged {
-		f.logger.Debug().Err(err).Msg("ResponseController flush failed")
-		f.errLogged = true
-	}
 }
 
 func itoa(i int) string {
