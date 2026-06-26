@@ -14,15 +14,14 @@ This checklist tracks `docs/v2/UPGRADE.md` 1-to-1 but compresses it into a singl
 
 These are external; until each ticks, don't start Phase 0b.
 
-- [ ] **Cloudflare R2 account exists**; payment method on file
-- [ ] **R2 bucket #1 created**: `grimnir-media-<region>` in your primary R2 region
-- [ ] **R2 bucket #2 created**: `grimnir-backups-<region>` in a different R2 region (DR)
-- [ ] **R2 bucket #3 created**: `grimnir-hls-<region>` for HLS segment offload (edge-encoder writes here)
-- [ ] **R2 API token created**, scoped to those three buckets, with `Object Read & Write`. Record in password manager:
-  - Account ID
-  - Access Key ID
-  - Secret Access Key
-  - Endpoint URL (`https://<account-id>.r2.cloudflarestorage.com`)
+- [ ] **MinIO VM provisioned** (`192.168.195.24`); MinIO running & the Console reachable
+- [ ] **MinIO bucket #1 created**: `grimnir-media-<region>` (`mc mb local/grimnir-media-<region>`)
+- [ ] **MinIO bucket #2 created**: `grimnir-backups-<region>` for pgbackrest (an offsite cross-site DR copy is deferred until a second MinIO exists)
+- [ ] **MinIO bucket #3 created**: `grimnir-hls-<region>` for HLS segment offload (edge-encoder writes here)
+- [ ] **MinIO access key created** (`mc admin user svcacct add`, or the Console), scoped read-write to those three buckets. Record in password manager:
+  - Access Key
+  - Secret Key
+  - Endpoint URL (`http://192.168.195.24:9000`)
 - [ ] **ntfy VPS provisioned**; small (1 vCPU / 1 GB RAM is plenty); hostname recorded
 - [ ] **ntfy installed** via `apt install ntfy` or the official Docker image
 - [ ] **Caddy or nginx** in front of ntfy doing TLS termination
@@ -33,7 +32,7 @@ These are external; until each ticks, don't start Phase 0b.
 - [ ] **Publisher tokens** for each of the three topics, recorded in password manager
 - [ ] **Receiver tokens** on the operator phone(s) + desktop(s) that should buzz
 - [ ] **Postgres host** provisioned; Postgres 16+; reachable from both VMs on TCP 5432
-- [ ] **pgbackrest installed** on the Postgres host & configured to write to the `grimnir-backups-<region>` R2 bucket
+- [ ] **pgbackrest installed** on the Postgres host & configured to write to the `grimnir-backups-<region>` MinIO bucket
 - [ ] **Redis host** provisioned; reachable from both VMs on TCP 6379
 - [ ] **Two proxmox VMs** provisioned in the same L2 segment:
   - 4 vCPU, 8 GB RAM, 80 GB disk
@@ -62,7 +61,7 @@ nc -zv pg.example.internal 5432
 psql "postgres://grimnir:$GRIMNIR_PW@pg.example.internal:5432/postgres" -tAc "SELECT version();"
 #   expect: PostgreSQL 16.x or later
 
-# pgbackrest can write to R2
+# pgbackrest can write to MinIO
 ssh pg.example.internal sudo -u postgres pgbackrest --stanza=grimnir check
 #   expect: "stanza-create command end: completed successfully"
 
@@ -70,8 +69,8 @@ ssh pg.example.internal sudo -u postgres pgbackrest --stanza=grimnir check
 redis-cli -h redis.example.internal -a "$REDIS_PW" ping
 #   expect: PONG
 
-# R2 bucket reachable (use rclone or aws s3 ls with --endpoint-url)
-aws s3 ls s3://grimnir-media-<region> --endpoint-url=https://<account-id>.r2.cloudflarestorage.com
+# MinIO bucket reachable (use mc, rclone, or aws s3 ls with --endpoint-url)
+aws s3 ls s3://grimnir-media-<region> --endpoint-url=http://192.168.195.24:9000
 #   expect: empty (or whatever's already there)
 ```
 
@@ -212,13 +211,13 @@ Soak for 1 week. Acceptance gates:
 
 ---
 
-## Phase 4 — Media migration to R2
+## Phase 4 — Media migration to MinIO
 
-Follow `docs/runbooks/migrate-media-to-r2.md` end-to-end. Summary:
+Follow `docs/runbooks/migrate-media-to-minio.md` end-to-end. Summary:
 
 ```bash
 # On one of the VMs (the one with the v1 media volume):
-rclone sync /srv/data/grimnir_radio/media-data r2:grimnir-media-prod-us \
+rclone sync /srv/data/grimnir_radio/media-data minio:grimnir-media-prod-us \
   --transfers 16 --checkers 32 --progress
 # Expect ~90 min for 100k files at ~50 GB; longer for bigger libraries.
 
@@ -226,9 +225,9 @@ rclone sync /srv/data/grimnir_radio/media-data r2:grimnir-media-prod-us \
 GRIMNIR_MEDIA_BACKEND=s3
 GRIMNIR_S3_BUCKET=grimnir-media-prod-us
 GRIMNIR_S3_REGION=auto
-GRIMNIR_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
-GRIMNIR_S3_ACCESS_KEY=<R2-KEY>
-GRIMNIR_S3_SECRET_KEY=<R2-SECRET>
+GRIMNIR_S3_ENDPOINT=http://192.168.195.24:9000
+GRIMNIR_S3_ACCESS_KEY=<MINIO-KEY>
+GRIMNIR_S3_SECRET_KEY=<MINIO-SECRET>
 GRIMNIR_S3_PATH_STYLE=true
 
 ./grimnir up -d              # on both VMs
@@ -237,7 +236,7 @@ GRIMNIR_S3_PATH_STYLE=true
 - [ ] rclone sync completes with exit 0
 - [ ] Both VMs restart cleanly with `GRIMNIR_MEDIA_BACKEND=s3`
 - [ ] A known media item plays from each VM (test: pick a track from the library, hit play, verify audio)
-- [ ] R2 bandwidth visible in Cloudflare dashboard (proves cache misses are fetching from R2)
+- [ ] MinIO bandwidth visible in the MinIO Console (proves cache misses are fetching from MinIO)
 
 **Rollback**: flip `GRIMNIR_MEDIA_BACKEND=fs` & restart. Local volume is still authoritative until you delete it; **don't delete until Phase 8 acceptance gates pass**.
 
@@ -397,7 +396,7 @@ ssh <ssh-user>@<v1-prod-host>
 cd /srv/docker/grimnir_radio
 ./grimnir down
 # WAIT ANOTHER WEEK before destroying volumes. Then:
-sudo rm -rf /srv/data/grimnir_radio/{media-data,postgres-data,media-data.pre-r2-backup}
+sudo rm -rf /srv/data/grimnir_radio/{media-data,postgres-data,media-data.pre-minio-backup}
 ```
 
 - [ ] All five gates pass for 1 week

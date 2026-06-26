@@ -6,7 +6,7 @@
 
 **Version:** 2.0.0-rc.10 (v1.40.x still supported)
 
-Grimnir Radio is a broadcast automation system built in Go. v1 ships a control plane + media engine split. v2 adds an HA topology: two proxmox VMs, four binaries per node, VRRP-floated VIPs, shared Postgres + Redis, & Cloudflare R2 for media + backups.
+Grimnir Radio is a broadcast automation system built in Go. v1 ships a control plane + media engine split. v2 adds an HA topology: two proxmox VMs, four binaries per node, VRRP-floated VIPs, shared Postgres + Redis, & self-hosted MinIO on its own VM for media + backups.
 
 ## v2 is in release candidate (rc.10)
 

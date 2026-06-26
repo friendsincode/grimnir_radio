@@ -51,7 +51,7 @@ A region has these elements:
 
 - **Two HA nodes**, each running a complete `grimnir` stack: control plane, media engine, edge encoder, live-input fan-out, keepalived. Stateless or near-stateless per node; persistent state lives in the regional services below.
 - **One regional Postgres cluster**: primary + streaming replica + pgbouncer (3 processes; pgbouncer co-located with each grimnir control plane is fine). For phase 1 these run on the two HA nodes (cross-host replication); for harder uptime guarantees, the DB pair can move to dedicated DB hosts later without app changes.
-- **One regional object store**: MinIO cluster (2+ nodes) or rented S3-compatible (Cloudflare R2 recommended; zero egress fees matter for streaming media downloads). Source of truth for media files. Per-node `media-cache` volume holds hot reads.
+- **One regional object store**: self-hosted MinIO on its own VM (`192.168.195.24`). (Resolved this way in `docs/superpowers/plans/2026-06-05-object-storage-decision.md`; the original lean toward rented Cloudflare R2 was reversed to keep storage on-prem.) Source of truth for media files. Per-node `media-cache` volume holds hot reads.
 - **One listener-facing VIP** held by keepalived, floats between the two HA nodes. This is what `<public-hostname>` DNS resolves to (or the regional CNAME does).
 - **One DJ-facing endpoint** for live inputs (Harbor/WebRTC/RTP/SRT). Same VIP or a separate one; same keepalived setup.
 
@@ -770,11 +770,11 @@ Phase 1 incremental hosts needed:
 | Resource | Need | Estimated cost |
 |---|---|---|
 | Two HA nodes (new) | Hetzner CX32 / OVH equivalent / your VPS preference; 4 vCPU, 8GB, 80GB SSD each | ~$15/mo each = ~$30/mo |
-| Backup destination (cross-region) | Cloudflare R2 bucket | ~$0.015/GB/mo storage, zero egress |
+| Backup destination | MinIO bucket on the storage VM (`192.168.195.24`) | on-prem; no per-GB or egress fee |
 | ntfy.sh host | Tiny VPS (1 vCPU, 1GB) on a different provider than your grimnir hosts | ~$5/mo |
 | Vault (if used in phase 1) | Co-located on one of the HA nodes initially; dedicated VPS later | $0 phase 1 |
 | WireGuard | No infrastructure cost (per-node config) | $0 |
-| Cloudflare R2 for media | Sized to your current `media-data` consumption | ~$0.015/GB/mo storage, free egress |
+| MinIO for media (own VM) | Sized to your current `media-data` consumption | on-prem; no per-GB or egress fee |
 
 Total infrastructure adds: ~$35/mo + storage scaled to media library size. Old stack stays at its existing cost during the build, gets decommissioned after cutover.
 

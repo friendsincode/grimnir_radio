@@ -1,6 +1,6 @@
 # Grimnir Radio v2 upgrade runbook
 
-This is the master operator runbook for migrating a v1.x deployment (single VM, single binary pair, local-disk media) to the v2 HA topology (two proxmox VMs, four binaries per node, VRRP-floated VIPs, shared Postgres + Redis, R2-backed media, ntfy alerting). It walks every phase from "v1 in prod today" to "v2 cutover complete & v1 decommissioned".
+This is the master operator runbook for migrating a v1.x deployment (single VM, single binary pair, local-disk media) to the v2 HA topology (two proxmox VMs, four binaries per node, VRRP-floated VIPs, shared Postgres + Redis, MinIO-backed media, ntfy alerting). It walks every phase from "v1 in prod today" to "v2 cutover complete & v1 decommissioned".
 
 Read it once end-to-end before starting. Every phase has a rollback paragraph; if the verification step at the end of the phase fails, you roll back that phase, not the whole upgrade.
 
@@ -11,8 +11,8 @@ Architecture reference: `docs/v2/ARCHITECTURE.md`. Per-runbook depth: `docs/runb
 - Zero-listener-drop failover when one VM (or one binary on one VM) dies. Edge encoder buffers a sample-aligned mix from both media engines; loss of one is invisible to listeners.
 - DJ failover when the fan-out on the active VM dies. Keepalived floats the DJ VIP; sessions reconnect in under 5s against the surviving fan-out.
 - A single nginx reload on the edge VPS is the cutover; rollback is the same reload pointing back at v1.
-- Shared media in R2 means either VM can serve any file without filesystem sync.
-- Postgres physical replication + pgbackrest WAL archive to R2 means you can rebuild a region from cold in under an hour.
+- Shared media in MinIO means either VM can serve any file without filesystem sync.
+- Postgres physical replication + pgbackrest WAL archive to MinIO means you can rebuild a region from cold in under an hour.
 
 If you don't need any of that, stay on v1. v2 doubles the operator surface area.
 
@@ -22,10 +22,10 @@ If you don't need any of that, stay on v1. v2 doubles the operator surface area.
 
 These are external dependencies. Until each is checked off, don't start Phase 1.
 
-- [ ] **Cloudflare R2 buckets created**, one per region:
+- [ ] **MinIO buckets created** on the storage VM (`192.168.195.24`), one per region:
   - `grimnir-media-<region>` for media objects
   - `grimnir-backups-<region>` for pgbackrest WAL + base backups
-  - API token scoped to both, with `Object Read & Write`. Record the Account ID, Access Key ID, Secret Access Key, and Endpoint URL (looks like `https://<account-id>.r2.cloudflarestorage.com`).
+  - An access key + secret scoped to both, with read/write. Record the Access Key, Secret Key, and the endpoint `http://192.168.195.24:9000`.
 - [ ] **ntfy VPS reachable & topics provisioned**, one set per region:
   - `grimnir-region-<region>-page` (Tier-2 page)
   - `grimnir-audit-<region>` (Tier-1 audit trail)
@@ -57,7 +57,7 @@ nc -zv <redis-host> 6379
 psql "postgres://grimnir:$PG_PASSWORD@<pg-host>:5432/postgres" -tAc "SELECT version();"
 # Expect: PostgreSQL 16.x or later
 
-# Confirm pgbackrest is configured & can write to R2:
+# Confirm pgbackrest is configured & can write to MinIO:
 ssh <pg-host> sudo -u postgres pgbackrest --stanza=grimnir check
 # Expect: "stanza-create command end: completed successfully"
 
@@ -204,18 +204,18 @@ If the soak passes, continue to Phase 4. If it fails, capture logs, file an issu
 
 ---
 
-## Phase 4: media migration to R2
+## Phase 4: media migration to MinIO
 
-Up to this point both VMs have been reading media from local disk (the legacy `/srv/data/grimnir_radio/media-data` volume). HA requires shared media; the cutover is to Cloudflare R2.
+Up to this point both VMs have been reading media from local disk (the legacy `/srv/data/grimnir_radio/media-data` volume). HA requires shared media; the cutover is to self-hosted MinIO on its own VM (`192.168.195.24`).
 
-Follow `docs/runbooks/migrate-media-to-r2.md` end-to-end. The summary:
+Follow `docs/runbooks/migrate-media-to-minio.md` end-to-end. The summary:
 
-1. `rclone sync` the local volume up to the R2 bucket (90 min for ~100k files).
-2. Flip `GRIMNIR_MEDIA_BACKEND=s3` plus the R2 env vars on both VMs.
+1. `rclone sync` the local volume up to the MinIO bucket (90 min for ~100k files).
+2. Flip `GRIMNIR_MEDIA_BACKEND=s3` plus the MinIO (S3) env vars on both VMs.
 3. `./grimnir up -d` to restart with the new backend.
 4. Verify a known media item plays from each VM.
 
-The on-disk path stays as a read-through cache (`GRIMNIR_MEDIA_ROOT` is still required). Cache misses fetch from R2; cache hits stay local.
+The on-disk path stays as a read-through cache (`GRIMNIR_MEDIA_ROOT` is still required). Cache misses fetch from MinIO; cache hits stay local.
 
 **Rollback**: flip `GRIMNIR_MEDIA_BACKEND=fs` & restart. The local volume is still authoritative until you delete it. Don't delete it until Phase 8 completes.
 
@@ -365,7 +365,7 @@ ssh <ssh-user>@<v1-prod-host>
 cd /srv/docker/grimnir_radio
 ./grimnir down
 # Don't delete the volume yet. Wait another week. Then:
-sudo rm -rf /srv/data/grimnir_radio/{media-data,postgres-data,media-data.pre-r2-backup}
+sudo rm -rf /srv/data/grimnir_radio/{media-data,postgres-data,media-data.pre-minio-backup}
 ```
 
 **Rollback at Phase 8 is the same as Phase 7**: nginx reload back to v1's address. Until you delete the v1 volumes, v1 is recoverable.
@@ -380,7 +380,7 @@ sudo rm -rf /srv/data/grimnir_radio/{media-data,postgres-data,media-data.pre-r2-
 | 1 | Installed grimnir-deploy | Delete the binary & config |
 | 2 | Stood up observability | `systemctl stop prometheus alertmanager grafana-server` |
 | 3 | A3 deploy alongside v1 | `./grimnir down` on both VMs |
-| 4 | Flipped media to R2 | `GRIMNIR_MEDIA_BACKEND=fs` & restart |
+| 4 | Flipped media to MinIO | `GRIMNIR_MEDIA_BACKEND=fs` & restart |
 | 5 | Enabled keepalived + fan-out HA | Stop keepalived; disable PCM-RTP env |
 | 6 | Staging cutover dry-run | Remove staging vhost; reload nginx |
 | 7 | Production cutover | Nginx upstream back to v1; reload |

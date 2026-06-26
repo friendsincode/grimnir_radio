@@ -79,9 +79,9 @@ No env var the code reads is undocumented across the whole doc set. Pass with no
 
 ## 5. Runbook completeness
 
-`docs/runbooks/index.md` links 13 long-form runbooks; every link resolves to a file that exists (`backup-drill.md`, `cold-start-region.md`, `deploy.md`, `drain.md`, `drain-a-node.md`, `emergency-pause.md`, `fanout-down.md`, `keepalived-install.md`, `migrate-media-to-r2.md`, `promote-replica.md`, `recover-partition.md`, `restore-from-backup.md`, `verify.md`). Plus `secrets/rotation.md` under the subdirectory.
+`docs/runbooks/index.md` links 13 long-form runbooks; every link resolves to a file that exists (`backup-drill.md`, `cold-start-region.md`, `deploy.md`, `drain.md`, `drain-a-node.md`, `emergency-pause.md`, `fanout-down.md`, `keepalived-install.md`, `migrate-media-to-minio.md`, `promote-replica.md`, `recover-partition.md`, `restore-from-backup.md`, `verify.md`). Plus `secrets/rotation.md` under the subdirectory.
 
-`docs/v2/UPGRADE.md` links 3 runbooks (`docs/runbooks/index.md`, `docs/runbooks/keepalived-install.md`, `docs/runbooks/migrate-media-to-r2.md`); all exist.
+`docs/v2/UPGRADE.md` links 3 runbooks (`docs/runbooks/index.md`, `docs/runbooks/keepalived-install.md`, `docs/runbooks/migrate-media-to-minio.md`); all exist.
 
 Per-binary failure-mode coverage: every v2 binary has a runbook for its common failure modes (`fanout-down.md` for fan-out, `promote-replica.md` for Postgres, `restore-from-backup.md` for media, `drain.md` for control-plane drains, `verify.md` for the omnibus health check, `recover-partition.md` for VRRP split-brain).
 
@@ -126,7 +126,7 @@ The pre-existing `.env.example` & `.env.docker.example` are both v1-era: they do
 - `GRIMNIR_HA_PCM_RTP_*` / `GRIMNIR_NETCLOCK_*`
 - `GRIMNIR_NTFY_*` / `GRIMNIR_ALERTBRIDGE_ADDR`
 - `GRIMNIR_DEPLOY_*` (any of the 13 deploy-tool vars)
-- R2 / S3 envs
+- MinIO / S3 envs
 
 The user's interim `/tmp/ha-secrets.env` (`REPL_PW`, `GRIMNIR_PW`, `PGBOUNCER_PW`, `REDIS_PW`) maps cleanly: `REDIS_PW` is read by the deploy tool as a third fallback after `GRIMNIR_DEPLOY_REDIS_PASSWORD` & `GRIMNIR_REDIS_PASSWORD` (`internal/grimnirdeploy/config.go:60`). `REPL_PW`, `GRIMNIR_PW`, `PGBOUNCER_PW` aren't directly read by Go code; they're substrate-layer credentials Postgres & pgbouncer consume out-of-band per `docs/superpowers/plans/2026-06-06-v2-execution-roadmap.md:123-126`.
 

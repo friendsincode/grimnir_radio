@@ -1,16 +1,14 @@
 # Object Storage Decision + Rollout Plan (Track A step 2)
 
-> **Status:** Operational decision document. Code-side prerequisites are already in `internal/media/storage_s3.go` and configurable via env vars; this doc captures the choice + the rollout steps.
+> **Status:** Superseded. This doc originally recommended Cloudflare R2; the project went the other way & runs **self-hosted MinIO on its own VM (`192.168.195.24:9000`)**, with the cloud/R2 option deferred until listener egress saturates the site uplink (see `docs/v2/prod-cutover-plan.md`). The R2-vs-MinIO analysis below is kept as the original reasoning. The actual rollout is `docs/runbooks/migrate-media-to-minio.md`. MinIO is S3-compatible, so the `internal/media/storage_s3.go` env vars are unchanged.
 
 **Goal:** Pick an S3-compatible object store for the HA media path, provision it, configure both grimnir control planes + edge encoders + (future) fan-out instances to use it.
 
 **Driver:** Section 4 of `docs/superpowers/plans/2026-06-01-ha-zero-loss-failover-design.md` ("Object storage") — when two grimnir nodes serve listeners in parallel, they need the same media library accessible from both. Current single-instance prod uses local filesystem (`media-data` Docker volume); HA requires shared storage.
 
-## Decision: Cloudflare R2
+## Decision: self-hosted MinIO (original recommendation: Cloudflare R2, since reversed)
 
-**Recommendation: Cloudflare R2.**
-
-R2 vs MinIO trade-off table:
+**Final decision: self-hosted MinIO on its own VM (`192.168.195.24`).** The original recommendation below was Cloudflare R2; it was reversed in favor of keeping storage on-prem: no cloud dependency, no per-GB egress, and hardware already on hand. The R2-vs-MinIO trade-off that informed the original call:
 
 | Criterion | Cloudflare R2 | Self-hosted MinIO |
 |---|---|---|
@@ -32,7 +30,7 @@ R2 vs MinIO trade-off table:
 - If listener egress volume + R2 storage costs exceed what a self-hosted MinIO cluster would cost in hardware amortized over 3 years. Per the Section 4 traffic estimate (25 daily listeners pulling 128kbps for ~2 hours each = ~280MB/day = ~8GB/month per listener = ~200GB/month total) and R2 at $0.015/GB storage with free egress, hosting the entire HA media library on R2 costs **$3/month** in storage with zero egress charges. MinIO can't beat that without already-paid hardware.
 - If the project becomes hostile to vendor relationships. Switching is mechanical; same S3 API.
 
-Decision locked: **R2 for phase 1.** Re-evaluate if monthly storage exceeds 1TB ($15/month) or operational independence becomes a hard requirement.
+Original decision (since reversed): R2 for phase 1. **Actual decision: self-hosted MinIO on its own VM**, chosen for operational independence & on-prem control; the cloud/R2 option is deferred until listener egress saturates the site uplink.
 
 ## Code state (no work needed)
 
@@ -53,6 +51,8 @@ Same env-var pattern is reused by the edge encoder for its HLS bucket (`EDGE_ENC
 The `internal/media` local-disk read-through cache (`/var/lib/mediaengine/cache`) is already wired; no changes needed.
 
 ## Rollout steps
+
+> These are the original R2-era steps, kept for history. The actual MinIO rollout is `docs/runbooks/migrate-media-to-minio.md`.
 
 ### Step 1: Provision R2 (Cloudflare dashboard or API)
 

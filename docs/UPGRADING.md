@@ -5,7 +5,7 @@ This is the entry point for moving a v1 deployment to 2.0.0. Read [`docs/v2/BREA
 There are two paths, & most people want the first one.
 
 - **Single-node**: you run one box, you don't need failover, & you want the 2.0 features without the HA topology. Pull the new images, restart, done. Covered in full below.
-- **High availability**: you want zero-listener-drop failover across two nodes with VRRP VIPs, shared Postgres + Redis, & R2-backed media. That's a multi-day project with its own runbook: [`docs/v2/UPGRADE.md`](v2/UPGRADE.md). The overview is at the bottom of this page.
+- **High availability**: you want zero-listener-drop failover across two nodes with VRRP VIPs, shared Postgres + Redis, & MinIO-backed media. That's a multi-day project with its own runbook: [`docs/v2/UPGRADE.md`](v2/UPGRADE.md). The overview is at the bottom of this page.
 
 The last v1 release was `v1.40.9`. Everything below assumes you're on the v1.40.x line.
 
@@ -21,7 +21,7 @@ Take the backup before you touch anything. From the deploy directory (`/srv/dock
 # Database dump:
 docker exec grimnir-postgres pg_dump -U grimnir grimnir > grimnir-pre-2.0-$(date +%F).sql
 
-# Media volume: skip this if you already store media in R2/S3.
+# Media volume: skip this if you already store media in MinIO/S3.
 # Otherwise copy the host path that backs the media-data volume, e.g.:
 sudo cp -a /srv/data/grimnir_radio/media-data /srv/data/grimnir_radio/media-data.pre-2.0
 ```
@@ -81,24 +81,24 @@ Keep the pre-2.0 database dump & the `media-data.pre-2.0` copy until 2.0 has run
 The single-node 2.0 stack gives you the parts of v2 that don't need a second node:
 
 - The custom JS player on `/listen` & the `/embed/player?station=<id>` widget, with automatic HQ-to-LQ fallback & recovery.
-- The S3/R2 media backend (`GRIMNIR_MEDIA_BACKEND=s3`), if you'd rather serve media from object storage than local disk.
+- The S3 media backend (`GRIMNIR_MEDIA_BACKEND=s3`), if you'd rather serve media from object storage (self-hosted MinIO) than local disk.
 - The two public player endpoints (`/api/v1/stations/<id>/streams` & `/api/v1/listener-events`).
 
 The edge encoder, fan-out, VRRP failover, & `grimnir-deploy` are HA features. They sit idle until you wire them, so they cost you nothing on a single node.
 
 ## High-availability upgrade
 
-The HA path turns one box into two nodes that survive each other's failure. It adds the edge encoder & fan-out binaries, keepalived VIPs, an external Postgres 16 + Redis, R2 for media & backups, ntfy alerting, & a Prometheus/Alertmanager/Grafana stack. The cutover itself is one nginx `upstream` rewrite.
+The HA path turns one box into two nodes that survive each other's failure. It adds the edge encoder & fan-out binaries, keepalived VIPs, an external Postgres 16 + Redis, self-hosted MinIO on its own VM for media & backups, ntfy alerting, & a Prometheus/Alertmanager/Grafana stack. The HA cutover & failover are handled at the external entry point (the edge VPS, `192.168.195.1`): a single nginx `upstream` rewrite there points listeners at v2 or back at v1.
 
 Don't improvise it. [`docs/v2/UPGRADE.md`](v2/UPGRADE.md) is the phase-by-phase runbook, & each phase has its own rollback paragraph. The shape:
 
 | Phase | What happens |
 |---|---|
-| 0 | Provision R2, ntfy, the edge VPS, two nodes, external Postgres 16 + Redis; verify the substrate |
+| 0 | Provision MinIO, ntfy, the edge VPS, two nodes, external Postgres 16 + Redis; verify the substrate |
 | 1 | Build & configure `grimnir-deploy` on the operator workstation |
 | 2 | Stand up Prometheus, Alertmanager, Grafana, & the ntfy bridge |
 | 3 | Deploy the v2 stack on both nodes alongside v1; soak 1 week |
-| 4 | Migrate media to R2 (`GRIMNIR_MEDIA_BACKEND=s3`) |
+| 4 | Migrate media to MinIO (`GRIMNIR_MEDIA_BACKEND=s3`) |
 | 5 | Enable keepalived VIPs & the fan-out HA wiring |
 | 6 | Rehearse the nginx cutover against a staging hostname |
 | 7 | Cut over: one `upstream` rewrite + `nginx -s reload` |
