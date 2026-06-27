@@ -1497,17 +1497,17 @@ Append to `provision.sh`:
 ```bash
 # 7. Daily backup of user.db to a remote
 cat >/etc/cron.d/ntfy-backup <<'EOF'
-0 4 * * * root rclone copy /var/cache/ntfy/user.db r2:grimnir-ntfy-backups/ --quiet
+0 4 * * * root rclone copy /var/cache/ntfy/user.db minio:grimnir-ntfy-backups/ --quiet
 EOF
 chmod 0644 /etc/cron.d/ntfy-backup
 ```
 
-(Assumes `rclone` is installed and configured with R2 credentials on the ntfy VPS. If not, add an install step.)
+(Assumes `rclone` is installed and configured with MinIO credentials on the ntfy VPS. If not, add an install step.)
 
 - [ ] **Step 2: Test the backup**
 
 ```bash
-ssh root@ntfy.grimnir.example "rclone copy /var/cache/ntfy/user.db r2:grimnir-ntfy-backups/ -v"
+ssh root@ntfy.grimnir.example "rclone copy /var/cache/ntfy/user.db minio:grimnir-ntfy-backups/ -v"
 ```
 
 Expected: file uploaded.
@@ -1516,7 +1516,7 @@ Expected: file uploaded.
 
 ```bash
 git add ops/ntfy/provision.sh
-git commit -m "ops(ntfy): add daily user.db backup to R2"
+git commit -m "ops(ntfy): add daily user.db backup to MinIO"
 ```
 
 ---
@@ -3321,7 +3321,7 @@ git commit -m "feat(secrets): Vault KV v2 backend with AppRole auth"
 - Create: `docs/runbooks/rotate-jwt-signing-key.md`
 
 **Context:**
-Per Section 8.3: "Rotation is a documented procedure per secret in docs/runbooks/rotate-<secret>.md." This task ships three. The remaining secrets (MinIO/R2, VRRP password, NetClock secret, pgbouncer creds, Redis password, pgbackrest creds) get their own runbooks as those subsystems land; this plan establishes the template.
+Per Section 8.3: "Rotation is a documented procedure per secret in docs/runbooks/rotate-<secret>.md." This task ships three. The remaining secrets (MinIO, VRRP password, NetClock secret, pgbouncer creds, Redis password, pgbackrest creds) get their own runbooks as those subsystems land; this plan establishes the template.
 
 Template each runbook follows: When to rotate; Pre-flight checks; Rotation steps; Verification; Roll-back-if-it-broke; Audit log entry expected.
 

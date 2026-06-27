@@ -13,7 +13,7 @@ First stable release of the high-availability architecture. 2.0.0 keeps both v1 
 - **Zero-loss failover.** The edge encoder buffers a sample-aligned mix from both media engines; losing one is inaudible. Keepalived floats listener + DJ VIPs & sessions reconnect in under 5s.
 - **Two new binaries.** `edge-encoder` (RTP-L16 ingest, HTTP/ICY + HLS out) & `grimnir-fanout` (one DJ in over Harbor/RTP/SRT/WebRTC, PCM-over-RTP out to every engine). Both use go-gst CGo bindings.
 - **`grimnir-deploy` CLI.** One entry point for every mutating cluster operation, with `--dry-run` & an `audit_log` row per action.
-- **S3/R2 media backend.** `GRIMNIR_MEDIA_BACKEND=s3` serves media from Cloudflare R2, AWS S3, or MinIO. Local disk stays as a read-through cache.
+- **S3 media backend.** `GRIMNIR_MEDIA_BACKEND=s3` serves media from any S3-compatible store; the HA deployment uses self-hosted MinIO on its own VM. Local disk stays as a read-through cache.
 - **Custom JS player.** Vanilla ES module, no build step, automatic HQ-to-LQ fallback & recovery on the public `/listen` page & the embed widget.
 - **HA observability.** Prometheus metrics per binary, a split-brain VRRP detector, replication-lag probe, & three-tier ntfy alerting with auto-rollback.
 

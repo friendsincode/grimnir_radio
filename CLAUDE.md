@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Grimnir Radio is a broadcast automation system built in Go 1.24. v2 is a **four-binary HA architecture** running on two proxmox VMs with VRRP-floated VIPs in front, shared Postgres + Redis behind, & Cloudflare R2 for media + backups. v1's two-binary topology is still supported & v2 is opt-in.
+Grimnir Radio is a broadcast automation system built in Go 1.24. v2 is a **four-binary HA architecture** running on two proxmox VMs with VRRP-floated VIPs in front, shared Postgres + Redis behind, & self-hosted MinIO on its own VM for media + backups. v1's two-binary topology is still supported & v2 is opt-in.
 
 **Start here for v2 operators**: [`docs/v2/UPGRADE.md`](docs/v2/UPGRADE.md). Architecture overview: [`docs/v2/ARCHITECTURE.md`](docs/v2/ARCHITECTURE.md). Release notes: [`docs/v2/RELEASE_NOTES.md`](docs/v2/RELEASE_NOTES.md).
 
@@ -170,12 +170,12 @@ Legend in the tables below: **Binary** = which binary reads it (CP = control pla
 | `GRIMNIR_MEDIA_ROOT` (alias `RLM_MEDIA_ROOT`) | `./media` | yes | Filesystem media path. Still required when backend=`s3` (read-through cache). |
 | `GRIMNIR_MEDIA_BACKEND` | `fs` | opt | `fs` (default) or `s3`. `s3` requires `GRIMNIR_S3_BUCKET`. |
 | `GRIMNIR_S3_BUCKET` (alias `S3_BUCKET`) | empty | yes (s3) | Bucket name. |
-| `GRIMNIR_S3_ENDPOINT` (alias `S3_ENDPOINT`) | empty | opt | Endpoint URL; e.g., `https://<account-id>.r2.cloudflarestorage.com` for R2. Empty defaults to AWS S3. |
+| `GRIMNIR_S3_ENDPOINT` (alias `S3_ENDPOINT`) | empty | opt | Endpoint URL; e.g., `http://192.168.195.24:9000` for the self-hosted MinIO VM. Empty defaults to AWS S3. |
 | `GRIMNIR_S3_REGION` (alias `AWS_REGION`) | `auto` | opt | Set to `us-east-1` etc. for AWS S3. |
 | `GRIMNIR_S3_ACCESS_KEY` (aliases `GRIMNIR_S3_ACCESS_KEY_ID`, `AWS_ACCESS_KEY_ID`) | empty | yes (s3) | Access key. |
 | `GRIMNIR_S3_SECRET_KEY` (aliases `GRIMNIR_S3_SECRET_ACCESS_KEY`, `AWS_SECRET_ACCESS_KEY`) | empty | yes (s3) | Secret key. |
-| `GRIMNIR_S3_PATH_STYLE` (alias `S3_USE_PATH_STYLE`) | `true` | opt | `true` for R2 & MinIO; `false` for AWS virtual-host. |
-| `GRIMNIR_S3_PUBLIC_BASE_URL` (alias `S3_PUBLIC_BASE_URL`) | empty | opt | CDN base URL (e.g., a Cloudflare custom hostname in front of R2). |
+| `GRIMNIR_S3_PATH_STYLE` (alias `S3_USE_PATH_STYLE`) | `true` | opt | `true` for MinIO; `false` for AWS virtual-host. |
+| `GRIMNIR_S3_PUBLIC_BASE_URL` (alias `S3_PUBLIC_BASE_URL`) | empty | opt | Public base URL in front of the object store (e.g., a reverse proxy in front of MinIO). |
 | `GRIMNIR_MEDIA_ENGINE_GRPC_ADDR` (alias `MEDIA_ENGINE_GRPC_ADDR`) | `mediaengine:9091` | yes | Loopback in v2; each VM runs its own engine. |
 | `GRIMNIR_SCHEDULER_LOOKAHEAD_MINUTES` (alias `RLM_*`) | `168` (h, not min) | opt | Lookahead horizon for schedule materialization. |
 | `GRIMNIR_METRICS_BIND` (alias `RLM_*`) | `127.0.0.1:9000` | opt | Prometheus metrics bind. |

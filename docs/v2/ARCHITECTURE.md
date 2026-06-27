@@ -66,9 +66,9 @@ Single-page reference for the v2 HA topology. Depth: `docs/superpowers/plans/202
 
    Off-cluster substrate:
    +--------------------------+   +--------------------------+   +--------------------------+
-   | Postgres 16+             |   | Redis                    |   | Cloudflare R2            |
+   | Postgres 16+             |   | Redis                    |   | MinIO, own VM            |
    | physical replication +   |   | leader election +        |   | media bucket             |
-   | pgbackrest WAL to R2     |   | event bus + VRRP state   |   | backups bucket (pgbackrest)|
+   | pgbackrest WAL to MinIO  |   | event bus + VRRP state   |   | backups bucket (pgbackrest)|
    +--------------------------+   +--------------------------+   +--------------------------+
 
    Observability:
@@ -104,13 +104,13 @@ The control plane's `internal/vrrphealth/` poller reads VRRP state from Redis & 
 
 Three things have to live outside the HA nodes & be reachable from both:
 
-- **Postgres 16+**. Authoritative for every scheduling, media-metadata, audit, deploy-history, and live-DJ row. Physical replication + pgbackrest WAL archive to R2 means cold-rebuild of a region in under an hour (`docs/runbooks/restore-from-backup.md`, `docs/runbooks/cold-start-region.md`).
+- **Postgres 16+**. Authoritative for every scheduling, media-metadata, audit, deploy-history, and live-DJ row. Physical replication + pgbackrest WAL archive to MinIO means cold-rebuild of a region in under an hour (`docs/runbooks/restore-from-backup.md`, `docs/runbooks/cold-start-region.md`).
 - **Redis**. Three jobs: leader election (control-plane executors), event bus (cross-instance fan-out + revocation + VRRP state), and the emergency-pause / deploy-policy keys that `grimnir-deploy` respects.
-- **Cloudflare R2**. Two buckets per region; one for media objects (`GRIMNIR_MEDIA_BACKEND=s3`), one for pgbackrest backups. R2 charges $0 egress so listener traffic doesn't run up a bill.
+- **MinIO**. Self-hosted S3-compatible object storage on a dedicated VM (`192.168.195.24:9000`). Two buckets per region; one for media objects (`GRIMNIR_MEDIA_BACKEND=s3`), one for pgbackrest backups. It runs on the LAN, so media & backup traffic stays internal with no per-GB egress bill.
 
-### The edge VPS
+### The edge VPS (external entry point, `192.168.195.1`)
 
-One small VPS in front, running nginx as the TLS terminator. It reverse-proxies `<public-hostname>` to the listener VIP. The cutover from v1 to v2 is a single change to the `upstream` block & one `nginx -s reload`; rollback is the same edit in reverse.
+One small VPS in front, running nginx as the TLS terminator. It reverse-proxies `<public-hostname>` to the listener VIP. This external entry point is where the HA cutover & failover are realized: the v1-to-v2 cutover is a single change to the `upstream` block & one `nginx -s reload`, and rollback is the same edit in reverse. All listener traffic enters through `192.168.195.1`, so it is the single switch that points the public at v2 or back at v1.
 
 ### Observability
 
@@ -133,7 +133,7 @@ The control plane API surface is unchanged. The media engine's gRPC API is a sup
 - Four binaries per node, not two
 - Two VIPs in front, not direct DNS to a single VM
 - Shared Postgres + Redis required, not embedded sqlite + local Redis
-- Media in R2, not on local disk (local disk becomes a read-through cache)
+- Media in MinIO, not on local disk (local disk becomes a read-through cache)
 - Every mutating op via `grimnir-deploy`, not direct `docker compose`
 - ntfy alerting wired by default
 - Sample-aligned cross-node PCM mixing via NetClock + multiudpsink

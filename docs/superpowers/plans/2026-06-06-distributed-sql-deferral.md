@@ -74,4 +74,4 @@ If anyone later disagrees with this decision: re-open the issue, point at which 
 ## Related
 
 - `docs/superpowers/plans/2026-06-01-ha-zero-loss-failover-design.md` Section 4 — Postgres HA strategy (the path we're on)
-- `docs/superpowers/plans/2026-06-05-object-storage-decision.md` — sibling deferral on the storage side (chose R2 over MinIO based on similar reasoning)
+- `docs/superpowers/plans/2026-06-05-object-storage-decision.md` — sibling decision on the storage side (resolved to self-hosted MinIO on its own VM; the cloud/R2 option was deferred)

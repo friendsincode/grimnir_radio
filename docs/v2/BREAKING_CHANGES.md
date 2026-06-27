@@ -69,7 +69,7 @@ These are HA-only. Single-node needs none of them.
 |---|---|---|
 | Postgres | 16+, reachable on 5432 from both nodes | shared state + physical replication |
 | Redis | reachable on 6379 from both nodes | leader election, event bus, NetClock lease, fan-out session replication |
-| Cloudflare R2 (or S3/MinIO) | two buckets per region | shared media + pgbackrest backups |
+| MinIO (self-hosted, S3-compatible) on its own VM | two buckets per region | shared media + pgbackrest backups |
 | ntfy host | three topics per region | Tier-1/2/3 alerting |
 | Edge VPS | nginx terminating TLS | the cutover is one `upstream` rewrite + reload |
 | Two nodes | 4 vCPU, 8 GB RAM, 80 GB disk, Ubuntu 24.04 | the HA binary set per node |

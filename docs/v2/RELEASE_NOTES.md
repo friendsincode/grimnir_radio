@@ -28,7 +28,7 @@ The reason the topology grew from one box to two: a single node can die without 
 - The edge encoder buffers a sample-aligned mix from both media engines. Lose one engine & the switch to the other is inaudible.
 - Keepalived floats two VRRP VIPs (listener + DJ). When the active node drops, DJ sessions reconnect against the surviving fan-out in under 5s.
 - The production cutover is one nginx `upstream` rewrite & one reload. Rollback is the same reload pointing back at v1.
-- Postgres physical replication plus a pgbackrest WAL archive to R2 rebuilds a region from cold in under an hour.
+- Postgres physical replication plus a pgbackrest WAL archive to MinIO rebuilds a region from cold in under an hour.
 
 ## New API endpoints
 
@@ -72,7 +72,7 @@ Alerts route through `internal/alertbridge/` (the `cmd/alertmanager-ntfy` sideca
 
 ## Object-storage media backend
 
-`internal/media/` ships an S3 backend alongside the filesystem backend, selected with `GRIMNIR_MEDIA_BACKEND=s3`. The defaults are R2-friendly (`region=auto`, `path_style=true`). The same backend serves AWS S3 & MinIO. Migration steps are in `docs/runbooks/migrate-media-to-r2.md`; the rationale is in `docs/OBJECT_STORAGE_EXPERIMENTAL.md`. The on-disk path stays as a read-through cache, so `GRIMNIR_MEDIA_ROOT` is still required even with the S3 backend.
+`internal/media/` ships an S3 backend alongside the filesystem backend, selected with `GRIMNIR_MEDIA_BACKEND=s3`. The defaults suit MinIO (`region=auto`, `path_style=true`). The same backend also works against AWS S3. Migration steps are in `docs/runbooks/migrate-media-to-minio.md`; the rationale is in `docs/OBJECT_STORAGE_EXPERIMENTAL.md`. The on-disk path stays as a read-through cache, so `GRIMNIR_MEDIA_ROOT` is still required even with the S3 backend.
 
 ## Custom JS player
 
