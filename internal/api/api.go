@@ -78,7 +78,29 @@ type API struct {
 	// /api/v1/listener-events (10 req/min/IP). Process-local; see
 	// internal/api/listener_events.go.
 	listenerEventLimiter *listenerEventRateLimiter
+	// listenerStats, when set, supplies the per-channel/per-transport listener
+	// breakdown (ICY + WebRTC) that /public/listeners reports. Injected by the
+	// server via SetListenerStatsProvider to avoid an import cycle. Nil falls
+	// back to the ICY-only broadcast counts.
+	listenerStats ListenerStatsFunc
 }
+
+// ListenerStat is one live listener count for a (station, channel, transport)
+// tuple. channel is the stream variant (ICY mount name, "<name>-lq", or
+// "<base>-webrtc"); each channel maps to one transport.
+type ListenerStat struct {
+	StationID string
+	Channel   string
+	Transport string
+	Count     int
+}
+
+// ListenerStatsFunc returns the current listener breakdown across all transports.
+type ListenerStatsFunc func(ctx context.Context) ([]ListenerStat, error)
+
+// SetListenerStatsProvider wires the listener breakdown source. The server calls
+// this after New() with a closure over the director + WebRTC manager.
+func (a *API) SetListenerStatsProvider(fn ListenerStatsFunc) { a.listenerStats = fn }
 
 // New creates the API router wrapper.
 func New(db *gorm.DB, jwtSecret []byte, scheduler *scheduler.Service, analyzer *analyzer.Service, media *media.Service, live *live.Service, webstreamSvc *webstream.Service, playout *playout.Manager, prioritySvc *priority.Service, executorStateMgr *executor.StateManager, auditSvc *audit.Service, integritySvc *integrity.Service, broadcastSrv *broadcast.Server, bus *events.Bus, logBuf *logbuffer.Buffer, maxUploadBytes int64, logger zerolog.Logger) *API {
@@ -1512,10 +1534,40 @@ func (a *API) handleAnalyticsListeners(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats := a.broadcast.GetListenerStats()
-	total := a.broadcast.TotalListeners()
 
+	// Preferred path: the full breakdown across every transport (ICY + WebRTC).
+	if a.listenerStats != nil {
+		if bd, err := a.listenerStats(r.Context()); err == nil {
+			platformTotal := 0
+			byTransport := map[string]int{}
+			channels := make([]map[string]any, 0, len(bd))
+			for _, s := range bd {
+				if s.Count <= 0 {
+					continue
+				}
+				platformTotal += s.Count
+				byTransport[s.Transport] += s.Count
+				channels = append(channels, map[string]any{
+					"channel":    s.Channel,
+					"station_id": s.StationID,
+					"transport":  s.Transport,
+					"total":      s.Count,
+				})
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"platform_total": platformTotal,
+				"by_transport":   byTransport,
+				"channels":       channels,
+				"total":          platformTotal, // back-compat alias = platform_total
+				"mounts":         stats,         // back-compat: ICY per-mount
+			})
+			return
+		}
+	}
+
+	// Fallback: ICY-only counts from the broadcast server.
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total":  total,
+		"total":  a.broadcast.TotalListeners(),
 		"mounts": stats,
 	})
 }

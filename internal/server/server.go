@@ -431,6 +431,22 @@ func (s *Server) initDependencies() error {
 	}
 	s.api = api.New(s.db, []byte(s.cfg.JWTSigningKey), s.scheduler, s.analyzer, mediaService, liveService, webstreamService, s.playout, priorityService, executorStateMgr, s.auditSvc, integritySvc, broadcastSrv, s.bus, s.logBuffer, apiMaxUploadBytes, s.logger)
 
+	// Wire the listener breakdown (ICY + WebRTC) into /public/listeners so the
+	// API reports per-channel/per-transport counts & a real platform total.
+	if s.director != nil {
+		s.api.SetListenerStatsProvider(func(ctx context.Context) ([]api.ListenerStat, error) {
+			ds, err := s.director.ListenerBreakdown(ctx, s.webrtcPeerCounts())
+			if err != nil {
+				return nil, err
+			}
+			out := make([]api.ListenerStat, len(ds))
+			for i, d := range ds {
+				out[i] = api.ListenerStat{StationID: d.StationID, Channel: d.Channel, Transport: d.Transport, Count: d.Count}
+			}
+			return out, nil
+		})
+	}
+
 	// Set notification API
 	notificationAPI := api.NewNotificationAPI(s.notificationSvc)
 	s.api.SetNotificationAPI(notificationAPI)
@@ -664,17 +680,24 @@ func (s *Server) startBackgroundWorkers() {
 					db.UpdateConnectionMetrics(s.db)
 					telemetry.UpdateStationMetrics(s.db)
 
-					// Update listener count metrics per station
+					// Update listener metrics: the per-channel/per-transport base
+					// series (grimnir_listeners) plus the back-compat per-station
+					// gauge (grimnir_listeners_current), both incl. WebRTC.
 					if s.director != nil {
-						var stations []struct{ ID string }
-						if err := s.db.Table("stations").Select("id").Scan(&stations).Error; err == nil {
-							counts := make(map[string]int, len(stations))
-							for _, st := range stations {
-								if c, err := s.director.ListenerCount(ctx, st.ID); err == nil {
-									counts[st.ID] = c
+						if ds, err := s.director.ListenerBreakdown(ctx, s.webrtcPeerCounts()); err == nil {
+							samples := make([]telemetry.ListenerBreakdownSample, len(ds))
+							perStation := make(map[string]int, len(ds))
+							for i, d := range ds {
+								samples[i] = telemetry.ListenerBreakdownSample{
+									StationID: d.StationID,
+									Channel:   d.Channel,
+									Transport: d.Transport,
+									Count:     d.Count,
 								}
+								perStation[d.StationID] += d.Count
 							}
-							telemetry.UpdateListenerMetrics(counts)
+							telemetry.UpdateListenerBreakdown(samples)
+							telemetry.UpdateListenerMetrics(perStation)
 						}
 					}
 				}

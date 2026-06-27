@@ -4736,3 +4736,62 @@ func (d *Director) ListenerCount(ctx context.Context, stationID string) (int, er
 
 	return total, nil
 }
+
+// ListenerStat is a live listener count for one (station, channel, transport).
+// channel is the stream variant: the ICY mount name for HQ (e.g. "dork-table"),
+// "<name>-lq" for LQ, and "<base>-webrtc" for the WebRTC stream. Each channel is
+// served by exactly one transport, so channel & transport are 1:1.
+type ListenerStat struct {
+	StationID string
+	Channel   string
+	Transport string
+	Count     int
+}
+
+// Transport values for ListenerStat.
+const (
+	TransportICYHTTP = "icy_http"
+	TransportWebRTC  = "webrtc"
+)
+
+// ListenerBreakdown returns current live listeners across every station, broken
+// out by channel & transport. ICY/HTTP counts come from the broadcast mounts (HQ
+// = the mount name, LQ = "<name>-lq"); WebRTC counts come from webrtcPeers keyed
+// by station ID, attached to a "<base>-webrtc" channel. Callers sum it for
+// per-channel, per-station, per-transport, or platform totals; they reconcile
+// because they all derive from this one slice. Zero-count channels are included;
+// filter on Count if undesired.
+func (d *Director) ListenerBreakdown(ctx context.Context, webrtcPeers map[string]int) ([]ListenerStat, error) {
+	if d.broadcast == nil {
+		return nil, nil
+	}
+
+	var mounts []models.Mount
+	if err := d.db.WithContext(ctx).Find(&mounts).Error; err != nil {
+		return nil, fmt.Errorf("failed to load mounts: %w", err)
+	}
+
+	stats := make([]ListenerStat, 0, len(mounts)*2+len(webrtcPeers))
+	baseByStation := make(map[string]string, len(mounts))
+	for _, mount := range mounts {
+		if _, ok := baseByStation[mount.StationID]; !ok {
+			baseByStation[mount.StationID] = mount.Name
+		}
+		if m := d.broadcast.GetMount(mount.Name); m != nil {
+			stats = append(stats, ListenerStat{mount.StationID, mount.Name, TransportICYHTTP, m.ClientCount()})
+		}
+		if lq := d.broadcast.GetMount(mount.Name + "-lq"); lq != nil {
+			stats = append(stats, ListenerStat{mount.StationID, mount.Name + "-lq", TransportICYHTTP, lq.ClientCount()})
+		}
+	}
+
+	for stationID, n := range webrtcPeers {
+		base := baseByStation[stationID]
+		if base == "" {
+			base = stationID
+		}
+		stats = append(stats, ListenerStat{stationID, base + "-webrtc", TransportWebRTC, n})
+	}
+
+	return stats, nil
+}

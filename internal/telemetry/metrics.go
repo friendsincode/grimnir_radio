@@ -356,9 +356,25 @@ var (
 	ListenersCurrentTotal = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "grimnir_listeners_current",
-			Help: "Current number of listeners per station",
+			Help: "Current number of listeners per station (all transports summed; kept for back-compat)",
 		},
 		[]string{"station_id"},
+	)
+
+	// ListenersByChannel is the base series for listener accounting: live count
+	// per station, per channel (station+quality variant), per transport. Derive
+	// per-channel, per-station, per-transport, or platform totals with PromQL
+	// sum(): they always reconcile because they come from this one series.
+	//   sum by (channel)    (grimnir_listeners)  -> per channel
+	//   sum by (station_id) (grimnir_listeners)  -> per station
+	//   sum by (transport)  (grimnir_listeners)  -> per transport
+	//   sum                 (grimnir_listeners)  -> platform total (real usage)
+	ListenersByChannel = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "grimnir_listeners",
+			Help: "Current listeners per station, channel, and transport (icy_http, webrtc)",
+		},
+		[]string{"station_id", "channel", "transport"},
 	)
 )
 
