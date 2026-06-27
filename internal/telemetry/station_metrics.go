@@ -131,3 +131,25 @@ func UpdateListenerMetrics(counts map[string]int) {
 		ListenersCurrentTotal.WithLabelValues(stationID).Set(float64(count))
 	}
 }
+
+// ListenerBreakdownSample is one live listener count for a (station, channel,
+// transport) tuple. Feeds the grimnir_listeners base series.
+type ListenerBreakdownSample struct {
+	StationID string
+	Channel   string
+	Transport string
+	Count     int
+}
+
+// UpdateListenerBreakdown resets the per-channel listener gauge and sets the
+// non-zero samples. Reset() each tick drops channels that emptied out, so a
+// listener leaving a channel removes its series rather than leaving it stale.
+func UpdateListenerBreakdown(samples []ListenerBreakdownSample) {
+	ListenersByChannel.Reset()
+	for _, s := range samples {
+		if s.Count <= 0 {
+			continue
+		}
+		ListenersByChannel.WithLabelValues(s.StationID, s.Channel, s.Transport).Set(float64(s.Count))
+	}
+}

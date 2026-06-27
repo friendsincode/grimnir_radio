@@ -49,6 +49,30 @@ func (m *webrtcStationManager) Stop() error {
 	return nil
 }
 
+// webrtcPeerCounts returns WebRTC listener peers per station, or nil when WebRTC
+// is disabled. Nil-safe wrapper the listener breakdown calls.
+func (s *Server) webrtcPeerCounts() map[string]int {
+	if s.webrtcMgr == nil {
+		return nil
+	}
+	return s.webrtcMgr.PeerCountByStation()
+}
+
+// PeerCountByStation returns the number of connected WebRTC listener peers per
+// station ID. Stations with zero peers are omitted. Feeds the listener
+// breakdown (transport=webrtc) so WebRTC listeners are counted, not invisible.
+func (m *webrtcStationManager) PeerCountByStation() map[string]int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]int, len(m.broadcasters))
+	for stationID, b := range m.broadcasters {
+		if n := b.PeerCount(); n > 0 {
+			out[stationID] = n
+		}
+	}
+	return out
+}
+
 func (m *webrtcStationManager) HandleSignaling(w http.ResponseWriter, r *http.Request) {
 	stationID := r.URL.Query().Get("station_id")
 	if stationID == "" {
