@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package playout
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -260,5 +261,75 @@ func TestStartClockEntry_StopsetSlot_FallsBackToRandom(t *testing.T) {
 	err := d.startClockEntry(ctx, entry)
 	if err != nil {
 		t.Errorf("startClockEntry stopset fallback should not error, got: %v", err)
+	}
+}
+
+// ── stall watchdog ────────────────────────────────────────────────────────
+
+func TestWatchWebstreamPipeline_StallWatchdogStopsPipeline(t *testing.T) {
+	// Verify: if a webstream pipeline produces zero bytes for longer than
+	// the stall timeout, the stall watchdog force-stops it.
+	d, _ := newMockDirector(t)
+
+	mountName := "stall-test-" + uuid.NewString()[:8]
+	hqMount := d.broadcast.CreateMount(mountName, "audio/mpeg", 128)
+	lqMount := d.broadcast.CreateMount(mountName+"-lq", "audio/mpeg", 64)
+	_ = lqMount
+
+	const grace = 10 * time.Millisecond
+	const stallTimeout = 50 * time.Millisecond
+	const checkTick = 10 * time.Millisecond
+
+	// Seed lastFedAt by feeding a tiny payload; the reader returns EOF immediately.
+	_ = hqMount.FeedFrom(bytes.NewReader([]byte("audio")))
+
+	// Wait long enough that lastFedAt is older than stallTimeout.
+	time.Sleep(stallTimeout + 10*time.Millisecond)
+
+	doneCh := make(chan struct{})
+	stopped := make(chan struct{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	d.startWebstreamStallWatchdog(ctx, "mock-mount-id", mountName, hqMount, doneCh,
+		grace, stallTimeout, checkTick,
+		func() { close(stopped) },
+	)
+
+	select {
+	case <-stopped:
+		// Watchdog fired — correct.
+	case <-time.After(500 * time.Millisecond):
+		t.Error("stall watchdog did not fire within timeout")
+	}
+}
+
+func TestWatchWebstreamPipeline_StallWatchdogExitsOnPipelineDone(t *testing.T) {
+	d, _ := newMockDirector(t)
+
+	mountName := "stall-exit-" + uuid.NewString()[:8]
+	hqMount := d.broadcast.CreateMount(mountName, "audio/mpeg", 128)
+	_ = hqMount.FeedFrom(bytes.NewReader([]byte("audio")))
+
+	doneCh := make(chan struct{})
+	stopped := make(chan struct{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	d.startWebstreamStallWatchdog(ctx, "mock-id", mountName, hqMount, doneCh,
+		10*time.Millisecond, 50*time.Millisecond, 10*time.Millisecond,
+		func() { close(stopped) },
+	)
+
+	// Close doneCh before the stall timeout elapses.
+	close(doneCh)
+
+	select {
+	case <-stopped:
+		t.Error("watchdog fired stall action even though pipeline exited naturally")
+	case <-time.After(200 * time.Millisecond):
+		// Correct — watchdog exited cleanly without stopping.
 	}
 }
