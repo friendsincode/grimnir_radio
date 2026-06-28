@@ -1,9 +1,14 @@
 # syntax=docker/dockerfile:1
 # Build stage
-FROM golang:1.24-alpine AS builder
+# Pinned to alpine 3.22 to match the runtime stage below: the CGo binary links
+# glib/gstreamer, so builder & runtime must share the same alpine (glib) version,
+# or the binary fails to relocate symbols at startup.
+FROM golang:1.24-alpine3.22 AS builder
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+# Install build dependencies. The control plane links go-gst (CGo: gst, gst/base,
+# gst/app), so the builder needs a C toolchain + GStreamer dev headers and the
+# build must run with CGO_ENABLED=1 (below).
+RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev pkgconf gstreamer-dev gst-plugins-base-dev
 
 WORKDIR /build
 
@@ -22,13 +27,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     VERSION_VAL="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')}" && \
     VERSION_VAL="${VERSION_VAL#v}" && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s -X github.com/friendsincode/grimnir_radio/internal/version.Version=${VERSION_VAL}" \
     -o grimnirradio \
     ./cmd/grimnirradio
 
 # Runtime stage
-FROM alpine:3.19
+# Must match the builder's alpine (glib/gstreamer version) above.
+FROM alpine:3.22
 
 # Install runtime dependencies
 RUN apk add --no-cache \
