@@ -70,6 +70,9 @@ services:
       dockerfile: Dockerfile
     image: ghcr.io/friendsincode/grimnir_radio:latest
     container_name: grimnir-radio
+    # Run tini as PID 1 to reap any orphaned/defunct child processes
+    # (ffmpeg/gst-launch decoders) as a backstop to in-code Wait() reaping.
+    init: true
     depends_on:
       postgres:
         condition: service_healthy

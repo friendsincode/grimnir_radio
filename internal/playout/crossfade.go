@@ -219,6 +219,10 @@ func (d *decoderProc) stop() error {
 		// orphaned, which was the root cause of the v1.40.x audible echo:
 		// orphan decoders kept feeding the mount's encoder pipe.
 		killProcessGroup(d.cmd, syscall.SIGKILL)
+		// Reap the killed child so it doesn't linger as a <defunct> zombie.
+		// SIGKILL terminates the process but does not reap it; only Wait does.
+		// The group is already killed, so Wait returns promptly.
+		_ = d.cmd.Wait()
 	}
 	return nil
 }

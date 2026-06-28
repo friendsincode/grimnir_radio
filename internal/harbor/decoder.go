@@ -108,6 +108,10 @@ func (d *decoderProc) Close() error {
 	}
 	if d.cmd != nil && d.cmd.Process != nil {
 		_ = d.cmd.Process.Kill()
+		// Reap the killed child; Kill terminates but does not reap, only Wait
+		// does. Without this the gst-launch wrapper lingers as a <defunct>
+		// zombie until the process restarts.
+		_ = d.cmd.Wait()
 	}
 	return nil
 }
