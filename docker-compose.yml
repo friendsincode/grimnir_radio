@@ -3,6 +3,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: grimnir-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: grimnir
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-grimnir_secret}
@@ -24,6 +25,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: grimnir-redis
+    restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secret}
     volumes:
       - redis-data:/data
