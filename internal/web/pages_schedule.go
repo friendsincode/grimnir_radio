@@ -999,6 +999,7 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 		Metadata:       input.Metadata,
 		RecurrenceType: models.RecurrenceType(input.RecurrenceType),
 		RecurrenceDays: input.RecurrenceDays,
+		SeriesID:       &entryID, // a fresh entry is the root of its own series
 	}
 
 	// Parse recurrence end date if provided
@@ -1091,6 +1092,13 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 
 		// Create a new one-off entry for this instance
 		parentID := entry.ID
+		// The override belongs to the same logical show as its parent. A legacy
+		// parent may predate series ids; fall back to its own id, which is what
+		// the backfill assigns it.
+		seriesID := entry.SeriesID
+		if seriesID == nil {
+			seriesID = &entry.ID
+		}
 		newEntry := models.ScheduleEntry{
 			ID:                 uuid.New().String(),
 			StationID:          station.ID,
@@ -1102,6 +1110,7 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 			Metadata:           entry.Metadata,
 			IsInstance:         true,
 			RecurrenceParentID: &parentID,
+			SeriesID:           seriesID,
 		}
 
 		// Override with provided values
@@ -1149,12 +1158,19 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 
 		// Truncate the parent series so it stops before this occurrence.
 		entry.RecurrenceEndDate = &splitDate
+		// A legacy parent may predate series ids. Give it one now so the new
+		// forward segment can share it; without this the split would detach the
+		// two halves and "edit all occurrences" could never span them.
+		if entry.SeriesID == nil {
+			entry.SeriesID = &entry.ID
+		}
 		if err := h.db.Save(&entry).Error; err != nil {
 			http.Error(w, "Failed to update parent entry", http.StatusInternalServerError)
 			return
 		}
 
-		// Create a new recurring entry from this occurrence forward.
+		// Create a new recurring entry from this occurrence forward, keeping it in
+		// the same series as the segment it split from.
 		newEntry := models.ScheduleEntry{
 			ID:             uuid.New().String(),
 			StationID:      station.ID,
@@ -1167,6 +1183,7 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 			RecurrenceType: entry.RecurrenceType,
 			RecurrenceDays: entry.RecurrenceDays,
 			IsInstance:     false,
+			SeriesID:       entry.SeriesID,
 		}
 
 		if input.SourceType != nil {
@@ -1258,9 +1275,42 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Every entry carries a series id; legacy rows may predate it.
+	if entry.SeriesID == nil {
+		entry.SeriesID = &entry.ID
+	}
+
 	if err := h.db.Save(&entry).Error; err != nil {
 		http.Error(w, "Failed to update entry", http.StatusInternalServerError)
 		return
+	}
+
+	// "All occurrences": carry the content change to every other segment of the
+	// same logical show. Times and recurrence stay per-segment; only the source
+	// and metadata the operator changed propagate. Source ids only propagate for
+	// shareable source types (a "live" source id is per-entry, not a resource).
+	if input.EditMode == "all" && entry.SeriesID != nil {
+		shareableSource := map[string]bool{"playlist": true, "smart_block": true, "webstream": true, "media": true}
+		sib := models.ScheduleEntry{}
+		var cols []string
+		if (input.SourceType != nil || input.SourceID != nil) && shareableSource[entry.SourceType] {
+			sib.SourceType = entry.SourceType
+			sib.SourceID = entry.SourceID
+			cols = append(cols, "source_type", "source_id")
+		}
+		if input.Metadata != nil {
+			sib.Metadata = entry.Metadata
+			cols = append(cols, "metadata")
+		}
+		if len(cols) > 0 {
+			if err := h.db.Model(&models.ScheduleEntry{}).
+				Where("series_id = ? AND id <> ?", *entry.SeriesID, entry.ID).
+				Select(cols).
+				Updates(sib).Error; err != nil {
+				http.Error(w, "Failed to propagate change to the series", http.StatusInternalServerError)
+				return
+			}
+		}
 	}
 
 	if h.eventBus != nil {

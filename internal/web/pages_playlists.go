@@ -345,6 +345,21 @@ func (h *Handler) PlaylistDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refuse to delete a playlist a recurring show still points at. A recurring
+	// row is anchored at a past date, so the future-only cleanup below never
+	// removes it; deleting the playlist anyway would leave that show pointing at
+	// a missing source and render every future occurrence as red dead air. This
+	// only blocks the delete, it removes nothing. The operator repoints or
+	// removes that schedule first. Nothing in the schedule is touched here.
+	var recurringRefs int64
+	h.db.Model(&models.ScheduleEntry{}).
+		Where("source_type = 'playlist' AND source_id = ? AND station_id = ? AND recurrence_type <> '' AND recurrence_type IS NOT NULL AND is_instance = ?", id, station.ID, false).
+		Count(&recurringRefs)
+	if recurringRefs > 0 {
+		http.Error(w, "This playlist is used by a recurring show. Repoint or remove that schedule entry first, then delete the playlist.", http.StatusConflict)
+		return
+	}
+
 	// Delete items first
 	h.db.Delete(&models.PlaylistItem{}, "playlist_id = ?", id)
 

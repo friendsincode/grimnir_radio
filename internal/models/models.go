@@ -678,6 +678,7 @@ type ScheduleEntry struct {
 	RecurrenceEndDate  *time.Time     // When recurrence stops (nil = forever)
 	RecurrenceParentID *string        `gorm:"type:uuid;index"` // Links instance to parent
 	IsInstance         bool           `gorm:"default:false"`   // True if this is a generated instance
+	SeriesID           *string        `gorm:"type:uuid;index"` // Stable id shared by every segment of one logical show; drives "edit all occurrences"
 
 	// Import provenance (nullable for manually created items)
 	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
