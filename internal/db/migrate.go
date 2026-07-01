@@ -126,7 +126,43 @@ func Migrate(database *gorm.DB) error {
 	if err := backfillOriginalFilenames(database); err != nil {
 		return err
 	}
+	if err := backfillScheduleSeriesID(database); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+// backfillScheduleSeriesID stamps a stable series identity on existing schedule
+// entries so "edit all occurrences" can span every segment of a recurring show.
+// Before this, "this and all following" edits split a series into standalone
+// recurring rows with no link back, so nothing tied the segments together.
+//
+// The backfill is deliberately conservative: each recurring root becomes its own
+// series, and single-occurrence overrides inherit their parent's series. It does
+// NOT try to stitch historically-split segments back together (that would risk
+// merging two different shows that share a slot). It is idempotent: it only fills
+// rows where series_id is still NULL, so it is safe to run on every boot.
+func backfillScheduleSeriesID(database *gorm.DB) error {
+	// 1. Roots (non-instances) seed their own id as the series identity.
+	if err := database.Exec(
+		"UPDATE schedule_entries SET series_id = id WHERE series_id IS NULL AND is_instance = ?", false,
+	).Error; err != nil {
+		return err
+	}
+	// 2. Overrides inherit the parent's series. After step 1 every root's
+	//    series_id equals its own id, so an override's series is its parent id.
+	if err := database.Exec(
+		"UPDATE schedule_entries SET series_id = recurrence_parent_id WHERE series_id IS NULL AND recurrence_parent_id IS NOT NULL",
+	).Error; err != nil {
+		return err
+	}
+	// 3. Anything still unset (e.g. an override whose parent is gone) seeds itself.
+	if err := database.Exec(
+		"UPDATE schedule_entries SET series_id = id WHERE series_id IS NULL",
+	).Error; err != nil {
+		return err
+	}
 	return nil
 }
 
