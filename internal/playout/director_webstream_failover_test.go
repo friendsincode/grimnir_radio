@@ -90,7 +90,7 @@ func TestPruneFlapWindow(t *testing.T) {
 	window := 2 * time.Minute
 
 	exits := []time.Time{
-		now.Add(-3 * time.Minute),  // outside — dropped
+		now.Add(-3 * time.Minute), // outside — dropped
 		now.Add(-119 * time.Second) /* inside */, now.Add(-30 * time.Second), now,
 	}
 	kept := pruneFlapWindow(exits, now, window)
