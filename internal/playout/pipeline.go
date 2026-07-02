@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/go-gst/go-gst/gst"
@@ -25,6 +26,15 @@ type PipelineInterface interface {
 	Done() <-chan struct{}
 	Stop() error
 }
+
+// busPollInterval bounds every bus TimedPop. An unbounded pop
+// (gst.ClockTimeNone) is unwakeable once the bus is flushed: a pipeline going
+// to NULL sets its bus flushing, which discards queued and future messages
+// (including the EOS Stop posts as a wakeup) and never signals a parked
+// waiter. consumeBus polls with this bound and checks stopRequested on every
+// timeout instead. Only the flushed-EOS race pays this latency; the normal
+// EOS/ERROR path still exits on the message itself.
+const busPollInterval = gst.ClockTime(500 * time.Millisecond)
 
 // Pipeline owns one programmatic GStreamer pipeline for a broadcast mount.
 //
@@ -182,8 +192,10 @@ func (p *Pipeline) startLocked(launch string, seekFile *os.File, hqHandler, lqHa
 	}
 
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
-		// Best-effort teardown; doneCh will close via the bus consumer once
-		// SetState(Null) propagates.
+		// Best-effort teardown. SetState(NULL) flushes the bus without waking
+		// the consumer, so mark stopRequested first — the consumer's bounded
+		// poll sees it and closes doneCh.
+		p.stopRequested = true
 		_ = pipeline.SetState(gst.StateNull)
 		return fmt.Errorf("set state PLAYING: %w", err)
 	}
@@ -268,9 +280,21 @@ func (p *Pipeline) consumeBus(done chan struct{}) {
 		p.logExit()
 	}()
 	for {
-		msg := p.bus.TimedPop(gst.ClockTimeNone)
+		msg := p.bus.TimedPop(busPollInterval)
 		if msg == nil {
-			return
+			// Timeout, or the bus was flushed. A pipeline going to NULL sets
+			// its bus flushing, which silently discards queued and future
+			// messages — including the EOS that Stop posts as a wakeup — and
+			// bus flushing never signals a waiter already parked in TimedPop.
+			// So an unbounded pop can hang forever; the bounded poll plus this
+			// stopRequested check is the reliable exit.
+			p.mu.Lock()
+			stop := p.stopRequested
+			p.mu.Unlock()
+			if stop {
+				return
+			}
+			continue
 		}
 		switch msg.Type() {
 		case gst.MessageError:
@@ -430,23 +454,18 @@ func (p *Pipeline) Stop() error {
 		_ = stdinW.Close()
 	}
 
-	// Wake the bus consumer. Posting EOS lets a well-behaved pipeline drain
-	// gracefully, but a posted message can race pipeline teardown and be missed,
-	// leaving consumeBus parked inside TimedPop(ClockTimeNone) forever and Stop
-	// blocked on <-done below. SetFlushing(true) is the guaranteed wakeup: it
-	// makes every current and future TimedPop return nil, so consumeBus always
-	// exits. Without it, Stop can hang indefinitely (seen as flaky test timeouts
-	// in internal/playout and a latent production Stop hang).
+	// Post EOS as the fast wakeup for the bus consumer. This can race the
+	// SetState(NULL) below, which sets the bus flushing and discards the queued
+	// EOS before the consumer sees it — bus flushing never wakes a parked
+	// waiter, so the post alone is not a reliable exit. consumeBus therefore
+	// polls with busPollInterval and checks stopRequested (set above) on every
+	// timeout; worst case Stop returns one poll interval after the flush.
 	if bus != nil {
 		bus.Post(gst.NewEOSMessage(pipeline))
 	}
 
 	if err := pipeline.SetState(gst.StateNull); err != nil {
 		p.logger.Warn().Err(err).Str("mount", p.mountID).Msg("SetState(NULL) returned error")
-	}
-
-	if bus != nil {
-		bus.SetFlushing(true)
 	}
 
 	<-done

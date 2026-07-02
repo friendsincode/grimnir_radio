@@ -16,6 +16,10 @@ import (
 	"github.com/go-gst/go-gst/gst/app"
 )
 
+// busPollInterval bounds every bus TimedPop; see consumeBus for why an
+// unbounded pop is unwakeable after a bus flush.
+const busPollInterval = gst.ClockTime(500 * time.Millisecond)
+
 // PipelineConfig is the input to NewPipeline. Engines is the slice of media
 // engine PCM-RTP destinations (host:port); the pipeline targets all of them
 // via multiudpsink, so a single PushBuffer into the appsrc reaches every
@@ -218,12 +222,25 @@ func (p *Pipeline) Done() <-chan struct{} {
 // consumeBus drains GStreamer bus messages until EOS or ERROR, then closes
 // doneCh. Mirrors the edge-encoder consumeBus contract (one-shot close on
 // pipeline termination).
+//
+// The pop is bounded: an unbounded TimedPop is unwakeable once the bus is
+// flushed (a NULL transition sets the bus flushing, which discards queued and
+// future messages without signaling a parked waiter). If Stop's wakeup EOS is
+// missed, its 2s belt-and-braces timeout used to leave this goroutine leaked
+// for the process lifetime; the stopped check on each timeout is the reliable
+// exit.
 func (p *Pipeline) consumeBus(doneCh chan struct{}) {
 	defer p.doneOnce.Do(func() { close(doneCh) })
 	for {
-		msg := p.bus.TimedPop(gst.ClockTimeNone)
+		msg := p.bus.TimedPop(busPollInterval)
 		if msg == nil {
-			return
+			p.mu.Lock()
+			stopped := p.stopped
+			p.mu.Unlock()
+			if stopped {
+				return
+			}
+			continue
 		}
 		switch msg.Type() {
 		case gst.MessageError, gst.MessageEOS:

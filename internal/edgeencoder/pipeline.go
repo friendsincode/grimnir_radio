@@ -20,6 +20,13 @@ import (
 	"github.com/go-gst/go-gst/gst/app"
 )
 
+// busPollInterval bounds every bus TimedPop. An unbounded pop
+// (gst.ClockTimeNone) is unwakeable once the bus is flushed: a pipeline going
+// to NULL sets its bus flushing, which discards queued and future messages and
+// never signals a parked waiter. consumeBus polls with this bound and checks
+// the closing flag on every timeout instead.
+const busPollInterval = gst.ClockTime(500 * time.Millisecond)
+
 // setEnumProperty sets an enum-typed GObject property to the given int value.
 // glib's Object.SetProperty rejects a plain int for enum properties ("invalid
 // type gint for property X"), so we have to allocate a GValue of the property's
@@ -62,6 +69,13 @@ type Pipeline struct {
 	// callers don't pay the cost of a GStreamer property query per call.
 	mu          sync.Mutex
 	activeInput string
+
+	// closing is set by Close() before the NULL transition. consumeBus's
+	// bounded poll checks it on every timeout: the EOS Close posts can be
+	// discarded by the bus flush that accompanies SetState(NULL), and a
+	// flushed bus never wakes a parked TimedPop, so the flag is the reliable
+	// exit signal.
+	closing bool
 
 	// Map from logical input name ("A"/"B") to the leaky queue's sink pad
 	// for that branch. This is the pad probed by InputHealth: it sits upstream
@@ -446,10 +460,16 @@ func (p *Pipeline) Start() error {
 	return nil
 }
 
-// Close stops the pipeline and releases all resources. Before transitioning
-// to NULL, a synthetic EOS message is posted to wake the blocked consumeBus
-// goroutine so it exits cleanly (no goroutine leak).
+// Close stops the pipeline and releases all resources. The posted EOS is the
+// fast wakeup for consumeBus, but SetState(NULL) sets the bus flushing and can
+// discard it before the consumer sees it — and a flushed bus never wakes a
+// parked TimedPop. The closing flag is the reliable exit: consumeBus's bounded
+// poll checks it on every timeout, so the goroutine always terminates and the
+// done signal is always delivered.
 func (p *Pipeline) Close() error {
+	p.mu.Lock()
+	p.closing = true
+	p.mu.Unlock()
 	if p.bus != nil {
 		p.bus.Post(gst.NewEOSMessage(p.gst))
 	}
@@ -462,15 +482,22 @@ func (p *Pipeline) Close() error {
 // late listeners won't miss the first signal.
 func (p *Pipeline) consumeBus() {
 	for {
-		msg := p.bus.TimedPop(gst.ClockTimeNone)
+		msg := p.bus.TimedPop(busPollInterval)
 		if msg == nil {
-			// Bus was flushed (e.g., by Close) or otherwise returned no
-			// message. Treat as clean shutdown.
-			select {
-			case p.done <- nil:
-			default:
+			// Timeout, or the bus was flushed by Close's NULL transition
+			// (which can discard the wakeup EOS before we see it). Keep
+			// polling until Close signals shutdown via the closing flag.
+			p.mu.Lock()
+			closing := p.closing
+			p.mu.Unlock()
+			if closing {
+				select {
+				case p.done <- nil:
+				default:
+				}
+				return
 			}
-			return
+			continue
 		}
 		switch msg.Type() {
 		case gst.MessageError:
