@@ -430,15 +430,23 @@ func (p *Pipeline) Stop() error {
 		_ = stdinW.Close()
 	}
 
-	// Wake the bus consumer. Without this it would park inside TimedPop until
-	// the upstream pipeline itself produced an EOS — which Stop callers can't
-	// rely on for arbitrary pipeline shapes.
+	// Wake the bus consumer. Posting EOS lets a well-behaved pipeline drain
+	// gracefully, but a posted message can race pipeline teardown and be missed,
+	// leaving consumeBus parked inside TimedPop(ClockTimeNone) forever and Stop
+	// blocked on <-done below. SetFlushing(true) is the guaranteed wakeup: it
+	// makes every current and future TimedPop return nil, so consumeBus always
+	// exits. Without it, Stop can hang indefinitely (seen as flaky test timeouts
+	// in internal/playout and a latent production Stop hang).
 	if bus != nil {
 		bus.Post(gst.NewEOSMessage(pipeline))
 	}
 
 	if err := pipeline.SetState(gst.StateNull); err != nil {
 		p.logger.Warn().Err(err).Str("mount", p.mountID).Msg("SetState(NULL) returned error")
+	}
+
+	if bus != nil {
+		bus.SetFlushing(true)
 	}
 
 	<-done
