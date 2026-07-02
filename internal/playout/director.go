@@ -55,6 +55,17 @@ const (
 	webstreamStallCheckTick = 10 * time.Second
 )
 
+// Webstream flap detector: a bursty upstream that connects, plays a few
+// seconds, and dies again defeats the fast-retry loop — every reconnect
+// succeeds, so the loop never escalates to automation fill, and listeners
+// hear 2-3s of audio followed by long silence, forever (issue #246). When
+// the pipeline exits webstreamFlapThreshold times within webstreamFlapWindow,
+// skip the fast retries and go straight to the fill + slow-retry path.
+const (
+	webstreamFlapWindow    = 2 * time.Minute
+	webstreamFlapThreshold = 4
+)
+
 type playoutState struct {
 	MediaID   string
 	EntryID   string
@@ -1382,6 +1393,38 @@ func (d *Director) startWebstreamStallWatchdog(
 	}()
 }
 
+// reloadWebstream re-reads the webstream row so the retry loops observe
+// failover state written by the health checker (CurrentIndex, Healthy). The
+// checker runs independently and mutates its own DB-loaded copy, so the struct
+// captured at startWebstreamEntry goes stale the moment a failover fires; a
+// relay that keeps reading the stale struct re-dials the dead primary for the
+// whole slot (issue #247). Returns the stale struct unchanged when the reload
+// fails: retrying the last-known URL beats aborting the retry loop.
+func (d *Director) reloadWebstream(ctx context.Context, stale *models.Webstream) *models.Webstream {
+	if d.webstreamSvc == nil {
+		return stale
+	}
+	fresh, err := d.webstreamSvc.GetWebstream(ctx, stale.ID)
+	if err != nil || fresh == nil {
+		return stale
+	}
+	return fresh
+}
+
+// pruneFlapWindow drops exit timestamps older than window. The caller appends
+// the current exit first; the returned slice length is the exit count inside
+// the rolling window, which the flap detector compares against
+// webstreamFlapThreshold.
+func pruneFlapWindow(exits []time.Time, now time.Time, window time.Duration) []time.Time {
+	kept := exits[:0]
+	for _, t := range exits {
+		if now.Sub(t) <= window {
+			kept = append(kept, t)
+		}
+	}
+	return kept
+}
+
 // watchWebstreamPipeline monitors a webstream pipeline for crashes and attempts
 // reconnection with exponential backoff using the webstream's ReconnectDelayMS
 // and MaxReconnectAttempts settings.
@@ -1415,6 +1458,9 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 		maxAttempts = 5
 	}
 
+	// Pipeline exit timestamps inside the rolling flap window.
+	var exitTimes []time.Time
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -1422,6 +1468,10 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 		case <-doneCh:
 			// Pipeline exited — check if we should reconnect
 		}
+
+		exitTimes = append(exitTimes, time.Now())
+		exitTimes = pruneFlapWindow(exitTimes, time.Now(), webstreamFlapWindow)
+		flapping := len(exitTimes) >= webstreamFlapThreshold
 
 		// Check if entry has ended or been superseded
 		d.mu.Lock()
@@ -1443,7 +1493,20 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 		reconnected := false
 		delay := baseDelay
 
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if flapping {
+			// The upstream keeps connecting and dying inside the flap window.
+			// Fast retries would each succeed for a few seconds and produce the
+			// clip/silence loop; skip them so the fill + slow-retry path below
+			// takes over until the upstream stabilizes.
+			d.logger.Warn().
+				Str("mount", entry.MountID).
+				Str("webstream", ws.Name).
+				Int("exits_in_window", len(exitTimes)).
+				Dur("window", webstreamFlapWindow).
+				Msg("webstream is flapping — skipping fast retries, using automation fill + slow retry")
+		}
+
+		for attempt := 1; !flapping && attempt <= maxAttempts; attempt++ {
 			select {
 			case <-ctx.Done():
 				return
@@ -1458,7 +1521,9 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				return
 			}
 
-			// Reload webstream to get current URL (may have failed over)
+			// Reload webstream from the DB so a health-checker failover
+			// (or recovery back to primary) actually reaches this relay.
+			ws = d.reloadWebstream(ctx, ws)
 			currentURL := ws.GetCurrentURL()
 			d.logger.Info().
 				Str("mount", entry.MountID).
@@ -1591,6 +1656,9 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 					return
 				}
 
+				// Reload webstream from the DB so a health-checker failover
+				// (or recovery back to primary) actually reaches this relay.
+				ws = d.reloadWebstream(ctx, ws)
 				currentURL := ws.GetCurrentURL()
 				d.logger.Info().
 					Str("mount", entry.MountID).
