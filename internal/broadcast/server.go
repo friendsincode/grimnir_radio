@@ -43,6 +43,30 @@ type Mount struct {
 	inputCount int         // tracks active input feeds
 	lastFedAt  int64       // unix nano; updated atomically each time bytes are written
 	bus        *events.Bus // for publishing listener stats
+
+	// establishedCount tracks clients that have proven themselves by draining
+	// establishSeconds of audio. Only established clients roll into
+	// ClientCount/TotalListeners/listener stats; a connection that grabs the
+	// pre-roll and parks (recycled browser <audio> elements, proxy-held
+	// sockets) never counts. Guarded by mu.
+	establishedCount int
+}
+
+// establishSeconds of continuously delivered audio marks a connection as an
+// actual listener. The threshold sits well past what a socket's kernel send
+// buffer plus the initial pre-roll (max 64KB, ~4s at 128kbps) can absorb
+// without anyone draining the far end, so a connection that counts has been
+// pulling real audio for real time.
+const establishSeconds = 10
+
+// establishThresholdBytes converts establishSeconds to a byte count at this
+// mount's bitrate (kbps). Zero/unset bitrate assumes 128.
+func (m *Mount) establishThresholdBytes() int {
+	br := m.Bitrate
+	if br <= 0 {
+		br = 128
+	}
+	return (br * 1000 / 8) * establishSeconds
 }
 
 // BytesReceivedAt returns the time bytes were last written to this mount by FeedFrom.
@@ -60,6 +84,11 @@ type client struct {
 	done   chan struct{}
 	closed bool
 	mu     sync.Mutex
+
+	// established flips once the serve loop has delivered the establishment
+	// threshold to this connection. Written by the serve goroutine and read by
+	// the disconnect path, both under the mount's mu.
+	established bool
 }
 
 // ringBuffer holds recent audio data for new clients to start with.
@@ -288,16 +317,40 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		done: make(chan struct{}),
 	}
 
-	// Register client
+	// Register client for delivery. It does NOT count as a listener yet:
+	// the counters roll only after the connection is fully established
+	// (establishThresholdBytes delivered), so recycled/parked connections
+	// never inflate the listener numbers they used to (issue #18: ~1,415
+	// reported against ~15 real).
 	m.mu.Lock()
 	m.clients[c] = struct{}{}
-	clientCount := len(m.clients)
+	connectionCount := len(m.clients)
 	m.mu.Unlock()
 
-	m.logger.Info().Str("mount", m.Name).Int("clients", clientCount).Bool("quality_switch", skipBuffer).Msg("client connected")
+	m.logger.Info().Str("mount", m.Name).Int("connections", connectionCount).Bool("quality_switch", skipBuffer).Msg("client connected (unestablished)")
 
-	// Publish listener stats event
-	m.publishListenerStats(clientCount, "connect")
+	// Establishment bookkeeping: delivered() accumulates successful live-loop
+	// writes and rolls the client into the listener count exactly once when
+	// the threshold is crossed. The initial pre-roll deliberately does NOT
+	// count: it is a single burst that socket buffers absorb whether or not a
+	// listener exists, so only sustained live delivery proves the connection.
+	bytesOut := 0
+	establishAt := m.establishThresholdBytes()
+	localEstablished := false
+	delivered := func(n int) {
+		bytesOut += n
+		if localEstablished || bytesOut < establishAt {
+			return
+		}
+		localEstablished = true
+		m.mu.Lock()
+		c.established = true
+		m.establishedCount++
+		listeners := m.establishedCount
+		m.mu.Unlock()
+		m.logger.Info().Str("mount", m.Name).Int("listeners", listeners).Int("bytes", bytesOut).Msg("client established")
+		m.publishListenerStats(listeners, "connect")
+	}
 
 	// Send buffered data to help client start faster
 	// For quality switches (nobuffer=1), send minimal data to prime connection
@@ -334,7 +387,9 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Cleanup on disconnect
+	// Cleanup on disconnect. Only an established client rolls the counters
+	// back and emits a disconnect event — a connection that never qualified
+	// was never counted, so it has nothing to undo.
 	defer func() {
 		c.mu.Lock()
 		c.closed = true
@@ -342,14 +397,24 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Unlock()
 
 		m.mu.Lock()
+		_, present := m.clients[c]
 		delete(m.clients, c)
-		clientCount := len(m.clients)
+		// Only decrement for clients still registered: Mount.Close() empties
+		// the map and zeroes establishedCount itself, so a serve goroutine
+		// unwinding after Close must not double-decrement.
+		wasEstablished := present && c.established
+		if wasEstablished {
+			m.establishedCount--
+		}
+		listeners := m.establishedCount
+		connections := len(m.clients)
 		m.mu.Unlock()
 
-		m.logger.Info().Str("mount", m.Name).Int("clients", clientCount).Msg("client disconnected")
+		m.logger.Info().Str("mount", m.Name).Int("connections", connections).Int("listeners", listeners).Bool("established", wasEstablished).Msg("client disconnected")
 
-		// Publish listener stats event
-		m.publishListenerStats(clientCount, "disconnect")
+		if wasEstablished {
+			m.publishListenerStats(listeners, "disconnect")
+		}
 	}()
 
 	// Create a single timer for keepalive - reused instead of creating new ones
@@ -370,6 +435,7 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				m.logger.Info().Err(err).Int("writes", writeCount).Msg("write failed, disconnecting client")
 				return
 			}
+			delivered(len(data))
 			writeCount++
 			// Log first few writes to debug streaming issues
 			if writeCount <= 5 || writeCount%100 == 0 {
@@ -405,8 +471,22 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ClientCount returns the number of connected clients.
+// ClientCount returns the number of established listeners: connections that
+// have drained at least establishSeconds of audio. This is what every public
+// counter (TotalListeners, GetListenerStats, the analytics samples) reads, so
+// unproven connections never roll into the reported numbers. Raw connection
+// count (including unestablished) is ConnectionCount.
 func (m *Mount) ClientCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.establishedCount
+}
+
+// ConnectionCount returns every registered connection, established or not.
+// Diagnostic view: the gap between this and ClientCount is the population of
+// connections that grabbed the stream but haven't proven a listener is
+// draining it.
+func (m *Mount) ConnectionCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.clients)
@@ -446,6 +526,7 @@ func (m *Mount) Close() {
 		c.mu.Unlock()
 	}
 	m.clients = make(map[*client]struct{})
+	m.establishedCount = 0
 }
 
 func itoa(i int) string {

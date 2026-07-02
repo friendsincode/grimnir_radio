@@ -91,8 +91,10 @@ func TestMount_StalledClientIsDisconnected(t *testing.T) {
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	_, _ = conn.Read(make([]byte, 1024))
 
-	if !waitFor(t, 2*time.Second, func() bool { return m.ClientCount() == 1 }) {
-		t.Fatalf("client never registered; ClientCount=%d", m.ClientCount())
+	// Registration is the raw connection view: the stalled client never
+	// establishes, so ClientCount (established listeners) stays 0 for it.
+	if !waitFor(t, 2*time.Second, func() bool { return m.ConnectionCount() == 1 }) {
+		t.Fatalf("client never registered; ConnectionCount=%d", m.ConnectionCount())
 	}
 
 	// Keep feeding audio so the serve loop keeps writing into the stalled pipe.
@@ -112,7 +114,145 @@ func TestMount_StalledClientIsDisconnected(t *testing.T) {
 		}
 	}()
 
-	if !waitFor(t, 5*time.Second, func() bool { return m.ClientCount() == 0 }) {
-		t.Fatalf("stalled client was not disconnected; ClientCount=%d", m.ClientCount())
+	if !waitFor(t, 5*time.Second, func() bool { return m.ConnectionCount() == 0 }) {
+		t.Fatalf("stalled client was not disconnected; ConnectionCount=%d", m.ConnectionCount())
+	}
+}
+
+// A connection only rolls into the listener count after draining the
+// establishment threshold, and rolls back out on disconnect. A connection
+// that grabs the stream and parks never counts at all (issue #18).
+func TestMount_ClientCountsOnlyAfterEstablishment(t *testing.T) {
+	bus := events.NewBus()
+	// bitrate 1 kbps -> threshold = 1*1000/8*10 = 1250 bytes, so the test
+	// crosses it with a couple of small broadcasts.
+	m := NewMount("test", "audio/mpeg", 1, zerolog.Nop(), bus)
+
+	srv := httptest.NewServer(http.HandlerFunc(m.ServeHTTP))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/live")
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if !waitFor(t, 2*time.Second, func() bool { return m.ConnectionCount() == 1 }) {
+		t.Fatalf("client never registered; ConnectionCount=%d", m.ConnectionCount())
+	}
+	if got := m.ClientCount(); got != 0 {
+		t.Fatalf("unestablished connection already counted: ClientCount=%d", got)
+	}
+
+	// Drive audio through and drain it client-side until the threshold trips.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		chunk := make([]byte, 512)
+		tick := time.NewTicker(5 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				m.Broadcast(chunk)
+			}
+		}
+	}()
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := resp.Body.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	if !waitFor(t, 5*time.Second, func() bool { return m.ClientCount() == 1 }) {
+		t.Fatalf("client never established; ClientCount=%d ConnectionCount=%d", m.ClientCount(), m.ConnectionCount())
+	}
+
+	// Disconnect rolls the counter back.
+	resp.Body.Close()
+	if !waitFor(t, 5*time.Second, func() bool { return m.ClientCount() == 0 && m.ConnectionCount() == 0 }) {
+		t.Fatalf("counts did not roll back; ClientCount=%d ConnectionCount=%d", m.ClientCount(), m.ConnectionCount())
+	}
+}
+
+// Listener stats events fire on establishment and established-disconnect only.
+// An unestablished connect/disconnect cycle must be silent: before this gate,
+// every recycled browser connection published a connect event and inflated
+// grimnir_listeners_current.
+func TestMount_ListenerStatsOnlyForEstablished(t *testing.T) {
+	bus := events.NewBus()
+	sub := bus.Subscribe(events.EventListenerStats)
+	defer bus.Unsubscribe(events.EventListenerStats, sub)
+
+	m := NewMount("test", "audio/mpeg", 1, zerolog.Nop(), bus)
+	srv := httptest.NewServer(http.HandlerFunc(m.ServeHTTP))
+	defer srv.Close()
+
+	// Cycle 1: connect and immediately drop, never establishing.
+	resp, err := http.Get(srv.URL + "/live")
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if !waitFor(t, 2*time.Second, func() bool { return m.ConnectionCount() == 1 }) {
+		t.Fatal("client never registered")
+	}
+	resp.Body.Close()
+	if !waitFor(t, 2*time.Second, func() bool { return m.ConnectionCount() == 0 }) {
+		t.Fatal("client never unregistered")
+	}
+	select {
+	case ev := <-sub:
+		t.Fatalf("unestablished connection published a stats event: %+v", ev)
+	case <-time.After(200 * time.Millisecond):
+		// Correct: silence.
+	}
+
+	// Cycle 2: connect, drain past the threshold, then drop.
+	resp2, err := http.Get(srv.URL + "/live")
+	if err != nil {
+		t.Fatalf("connect 2: %v", err)
+	}
+	defer resp2.Body.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		chunk := make([]byte, 512)
+		tick := time.NewTicker(5 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				m.Broadcast(chunk)
+			}
+		}
+	}()
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := resp2.Body.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	var got events.Payload
+	select {
+	case ev := <-sub:
+		got = ev
+	case <-time.After(5 * time.Second):
+		t.Fatal("no connect stats event after establishment")
+	}
+	if got["event"] != "connect" {
+		t.Fatalf("first stats event = %v, want connect", got["event"])
+	}
+	if got["listeners"] != 1 {
+		t.Fatalf("connect event listeners = %v, want 1", got["listeners"])
 	}
 }
