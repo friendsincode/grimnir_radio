@@ -1,9 +1,14 @@
 # syntax=docker/dockerfile:1
 # Build stage
-FROM golang:1.24-alpine AS builder
+# Pinned to alpine 3.22 to match the runtime stage below: the media engine links
+# go-gst (CGo), so builder & runtime must share the same alpine (glib/gstreamer)
+# version, or the binary fails to relocate symbols at startup. This mirrors the
+# control-plane Dockerfile.
+FROM golang:1.24-alpine3.22 AS builder
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+# The media engine links go-gst (CGo: gst, gst/base, gst/app), so the builder
+# needs a C toolchain + GStreamer dev headers and CGO_ENABLED=1 (below).
+RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev pkgconf gstreamer-dev gst-plugins-base-dev
 
 WORKDIR /build
 
@@ -11,64 +16,53 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy protobuf files and generated code
-COPY proto/ proto/
-COPY internal/ internal/
-COPY cmd/mediaengine/ cmd/mediaengine/
+# Copy source code
+COPY . .
 
 # Version can be passed as build arg (from CI) or derived from git
 ARG VERSION=""
 
-# Build binary with optimizations (BuildKit cache for faster rebuilds)
+# Build binary with optimizations (BuildKit cache for faster rebuilds).
+# CGO_ENABLED=1 is required: go-gst has no non-CGo build, so a static build
+# fails with "undefined: MessageStateChanged" and similar.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     VERSION_VAL="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')}" && \
     VERSION_VAL="${VERSION_VAL#v}" && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s -X main.Version=${VERSION_VAL}" \
     -o mediaengine \
     ./cmd/mediaengine
 
 # Runtime stage - GStreamer environment
-FROM ubuntu:22.04
+# Must match the builder's alpine (glib/gstreamer version) above.
+FROM alpine:3.22
 
-# Prevent interactive prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install GStreamer and required plugins
-RUN apt-get update && apt-get install -y \
-    gstreamer1.0-tools \
-    gstreamer1.0-plugins-base \
-    gstreamer1.0-plugins-base-apps \
-    gstreamer1.0-plugins-good \
-    gstreamer1.0-plugins-bad \
-    gstreamer1.0-plugins-ugly \
-    gstreamer1.0-libav \
-    gstreamer1.0-alsa \
-    gstreamer1.0-pulseaudio \
-    # Additional codecs and filters
-    libgstreamer-plugins-bad1.0-0 \
-    # SRT support
-    libsrt1.4-gnutls \
-    # Analysis tools
-    ffmpeg \
-    # Tools
+# Install runtime dependencies. gst-libav provides avenc_aac for AAC output;
+# base/good/bad/ugly cover the DSP graph, RTP, and codec elements.
+RUN apk add --no-cache \
     ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user
-RUN groupadd -r mediaengine && useradd -r -g mediaengine mediaengine
+    tzdata \
+    ffmpeg \
+    gstreamer \
+    gstreamer-tools \
+    gst-plugins-base \
+    gst-plugins-good \
+    gst-plugins-bad \
+    gst-plugins-ugly \
+    gst-libav \
+    && addgroup -S mediaengine \
+    && adduser -S -G mediaengine mediaengine
 
 # Copy binary from builder
 COPY --from=builder /build/mediaengine /usr/local/bin/mediaengine
 
 # Copy license and notices into image for distribution compliance
 RUN mkdir -p /usr/share/licenses/grimnir-radio/third_party/licenses
-COPY LICENSE /usr/share/licenses/grimnir-radio/LICENSE
-COPY THIRD_PARTY_NOTICES.md /usr/share/licenses/grimnir-radio/THIRD_PARTY_NOTICES.md
-COPY third_party/go-licenses.csv /usr/share/licenses/grimnir-radio/third_party/go-licenses.csv
-COPY third_party/licenses/ /usr/share/licenses/grimnir-radio/third_party/licenses/
+COPY --from=builder /build/LICENSE /usr/share/licenses/grimnir-radio/LICENSE
+COPY --from=builder /build/THIRD_PARTY_NOTICES.md /usr/share/licenses/grimnir-radio/THIRD_PARTY_NOTICES.md
+COPY --from=builder /build/third_party/go-licenses.csv /usr/share/licenses/grimnir-radio/third_party/go-licenses.csv
+COPY --from=builder /build/third_party/licenses/ /usr/share/licenses/grimnir-radio/third_party/licenses/
 
 # Create necessary directories
 RUN mkdir -p /var/lib/mediaengine/cache \
