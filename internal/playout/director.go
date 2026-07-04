@@ -1266,8 +1266,8 @@ func (d *Director) resumeEntryIfPossible(ctx context.Context, entry models.Sched
 		mediaID = state.MediaID
 	}
 
-	var media models.MediaItem
-	if err := d.db.WithContext(ctx).First(&media, "id = ?", mediaID).Error; err != nil {
+	media, err := d.loadPlayableMedia(ctx, entry.StationID, mediaID)
+	if err != nil {
 		return false
 	}
 
@@ -1287,8 +1287,7 @@ func (d *Director) resumeEntryIfPossible(ctx context.Context, entry models.Sched
 }
 
 func (d *Director) startMediaEntry(ctx context.Context, entry models.ScheduleEntry) error {
-	var media models.MediaItem
-	err := d.db.WithContext(ctx).First(&media, "id = ?", entry.SourceID).Error
+	media, err := d.loadPlayableMedia(ctx, entry.StationID, entry.SourceID)
 	if err != nil {
 		return err
 	}
@@ -2139,8 +2138,8 @@ func (d *Director) startPlaylistEntry(ctx context.Context, entry models.Schedule
 	}
 
 	// Load media at current position
-	var media models.MediaItem
-	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[position]).Error; err != nil {
+	media, err := d.loadPlayableMedia(ctx, entry.StationID, items[position])
+	if err != nil {
 		return fmt.Errorf("failed to load media item: %w", err)
 	}
 
@@ -2252,8 +2251,8 @@ func (d *Director) startSmartBlockEntry(ctx context.Context, entry models.Schedu
 	}
 
 	// Load first media item
-	var media models.MediaItem
-	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
+	media, err := d.loadPlayableMedia(ctx, entry.StationID, items[0])
+	if err != nil {
 		return fmt.Errorf("failed to load media item: %w", err)
 	}
 
@@ -2426,8 +2425,10 @@ func (d *Director) findCurrentSlot(slots []models.ClockSlot, startsAt time.Time)
 
 // startSmartBlockByID starts a smart block by ID (used by clock slots)
 func (d *Director) startSmartBlockByID(ctx context.Context, entry models.ScheduleEntry, blockID, clockID, clockName string) error {
+	// Station-scoped for the same reason as startPlaylistByID: a foreign
+	// block id must fail like a deleted one, not run another station's rules.
 	var block models.SmartBlock
-	if err := d.db.WithContext(ctx).First(&block, "id = ?", blockID).Error; err != nil {
+	if err := d.db.WithContext(ctx).First(&block, "id = ? AND station_id = ?", blockID, entry.StationID).Error; err != nil {
 		return fmt.Errorf("failed to load smart block: %w", err)
 	}
 
@@ -2472,8 +2473,8 @@ func (d *Director) startSmartBlockByID(ctx context.Context, entry models.Schedul
 		return nil
 	}
 
-	var media models.MediaItem
-	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
+	media, err := d.loadPlayableMedia(ctx, entry.StationID, items[0])
+	if err != nil {
 		return fmt.Errorf("failed to load media item: %w", err)
 	}
 
@@ -2487,6 +2488,24 @@ func (d *Director) startSmartBlockByID(ctx context.Context, entry models.Schedul
 }
 
 // playMediaByID plays a specific media item by ID (used by clock hard_item slots)
+// loadPlayableMedia loads a media item this station may legitimately air: its
+// own library, or another public station's archive-shared track — the same
+// visibility rule the smart-block engine's include_public_archive union
+// applies. Clock-slot payloads and playlist items store bare media ids with no
+// ownership check at play time, so a copied clock template or a mis-mapped
+// import could put any station's audio on this mount (issues #243/#245:
+// "wrong station 100%"). A foreign, non-shared id now behaves exactly like a
+// deleted id, so every caller's existing missing-media fallback handles it.
+func (d *Director) loadPlayableMedia(ctx context.Context, stationID, mediaID string) (models.MediaItem, error) {
+	var media models.MediaItem
+	err := d.db.WithContext(ctx).
+		Where("id = ?", mediaID).
+		Where("station_id = ? OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
+			stationID, true, true, true, true).
+		First(&media).Error
+	return media, err
+}
+
 func (d *Director) playMediaByID(ctx context.Context, entry models.ScheduleEntry, mediaID, clockID, clockName string) error {
 	items := d.applyTrackOverrides(ctx, entry, []string{mediaID})
 	if len(items) == 0 {
@@ -2499,8 +2518,8 @@ func (d *Director) playMediaByID(ctx context.Context, entry models.ScheduleEntry
 		return nil
 	}
 
-	var media models.MediaItem
-	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
+	media, err := d.loadPlayableMedia(ctx, entry.StationID, items[0])
+	if err != nil {
 		return fmt.Errorf("failed to load media item: %w", err)
 	}
 
@@ -2603,11 +2622,15 @@ func (d *Director) applyTrackOverrides(ctx context.Context, entry models.Schedul
 
 // startPlaylistByID plays a playlist by ID (used by clock playlist slots)
 func (d *Director) startPlaylistByID(ctx context.Context, entry models.ScheduleEntry, playlistID, clockID, clockName string) error {
-	// Load playlist with items ordered by position
+	// Load playlist with items ordered by position. Station-scoped: a clock
+	// slot payload naming another station's playlist (copied template,
+	// mis-mapped import) must fail like a deleted reference & take the
+	// caller's fallback, not put a foreign station's lineup on this mount
+	// (issues #243/#245). Matches applyTrackOverrides' scoping.
 	var playlist models.Playlist
 	if err := d.db.WithContext(ctx).Preload("Items", func(db *gorm.DB) *gorm.DB {
 		return db.Order("position ASC")
-	}).First(&playlist, "id = ?", playlistID).Error; err != nil {
+	}).First(&playlist, "id = ? AND station_id = ?", playlistID, entry.StationID).Error; err != nil {
 		return fmt.Errorf("failed to load playlist: %w", err)
 	}
 
@@ -2645,8 +2668,8 @@ func (d *Director) startPlaylistByID(ctx context.Context, entry models.ScheduleE
 	}
 
 	// Load first media item
-	var media models.MediaItem
-	if err := d.db.WithContext(ctx).First(&media, "id = ?", items[0]).Error; err != nil {
+	media, err := d.loadPlayableMedia(ctx, entry.StationID, items[0])
+	if err != nil {
 		return fmt.Errorf("failed to load media item: %w", err)
 	}
 
@@ -3759,8 +3782,8 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 
 	nextMediaID := state.Items[nextPos]
 
-	var media models.MediaItem
-	if err := d.db.First(&media, "id = ?", nextMediaID).Error; err != nil {
+	media, err := d.loadPlayableMedia(context.Background(), entry.StationID, nextMediaID)
+	if err != nil {
 		d.logger.Warn().Err(err).Str("media_id", nextMediaID).Msg("failed to load next media item")
 		return
 	}
