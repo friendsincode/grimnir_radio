@@ -80,12 +80,20 @@ jobs:
             make migration-lint
           fi
 
-      - name: go test
-        run: go test -count=1 ./...
+      # -race is mandatory here: broadcast's client map, webrtc's peer map,
+      # playout's pipeline lifecycle, fan-out sessions & leader election are
+      # all concurrency-heavy, and a data race can otherwise ship green
+      # (issue #249). The tree passed a full -race sweep when this was enabled.
+      - name: go test (race detector on)
+        run: go test -count=1 -race ./...
 
-      - name: Coverage report (80% target, non-blocking gate)
+      # Ratchet gate: the floor sits just under the measured total at the time
+      # of the last raise (53.30% on 2026-07-04) so coverage can only move up.
+      # Raise COVERAGE_MIN as test-debt issues #250-#255 land. 80% stays the
+      # target COVERAGE_MIN should eventually reach.
+      - name: Coverage gate (ratchet floor, enforced)
         run: |
-          COVERAGE_MIN=80 COVERAGE_ENFORCE=0 make coverage
+          COVERAGE_MIN=52 COVERAGE_ENFORCE=1 make coverage-check
 
       - name: Upload coverage profile
         uses: actions/upload-artifact@v4
