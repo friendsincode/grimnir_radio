@@ -410,9 +410,19 @@ func (b *Buffer) GetComponentsForStation(stationID string) []string {
 // Clear empties the buffer.
 func (b *Buffer) Clear() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.head = 0
 	b.count = 0
+	b.mu.Unlock()
+
+	// The per-station mirrors must clear too: the admin clear-logs action
+	// (internal/api) calls this, & leaving the mirrors populated meant
+	// station-scoped log views kept showing entries the operator had just
+	// cleared.
+	b.stationMu.RLock()
+	for _, sb := range b.stationBuffers {
+		sb.Clear()
+	}
+	b.stationMu.RUnlock()
 }
 
 // Writer wraps the buffer to implement io.Writer for zerolog.
