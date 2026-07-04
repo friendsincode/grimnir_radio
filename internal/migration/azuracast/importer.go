@@ -390,13 +390,22 @@ func (i *Importer) importMedia(ctx context.Context, azuraDB *sql.DB, stationMap 
 			}
 		}
 
-		// Create Grimnir media record
+		// Create Grimnir media record. cue_in marks where playback starts
+		// (IntroEnd); cue_out marks where the outro begins (OutroIn). Both
+		// used to be written to OutroIn, so every imported cue-in was
+		// silently discarded (#253). Fades map to their own fields.
 		cuePoints := models.CuePointSet{}
 		if cueIn.Valid {
-			cuePoints.OutroIn = cueIn.Float64
+			cuePoints.IntroEnd = cueIn.Float64
 		}
 		if cueOut.Valid {
 			cuePoints.OutroIn = cueOut.Float64
+		}
+		if fadeIn.Valid {
+			cuePoints.FadeIn = fadeIn.Float64
+		}
+		if fadeOut.Valid {
+			cuePoints.FadeOut = fadeOut.Float64
 		}
 
 		media := &models.MediaItem{
