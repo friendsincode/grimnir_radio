@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,14 +24,16 @@ import (
 
 // NATSBus implements a NATS-backed event bus with JetStream persistence.
 type NATSBus struct {
-	conn   *nats.Conn
-	js     jetstream.JetStream
-	logger zerolog.Logger
-	nodeID string
+	conn       *nats.Conn
+	js         jetstream.JetStream
+	logger     zerolog.Logger
+	nodeID     string
+	streamName string
 
-	mu       sync.RWMutex
-	subs     map[events.EventType][]events.Subscriber
-	natsSubs map[events.EventType]jetstream.Consumer
+	mu        sync.RWMutex
+	subs      map[events.EventType][]events.Subscriber
+	natsSubs  map[events.EventType]jetstream.Consumer
+	iterators map[events.EventType]jetstream.MessagesContext
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -154,9 +157,11 @@ func NewNATSBus(cfg NATSConfig, nodeID string, logger zerolog.Logger) (*NATSBus,
 		js:          js,
 		logger:      logger,
 		nodeID:      nodeID,
+		streamName:  cfg.StreamName,
 		maxFails:    cfg.MaxFailures,
 		subs:        make(map[events.EventType][]events.Subscriber),
 		natsSubs:    make(map[events.EventType]jetstream.Consumer),
+		iterators:   make(map[events.EventType]jetstream.MessagesContext),
 		ctx:         ctx,
 		cancel:      cancel,
 		useFallback: false,
@@ -167,12 +172,30 @@ func NewNATSBus(cfg NATSConfig, nodeID string, logger zerolog.Logger) (*NATSBus,
 	return nb, nil
 }
 
+// sanitizeConsumerName maps characters JetStream forbids in durable/consumer
+// names ('.', '*', '>', whitespace) to underscores.
+func sanitizeConsumerName(name string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '.', '*', '>', ' ', '\t':
+			return '_'
+		}
+		return r
+	}, name)
+}
+
 // createOrUpdateStream creates or updates the JetStream stream.
 func createOrUpdateStream(ctx context.Context, js jetstream.JetStream, streamName string) error {
+	// Limits retention, NOT WorkQueue: a work-queue stream hands each message
+	// to exactly one consumer & rejects DeliverNew consumers outright
+	// ("consumer must be deliver all on workqueue stream", err 10101), so
+	// every Subscribe failed & no node ever received a JetStream message. A
+	// bus needs fan-out — every node's consumer sees every event — which
+	// Limits retention provides, with MaxAge bounding storage.
 	streamCfg := jetstream.StreamConfig{
 		Name:        streamName,
 		Subjects:    []string{"grimnir.events.>"},
-		Retention:   jetstream.WorkQueuePolicy,
+		Retention:   jetstream.LimitsPolicy,
 		MaxAge:      24 * time.Hour,
 		Storage:     jetstream.FileStorage,
 		Replicas:    1,
@@ -217,11 +240,18 @@ func (nb *NATSBus) Subscribe(eventType events.EventType) events.Subscriber {
 
 	// Check if we already have a NATS consumer for this event type
 	if _, exists := nb.natsSubs[eventType]; !exists {
-		// Create durable consumer
+		// Create durable consumer. The name must be sanitized: JetStream
+		// forbids '.', '*', '>' & spaces in durable names, and every real
+		// event type contains dots (schedule.update, listener.stats) — the
+		// unsanitized name made consumer creation fail for every production
+		// event type, and the failure path then self-deadlocked on nb.mu via
+		// handleFailure while Subscribe still held the lock. The subject keeps
+		// the raw event type (dots are hierarchy there, matched by the
+		// stream's grimnir.events.> wildcard).
 		subject := fmt.Sprintf("grimnir.events.%s", eventType)
-		consumerName := fmt.Sprintf("%s-%s", nb.nodeID, eventType)
+		consumerName := sanitizeConsumerName(fmt.Sprintf("%s-%s", nb.nodeID, eventType))
 
-		consumer, err := nb.js.CreateOrUpdateConsumer(nb.ctx, "GRIMNIR_EVENTS", jetstream.ConsumerConfig{
+		consumer, err := nb.js.CreateOrUpdateConsumer(nb.ctx, nb.streamName, jetstream.ConsumerConfig{
 			Name:          consumerName,
 			Durable:       consumerName,
 			FilterSubject: subject,
@@ -231,7 +261,11 @@ func (nb *NATSBus) Subscribe(eventType events.EventType) events.Subscriber {
 
 		if err != nil {
 			nb.logger.Error().Err(err).Str("event_type", string(eventType)).Msg("failed to create NATS consumer")
+			// handleFailure locks nb.mu itself; calling it under the lock
+			// deadlocked. Record the failure after releasing.
+			nb.mu.Unlock()
 			nb.handleFailure()
+			nb.mu.Lock()
 			return sub
 		}
 
@@ -259,6 +293,13 @@ func (nb *NATSBus) receiveMessages(eventType events.EventType, consumer jetstrea
 		return
 	}
 	defer msgs.Stop()
+
+	// Register the iterator so Close can Stop it: Next() blocks with no
+	// context check, so cancel+wg.Wait alone deadlocks shutdown — the same
+	// unwakeable-wait shape as the GStreamer bus TimedPop hang.
+	nb.mu.Lock()
+	nb.iterators[eventType] = msgs
+	nb.mu.Unlock()
 
 	for {
 		select {
@@ -406,6 +447,15 @@ func (nb *NATSBus) Close() error {
 	if nb.cancel != nil {
 		nb.cancel()
 	}
+
+	// Stop every message iterator so receivers blocked inside Next() wake
+	// with ErrMsgIteratorClosed; without this, wg.Wait below never returns.
+	nb.mu.Lock()
+	for _, it := range nb.iterators {
+		it.Stop()
+	}
+	nb.iterators = make(map[events.EventType]jetstream.MessagesContext)
+	nb.mu.Unlock()
 
 	// Wait for all receivers to finish
 	nb.wg.Wait()

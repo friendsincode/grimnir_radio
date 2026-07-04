@@ -348,10 +348,10 @@ func (rb *RedisBus) handleFailure() {
 		rb.useFallback = true
 		rb.lastCheck = time.Now()
 
-		// Close Redis client
-		if rb.client != nil {
-			rb.client.Close()
-		}
+		// Deliberately do NOT close the client: tryReconnect pings through
+		// this same client to close the circuit, & a closed go-redis client
+		// returns "client is closed" forever — reconnection could never
+		// succeed. The pool discards broken connections on its own.
 	}
 }
 
