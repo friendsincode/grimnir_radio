@@ -101,12 +101,17 @@ func (b *Bus) Subscribe(eventType EventType) Subscriber {
 	return ch
 }
 
-// Publish sends payload to subscribers.
+// Publish sends payload to subscribers. Delivery happens under the read lock:
+// the old copy-then-send-unlocked version raced Unsubscribe's close, so any
+// subscriber leaving mid-publish panicked the process with "send on closed
+// channel" (web handlers unsubscribe on client disconnect while playout
+// publishes constantly). Sends are non-blocking, so holding RLock is cheap &
+// Unsubscribe (which needs the write lock) can never close a channel while a
+// send is in flight.
 func (b *Bus) Publish(eventType EventType, payload Payload) {
 	b.mu.RLock()
-	subs := append([]Subscriber(nil), b.subs[eventType]...)
-	b.mu.RUnlock()
-	for _, sub := range subs {
+	defer b.mu.RUnlock()
+	for _, sub := range b.subs[eventType] {
 		select {
 		case sub <- payload:
 		default:
@@ -114,17 +119,19 @@ func (b *Bus) Publish(eventType EventType, payload Payload) {
 	}
 }
 
-// Unsubscribe removes the subscriber.
+// Unsubscribe removes the subscriber. Closing happens only for channels that
+// were actually registered: the old unconditional close meant a repeated
+// Unsubscribe (or one against the wrong event type) was a
+// close-of-closed-channel panic in the process that runs the station.
 func (b *Bus) Unsubscribe(eventType EventType, sub Subscriber) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	subs := b.subs[eventType]
 	for i, candidate := range subs {
 		if candidate == sub {
-			subs = append(subs[:i], subs[i+1:]...)
-			break
+			b.subs[eventType] = append(subs[:i], subs[i+1:]...)
+			close(sub)
+			return
 		}
 	}
-	b.subs[eventType] = subs
-	close(sub)
 }

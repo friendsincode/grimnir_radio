@@ -768,18 +768,29 @@ func (s *Service) GetUserPreferences(ctx context.Context, userID string) ([]mode
 
 // UpdatePreference updates a notification preference.
 func (s *Service) UpdatePreference(ctx context.Context, prefID, userID string, enabled bool, config map[string]any) error {
-	updates := map[string]any{"enabled": enabled}
+	// Bug fix: passing the config map inside Updates(map[string]any{...})
+	// bypassed the field's json serializer, so the driver rejected the raw
+	// map ("unsupported type map[string]interface{}") and every config
+	// update failed. Updating via the struct with Select applies the
+	// serializer and still writes enabled=false.
+	fields := []string{"enabled"}
 	if config != nil {
-		updates["config"] = config
+		fields = append(fields, "config")
 	}
 
 	result := s.db.WithContext(ctx).Model(&models.NotificationPreference{}).
 		Where("id = ? AND user_id = ?", prefID, userID).
-		Updates(updates)
+		Select(fields).
+		Updates(models.NotificationPreference{Enabled: enabled, Config: config})
 
+	// Bug fix: checking RowsAffected before result.Error masked real SQL
+	// errors as "preference not found".
+	if result.Error != nil {
+		return result.Error
+	}
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("preference not found")
 	}
 
-	return result.Error
+	return nil
 }
