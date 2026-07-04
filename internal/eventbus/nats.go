@@ -23,11 +23,10 @@ import (
 
 // NATSBus implements a NATS-backed event bus with JetStream persistence.
 type NATSBus struct {
-	conn     *nats.Conn
-	js       jetstream.JetStream
-	logger   zerolog.Logger
-	fallback *events.Bus
-	nodeID   string
+	conn   *nats.Conn
+	js     jetstream.JetStream
+	logger zerolog.Logger
+	nodeID string
 
 	mu       sync.RWMutex
 	subs     map[events.EventType][]events.Subscriber
@@ -106,7 +105,6 @@ func NewNATSBus(cfg NATSConfig, nodeID string, logger zerolog.Logger) (*NATSBus,
 
 		return &NATSBus{
 			logger:      logger,
-			fallback:    events.NewBus(),
 			nodeID:      nodeID,
 			useFallback: true,
 			maxFails:    cfg.MaxFailures,
@@ -125,7 +123,6 @@ func NewNATSBus(cfg NATSConfig, nodeID string, logger zerolog.Logger) (*NATSBus,
 
 		return &NATSBus{
 			logger:      logger,
-			fallback:    events.NewBus(),
 			nodeID:      nodeID,
 			useFallback: true,
 			maxFails:    cfg.MaxFailures,
@@ -143,7 +140,6 @@ func NewNATSBus(cfg NATSConfig, nodeID string, logger zerolog.Logger) (*NATSBus,
 
 		return &NATSBus{
 			logger:      logger,
-			fallback:    events.NewBus(),
 			nodeID:      nodeID,
 			useFallback: true,
 			maxFails:    cfg.MaxFailures,
@@ -157,7 +153,6 @@ func NewNATSBus(cfg NATSConfig, nodeID string, logger zerolog.Logger) (*NATSBus,
 		conn:        conn,
 		js:          js,
 		logger:      logger,
-		fallback:    events.NewBus(),
 		nodeID:      nodeID,
 		maxFails:    cfg.MaxFailures,
 		subs:        make(map[events.EventType][]events.Subscriber),
@@ -214,9 +209,10 @@ func (nb *NATSBus) Subscribe(eventType events.EventType) events.Subscriber {
 	// Track subscriber
 	nb.subs[eventType] = append(nb.subs[eventType], sub)
 
-	// If using fallback, delegate to in-memory bus
+	// In fallback mode there is no NATS consumer to wire up; local delivery
+	// via Publish covers the subscriber (same contract as RedisBus.Subscribe).
 	if nb.useFallback {
-		return nb.fallback.Subscribe(eventType)
+		return sub
 	}
 
 	// Check if we already have a NATS consumer for this event type
@@ -236,7 +232,7 @@ func (nb *NATSBus) Subscribe(eventType events.EventType) events.Subscriber {
 		if err != nil {
 			nb.logger.Error().Err(err).Str("event_type", string(eventType)).Msg("failed to create NATS consumer")
 			nb.handleFailure()
-			return nb.fallback.Subscribe(eventType)
+			return sub
 		}
 
 		nb.natsSubs[eventType] = consumer
@@ -324,10 +320,26 @@ func (nb *NATSBus) receiveMessages(eventType events.EventType, consumer jetstrea
 	}
 }
 
+// deliverLocal fans a payload out to this node's subscribers, non-blocking.
+func (nb *NATSBus) deliverLocal(eventType events.EventType, payload events.Payload) {
+	nb.mu.RLock()
+	subs := nb.subs[eventType]
+	nb.mu.RUnlock()
+
+	for _, sub := range subs {
+		select {
+		case sub <- payload:
+		default:
+			nb.logger.Warn().Str("event_type", string(eventType)).Msg("subscriber channel full, dropping event")
+		}
+	}
+}
+
 // Publish sends an event payload to all subscribers (local and remote).
 func (nb *NATSBus) Publish(eventType events.EventType, payload events.Payload) {
-	// Always publish locally via fallback (for same-node subscribers)
-	nb.fallback.Publish(eventType, payload)
+	// Same-node subscribers get the payload directly; the NATS copy below is
+	// for other nodes only (receiveMessages drops this node's own echo).
+	nb.deliverLocal(eventType, payload)
 
 	// If using fallback circuit breaker, don't try NATS
 	if nb.useFallback {
@@ -370,19 +382,17 @@ func (nb *NATSBus) Unsubscribe(eventType events.EventType, sub events.Subscriber
 	defer nb.mu.Unlock()
 
 	// Remove from tracking
+	// Only close the channel when it was actually registered here: closing
+	// unconditionally & then delegating to a second bus that also closed it
+	// was a guaranteed double-close panic on every unsubscribe (#252).
 	subs := nb.subs[eventType]
 	for i, s := range subs {
 		if s == sub {
 			nb.subs[eventType] = append(subs[:i], subs[i+1:]...)
+			close(sub)
 			break
 		}
 	}
-
-	// Close subscriber channel
-	close(sub)
-
-	// Delegate to fallback
-	nb.fallback.Unsubscribe(eventType, sub)
 
 	// If no more subscribers, we can optionally delete the consumer
 	// For now, keep it for durability

@@ -20,11 +20,10 @@ import (
 
 // RedisBus implements a Redis-backed event bus for distributed systems.
 type RedisBus struct {
-	client   *redis.Client
-	pubsub   *redis.PubSub
-	logger   zerolog.Logger
-	fallback *events.Bus
-	nodeID   string
+	client *redis.Client
+	pubsub *redis.PubSub
+	logger zerolog.Logger
+	nodeID string
 
 	mu       sync.RWMutex
 	subs     map[events.EventType][]events.Subscriber
@@ -102,7 +101,6 @@ func NewRedisBus(cfg RedisConfig, nodeID string, logger zerolog.Logger) (*RedisB
 
 		return &RedisBus{
 			logger:      logger,
-			fallback:    events.NewBus(),
 			nodeID:      nodeID,
 			useFallback: true,
 			maxFails:    cfg.MaxFailures,
@@ -115,7 +113,6 @@ func NewRedisBus(cfg RedisConfig, nodeID string, logger zerolog.Logger) (*RedisB
 	rb := &RedisBus{
 		client:      client,
 		logger:      logger,
-		fallback:    events.NewBus(),
 		nodeID:      nodeID,
 		maxFails:    cfg.MaxFailures,
 		subs:        make(map[events.EventType][]events.Subscriber),
@@ -130,7 +127,12 @@ func NewRedisBus(cfg RedisConfig, nodeID string, logger zerolog.Logger) (*RedisB
 	return rb, nil
 }
 
-// Subscribe registers a subscriber for an event type.
+// Subscribe registers a subscriber for an event type. The returned channel
+// receives both same-node publishes (delivered directly by Publish) and
+// remote-node messages (delivered by receiveMessages, which skips this node's
+// own echoes). Earlier versions returned a channel that only ever saw remote
+// messages while local publishes went to an internal bus with no subscribers —
+// a same-node black hole (#252).
 func (rb *RedisBus) Subscribe(eventType events.EventType) events.Subscriber {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
@@ -141,9 +143,10 @@ func (rb *RedisBus) Subscribe(eventType events.EventType) events.Subscriber {
 	// Track subscriber
 	rb.subs[eventType] = append(rb.subs[eventType], sub)
 
-	// If using fallback, delegate to in-memory bus
+	// In fallback mode there is no Redis subscription to wire up; local
+	// delivery via Publish covers the subscriber until Redis returns.
 	if rb.useFallback {
-		return rb.fallback.Subscribe(eventType)
+		return sub
 	}
 
 	// Check if we already have a Redis subscription for this event type
@@ -158,6 +161,21 @@ func (rb *RedisBus) Subscribe(eventType events.EventType) events.Subscriber {
 	}
 
 	return sub
+}
+
+// deliverLocal fans a payload out to this node's subscribers, non-blocking.
+func (rb *RedisBus) deliverLocal(eventType events.EventType, payload events.Payload) {
+	rb.mu.RLock()
+	subs := rb.subs[eventType]
+	rb.mu.RUnlock()
+
+	for _, sub := range subs {
+		select {
+		case sub <- payload:
+		default:
+			rb.logger.Warn().Str("event_type", string(eventType)).Msg("subscriber channel full, dropping event")
+		}
+	}
 }
 
 // receiveMessages handles incoming Redis pub/sub messages.
@@ -216,8 +234,10 @@ func (rb *RedisBus) receiveMessages(eventType events.EventType, pubsub *redis.Pu
 
 // Publish sends an event payload to all subscribers (local and remote).
 func (rb *RedisBus) Publish(eventType events.EventType, payload events.Payload) {
-	// Always publish locally via fallback (for same-node subscribers)
-	rb.fallback.Publish(eventType, payload)
+	// Same-node subscribers get the payload directly; the Redis copy below is
+	// for other nodes only (receiveMessages drops this node's own echo, so
+	// nothing is delivered twice).
+	rb.deliverLocal(eventType, payload)
 
 	// If using fallback circuit breaker, don't try Redis
 	if rb.useFallback {
@@ -257,20 +277,18 @@ func (rb *RedisBus) Unsubscribe(eventType events.EventType, sub events.Subscribe
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
-	// Remove from tracking
+	// Remove from tracking. Only close the channel when it was actually
+	// registered here: closing unconditionally & then delegating to a second
+	// bus that also closed it was a guaranteed double-close panic on every
+	// unsubscribe (#252).
 	subs := rb.subs[eventType]
 	for i, s := range subs {
 		if s == sub {
 			rb.subs[eventType] = append(subs[:i], subs[i+1:]...)
+			close(sub)
 			break
 		}
 	}
-
-	// Close subscriber channel
-	close(sub)
-
-	// Delegate to fallback
-	rb.fallback.Unsubscribe(eventType, sub)
 
 	// If no more subscribers, close Redis subscription
 	if len(rb.subs[eventType]) == 0 {
