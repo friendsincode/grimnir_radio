@@ -1567,6 +1567,17 @@ func adminDeleteMediaReferences(tx *gorm.DB, mediaIDs []string) error {
 		return nil
 	}
 
+	// MediaTagLink: delete. This table has a real FK to media_items (GORM
+	// has-many via MediaItem.Tags), so leaving rows here aborts the final
+	// media_items delete with SQLSTATE 23503, rolls back the transaction, &
+	// the item "won't go away" in the library (issue #248 / GitLab #1 — the
+	// one child table the #223/#228/#242 fix series missed). Imported media
+	// is almost always tagged, which is why imports were the reports' common
+	// thread. Mirrors the importer's own cleanup (internal/migration/service.go).
+	if err := tx.Where("media_item_id IN ?", mediaIDs).Delete(&models.MediaTagLink{}).Error; err != nil {
+		return fmt.Errorf("delete MediaTagLink refs: %w", err)
+	}
+
 	// PlaylistItem: delete
 	if err := tx.Where("media_id IN ?", mediaIDs).Delete(&models.PlaylistItem{}).Error; err != nil {
 		return fmt.Errorf("delete PlaylistItem refs: %w", err)
