@@ -132,14 +132,41 @@ func TestStateManager_GetState_CachesResult(t *testing.T) {
 		t.Fatalf("first GetState: %v", err)
 	}
 
-	// Second call should return cached result (same pointer)
+	// Second call serves from cache. This test used to assert pointer
+	// identity, which enshrined the escaped-pointer data race the -race CI
+	// caught (callers reading the shared struct while UpdateState mutated it
+	// under the lock). GetState now returns an independent snapshot per call.
 	state2, err := sm.GetState(ctx, stationID)
 	if err != nil {
 		t.Fatalf("second GetState: %v", err)
 	}
 
-	if state1 != state2 {
-		t.Error("second GetState should return the cached pointer")
+	if state1 == state2 {
+		t.Error("GetState must return an independent snapshot, not the shared cache pointer")
+	}
+	if state1.ID != state2.ID || state1.StationID != state2.StationID {
+		t.Errorf("cached snapshot differs: %+v vs %+v", state1, state2)
+	}
+
+	// Snapshots must be isolated from later updates, including the map.
+	if err := sm.UpdateState(ctx, stationID, func(s *models.ExecutorState) {
+		s.State = models.ExecutorStatePlaying
+		s.Metadata["mount_id"] = "m-123"
+	}); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+	if state2.State == models.ExecutorStatePlaying {
+		t.Error("snapshot saw a later state mutation (shared struct leaked)")
+	}
+	if _, leaked := state2.Metadata["mount_id"]; leaked {
+		t.Error("snapshot saw a later Metadata mutation (shared map leaked)")
+	}
+	fresh, err := sm.GetState(ctx, stationID)
+	if err != nil {
+		t.Fatalf("third GetState: %v", err)
+	}
+	if fresh.State != models.ExecutorStatePlaying {
+		t.Errorf("fresh snapshot state = %q, want playing (cache must reflect updates)", fresh.State)
 	}
 }
 

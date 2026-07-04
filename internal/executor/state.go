@@ -38,12 +38,12 @@ func NewStateManager(db *gorm.DB, logger zerolog.Logger) *StateManager {
 // GetState retrieves the current state for a station.
 func (sm *StateManager) GetState(ctx context.Context, stationID string) (*models.ExecutorState, error) {
 	sm.mu.RLock()
-	cached, ok := sm.states[stationID]
-	sm.mu.RUnlock()
-
-	if ok {
-		return cached, nil
+	if cached, ok := sm.states[stationID]; ok {
+		cp := snapshotState(cached)
+		sm.mu.RUnlock()
+		return cp, nil
 	}
+	sm.mu.RUnlock()
 
 	// Load from database
 	var state models.ExecutorState
@@ -69,9 +69,27 @@ func (sm *StateManager) GetState(ctx context.Context, stationID string) (*models
 	// Cache it
 	sm.mu.Lock()
 	sm.states[stationID] = &state
+	cp := snapshotState(&state)
 	sm.mu.Unlock()
 
-	return &state, nil
+	return cp, nil
+}
+
+// snapshotState copies a cached state so no caller ever holds a pointer into
+// the locked cache. GetState used to return the shared pointer, so readers
+// (e.g. the telemetry stream loop reading state.Metadata) raced UpdateState
+// mutating the same struct under the lock — caught by the -race CI (#249).
+// The Metadata map is cloned too; a shallow copy would still share it.
+// Callers must mutate via UpdateState, never through this snapshot.
+func snapshotState(s *models.ExecutorState) *models.ExecutorState {
+	cp := *s
+	if s.Metadata != nil {
+		cp.Metadata = make(map[string]any, len(s.Metadata))
+		for k, v := range s.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+	return &cp
 }
 
 // UpdateState updates the executor state and persists to database.
