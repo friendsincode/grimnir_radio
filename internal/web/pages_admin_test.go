@@ -842,3 +842,74 @@ func TestCascadeDeleteStation_CleansScheduleSuppressions(t *testing.T) {
 		t.Fatal("schedule suppression still exists after cascadeDeleteStation — expected it to be deleted")
 	}
 }
+
+// Bug: adminDeleteMediaReferences called Update("media_id", "") on
+// MountPlayoutState and PlayHistory. Both columns are Postgres uuid (nullable).
+// Postgres rejects the empty string with SQLSTATE 22P02 ("invalid input syntax
+// for type uuid"), the transaction rolls back, the bulk-delete handler returns
+// 500, and HTMX silently swallows the failure. SM reported it three times
+// (#223, #228, #242) over six weeks before this test landed.
+//
+// SQLite is permissive about empty strings in uuid-typed columns, which is why
+// the v1.40.7 fix passed every existing test but still failed in prod. This
+// test uses GORM's DryRun mode to inspect the generated SQL directly, so the
+// assertion holds regardless of the underlying driver.
+func TestAdminDeleteMediaReferences_WritesNullNotEmptyString(t *testing.T) {
+	db := newCascadeTestDB(t)
+
+	// Seed rows so adminDeleteMediaReferences actually runs the UPDATEs (GORM
+	// short-circuits when there are no matching rows, which would hide the
+	// bug). We capture the SQL the helper emits by wiring a callback.
+	mediaID := "11111111-1111-1111-1111-111111111111"
+	if err := db.Create(&models.MountPlayoutState{
+		MountID:   "22222222-2222-2222-2222-222222222222",
+		StationID: "33333333-3333-3333-3333-333333333333",
+		MediaID:   mediaID,
+	}).Error; err != nil {
+		t.Fatalf("seed MountPlayoutState: %v", err)
+	}
+	if err := db.Create(&models.PlayHistory{
+		ID:        "44444444-4444-4444-4444-444444444444",
+		StationID: "33333333-3333-3333-3333-333333333333",
+		MediaID:   mediaID,
+		StartedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("seed PlayHistory: %v", err)
+	}
+
+	// Register a callback to capture every parameter the helper binds for
+	// updates that touch media_id. With the bug, those bindings include the
+	// empty string ""; with the fix, they should bind nil (driver -> SQL NULL).
+	var sawEmptyMediaIDBind bool
+	cbErr := db.Callback().Update().After("gorm:update").Register(
+		"test:capture_media_id_binds",
+		func(tx *gorm.DB) {
+			if tx.Statement == nil {
+				return
+			}
+			sql := strings.ToLower(tx.Statement.SQL.String())
+			if !strings.Contains(sql, "`media_id`=") && !strings.Contains(sql, `"media_id"=`) {
+				return
+			}
+			for _, v := range tx.Statement.Vars {
+				if s, ok := v.(string); ok && s == "" {
+					sawEmptyMediaIDBind = true
+				}
+			}
+		},
+	)
+	if cbErr != nil {
+		t.Fatalf("register callback: %v", cbErr)
+	}
+	defer func() {
+		_ = db.Callback().Update().Remove("test:capture_media_id_binds")
+	}()
+
+	if err := adminDeleteMediaReferences(db, []string{mediaID}); err != nil {
+		t.Fatalf("adminDeleteMediaReferences: %v", err)
+	}
+
+	if sawEmptyMediaIDBind {
+		t.Fatal("adminDeleteMediaReferences bound empty string \"\" to media_id; Postgres rejects this with SQLSTATE 22P02. Use nil (SQL NULL) instead.")
+	}
+}
