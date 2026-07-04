@@ -573,6 +573,46 @@ func (h *Handler) PlaylistRemoveItem(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/playlists/"+id, http.StatusSeeOther)
 }
 
+// PlaylistRemoveItems removes a batch of selected items from a playlist in
+// one request. Operators previously had to remove tracks one by one — the
+// only bulk option was deleting the whole playlist (operator request,
+// 2026-07-04, after 15 sequential single-item deletes).
+func (h *Handler) PlaylistRemoveItems(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+
+	// Verify playlist belongs to station
+	var playlist models.Playlist
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
+		http.Error(w, "No items selected", http.StatusBadRequest)
+		return
+	}
+
+	// playlist_id in the WHERE keeps the delete inside this playlist no
+	// matter what ids the client sends.
+	res := h.db.Delete(&models.PlaylistItem{}, "id IN ? AND playlist_id = ?", req.IDs, id)
+	if res.Error != nil {
+		http.Error(w, "Failed to remove items", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"removed": res.RowsAffected})
+}
+
 // PlaylistReorderItems handles drag-drop reordering
 func (h *Handler) PlaylistReorderItems(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)

@@ -99,8 +99,16 @@
     <div class="col-lg-8">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Tracks ({{len $items}})</h5>
-                <small class="text-body-secondary"><i class="bi bi-grip-vertical me-1"></i>Drag to reorder or drop media here</small>
+                <div class="d-flex align-items-center gap-2">
+                    <input type="checkbox" class="form-check-input mt-0" id="selectAllItems" title="Select all tracks">
+                    <h5 class="mb-0">Tracks ({{len $items}})</h5>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-danger d-none" id="removeSelectedBtn" onclick="removeSelectedItems()">
+                        <i class="bi bi-trash me-1"></i>Remove selected (<span id="selectedItemCount">0</span>)
+                    </button>
+                    <small class="text-body-secondary"><i class="bi bi-grip-vertical me-1"></i>Drag to reorder or drop media here</small>
+                </div>
             </div>
             <div class="card-body p-0" id="playlistDropZone">
                 {{if $items}}
@@ -111,6 +119,9 @@
                          data-id="{{$item.ID}}"
                          data-media-id="{{$item.MediaID}}"
                          data-position="{{$item.Position}}">
+                        <input type="checkbox" class="form-check-input item-select-checkbox mt-0"
+                               value="{{$item.ID}}"
+                               onclick="event.stopPropagation(); updateRemoveSelected();">
                         <span class="drag-handle text-body-secondary">
                             <i class="bi bi-grip-vertical"></i>
                         </span>
@@ -873,6 +884,43 @@ previewAudio.addEventListener('ended', () => {
         currentPreviewBtn = null;
     }
 });
+
+// ── Multi-select track removal (operator request 2026-07-04: removing tracks
+// one by one was the only option short of deleting the whole playlist) ──
+function selectedItemIDs() {
+    return Array.from(document.querySelectorAll('.item-select-checkbox:checked')).map(cb => cb.value);
+}
+
+function updateRemoveSelected() {
+    const ids = selectedItemIDs();
+    const btn = document.getElementById('removeSelectedBtn');
+    const count = document.getElementById('selectedItemCount');
+    if (!btn) return;
+    count.textContent = ids.length;
+    btn.classList.toggle('d-none', ids.length === 0);
+    const all = document.querySelectorAll('.item-select-checkbox');
+    const selectAll = document.getElementById('selectAllItems');
+    if (selectAll) selectAll.checked = all.length > 0 && ids.length === all.length;
+}
+
+document.getElementById('selectAllItems')?.addEventListener('change', function () {
+    document.querySelectorAll('.item-select-checkbox').forEach(cb => { cb.checked = this.checked; });
+    updateRemoveSelected();
+});
+
+function removeSelectedItems() {
+    const ids = selectedItemIDs();
+    if (ids.length === 0) return;
+    if (!confirm('Remove ' + ids.length + ' track(s) from this playlist? The files stay in the media library.')) return;
+    fetch(`/dashboard/playlists/${playlistId}/items/bulk-remove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ids })
+    }).then(resp => {
+        if (!resp.ok) throw new Error('remove failed: ' + resp.status);
+        window.location.reload();
+    }).catch(err => alert('Failed to remove tracks: ' + err.message));
+}
 </script>
 
 <style>
