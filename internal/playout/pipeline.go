@@ -60,12 +60,11 @@ type Pipeline struct {
 	cfg    *config.Config
 	logger zerolog.Logger
 
-	mu       sync.Mutex
-	gst      *gst.Pipeline
-	bus      *gst.Bus
-	mountID  string
-	done     chan struct{} // closed when bus consumer exits (ERROR/EOS/Stop)
-	doneOnce sync.Once
+	mu      sync.Mutex
+	gst     *gst.Pipeline
+	bus     *gst.Bus
+	mountID string
+	done    chan struct{} // closed when bus consumer exits (ERROR/EOS/Stop)
 
 	stopRequested bool
 
@@ -174,7 +173,6 @@ func (p *Pipeline) startLocked(launch string, seekFile *os.File, hqHandler, lqHa
 	p.gst = pipeline
 	p.bus = pipeline.GetPipelineBus()
 	p.done = make(chan struct{})
-	p.doneOnce = sync.Once{}
 	p.stopRequested = false
 	p.seekFile = seekFile
 	p.stdinWriter = stdinW
@@ -276,7 +274,11 @@ func (p *Pipeline) consumeBus(done chan struct{}) {
 		if pipeline != nil {
 			_ = pipeline.SetState(gst.StateNull)
 		}
-		p.doneOnce.Do(func() { close(done) })
+		// Sole closer: this defer runs exactly once per consumer goroutine, so
+		// no Once is needed. The old shared p.doneOnce was reset by startLocked
+		// on restart while the previous consumer's defer could still touch it —
+		// a data race the -race CI caught on its first full run (#249).
+		close(done)
 		p.logExit()
 	}()
 	for {
