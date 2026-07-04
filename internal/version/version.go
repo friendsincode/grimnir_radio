@@ -28,6 +28,10 @@ var Version = "2.0.0-rc.14"
 // GitHubRepo is the repository to check for updates
 const GitHubRepo = "friendsincode/grimnir_radio"
 
+// apiBase is the GitHub API root; a var only so tests can point the checker
+// at an httptest server.
+var apiBase = "https://api.github.com"
+
 // UpdateInfo contains information about available updates.
 type UpdateInfo struct {
 	CurrentVersion  string
@@ -112,7 +116,7 @@ func (c *Checker) Info() *UpdateInfo {
 
 // check fetches the latest release from GitHub.
 func (c *Checker) check(ctx context.Context) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", GitHubRepo)
+	url := fmt.Sprintf("%s/repos/%s/releases/latest", apiBase, GitHubRepo)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
