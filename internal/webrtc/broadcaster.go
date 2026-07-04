@@ -58,9 +58,18 @@ type Broadcaster struct {
 }
 
 type peerConnection struct {
-	id   string
-	pc   *webrtc.PeerConnection
-	done chan struct{}
+	id       string
+	pc       *webrtc.PeerConnection
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+// markDone closes the peer's done channel exactly once. Three paths race to
+// close it — the connection-state callback fires for Failed AND Closed (a
+// normal Failed→Closed transition is two calls), & Stop closes every peer —
+// so an unguarded close panics (#250).
+func (p *peerConnection) markDone() {
+	p.doneOnce.Do(func() { close(p.done) })
 }
 
 // SignalMessage is the WebSocket signaling message format.
@@ -175,7 +184,7 @@ func (b *Broadcaster) Stop() error {
 	b.mu.Lock()
 	for _, peer := range b.peers {
 		peer.pc.Close()
-		close(peer.done)
+		peer.markDone()
 	}
 	b.peers = make(map[string]*peerConnection)
 	b.mu.Unlock()
@@ -219,11 +228,13 @@ func (b *Broadcaster) readRTP(ctx context.Context) {
 			continue
 		}
 
-		b.bytesReceived += int64(n)
 		now := time.Now()
 
-		// Rewrite RTP header for continuous stream across track changes
+		// Rewrite RTP header for continuous stream across track changes.
+		// bytesReceived is counted under the same lock: Stats() reads it under
+		// RLock, so the previous unlocked increment was a data race (#250).
 		b.mu.Lock()
+		b.bytesReceived += int64(n)
 		source := ""
 		if addr != nil {
 			source = addr.String()
@@ -362,7 +373,7 @@ func (b *Broadcaster) HandleSignaling(w http.ResponseWriter, r *http.Request) {
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		b.logger.Debug().Str("peer_id", peerID).Str("state", s.String()).Msg("connection state changed")
 		if s == webrtc.PeerConnectionStateFailed || s == webrtc.PeerConnectionStateClosed {
-			close(peer.done)
+			peer.markDone()
 		}
 	})
 
