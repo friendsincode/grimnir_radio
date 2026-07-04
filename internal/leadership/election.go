@@ -9,6 +9,7 @@ package leadership
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,7 +40,10 @@ type Election struct {
 	config     ElectionConfig
 	instanceID string
 
-	// Internal state
+	// Internal state. mu guards isLeader: the campaign goroutine writes it
+	// while IsLeader()/Stop() read it from other goroutines — unguarded,
+	// that's a data race (found when this package first got tests, #251).
+	mu         sync.RWMutex
 	isLeader   bool
 	cancelFunc context.CancelFunc
 	stopCh     chan struct{}
@@ -164,7 +168,7 @@ func (e *Election) Stop() error {
 	}
 
 	// Release leadership if held
-	if e.isLeader {
+	if e.IsLeader() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
@@ -179,6 +183,8 @@ func (e *Election) Stop() error {
 
 // IsLeader returns whether this instance is currently the leader
 func (e *Election) IsLeader() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.isLeader
 }
 
@@ -227,7 +233,7 @@ func (e *Election) attemptLeadership(ctx context.Context) {
 	}
 
 	if acquired {
-		if !e.isLeader {
+		if !e.IsLeader() {
 			// Newly became leader
 			e.logger.Info().
 				Str("instance_id", e.instanceID).
@@ -235,7 +241,7 @@ func (e *Election) attemptLeadership(ctx context.Context) {
 			e.updateLeadershipStatus(true)
 		}
 	} else {
-		if e.isLeader {
+		if e.IsLeader() {
 			// Lost leadership
 			e.logger.Warn().
 				Str("instance_id", e.instanceID).
@@ -304,11 +310,13 @@ func (e *Election) releaseLock(ctx context.Context) error {
 
 // updateLeadershipStatus updates the leadership status and notifies listeners
 func (e *Election) updateLeadershipStatus(isLeader bool) {
+	e.mu.Lock()
 	if e.isLeader == isLeader {
+		e.mu.Unlock()
 		return
 	}
-
 	e.isLeader = isLeader
+	e.mu.Unlock()
 
 	// Update metrics
 	if isLeader {
