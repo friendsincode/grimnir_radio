@@ -27,10 +27,10 @@ func TestCompareVersions(t *testing.T) {
 		{"1.40.14", "1.40.14", 0},
 		{"2.0.0", "1.99.99", 1},
 		{"1.41.0", "1.40.99", 1},
-		{"v1.40.14", "1.40.14", 0},   // v prefix stripped
-		{"2.0.0-rc.14", "2.0.0", 0},  // pre-release suffix ignored by design
-		{"", "0.0.0", 0},             // unparseable = zeros
-		{"garbage", "0.0.1", -1},     // ditto
+		{"v1.40.14", "1.40.14", 0},  // v prefix stripped
+		{"2.0.0-rc.14", "2.0.0", 0}, // pre-release suffix ignored by design
+		{"", "0.0.0", 0},            // unparseable = zeros
+		{"garbage", "0.0.1", -1},    // ditto
 	}
 	for _, tc := range cases {
 		if got := compareVersions(tc.a, tc.b); got != tc.want {
