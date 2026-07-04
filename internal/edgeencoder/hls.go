@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,6 +38,13 @@ type HLSUploader struct {
 	keyPrefix string // default "hls"; configurable for multi-mount in future
 	s3        S3PutClient
 
+	// settle is how long a file must stay quiet before it uploads. GStreamer
+	// creates a segment & then writes into it over the following seconds;
+	// uploading on the Create event shipped empty/truncated segments to S3,
+	// & per-Write re-uploads could finish out of order so a truncated body
+	// won. Debouncing uploads the finished file exactly once.
+	settle time.Duration
+
 	uploaded atomic.Int64
 	failed   atomic.Int64
 }
@@ -58,6 +66,7 @@ func NewHLSUploader(dir, bucket string, s3 S3PutClient) (*HLSUploader, error) {
 		bucket:    bucket,
 		keyPrefix: "hls",
 		s3:        s3,
+		settle:    500 * time.Millisecond,
 	}, nil
 }
 
@@ -72,6 +81,18 @@ func (u *HLSUploader) Run(ctx context.Context) error {
 	if err := watcher.Add(u.dir); err != nil {
 		return fmt.Errorf("watch %s: %w", u.dir, err)
 	}
+
+	// Per-file debounce timers: Create + the stream of Write events coalesce
+	// into one upload once the file has been quiet for the settle window.
+	var mu sync.Mutex
+	timers := make(map[string]*time.Timer)
+	defer func() {
+		mu.Lock()
+		for _, t := range timers {
+			t.Stop()
+		}
+		mu.Unlock()
+	}()
 
 	for {
 		select {
@@ -89,7 +110,21 @@ func (u *HLSUploader) Run(ctx context.Context) error {
 			if ext != ".ts" && ext != ".m3u8" {
 				continue
 			}
-			u.uploadFile(ctx, event.Name)
+			name := event.Name
+			mu.Lock()
+			if t, exists := timers[name]; exists {
+				t.Reset(u.settle)
+			} else {
+				timers[name] = time.AfterFunc(u.settle, func() {
+					mu.Lock()
+					delete(timers, name)
+					mu.Unlock()
+					if ctx.Err() == nil {
+						u.uploadFile(ctx, name)
+					}
+				})
+			}
+			mu.Unlock()
 		case _, ok := <-watcher.Errors:
 			if !ok {
 				return nil

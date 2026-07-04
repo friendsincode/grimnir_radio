@@ -53,6 +53,7 @@ func TestHLSUploader_UploadsNewTSFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	u.settle = 100 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -90,6 +91,7 @@ func TestHLSUploader_UploadsM3U8File(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	u.settle = 100 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	go func() { _ = u.Run(ctx) }()
@@ -121,6 +123,7 @@ func TestHLSUploader_IgnoresNonHLSFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	u.settle = 100 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	go func() { _ = u.Run(ctx) }()
@@ -157,4 +160,55 @@ func keys(m map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// The uploader must ship the FINISHED file, not the empty shell the Create
+// event announces: GStreamer creates a segment & writes into it afterwards,
+// & the pre-debounce uploader shipped empty/truncated segments to S3 (the
+// exact flake CI caught: upload body = "").
+func TestHLSUploader_WaitsForWritesToSettle(t *testing.T) {
+	dir := t.TempDir()
+	s3 := newMockS3()
+	u, err := NewHLSUploader(dir, "test-bucket", s3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.settle = 150 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() { _ = u.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	// Create empty (as hlssink does), then append in bursts.
+	segPath := filepath.Join(dir, "segment00002.ts")
+	f, err := os.OpenFile(segPath, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range []string{"part1-", "part2-", "part3"} {
+		if _, err := f.WriteString(chunk); err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Sync()
+		time.Sleep(60 * time.Millisecond) // inside the settle window: keeps deferring
+	}
+	_ = f.Close()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if u.UploadedCount() > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	uploads := s3.Uploads()
+	got := string(uploads["test-bucket/hls/segment00002.ts"])
+	if got != "part1-part2-part3" {
+		t.Errorf("uploaded %q, want the complete file (truncated-segment regression)", got)
+	}
+	if u.UploadedCount() != 1 {
+		t.Errorf("uploads = %d, want exactly 1 (debounce coalesces the write burst)", u.UploadedCount())
+	}
 }
