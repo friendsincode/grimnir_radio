@@ -195,9 +195,11 @@ func TestClock_LosesLease_KillsProvider(t *testing.T) {
 	leader.setLeader(false)
 	waitFor(t, time.Second, func() bool { return !c.IsMaster() })
 
-	if !fp.closed.Load() {
-		t.Error("provider not closed after losing leadership")
-	}
+	// demote() flips isMaster under the mutex & closes the provider after
+	// releasing it (deliberately, so Close never blocks the leader loop), so
+	// !IsMaster is observable a beat before the close lands. The invariant is
+	// "eventually closed", not "closed before the flag flips".
+	waitFor(t, time.Second, func() bool { return fp.closed.Load() })
 }
 
 func TestClock_ReacquireLease_SpawnsNewProvider(t *testing.T) {
