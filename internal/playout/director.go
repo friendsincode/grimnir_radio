@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1790,6 +1791,38 @@ func (d *Director) stopICYPoller(mountID string) {
 // through the internal broadcast mount system (HQ on fd=3, LQ on fd=4).
 // Unlike file-based pipelines, no `identity sync=true` is needed since
 // webstreams are already real-time sources.
+// rewriteSelfRelayURL redirects a webstream relay whose URL is one of this
+// instance's own /live/ mounts to a loopback pull, bypassing nginx/HTTPS.
+// Detection is by mount ownership (broadcast.GetMount), so it doesn't depend
+// on knowing the public hostname. A genuine external stream (a mount we don't
+// serve) passes through unchanged. A relay pointing at its OWN destination
+// mount is a feedback loop & is left alone (loopback would make it worse; that
+// is a config error to surface, not amplify).
+func (d *Director) rewriteSelfRelayURL(sourceURL, destMount string) string {
+	u, err := url.Parse(sourceURL)
+	if err != nil || !strings.HasPrefix(u.Path, "/live/") {
+		return sourceURL
+	}
+	mountName := strings.TrimPrefix(u.Path, "/live/")
+	if mountName == "" || mountName == destMount {
+		return sourceURL
+	}
+	if d.broadcast == nil || d.broadcast.GetMount(mountName) == nil {
+		return sourceURL // not one of ours: real external relay
+	}
+	port := 8080
+	if d.cfg != nil && d.cfg.HTTPPort > 0 {
+		port = d.cfg.HTTPPort
+	}
+	internal := fmt.Sprintf("http://127.0.0.1:%d/live/%s", port, mountName)
+	d.logger.Info().
+		Str("mount", mountName).
+		Str("public_url", sourceURL).
+		Str("loopback", internal).
+		Msg("relay targets a local mount; pulling over loopback instead of the public edge")
+	return internal
+}
+
 func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount models.Mount, ws *models.Webstream, hqBitrate, lqBitrate int, webrtcRTPPort int) (string, error) {
 	format := mount.Format
 	if format == "" {
@@ -1823,6 +1856,15 @@ func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount model
 		hqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", hqBitrate)
 		lqEncoder = fmt.Sprintf("lamemp3enc target=1 bitrate=%d cbr=true", lqBitrate)
 	}
+
+	// If the relay points at one of THIS server's own mounts (cross-station
+	// syndication: station B relaying station A's /live/ stream on the same
+	// instance), pull it over loopback instead of the public HTTPS edge. The
+	// public round-trip adds enough latency/buffering that decodebin aborts on
+	// partial reads, so souphttpsrc thrashes — a reconnect storm that hammers
+	// the edge from our own IP & destabilizes the source mount for real
+	// listeners. Loopback is steady & never leaves the box.
+	sourceURL = d.rewriteSelfRelayURL(sourceURL, mount.Name)
 
 	// Build source element. retries+timeout absorb transient upstream stalls
 	// (a relayed-internal mount briefly returning <typefind worth of bytes
