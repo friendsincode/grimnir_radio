@@ -23,6 +23,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/smartblock"
 	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
@@ -496,10 +497,19 @@ func (s *Service) materializeDirectInstanceEntry(ctx context.Context, stationID 
 		return nil
 	}
 
+	// Skip if this instance would overlap existing station programming. The
+	// Postgres overlap trigger (prevent_station_schedule_overlap) rejects any
+	// such insert with SQLSTATE 23514, and because this parent is re-expanded
+	// every tick, a doomed insert becomes an endless retry storm — the
+	// "double-clutch" operators reported (866 failures/hour on a genuine
+	// double-booking). Mirror the trigger's station-wide check here, with the
+	// same carve-out (an instance is allowed to overlap a smart_block parent
+	// template), and skip instead of attempting an insert we know will fail.
 	var overlapping int64
 	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
-		Where("station_id = ? AND mount_id = ? AND source_type = 'media' AND starts_at < ? AND ends_at > ?",
-			stationID, mountID, entry.EndsAt, entry.StartsAt).
+		Where("station_id = ? AND starts_at < ? AND ends_at > ?",
+			stationID, entry.EndsAt, entry.StartsAt).
+		Where("NOT (is_instance = false AND source_type = 'smart_block')").
 		Count(&overlapping).Error; err != nil {
 		return err
 	}
@@ -526,7 +536,31 @@ func (s *Service) materializeDirectInstanceEntry(ctx context.Context, stationID 
 			"slot_type": slotType,
 		},
 	}
-	return s.db.WithContext(ctx).Create(&instance).Error
+	if err := s.db.WithContext(ctx).Create(&instance).Error; err != nil {
+		// A concurrent insert may have taken the slot between the check above and
+		// this write, tripping the overlap trigger (23514). That's not a failure
+		// worth retrying — the slot is occupied — so swallow it rather than let it
+		// bubble up and re-fire every tick.
+		if isScheduleOverlapError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// isScheduleOverlapError reports whether err is the Postgres overlap trigger
+// firing (SQLSTATE 23514 raised by prevent_station_schedule_overlap). The
+// trigger is Postgres-only, so on other dialects this matches on the message.
+func isScheduleOverlapError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23514"
+	}
+	return strings.Contains(err.Error(), "overlapping programming is not allowed")
 }
 
 // expandRecurringSmartBlock returns cloned schedule entries with StartsAt/EndsAt set to each
