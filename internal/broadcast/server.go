@@ -20,14 +20,20 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// writeTimeout bounds how long a single write or flush to a client may block.
-// A live stream pushes audio continuously, so a healthy client's kernel send
-// buffer drains well within this window; only a stalled or half-open client
-// (laptop slept, NAT dropped the flow) blocks longer. We disconnect those
-// instead of counting them as zombies, which otherwise linger until the kernel
-// TCP retransmit timeout (~15 min). Must stay below the keepalive interval.
+// writeTimeout bounds how long a single write or flush to a client may block
+// before we disconnect it. A live stream pushes audio continuously, so a
+// healthy client's kernel send buffer drains well within this window. The value
+// is set for the clients that stall legitimately: OBS restream VMs whose read
+// pauses while they re-encode toward YouTube, and cellular listeners (a T-Mobile
+// handoff or coverage dip stalls the flow for 10-30s, then recovers). At the old
+// 10s a normal cellular hiccup dropped a listener who would have come back, so
+// this sits at 30s. A truly dead or half-open socket is still reaped here rather
+// than lingering until the kernel TCP retransmit timeout (~15 min), and the
+// establishment counter (establishSeconds) keeps such sockets out of the listener
+// count regardless of this value. Must stay below the keepalive interval (45s),
+// which in turn stays below the server IdleTimeout (60s).
 // It is a var, not a const, only so tests can shorten it.
-var writeTimeout = 10 * time.Second
+var writeTimeout = 30 * time.Second
 
 // Mount represents a single audio stream mount point.
 type Mount struct {
@@ -417,8 +423,9 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Create a single timer for keepalive - reused instead of creating new ones
-	keepalive := time.NewTimer(30 * time.Second)
+	// Create a single timer for keepalive - reused instead of creating new ones.
+	// Stays above writeTimeout (30s) and below the server IdleTimeout (60s).
+	keepalive := time.NewTimer(45 * time.Second)
 	defer keepalive.Stop()
 
 	m.logger.Info().Int("channel_len", len(c.ch)).Msg("entering main streaming loop")
@@ -451,9 +458,9 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				default:
 				}
 			}
-			keepalive.Reset(30 * time.Second)
+			keepalive.Reset(45 * time.Second)
 		case <-keepalive.C:
-			// No data for 30 seconds - flush under a write deadline so a dead
+			// No data for 45 seconds - flush under a write deadline so a dead
 			// or half-open client is detected during an idle gap between tracks
 			// instead of lingering in the count. A real flush error means the
 			// connection is gone; disconnect.
@@ -466,7 +473,7 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			m.logger.Debug().Int("writes", writeCount).Msg("keepalive flush")
-			keepalive.Reset(30 * time.Second)
+			keepalive.Reset(45 * time.Second)
 		}
 	}
 }
