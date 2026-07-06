@@ -12,11 +12,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/events"
+	"github.com/friendsincode/grimnir_radio/internal/telemetry"
 	"github.com/rs/zerolog"
 )
 
@@ -90,6 +92,17 @@ type client struct {
 	done   chan struct{}
 	closed bool
 	mu     sync.Mutex
+
+	// skipped counts chunks dropped for this client because ch was full (it was
+	// reading below realtime). Incremented by Broadcast under c.mu, read at
+	// disconnect. A high value on a long-lived connection is the fingerprint of a
+	// slow pull client (OBS restream, cellular) getting gapped audio.
+	skipped int64
+
+	// remoteAddr and userAgent identify the connection in the connect/disconnect
+	// logs so a specific client (an OBS VM's IP, say) can be picked out of the churn.
+	remoteAddr string
+	userAgent  string
 
 	// established flips once the serve loop has delivered the establishment
 	// threshold to this connection. Written by the serve goroutine and read by
@@ -172,6 +185,22 @@ func NewMount(name, contentType string, bitrate int, logger zerolog.Logger, bus 
 	}
 }
 
+// clientAddr returns the best client identifier for logging. Behind the edge
+// nginx the TCP peer is the proxy, so prefer the forwarded headers (first hop of
+// X-Forwarded-For, then X-Real-IP) and fall back to RemoteAddr.
+func clientAddr(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xr := r.Header.Get("X-Real-IP"); xr != "" {
+		return xr
+	}
+	return r.RemoteAddr
+}
+
 // Broadcast sends audio data to all connected clients.
 func (m *Mount) Broadcast(data []byte) {
 	if len(data) == 0 {
@@ -184,16 +213,25 @@ func (m *Mount) Broadcast(data []byte) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	skipped := false
 	for c := range m.clients {
 		c.mu.Lock()
 		if !c.closed {
 			select {
 			case c.ch <- data:
 			default:
-				// Client is slow, skip this chunk
+				// Client is slow, skip this chunk. Count it so the disconnect log
+				// and the per-mount metric reveal gapped-audio clients that would
+				// otherwise leave no trace. Atomic because the disconnect path in
+				// the serve goroutine reads it without holding c.mu.
+				atomic.AddInt64(&c.skipped, 1)
+				skipped = true
 			}
 		}
 		c.mu.Unlock()
+	}
+	if skipped {
+		telemetry.BroadcastSkippedChunksTotal.WithLabelValues(m.Name).Inc()
 	}
 }
 
@@ -319,8 +357,10 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Create client with larger buffer for stability
 	// 256 chunks * ~4KB = ~1MB buffer, helps prevent drops during network hiccups
 	c := &client{
-		ch:   make(chan []byte, 256),
-		done: make(chan struct{}),
+		ch:         make(chan []byte, 256),
+		done:       make(chan struct{}),
+		remoteAddr: clientAddr(r),
+		userAgent:  r.UserAgent(),
 	}
 
 	// Register client for delivery. It does NOT count as a listener yet:
@@ -333,7 +373,8 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	connectionCount := len(m.clients)
 	m.mu.Unlock()
 
-	m.logger.Info().Str("mount", m.Name).Int("connections", connectionCount).Bool("quality_switch", skipBuffer).Msg("client connected (unestablished)")
+	m.logger.Info().Str("mount", m.Name).Int("connections", connectionCount).Bool("quality_switch", skipBuffer).
+		Str("remote", c.remoteAddr).Str("ua", c.userAgent).Msg("client connected (unestablished)")
 
 	// Establishment bookkeeping: delivered() accumulates successful live-loop
 	// writes and rolls the client into the listener count exactly once when
@@ -435,11 +476,13 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
-			m.logger.Info().Int("writes", writeCount).Err(r.Context().Err()).Msg("client context cancelled")
+			m.logger.Info().Int("writes", writeCount).Int64("skipped", atomic.LoadInt64(&c.skipped)).
+				Str("remote", c.remoteAddr).Str("ua", c.userAgent).Err(r.Context().Err()).Msg("client context cancelled")
 			return
 		case data := <-c.ch:
 			if err := writeAndFlush(data); err != nil {
-				m.logger.Info().Err(err).Int("writes", writeCount).Msg("write failed, disconnecting client")
+				m.logger.Info().Err(err).Int("writes", writeCount).Int64("skipped", atomic.LoadInt64(&c.skipped)).
+					Str("remote", c.remoteAddr).Str("ua", c.userAgent).Msg("write failed, disconnecting client")
 				return
 			}
 			delivered(len(data))
@@ -465,11 +508,13 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// instead of lingering in the count. A real flush error means the
 			// connection is gone; disconnect.
 			if err := rc.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil && !errors.Is(err, errors.ErrUnsupported) {
-				m.logger.Info().Err(err).Int("writes", writeCount).Msg("keepalive deadline failed, disconnecting client")
+				m.logger.Info().Err(err).Int("writes", writeCount).Int64("skipped", atomic.LoadInt64(&c.skipped)).
+					Str("remote", c.remoteAddr).Str("ua", c.userAgent).Msg("keepalive deadline failed, disconnecting client")
 				return
 			}
 			if err := rc.Flush(); err != nil && !errors.Is(err, errors.ErrUnsupported) {
-				m.logger.Info().Err(err).Int("writes", writeCount).Msg("keepalive flush failed, disconnecting client")
+				m.logger.Info().Err(err).Int("writes", writeCount).Int64("skipped", atomic.LoadInt64(&c.skipped)).
+					Str("remote", c.remoteAddr).Str("ua", c.userAgent).Msg("keepalive flush failed, disconnecting client")
 				return
 			}
 			m.logger.Debug().Int("writes", writeCount).Msg("keepalive flush")

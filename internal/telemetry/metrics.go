@@ -360,6 +360,18 @@ var (
 		},
 		[]string{"station_id"},
 	)
+
+	// BroadcastSkippedChunksTotal counts audio chunks dropped because a client's
+	// send channel was full (the client is reading below realtime). A sustained
+	// climb on one mount points at slow pull clients (OBS restream VMs, cellular)
+	// receiving gapped audio rather than a clean disconnect.
+	BroadcastSkippedChunksTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "grimnir_broadcast_skipped_chunks_total",
+			Help: "Total audio chunks skipped for slow clients, per mount",
+		},
+		[]string{"mount"},
+	)
 )
 
 // Track resume (cut-position recovery) metrics
