@@ -303,17 +303,22 @@ func (d *Director) tick(ctx context.Context) error {
 		// pipeline's handleTrackEnded goroutine from racing with the new entry's state.
 		if hasActive && active.EntryID != entry.ID && active.StationID == entry.StationID &&
 			!now.Before(active.Ends) {
-			d.logger.Info().
+			// Clear the ended entry's stale state so its handleTrackEnded goroutine
+			// (already guarded on entry identity and EndsAt) can't reclaim the mount.
+			// Deliberately do NOT StopPipeline here: EnsurePipeline* calls
+			// stopIfRunning right before launching the successor, so the old pipeline
+			// is torn down and the new one started back-to-back. Stopping it now
+			// instead left the mount silent through all of handleEntry's DB/prep work
+			// — the per-boundary "double-clutch" gap seen in prod (426 preemptions,
+			// one every 2-3 min on busy mounts). Swapping at launch closes that gap.
+			d.logger.Debug().
 				Str("mount", entry.MountID).
 				Str("preempted", active.EntryID).
 				Str("new_entry", entry.ID).
-				Msg("hard boundary: clearing preempted entry state before starting new")
+				Msg("hard boundary handoff: clearing ended entry state; pipeline swaps at launch")
 			d.mu.Lock()
 			delete(d.active, entry.MountID)
 			d.mu.Unlock()
-			if err := d.manager.StopPipeline(entry.MountID); err != nil {
-				d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("preemption stop pipeline")
-			}
 			hasActive = false
 		}
 
@@ -3999,6 +4004,11 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 // interrupted when the cut happens meaningfully early (>30s before expected end). It records
 // cut_offset_ms so findResumeOffset can use it for the next play of the same track.
 func (d *Director) closeCurrentPlayHistory(ctx context.Context, stationID, mountID string, positionMS int64) {
+	// Empty IDs can't match a row and Postgres rejects "" bound against a uuid
+	// column with 22P02, so bail before the query rather than log a hard error.
+	if stationID == "" || mountID == "" {
+		return
+	}
 	now := time.Now()
 	var h models.PlayHistory
 	if err := d.db.WithContext(ctx).
