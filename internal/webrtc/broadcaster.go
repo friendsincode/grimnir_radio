@@ -475,11 +475,21 @@ func (b *Broadcaster) createPeerConnection(peerID string) (*webrtc.PeerConnectio
 	return pc, nil
 }
 
-// PeerCount returns the number of connected peers.
+// PeerCount returns the number of peers whose connection is established
+// (ICE/DTLS connected). Peers still negotiating or already failed are excluded,
+// so this counts real WebRTC listeners for the listener total. WebRTC audio
+// flows over the RTP branch, not a broadcast mount, so these are otherwise
+// invisible to the mount-based count.
 func (b *Broadcaster) PeerCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return len(b.peers)
+	n := 0
+	for _, p := range b.peers {
+		if p.pc != nil && p.pc.ConnectionState() == webrtc.PeerConnectionStateConnected {
+			n++
+		}
+	}
+	return n
 }
 
 // Stats returns broadcaster statistics.

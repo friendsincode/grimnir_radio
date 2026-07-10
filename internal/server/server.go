@@ -323,6 +323,9 @@ func (s *Server) initDependencies() error {
 		}
 		s.webrtcMgr = newWebRTCStationManager(database, webrtcCfg, s.logger)
 		s.DeferClose(func() error { return s.webrtcMgr.Stop() })
+		// Fold established WebRTC peers into the listener total; their audio
+		// never passes through an HTTP mount, so they're otherwise uncounted.
+		broadcastSrv.SetExtraListenerSource(s.webrtcMgr.TotalPeers)
 		s.logger.Info().
 			Int("rtp_port_base", s.cfg.WebRTCRTPPort).
 			Bool("turn_enabled", s.cfg.WebRTCTURNURL != "").

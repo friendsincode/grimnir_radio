@@ -36,6 +36,19 @@ func newWebRTCStationManager(db *gorm.DB, cfg webrtc.Config, logger zerolog.Logg
 	}
 }
 
+// TotalPeers sums established WebRTC listeners across every station broadcaster.
+// Feeds the broadcast server's listener total, which otherwise misses WebRTC
+// (its audio never passes through an HTTP mount).
+func (m *webrtcStationManager) TotalPeers() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	total := 0
+	for _, b := range m.broadcasters {
+		total += b.PeerCount()
+	}
+	return total
+}
+
 func (m *webrtcStationManager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

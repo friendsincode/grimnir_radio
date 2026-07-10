@@ -747,6 +747,12 @@ type Server struct {
 	mu     sync.RWMutex
 	logger zerolog.Logger
 	bus    *events.Bus
+
+	// extraListeners, when set, contributes listeners delivered outside the HTTP
+	// mount path (WebRTC peers reach audio over the RTP branch, never through a
+	// mount's serve loop, so they'd otherwise be invisible to the count). Wired
+	// at startup; nil until then. Guarded by mu.
+	extraListeners func() int
 }
 
 // NewServer creates a new broadcast server.
@@ -811,7 +817,17 @@ func (s *Server) GetListenerStats() []MountStats {
 	return stats
 }
 
-// TotalListeners returns the total number of listeners across all mounts.
+// SetExtraListenerSource registers a source of listeners delivered outside the
+// HTTP mount path (WebRTC peers) so TotalListeners reflects them. Call once at
+// startup, before serving.
+func (s *Server) SetExtraListenerSource(fn func() int) {
+	s.mu.Lock()
+	s.extraListeners = fn
+	s.mu.Unlock()
+}
+
+// TotalListeners returns the total number of listeners across all mounts, plus
+// any WebRTC peers reported by the extra-listener source.
 func (s *Server) TotalListeners() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -819,6 +835,9 @@ func (s *Server) TotalListeners() int {
 	total := 0
 	for _, mount := range s.mounts {
 		total += mount.ClientCount()
+	}
+	if s.extraListeners != nil {
+		total += s.extraListeners()
 	}
 	return total
 }
