@@ -54,9 +54,7 @@ type NetworkSubscription struct {
 	NetworkShowID string `gorm:"type:uuid;index;not null" json:"network_show_id"`
 	LocalTime     string `gorm:"type:varchar(8)" json:"local_time,omitempty"`  // "HH:MM:SS" when to air locally
 	LocalDays     string `gorm:"type:varchar(32)" json:"local_days,omitempty"` // Comma-separated: "MO,TU,WE"
-	Timezone      string `gorm:"type:varchar(64);default:'UTC'" json:"timezone"`
 	Active        bool   `gorm:"not null;default:true" json:"active"`
-	AutoSchedule  bool   `gorm:"not null;default:false" json:"auto_schedule"` // Auto-create instances
 
 	// Relationships
 	Station     *Station     `gorm:"foreignKey:StationID" json:"station,omitempty"`
@@ -77,7 +75,6 @@ func NewNetworkSubscription(stationID, networkShowID string) *NetworkSubscriptio
 		ID:            uuid.NewString(),
 		StationID:     stationID,
 		NetworkShowID: networkShowID,
-		Timezone:      "UTC",
 		Active:        true,
 	}
 }

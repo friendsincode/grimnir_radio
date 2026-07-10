@@ -295,7 +295,6 @@ func (s *SyndicationAPI) handleCreateSubscription(w http.ResponseWriter, r *http
 		NetworkShowID string `json:"network_show_id"`
 		LocalTime     string `json:"local_time"`
 		LocalDays     string `json:"local_days"`
-		Timezone      string `json:"timezone"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -308,7 +307,7 @@ func (s *SyndicationAPI) handleCreateSubscription(w http.ResponseWriter, r *http
 		return
 	}
 
-	sub, err := s.syndicationSvc.Subscribe(r.Context(), req.StationID, req.NetworkShowID, req.LocalTime, req.LocalDays, req.Timezone)
+	sub, err := s.syndicationSvc.Subscribe(r.Context(), req.StationID, req.NetworkShowID, req.LocalTime, req.LocalDays)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

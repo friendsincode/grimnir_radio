@@ -133,7 +133,7 @@ func (s *Service) DeleteNetworkShow(ctx context.Context, id string) error {
 }
 
 // Subscribe adds a station subscription to a network show.
-func (s *Service) Subscribe(ctx context.Context, stationID, networkShowID string, localTime, localDays, timezone string) (*models.NetworkSubscription, error) {
+func (s *Service) Subscribe(ctx context.Context, stationID, networkShowID string, localTime, localDays string) (*models.NetworkSubscription, error) {
 	// Check if already subscribed
 	var existing models.NetworkSubscription
 	if err := s.db.WithContext(ctx).Where("station_id = ? AND network_show_id = ?", stationID, networkShowID).First(&existing).Error; err == nil {
@@ -143,9 +143,6 @@ func (s *Service) Subscribe(ctx context.Context, stationID, networkShowID string
 	sub := models.NewNetworkSubscription(stationID, networkShowID)
 	sub.LocalTime = localTime
 	sub.LocalDays = localDays
-	if timezone != "" {
-		sub.Timezone = timezone
-	}
 
 	if err := s.db.WithContext(ctx).Create(sub).Error; err != nil {
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
@@ -245,7 +242,9 @@ func (s *Service) MaterializeSubscriptions(ctx context.Context, stationID string
 		}
 	}
 
-	// Save instances if auto_schedule is enabled
+	// Persist the generated instances. Materialization always writes them on the
+	// station-local clock; there is no per-subscription auto-schedule or timezone
+	// toggle (both were dead fields & were removed).
 	for i, inst := range instances {
 		if err := s.db.WithContext(ctx).Create(&inst).Error; err != nil {
 			s.logger.Warn().Err(err).Str("instance", inst.ID).Msg("failed to create syndicated instance")
