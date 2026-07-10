@@ -44,7 +44,12 @@ type Config struct {
 // ConfigFromEnv loads configuration from environment variables.
 func ConfigFromEnv() Config {
 	port, _ := strconv.Atoi(getEnv("GRIMNIR_SMTP_PORT", "587"))
-	interval, _ := time.ParseDuration(getEnv("GRIMNIR_REMINDER_CHECK_INTERVAL", "1m"))
+	// A bad or non-positive interval would make time.NewTicker(0) panic in
+	// Start and take the process down at boot, so fall back to the default.
+	interval, err := time.ParseDuration(getEnv("GRIMNIR_REMINDER_CHECK_INTERVAL", "1m"))
+	if err != nil || interval <= 0 {
+		interval = time.Minute
+	}
 
 	return Config{
 		SMTPHost:              getEnv("GRIMNIR_SMTP_HOST", ""),
@@ -722,11 +727,16 @@ func (s *Service) MarkAsRead(ctx context.Context, notificationID, userID string)
 			"read_at": now,
 		})
 
+	// Check the DB error before RowsAffected: a real failure updates zero rows,
+	// so testing RowsAffected first reports an error as "not found" (the #38 trap).
+	if result.Error != nil {
+		return result.Error
+	}
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("notification not found")
 	}
 
-	return result.Error
+	return nil
 }
 
 // MarkAllAsRead marks all notifications as read for a user.
@@ -777,9 +787,13 @@ func (s *Service) UpdatePreference(ctx context.Context, prefID, userID string, e
 		Where("id = ? AND user_id = ?", prefID, userID).
 		Updates(updates)
 
+	// Check the DB error before RowsAffected (see MarkAsRead / the #38 trap).
+	if result.Error != nil {
+		return result.Error
+	}
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("preference not found")
 	}
 
-	return result.Error
+	return nil
 }
