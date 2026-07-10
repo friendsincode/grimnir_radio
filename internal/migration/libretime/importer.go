@@ -134,7 +134,8 @@ func (i *Importer) createStation(ctx context.Context) (string, error) {
 	}
 
 	if !i.options.DryRun {
-		if err := i.db.WithContext(ctx).Create(station).Error; err != nil {
+		// Imported station has no owner; NULL owner_id, not "" (Postgres 22P02).
+		if err := migration.CreateStationForImport(ctx, i.db, station); err != nil {
 			return "", fmt.Errorf("create station: %w", err)
 		}
 	}

@@ -252,7 +252,9 @@ func (i *Importer) importStations(ctx context.Context, azuraDB *sql.DB) (map[int
 		}
 
 		if !i.options.DryRun {
-			if err := i.db.WithContext(ctx).Create(station).Error; err != nil {
+			// Imported stations have no owner yet; owner_id is a uuid column
+			// so it must be stored NULL, not "" (Postgres 22P02).
+			if err := migration.CreateStationForImport(ctx, i.db, station); err != nil {
 				i.logger.Error().Err(err).Str("station", s.Name).Msg("create station")
 				i.stats.ErrorsEncountered++
 				continue

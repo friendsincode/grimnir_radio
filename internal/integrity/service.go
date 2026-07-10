@@ -185,7 +185,10 @@ func (s *Service) scanStationOwnerMembershipGaps(ctx context.Context) ([]Finding
 	if err := s.db.WithContext(ctx).
 		Table("stations").
 		Select("stations.id, stations.name, stations.owner_id").
-		Where("stations.owner_id <> ''").
+		// owner_id is a uuid column on Postgres: comparing it to '' raises
+		// SQLSTATE 22P02. CAST keeps the ownerless-station guard working on
+		// both Postgres (NULL) & legacy sqlite ('' or NULL) databases.
+		Where("CAST(stations.owner_id AS TEXT) <> ''").
 		Where("NOT EXISTS (SELECT 1 FROM station_users su WHERE su.station_id = stations.id AND su.user_id = stations.owner_id)").
 		Scan(&rows).Error; err != nil {
 		return nil, err

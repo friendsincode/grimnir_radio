@@ -157,11 +157,18 @@ func (r *Resolver) Transition(ctx context.Context, req TransitionRequest) (*Tran
 		}
 	}
 
-	// Deactivate current source if being preempted
+	// Deactivate current source if being preempted. Omit an empty MountID:
+	// an emergency source has no mount (stored NULL), & re-Saving reloads it
+	// as "" which Postgres rejects (22P02) — the deactivation would fail on
+	// prod whenever the preempted source is mountless.
 	var oldSource *models.PrioritySource
 	if currentSource != nil {
 		currentSource.Deactivate()
-		if err := tx.Save(currentSource).Error; err != nil {
+		save := tx
+		if currentSource.MountID == "" {
+			save = tx.Omit("MountID")
+		}
+		if err := save.Save(currentSource).Error; err != nil {
 			tx.Rollback()
 			return nil, fmt.Errorf("deactivate current source: %w", err)
 		}
@@ -181,7 +188,14 @@ func (r *Resolver) Transition(ctx context.Context, req TransitionRequest) (*Tran
 		ActivatedAt: time.Now(),
 	}
 
-	if err := tx.Create(newSource).Error; err != nil {
+	// mount_id is a uuid column: Postgres rejects '' with SQLSTATE 22P02.
+	// InsertEmergency has no mount, so an empty MountID must be stored as
+	// NULL, not as an empty string.
+	create := tx
+	if req.MountID == "" {
+		create = tx.Omit("MountID")
+	}
+	if err := create.Create(newSource).Error; err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("create new source: %w", err)
 	}
@@ -234,7 +248,13 @@ func (r *Resolver) Release(ctx context.Context, stationID, sourceID string) (*Tr
 	}
 
 	source.Deactivate()
-	if err := tx.Save(&source).Error; err != nil {
+	// Omit an empty MountID (mountless emergency source, stored NULL): a plain
+	// Save re-writes it as "" which Postgres rejects (22P02).
+	save := tx
+	if source.MountID == "" {
+		save = tx.Omit("MountID")
+	}
+	if err := save.Save(&source).Error; err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("deactivate source: %w", err)
 	}

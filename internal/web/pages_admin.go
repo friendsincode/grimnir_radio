@@ -1616,12 +1616,21 @@ func adminDeleteMediaReferences(tx *gorm.DB, mediaIDs []string) error {
 		return fmt.Errorf("nullify UnderwritingObligation.MediaID: %w", err)
 	}
 
-	// ClockSlot: remove media_id from payload JSON (best-effort)
-	for _, id := range mediaIDs {
-		tx.Exec(
-			`UPDATE clock_slots SET payload = payload - 'media_id'
-			 WHERE type = 'hard_item' AND payload->>'media_id' = ?`, id,
-		)
+	// ClockSlot: remove media_id from hard_item payloads. Postgres-only jsonb
+	// syntax, & error-CHECKED: an unchecked failing statement inside a
+	// Postgres transaction poisons it (SQLSTATE 25P02) & every later command
+	// in the delete fails with a misleading error — "best-effort" does not
+	// exist inside a transaction. On the sqlite test fallback the operator
+	// isn't supported, so the step is skipped there.
+	if tx.Dialector.Name() == "postgres" {
+		for _, id := range mediaIDs {
+			if err := tx.Exec(
+				`UPDATE clock_slots SET payload = payload - 'media_id'
+				 WHERE type = 'hard_item' AND payload->>'media_id' = ?`, id,
+			).Error; err != nil {
+				return fmt.Errorf("clear clock_slots media_id payload: %w", err)
+			}
+		}
 	}
 
 	return nil

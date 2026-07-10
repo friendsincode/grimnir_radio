@@ -12,7 +12,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"gorm.io/gorm"
+
+	"github.com/friendsincode/grimnir_radio/internal/models"
 )
+
+// CreateStationForImport inserts an imported station, omitting OwnerID when it
+// is unset. stations.owner_id is a uuid column: Postgres rejects the empty
+// string gorm would otherwise write (SQLSTATE 22P02), failing the whole
+// import. sqlite silently accepted "", which is how every importer shipped.
+// NULL is the ownerless representation on both engines.
+func CreateStationForImport(ctx context.Context, db *gorm.DB, station *models.Station) error {
+	tx := db.WithContext(ctx)
+	if station.OwnerID == "" {
+		tx = tx.Omit("OwnerID")
+	}
+	return tx.Create(station).Error
+}
 
 // JobStatus represents the current state of a migration job.
 type JobStatus string
