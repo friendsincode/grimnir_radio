@@ -202,7 +202,11 @@ func TestMount_ListenerStatsOnlyForEstablished(t *testing.T) {
 		t.Fatal("client never registered")
 	}
 	resp.Body.Close()
-	if !waitFor(t, 2*time.Second, func() bool { return m.ConnectionCount() == 0 }) {
+	// Unregister happens when the serve goroutine sees r.Context() cancel. With
+	// no audio flowing this cycle, there's no write to fail against, so detection
+	// rides on server-goroutine scheduling and runs slow under CI load. Match the
+	// 5s rollback bound the other unestablished-close checks use (line 117).
+	if !waitFor(t, 5*time.Second, func() bool { return m.ConnectionCount() == 0 }) {
 		t.Fatal("client never unregistered")
 	}
 	select {
