@@ -1436,6 +1436,42 @@ func parseRecurringInstanceID(id string) (string, time.Time, bool) {
 	return parentID, day, true
 }
 
+// resolveScheduleEntry loads a schedule entry by id, transparently handling the
+// virtual recurring-instance id form ({parentUUID}_{YYYYMMDD}). For a virtual id
+// it returns the concrete override row for that occurrence when one exists, else
+// the recurrence parent. The raw virtual id is never sent to the uuid id column,
+// so this is safe on Postgres, where such an id is a 22P02, not a not-found (#49).
+func (h *Handler) resolveScheduleEntry(id string) (*models.ScheduleEntry, error) {
+	parentID, dayStart, ok := parseRecurringInstanceID(id)
+	if !ok {
+		var entry models.ScheduleEntry
+		if err := h.db.First(&entry, "id = ?", id).Error; err != nil {
+			return nil, err
+		}
+		return &entry, nil
+	}
+
+	// Virtual recurring instance: prefer a concrete override for that parent/day,
+	// otherwise fall back to the recurrence parent.
+	dayEnd := dayStart.Add(24 * time.Hour)
+	var override models.ScheduleEntry
+	err := h.db.Where("recurrence_parent_id = ? AND starts_at >= ? AND starts_at < ?", parentID, dayStart, dayEnd).
+		Order("starts_at ASC").
+		First(&override).Error
+	if err == nil {
+		return &override, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	var parent models.ScheduleEntry
+	if err := h.db.First(&parent, "id = ?", parentID).Error; err != nil {
+		return nil, err
+	}
+	return &parent, nil
+}
+
 func (h *Handler) scheduleOverlaps(stationID string, startsAt, endsAt time.Time, excludeID string) (bool, error) {
 	q := h.db.Model(&models.ScheduleEntry{}).
 		Where("station_id = ?", stationID).
@@ -1579,11 +1615,12 @@ func deterministicSmartBlockSeed(entry models.ScheduleEntry, blockID string) int
 func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var entry models.ScheduleEntry
-	if err := h.db.First(&entry, "id = ?", id).Error; err != nil {
+	resolved, err := h.resolveScheduleEntry(id)
+	if err != nil {
 		http.Error(w, "Entry not found", http.StatusNotFound)
 		return
 	}
+	entry := *resolved
 
 	response := map[string]any{
 		"id":          entry.ID,
@@ -2402,9 +2439,8 @@ func (h *Handler) ScheduleSourceTracks(w http.ResponseWriter, r *http.Request) {
 	// Look up existing track overrides from the entry metadata
 	var trackOverrides map[string]string
 	if entryID != "" {
-		var entry models.ScheduleEntry
-		if h.db.Select("id, metadata").First(&entry, "id = ?", entryID).Error == nil && entry.Metadata != nil {
-			if overridesRaw, ok := entry.Metadata["track_overrides"]; ok {
+		if resolved, err := h.resolveScheduleEntry(entryID); err == nil && resolved.Metadata != nil {
+			if overridesRaw, ok := resolved.Metadata["track_overrides"]; ok {
 				if ovMap, ok := overridesRaw.(map[string]any); ok {
 					trackOverrides = make(map[string]string, len(ovMap))
 					for k, v := range ovMap {
