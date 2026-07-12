@@ -3511,11 +3511,18 @@ document.addEventListener('DOMContentLoaded', function() {
     async function duplicateEvent(event) {
         try {
             const response = await fetch(`/dashboard/schedule/entries/${event.id}/duplicate`, {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    starts_at: event.start ? event.start.toISOString() : null,
+                    ends_at: event.end ? event.end.toISOString() : null
+                })
             });
             if (response.ok) {
                 calendar.refetchEvents();
                 grimnirUtils.showToast('Event duplicated', 'success');
+            } else {
+                grimnirUtils.showToast('Failed to duplicate', 'error');
             }
         } catch (e) {
             grimnirUtils.showToast('Failed to duplicate', 'error');

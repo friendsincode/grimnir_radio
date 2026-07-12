@@ -1339,6 +1339,73 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(entry)
 }
 
+// ScheduleEntryDuplicate creates a standalone (non-recurring) copy of a schedule
+// entry (#58). A virtual recurring-occurrence id resolves to its concrete source
+// through resolveScheduleEntry; the copy lands at the clicked occurrence's time
+// (sent in the body) and never joins the original series.
+func (h *Handler) ScheduleEntryDuplicate(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	src, err := h.resolveScheduleEntry(id)
+	if err != nil || src.StationID != station.ID {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Times default to the resolved entry's; the calendar sends the clicked
+	// occurrence's times so a duplicated occurrence lands where it was clicked.
+	startsAt, endsAt := src.StartsAt, src.EndsAt
+	var body struct {
+		StartsAt *time.Time `json:"starts_at"`
+		EndsAt   *time.Time `json:"ends_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+		if body.StartsAt != nil && body.EndsAt != nil && body.EndsAt.After(*body.StartsAt) {
+			startsAt, endsAt = *body.StartsAt, *body.EndsAt
+		}
+	}
+
+	newID := uuid.New().String()
+	dup := models.ScheduleEntry{
+		ID:             newID,
+		StationID:      station.ID,
+		MountID:        src.MountID,
+		StartsAt:       startsAt,
+		EndsAt:         endsAt,
+		SourceType:     src.SourceType,
+		SourceID:       src.SourceID,
+		Metadata:       src.Metadata,
+		RecurrenceType: models.RecurrenceNone,
+		SeriesID:       &newID,
+	}
+	if err := h.db.Create(&dup).Error; err != nil {
+		http.Error(w, "Failed to duplicate entry", http.StatusInternalServerError)
+		return
+	}
+
+	if h.eventBus != nil {
+		h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+			"entry_id":    dup.ID,
+			"station_id":  dup.StationID,
+			"mount_id":    dup.MountID,
+			"starts_at":   dup.StartsAt,
+			"ends_at":     dup.EndsAt,
+			"source_type": dup.SourceType,
+			"source_id":   dup.SourceID,
+			"metadata":    dup.Metadata,
+			"event":       "duplicate",
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dup)
+}
+
 // ScheduleDeleteEntry deletes a schedule entry
 func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)

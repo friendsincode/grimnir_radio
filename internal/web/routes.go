@@ -244,6 +244,7 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Get("/entries/{id}/details", h.ScheduleEntryDetails)
 					r.With(h.RequireRole("manager")).Put("/entries/{id}", h.ScheduleUpdateEntry)
 					r.With(h.RequireRole("manager")).Delete("/entries/{id}", h.ScheduleDeleteEntry)
+					r.With(h.RequireRole("manager")).Post("/entries/{id}/duplicate", h.ScheduleEntryDuplicate)
 					r.With(h.RequireRole("manager")).Post("/refresh", h.ScheduleRefresh)
 
 					r.Get("/source-tracks", h.ScheduleSourceTracks) // JSON track list for any source
