@@ -673,13 +673,13 @@ type ScheduleEntry struct {
 	Metadata   map[string]any `gorm:"type:jsonb;serializer:json"`
 
 	// Recurrence fields
-	RecurrenceType     RecurrenceType `gorm:"type:varchar(16)"`
-	RecurrenceDays     []int          `gorm:"type:jsonb;serializer:json"` // 0=Sun, 1=Mon, ..., 6=Sat
-	RecurrenceEndDate  *time.Time     // When recurrence stops (nil = forever)
-	RecurrenceExceptions []string     `gorm:"type:jsonb;serializer:json"` // Local dates (2006-01-02) removed from the series (EXDATE); the expander skips them
-	RecurrenceParentID *string        `gorm:"type:uuid;index"` // Links instance to parent
-	IsInstance         bool           `gorm:"default:false"`   // True if this is a generated instance
-	SeriesID           *string        `gorm:"type:uuid;index"` // Stable id shared by every segment of one logical show; drives "edit all occurrences"
+	RecurrenceType       RecurrenceType `gorm:"type:varchar(16)"`
+	RecurrenceDays       []int          `gorm:"type:jsonb;serializer:json"` // 0=Sun, 1=Mon, ..., 6=Sat
+	RecurrenceEndDate    *time.Time     // When recurrence stops (nil = forever)
+	RecurrenceExceptions []string       `gorm:"type:jsonb;serializer:json"` // Local dates (2006-01-02) removed from the series (EXDATE); the expander skips them
+	RecurrenceParentID   *string        `gorm:"type:uuid;index"`            // Links instance to parent
+	IsInstance           bool           `gorm:"default:false"`              // True if this is a generated instance
+	SeriesID             *string        `gorm:"type:uuid;index"`            // Stable id shared by every segment of one logical show; drives "edit all occurrences"
 
 	// Import provenance (nullable for manually created items)
 	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
