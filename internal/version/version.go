@@ -192,13 +192,43 @@ func parseVersion(v string) [3]int {
 	return result
 }
 
-// truncateNotes truncates release notes to a maximum length.
+// truncateNotes reduces a GitHub release body (markdown) to one plain-text line
+// for the update banner. It skips heading and blank lines (so "## What's Changed"
+// is passed over), strips leading list/heading markers and inline emphasis, and
+// caps the length. Release bodies are untrusted, so the result stays plain text
+// and is never rendered as HTML.
 func truncateNotes(s string, maxLen int) string {
-	// Take only the first line or first N characters
-	lines := strings.SplitN(s, "\n", 2)
-	s = strings.TrimSpace(lines[0])
-	if len(s) > maxLen {
-		return s[:maxLen-3] + "..."
+	line := firstReleaseContentLine(s)
+	if len(line) > maxLen {
+		return line[:maxLen-3] + "..."
 	}
-	return s
+	return line
+}
+
+func firstReleaseContentLine(s string) string {
+	lines := strings.Split(s, "\n")
+	// Prefer the first non-heading, non-empty line: the first real change.
+	for _, raw := range lines {
+		t := strings.TrimSpace(raw)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		return stripReleaseMarkdown(t)
+	}
+	// Only headings/blank lines present: strip the first non-empty one.
+	for _, raw := range lines {
+		if t := strings.TrimSpace(raw); t != "" {
+			return stripReleaseMarkdown(t)
+		}
+	}
+	return ""
+}
+
+func stripReleaseMarkdown(line string) string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimLeft(line, "#>-*+ ") // leading heading/list/quote markers
+	for _, m := range []string{"**", "__", "`"} {
+		line = strings.ReplaceAll(line, m, "")
+	}
+	return strings.TrimSpace(line)
 }
