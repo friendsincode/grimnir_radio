@@ -676,6 +676,7 @@ type ScheduleEntry struct {
 	RecurrenceType     RecurrenceType `gorm:"type:varchar(16)"`
 	RecurrenceDays     []int          `gorm:"type:jsonb;serializer:json"` // 0=Sun, 1=Mon, ..., 6=Sat
 	RecurrenceEndDate  *time.Time     // When recurrence stops (nil = forever)
+	RecurrenceExceptions []string     `gorm:"type:jsonb;serializer:json"` // Local dates (2006-01-02) removed from the series (EXDATE); the expander skips them
 	RecurrenceParentID *string        `gorm:"type:uuid;index"` // Links instance to parent
 	IsInstance         bool           `gorm:"default:false"`   // True if this is a generated instance
 	SeriesID           *string        `gorm:"type:uuid;index"` // Stable id shared by every segment of one logical show; drives "edit all occurrences"
@@ -687,6 +688,25 @@ type ScheduleEntry struct {
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// IsExceptedOn reports whether occ falls on a date the operator removed from the
+// recurring series (EXDATE). Dates are compared as local calendar days in loc so
+// a single deleted occurrence stays deleted across rebuilds (#50).
+func (e *ScheduleEntry) IsExceptedOn(occ time.Time, loc *time.Location) bool {
+	if len(e.RecurrenceExceptions) == 0 {
+		return false
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	day := occ.In(loc).Format("2006-01-02")
+	for _, d := range e.RecurrenceExceptions {
+		if d == day {
+			return true
+		}
+	}
+	return false
 }
 
 // ScheduleSuppression records clock slots that were skipped because the window

@@ -597,6 +597,11 @@ func expandRecurringSmartBlock(entry models.ScheduleEntry, start, end time.Time,
 				cursor = cursor.AddDate(0, 0, 1)
 				continue
 			}
+			// Skip occurrences the operator deleted individually (EXDATE, #50).
+			if entry.IsExceptedOn(occStart, loc) {
+				cursor = cursor.AddDate(0, 0, 1)
+				continue
+			}
 			// Only include occurrences that overlap the requested window.
 			if !occEnd.Before(start) && !occStart.After(end) {
 				occ := entry

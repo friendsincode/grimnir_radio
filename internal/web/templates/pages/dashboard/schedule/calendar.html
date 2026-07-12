@@ -464,11 +464,11 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Move recurring event</h5>
+                <h5 class="modal-title" id="recurringScopeTitle">Move recurring event</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" title="Cancel"></button>
             </div>
             <div class="modal-body">
-                <p class="mb-3">This is a repeating event. Apply the new time to:</p>
+                <p class="mb-3" id="recurringScopeIntro">This is a repeating event. Apply the new time to:</p>
                 <div class="d-grid gap-2">
                     <button type="button" class="btn btn-outline-primary" data-scope="single">Only this occurrence</button>
                     <button type="button" class="btn btn-outline-primary" data-scope="forward">This and all following</button>
@@ -1369,7 +1369,10 @@ document.addEventListener('DOMContentLoaded', function() {
             resolve(null);
         }
     });
-    function promptRecurringScope() {
+    function promptRecurringScope(opts) {
+        opts = opts || {};
+        document.getElementById('recurringScopeTitle').textContent = opts.title || 'Move recurring event';
+        document.getElementById('recurringScopeIntro').textContent = opts.intro || 'This is a repeating event. Apply the new time to:';
         return new Promise(resolve => {
             _recurringScopeResolve = resolve;
             recurringScopeModal.show();
@@ -3483,19 +3486,26 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function deleteEvent(event) {
-        const isRecurring = event.extendedProps && event.extendedProps.recurrence;
-        let msg;
+        const isRecurring = event.extendedProps && event.extendedProps.recurrence && event.extendedProps.recurrence.type;
         if (isRecurring) {
-            const dateStr = event.start ? event.start.toLocaleDateString(undefined, {month:'short',day:'numeric',year:'numeric'}) : 'this date';
-            msg = `This will end the recurring schedule for "${event.title}" starting ${dateStr}. All future occurrences will be removed. Past occurrences are not affected.\n\nContinue?`;
-        } else {
-            msg = 'Delete this schedule entry?';
+            // Ask for scope: this occurrence (an EXDATE that sticks), this and
+            // following (ends the series), or all (#50/#52). Cancel does nothing.
+            promptRecurringScope({
+                title: 'Delete recurring event',
+                intro: 'This is a repeating event. Delete:'
+            }).then(scope => {
+                if (!scope) return;
+                performDelete(event, true, scope);
+            });
+            return;
         }
-        if (!confirm(msg)) return;
+        if (!confirm('Delete this schedule entry?')) return;
+        performDelete(event, false, null);
+    }
 
-        fetch(`/dashboard/schedule/entries/${event.id}`, {
-            method: 'DELETE'
-        }).then(response => {
+    function performDelete(event, isRecurring, scope) {
+        const url = `/dashboard/schedule/entries/${event.id}` + (scope ? `?scope=${scope}` : '');
+        fetch(url, { method: 'DELETE' }).then(response => {
             if (response.ok) {
                 if (isRecurring) {
                     calendar.refetchEvents();
@@ -3503,7 +3513,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     event.remove();
                 }
                 eventModal.hide();
-                grimnirUtils.showToast(isRecurring ? 'Recurring schedule ended' : 'Entry deleted', 'success');
+                grimnirUtils.showToast('Entry deleted', 'success');
             } else {
                 grimnirUtils.showToast('Failed to delete entry', 'error');
             }

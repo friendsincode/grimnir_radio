@@ -816,6 +816,16 @@ func (h *Handler) expandRecurringEntry(entry models.ScheduleEntry, rangeStart, r
 			break
 		}
 		if h.matchesRecurrence(entry, currentLocal, loc) {
+			// Skip occurrences the operator deleted individually (EXDATE, #50) so
+			// the calendar matches what the scheduler will materialize.
+			if entry.IsExceptedOn(currentLocal, loc) {
+				currentLocal = h.nextOccurrenceLocal(entry, currentLocal, loc)
+				if currentLocal.IsZero() {
+					break
+				}
+				currentLocal = normalizeToTemplate(currentLocal)
+				continue
+			}
 			if _, overridden := overrides[recurrenceInstanceKey(entry.ID, currentLocal, loc)]; overridden {
 				currentLocal = h.nextOccurrenceLocal(entry, currentLocal, loc)
 				if currentLocal.IsZero() {
@@ -1406,7 +1416,17 @@ func (h *Handler) ScheduleEntryDuplicate(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(dup)
 }
 
-// ScheduleDeleteEntry deletes a schedule entry
+// ScheduleDeleteEntry deletes a schedule entry, or one occurrence of a recurring
+// series. The ?scope= query param selects the recurring behaviour for a virtual
+// occurrence id:
+//   - "occurrence" (default): record an EXDATE on the parent for this day and drop
+//     any materialized instance/override for it, so the rebuild stops regenerating
+//     it (#50). The rest of the series keeps running.
+//   - "forward": truncate the series at the day before this occurrence.
+//   - "all": delete the parent and every instance/override in the series.
+//
+// The virtual id is parsed up front, so the raw {parent}_{YYYYMMDD} form is never
+// sent to the uuid id column (which is a 22P02 on Postgres, same class as #49).
 func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
 	if station == nil {
@@ -1415,84 +1435,103 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := chi.URLParam(r, "id")
+	scope := r.URL.Query().Get("scope")
 
-	var entry models.ScheduleEntry
-	targetID := id
-	err := h.db.First(&entry, "id = ? AND station_id = ?", targetID, station.ID).Error
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			http.Error(w, "Failed to load entry", http.StatusInternalServerError)
-			return
-		}
-		// If this is a virtual recurring instance ID, attempt to map it to a
-		// concrete overridden instance for that parent/day.
-		parentID, dayStart, ok := parseRecurringInstanceID(id)
-		if !ok {
+	parentID, dayStart, isVirtual := parseRecurringInstanceID(id)
+	if !isVirtual {
+		// Concrete id: delete the row, and any instances/overrides if it is a parent.
+		var entry models.ScheduleEntry
+		if err := h.db.First(&entry, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		dayEnd := dayStart.Add(24 * time.Hour)
-		overrideErr := h.db.Where("station_id = ? AND recurrence_parent_id = ? AND starts_at >= ? AND starts_at < ?",
-			station.ID, parentID, dayStart, dayEnd).
-			Order("starts_at ASC").
-			First(&entry).Error
-		if overrideErr != nil && !errors.Is(overrideErr, gorm.ErrRecordNotFound) {
-			http.Error(w, "Failed to load entry", http.StatusInternalServerError)
+		if err := h.db.Where("station_id = ? AND (id = ? OR recurrence_parent_id = ?)", station.ID, entry.ID, entry.ID).
+			Delete(&models.ScheduleEntry{}).Error; err != nil {
+			http.Error(w, "Failed to delete entry", http.StatusInternalServerError)
 			return
 		}
-		if errors.Is(overrideErr, gorm.ErrRecordNotFound) {
-			// No concrete override for this virtual instance — end the recurrence series
-			// at the day before this occurrence so the scheduler stops generating it.
-			var parent models.ScheduleEntry
-			if err := h.db.First(&parent, "id = ? AND station_id = ?", parentID, station.ID).Error; err != nil {
-				http.NotFound(w, r)
-				return
-			}
-			endDate := dayStart.AddDate(0, 0, -1)
-			parent.RecurrenceEndDate = &endDate
+		h.publishScheduleDelete(station, entry, "delete")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	dayEnd := dayStart.Add(24 * time.Hour)
+	var parent models.ScheduleEntry
+	parentErr := h.db.First(&parent, "id = ? AND station_id = ?", parentID, station.ID).Error
+
+	switch scope {
+	case "forward":
+		if parentErr != nil {
+			http.NotFound(w, r)
+			return
+		}
+		endDate := dayStart.AddDate(0, 0, -1)
+		parent.RecurrenceEndDate = &endDate
+		if err := h.db.Save(&parent).Error; err != nil {
+			http.Error(w, "Failed to update recurring entry", http.StatusInternalServerError)
+			return
+		}
+		h.publishScheduleDelete(station, parent, "end_recurrence")
+
+	case "all":
+		if parentErr != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if err := h.db.Where("station_id = ? AND (id = ? OR recurrence_parent_id = ?)", station.ID, parentID, parentID).
+			Delete(&models.ScheduleEntry{}).Error; err != nil {
+			http.Error(w, "Failed to delete series", http.StatusInternalServerError)
+			return
+		}
+		h.publishScheduleDelete(station, parent, "delete")
+
+	default: // "occurrence" or unspecified: the safe default, never touches the series
+		// Record the EXDATE on the parent when it exists; either way drop any
+		// concrete instance/override for the day (an orphaned override may outlive
+		// its parent).
+		if parentErr == nil && !parent.IsExceptedOn(dayStart, time.UTC) {
+			parent.RecurrenceExceptions = append(parent.RecurrenceExceptions, dayStart.Format("2006-01-02"))
 			if err := h.db.Save(&parent).Error; err != nil {
 				http.Error(w, "Failed to update recurring entry", http.StatusInternalServerError)
 				return
 			}
-			if h.eventBus != nil {
-				h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
-					"entry_id":    parent.ID,
-					"station_id":  station.ID,
-					"mount_id":    parent.MountID,
-					"starts_at":   parent.StartsAt,
-					"ends_at":     parent.EndsAt,
-					"source_type": parent.SourceType,
-					"source_id":   parent.SourceID,
-					"metadata":    parent.Metadata,
-					"event":       "end_recurrence",
-				})
-			}
-			w.WriteHeader(http.StatusNoContent)
+		}
+		res := h.db.Where("station_id = ? AND recurrence_parent_id = ? AND starts_at >= ? AND starts_at < ?",
+			station.ID, parentID, dayStart, dayEnd).Delete(&models.ScheduleEntry{})
+		if res.Error != nil {
+			http.Error(w, "Failed to delete occurrence", http.StatusInternalServerError)
 			return
 		}
-		targetID = entry.ID
-	}
-
-	if err := h.db.Delete(&models.ScheduleEntry{}, "id = ? AND station_id = ?", targetID, station.ID).Error; err != nil {
-		http.Error(w, "Failed to delete entry", http.StatusInternalServerError)
-		return
-	}
-
-	if h.eventBus != nil {
-		h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
-			"entry_id":    entry.ID,
-			"station_id":  station.ID,
-			"mount_id":    entry.MountID,
-			"starts_at":   entry.StartsAt,
-			"ends_at":     entry.EndsAt,
-			"source_type": entry.SourceType,
-			"source_id":   entry.SourceID,
-			"metadata":    entry.Metadata,
-			"event":       "delete",
-		})
+		if parentErr != nil && res.RowsAffected == 0 {
+			http.NotFound(w, r) // nothing to except and nothing to delete
+			return
+		}
+		if parentErr == nil {
+			h.publishScheduleDelete(station, parent, "delete_occurrence")
+		} else {
+			h.publishScheduleDelete(station, models.ScheduleEntry{ID: parentID, StartsAt: dayStart}, "delete_occurrence")
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// publishScheduleDelete emits a schedule-update event for a delete-side change.
+func (h *Handler) publishScheduleDelete(station *models.Station, e models.ScheduleEntry, event string) {
+	if h.eventBus == nil {
+		return
+	}
+	h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
+		"entry_id":    e.ID,
+		"station_id":  station.ID,
+		"mount_id":    e.MountID,
+		"starts_at":   e.StartsAt,
+		"ends_at":     e.EndsAt,
+		"source_type": e.SourceType,
+		"source_id":   e.SourceID,
+		"metadata":    e.Metadata,
+		"event":       event,
+	})
 }
 
 func parseRecurringInstanceID(id string) (string, time.Time, bool) {

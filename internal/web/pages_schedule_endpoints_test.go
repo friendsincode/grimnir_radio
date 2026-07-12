@@ -1164,11 +1164,14 @@ func TestScheduleRecurringInstanceWritePathsAndParity(t *testing.T) {
 	}
 	select {
 	case payload := <-deleteSub:
-		if payload["event"] != "delete" || payload["entry_id"] != createdInstance.ID {
+		// Per-occurrence delete now records an EXDATE on the parent and drops the
+		// override, emitting a delete_occurrence event keyed to the series parent
+		// (#50/#52). The override row is gone either way (asserted above).
+		if payload["event"] != "delete_occurrence" || payload["entry_id"] != "series-parent" {
 			t.Fatalf("unexpected delete payload after virtual-id delete: %+v", payload)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("expected delete event for concrete override instance")
+		t.Fatal("expected delete event for occurrence delete")
 	}
 }
 

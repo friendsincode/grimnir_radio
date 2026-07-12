@@ -288,9 +288,11 @@ func TestScheduleDeleteEntryVirtualInstanceEndsRecurrence(t *testing.T) {
 		t.Fatalf("create parent: %v", err)
 	}
 
-	// Delete a virtual recurring instance with no concrete override — should end recurrence.
+	// Delete a virtual recurring instance with scope=forward — should end recurrence
+	// at the day before the occurrence (per-occurrence delete now defaults to an
+	// EXDATE; ending the series is the explicit "forward" scope, #50/#52).
 	virtualID := recurrenceInstanceKey(parent.ID, occurrenceDate, time.UTC)
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/"+virtualID, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/dashboard/schedule/entries/"+virtualID+"?scope=forward", nil)
 	req = withScheduleRouteID(req, virtualID)
 	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
 	rr := httptest.NewRecorder()
