@@ -101,19 +101,20 @@ type Handler struct {
 
 // PageData holds common data passed to all templates.
 type PageData struct {
-	Title       string
-	Theme       Theme
-	User        *models.User
-	Station     *models.Station
-	Stations    []models.Station
-	Flash       *FlashMessage
-	CurrentPath string
-	CSRFToken   string
-	WSToken     string // Auth token for WebSocket connections (non-HttpOnly)
-	StationRole string // User's role in the current station (owner/admin/manager/dj/viewer)
-	Data        any
-	Version     string              // Current application version
-	UpdateInfo  *version.UpdateInfo // Available update info (nil if no update)
+	Title        string
+	Theme        Theme
+	User         *models.User
+	Station      *models.Station
+	Stations     []models.Station
+	Flash        *FlashMessage
+	CurrentPath  string
+	CSRFToken    string
+	WSToken      string // Auth token for WebSocket connections (non-HttpOnly)
+	StationRole  string // User's role in the current station (owner/admin/manager/dj/viewer)
+	Data         any
+	Version      string              // Current application version
+	PlatformName string              // Configurable public brand name; falls back to "Grimnir Radio" (#62)
+	UpdateInfo   *version.UpdateInfo // Available update info (nil if no update)
 
 	// WebRTC ICE server config for client
 	WebRTCEnabled      bool
@@ -366,6 +367,26 @@ func (h *Handler) loadTemplates() error {
 	return nil
 }
 
+// platformDisplayName returns the configured public brand name from the platform
+// landing-page config, falling back to "Grimnir Radio". Used for the public
+// listener chrome so the software brand doesn't leak onto station pages (#62).
+func (h *Handler) platformDisplayName(ctx context.Context) string {
+	const fallback = "Grimnir Radio"
+	if h.landingPageSvc == nil {
+		return fallback
+	}
+	cfg, err := h.landingPageSvc.GetPlatformPublished(ctx)
+	if err != nil {
+		return fallback
+	}
+	if header, ok := cfg["header"].(map[string]any); ok {
+		if name, ok := header["platformName"].(string); ok && strings.TrimSpace(name) != "" {
+			return name
+		}
+	}
+	return fallback
+}
+
 // Render renders a template with the given data.
 func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, data PageData) {
 	// Set defaults
@@ -374,6 +395,7 @@ func (h *Handler) Render(w http.ResponseWriter, r *http.Request, name string, da
 	}
 	data.CurrentPath = r.URL.Path
 	data.Version = version.Version
+	data.PlatformName = h.platformDisplayName(r.Context())
 
 	// WebRTC ICE server config for client
 	data.WebRTCEnabled = h.webrtcEnabled
