@@ -63,6 +63,10 @@
         .station-card .card-text {
             color: var(--card-text);
             opacity: 0.8;
+            display: -webkit-box;
+            -webkit-line-clamp: 4;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .station-card:hover {
             transform: translateY(-4px);

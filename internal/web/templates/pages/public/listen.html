@@ -3,6 +3,14 @@
 {{end}}
 
 {{define "main"}}
+<style>
+.station-bio.clamped {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+</style>
 <div class="container py-5">
     <div class="row justify-content-center">
         <div class="col-lg-8">
@@ -14,10 +22,6 @@
                     <h5 class="mb-0">{{.Station.Name}}</h5>
                 </div>
                 <div class="card-body">
-                    {{if .Station.Description}}
-                    <p class="text-body-secondary">{{.Station.Description}}</p>
-                    {{end}}
-
                     {{$station := .Station}}
                     {{if .Mounts}}
                     <div class="list-group">
@@ -49,6 +53,11 @@
                     </div>
                     {{else}}
                     <p class="text-body-secondary">No streams available</p>
+                    {{end}}
+
+                    {{if .Station.Description}}
+                    <p class="station-bio clamped text-body-secondary small mt-3 mb-1">{{.Station.Description}}</p>
+                    <button type="button" class="btn btn-link btn-sm p-0 station-bio-toggle d-none" onclick="toggleBio(this)">Show more</button>
                     {{end}}
                 </div>
             </div>
@@ -88,6 +97,25 @@
 
 {{define "scripts"}}
 <script>
+// Station bios are clamped to 3 lines; reveal the toggle only when the text
+// actually overflows, so short bios show no dangling "Show more" (#63).
+function toggleBio(btn) {
+    const bio = btn.previousElementSibling;
+    if (!bio) return;
+    const clamped = bio.classList.toggle('clamped');
+    btn.textContent = clamped ? 'Show more' : 'Show less';
+}
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.station-bio').forEach(function(bio) {
+        if (bio.scrollHeight > bio.clientHeight + 1) {
+            const btn = bio.nextElementSibling;
+            if (btn && btn.classList.contains('station-bio-toggle')) {
+                btn.classList.remove('d-none');
+            }
+        }
+    });
+});
+
 // Use the global player for persistent playback across page navigation
 function playStream(url, name, stationId) {
     if (window.globalPlayer) {
