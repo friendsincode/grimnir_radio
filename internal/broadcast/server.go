@@ -58,64 +58,6 @@ type Mount struct {
 	// pre-roll and parks (recycled browser <audio> elements, proxy-held
 	// sockets) never counts. Guarded by mu.
 	establishedCount int
-
-	// silentFrame is one CBR MP3 frame of digital silence sized to this mount's
-	// bitrate, or nil for a codec/bitrate the silence bridge can't encode.
-	// runSilenceBridge emits it at realtime pace to keep the outgoing byte
-	// stream flowing across input gaps (a track/program transition stops one
-	// pipeline before the next attaches), so a downstream puller (OBS restream
-	// to YouTube) never sees a stall and drops.
-	silentFrame []byte
-	bridgeStop  chan struct{}
-	bridgeStart sync.Once // starts the bridge goroutine on first real feed
-	bridgeEnd   sync.Once // closes bridgeStop exactly once
-}
-
-// Silence-bridge tuning. A gap shorter than bridgeGrace is left alone: client
-// kernel/app buffers absorb it, and inserting silence on every fast track change
-// would be needless. Past the grace, silent frames flow until a live feed
-// resumes. bridgePoll is how often an idle bridge checks for a new gap. Both are
-// vars, not consts, only so tests can shorten them.
-var (
-	bridgeGrace = 300 * time.Millisecond
-	bridgePoll  = 50 * time.Millisecond
-)
-
-// mpeg1L3BitrateIndex maps a CBR MP3 bitrate (kbps) to its MPEG-1 Layer III
-// bitrate index. Only the values GStreamer's lamemp3enc emits for this station
-// are listed; anything else disables the bridge for that mount.
-var mpeg1L3BitrateIndex = map[int]byte{
-	32: 1, 40: 2, 48: 3, 56: 4, 64: 5, 80: 6, 96: 7, 112: 8,
-	128: 9, 160: 10, 192: 11, 224: 12, 256: 13, 320: 14,
-}
-
-// mp3SilenceFrame builds one CBR MPEG-1 Layer III frame whose payload is all
-// zeroes. A zeroed main_data section decodes to digital silence in lame, ffmpeg,
-// and mpg123, and CBR silent frames concatenate seamlessly, so a stream of these
-// is valid, silent audio. It assumes 44.1 kHz, which every station mount runs
-// (director sets SampleRate: 44100). Returns nil for any content type or bitrate
-// it can't encode (AAC/OGG mounts, non-standard bitrates), which leaves those
-// mounts on the prior behaviour with no bridge.
-func mp3SilenceFrame(contentType string, bitrateKbps int) []byte {
-	if !strings.Contains(contentType, "mpeg") {
-		return nil
-	}
-	brIndex, ok := mpeg1L3BitrateIndex[bitrateKbps]
-	if !ok {
-		return nil
-	}
-	const sampleRate = 44100 // MPEG-1 sample-rate index 0
-	// MPEG-1 Layer III carries 1152 samples per frame; CBR length, no padding.
-	frameLen := 144 * bitrateKbps * 1000 / sampleRate
-	if frameLen < 4 {
-		return nil
-	}
-	frame := make([]byte, frameLen)
-	frame[0] = 0xFF              // frame sync (8 bits)
-	frame[1] = 0xFB              // sync (3) + MPEG-1 (11) + Layer III (01) + no CRC (1)
-	frame[2] = brIndex<<4 | 0x00 // bitrate index, sample-rate index 0 (44.1k), no padding/private
-	frame[3] = 0x00              // stereo, no mode ext, not copyright/original, no emphasis
-	return frame
 }
 
 // establishSeconds of continuously delivered audio marks a connection as an
@@ -240,8 +182,6 @@ func NewMount(name, contentType string, bitrate int, logger zerolog.Logger, bus 
 		logger:      logger.With().Str("mount", name).Logger(),
 		inputDone:   make(chan struct{}),
 		bus:         bus,
-		silentFrame: mp3SilenceFrame(contentType, bitrate),
-		bridgeStop:  make(chan struct{}),
 	}
 }
 
@@ -295,93 +235,11 @@ func (m *Mount) Broadcast(data []byte) {
 	}
 }
 
-// runSilenceBridge keeps the outgoing byte stream alive across input gaps. When
-// a track/program transition stops one pipeline before the next attaches,
-// inputCount drops to 0 and no bytes flow; a downstream puller that stalls long
-// enough (an OBS restream re-encoding toward YouTube) gives up and disconnects,
-// which is what the prod logs showed as `client context cancelled` clustering on
-// `feed started`/`input stream ended` boundaries. This goroutine detects a gap
-// past bridgeGrace and feeds silent MP3 frames at the mount's real bitrate until
-// a live feed resumes, so the socket is never quiet long enough to be dropped.
-// It does not touch lastFedAt, so the director's dead-air detection still fires
-// and still restarts the real pipeline; the bridge only covers the seam.
-func (m *Mount) runSilenceBridge() {
-	// Realtime pacing: one frame's audio duration is its byte length over the
-	// byte rate, so client channels stay near-empty instead of being flooded.
-	bytesPerSec := m.Bitrate * 1000 / 8
-	if bytesPerSec <= 0 {
-		bytesPerSec = 16000
-	}
-	frameDur := time.Duration(float64(len(m.silentFrame)) / float64(bytesPerSec) * float64(time.Second))
-	if frameDur <= 0 {
-		frameDur = 26 * time.Millisecond
-	}
-
-	poll := time.NewTicker(bridgePoll)
-	defer poll.Stop()
-
-	filled := false
-	for {
-		select {
-		case <-m.bridgeStop:
-			return
-		case <-poll.C:
-			if !m.inGap() {
-				filled = false
-				continue
-			}
-			if !filled {
-				m.logger.Info().Str("mount", m.Name).Msg("silence bridge filling input gap")
-				filled = true
-			}
-			// Emit until the live feed returns or the mount closes; re-check the
-			// gap each frame so the bridge yields the instant real audio resumes.
-			for m.inGap() {
-				m.Broadcast(m.silentFrame)
-				select {
-				case <-m.bridgeStop:
-					return
-				case <-time.After(frameDur):
-				}
-			}
-			m.logger.Info().Str("mount", m.Name).Msg("silence bridge released: live feed resumed")
-			filled = false
-		}
-	}
-}
-
-// inGap reports whether the mount is in an input gap the silence bridge should
-// fill: a client is connected, no live feed is attached, and real audio last
-// arrived longer ago than bridgeGrace. lastFedAt is advanced only by FeedFrom
-// (real audio), never by the bridge itself, so the time since it is exactly the
-// current gap length, and the grace test keeps working while the bridge runs.
-func (m *Mount) inGap() bool {
-	fedNs := atomic.LoadInt64(&m.lastFedAt)
-	if fedNs == 0 {
-		return false // never fed real audio: don't prepend silence at startup
-	}
-	m.mu.RLock()
-	noInput := m.inputCount == 0
-	hasClients := len(m.clients) > 0
-	m.mu.RUnlock()
-	if !noInput || !hasClients {
-		return false
-	}
-	return time.Since(time.Unix(0, fedNs)) > bridgeGrace
-}
-
 // FeedFrom reads from an io.Reader and broadcasts the data.
 // This is typically connected to GStreamer's stdout.
 // Note: Call ClearBuffer() on all related mounts BEFORE calling FeedFrom
 // to ensure synchronized buffer clearing across HQ/LQ mount pairs.
 func (m *Mount) FeedFrom(r io.Reader) error {
-	// Start the silence bridge on the first real feed. Starting it here (not in
-	// NewMount) keeps it inert for mounts that are only ever driven directly via
-	// Broadcast, which is every unit test, so the bridge never perturbs them.
-	if m.silentFrame != nil {
-		m.bridgeStart.Do(func() { go m.runSilenceBridge() })
-	}
-
 	// Register this feed
 	m.mu.Lock()
 	m.inputCount++
@@ -710,10 +568,6 @@ func (m *Mount) ClearBuffer() {
 
 // Close disconnects all clients.
 func (m *Mount) Close() {
-	// Stop the silence bridge before clearing clients so it can't push a frame
-	// into a mount that's being torn down.
-	m.bridgeEnd.Do(func() { close(m.bridgeStop) })
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
