@@ -3504,7 +3504,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 eventModal.hide();
                 grimnirUtils.showToast(isRecurring ? 'Recurring schedule ended' : 'Entry deleted', 'success');
+            } else {
+                grimnirUtils.showToast('Failed to delete entry', 'error');
             }
+        }).catch(() => {
+            grimnirUtils.showToast('Failed to delete entry', 'error');
         });
     }
 
