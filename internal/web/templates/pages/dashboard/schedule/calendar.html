@@ -459,6 +459,29 @@
     </div>
 </div>
 
+<!-- Recurring drag/resize scope prompt (#57) -->
+<div class="modal fade" id="recurringScopeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Move recurring event</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" title="Cancel"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">This is a repeating event. Apply the new time to:</p>
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-outline-primary" data-scope="single">Only this occurrence</button>
+                    <button type="button" class="btn btn-outline-primary" data-scope="forward">This and all following</button>
+                    <button type="button" class="btn btn-outline-primary" data-scope="all">All occurrences</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Add Schedule Entry Modal -->
 <div class="modal fade" id="addScheduleModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -1324,6 +1347,34 @@ document.addEventListener('DOMContentLoaded', function() {
     const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
     const addScheduleModal = new bootstrap.Modal(document.getElementById('addScheduleModal'));
     const editScheduleModal = new bootstrap.Modal(document.getElementById('editScheduleModal'));
+    const recurringScopeModal = new bootstrap.Modal(document.getElementById('recurringScopeModal'));
+
+    // Recurring drag/resize scope prompt (#57). promptRecurringScope() resolves to
+    // 'single' | 'forward' | 'all', or null if the operator cancels or dismisses.
+    let _recurringScopeResolve = null;
+    document.querySelectorAll('#recurringScopeModal [data-scope]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const scope = btn.getAttribute('data-scope');
+            const resolve = _recurringScopeResolve;
+            _recurringScopeResolve = null;
+            recurringScopeModal.hide();
+            if (resolve) resolve(scope);
+        });
+    });
+    document.getElementById('recurringScopeModal').addEventListener('hidden.bs.modal', () => {
+        // Dismissed without a choice (Cancel / backdrop / Esc) counts as cancel.
+        if (_recurringScopeResolve) {
+            const resolve = _recurringScopeResolve;
+            _recurringScopeResolve = null;
+            resolve(null);
+        }
+    });
+    function promptRecurringScope() {
+        return new Promise(resolve => {
+            _recurringScopeResolve = resolve;
+            recurringScopeModal.show();
+        });
+    }
 
     // Context menu elements
     const calendarContextMenu = document.getElementById('calendarContextMenu');
@@ -1563,7 +1614,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (props.type === 'show') {
                 updateShowInstance(info.event);
             } else {
-                updateEvent(info.event);
+                updateEventWithScope(info);
             }
         },
 
@@ -1572,7 +1623,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (props.type === 'show') {
                 updateShowInstance(info.event);
             } else {
-                updateEvent(info.event);
+                updateEventWithScope(info);
             }
         },
 
@@ -3389,21 +3440,45 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function updateEvent(event) {
+    // Drag/resize entry point. A recurring occurrence must not silently rewrite the
+    // whole series (#57): ask for scope, then send that edit_mode. Non-recurring
+    // entries update directly. Cancelling the prompt reverts the drag.
+    function updateEventWithScope(info) {
+        const event = info.event;
+        const isRecurring = event.extendedProps && event.extendedProps.recurrence && event.extendedProps.recurrence.type;
+        if (!isRecurring) {
+            updateEvent(event, null, info);
+            return;
+        }
+        promptRecurringScope().then(mode => {
+            if (!mode) { info.revert(); return; }
+            updateEvent(event, mode, info);
+        });
+    }
+
+    function updateEvent(event, editMode, info) {
+        const body = {
+            starts_at: event.start.toISOString(),
+            ends_at: event.end.toISOString()
+        };
+        if (editMode) {
+            body.edit_mode = editMode;
+        }
         fetch(`/dashboard/schedule/entries/${event.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                starts_at: event.start.toISOString(),
-                ends_at: event.end.toISOString()
-            })
+            body: JSON.stringify(body)
         }).then(response => {
             if (response.ok) {
                 grimnirUtils.showToast('Schedule updated', 'success');
-            } else {
                 calendar.refetchEvents();
+            } else {
+                if (info) { info.revert(); } else { calendar.refetchEvents(); }
                 grimnirUtils.showToast('Failed to update', 'error');
             }
+        }).catch(() => {
+            if (info) { info.revert(); } else { calendar.refetchEvents(); }
+            grimnirUtils.showToast('Failed to update', 'error');
         });
     }
 

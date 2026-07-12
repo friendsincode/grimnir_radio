@@ -1078,6 +1078,14 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A recurring occurrence carries a virtual id (instanceDate set). An update to
+	// one occurrence with no explicit scope must never rewrite the whole series:
+	// drag/resize sends no edit_mode (#57). Default it to a single-occurrence
+	// exception; a series-wide time change requires edit_mode "all".
+	if instanceDate != "" && input.EditMode == "" {
+		input.EditMode = "single"
+	}
+
 	// If editing a single instance of a recurring entry, create an exception
 	if instanceDate != "" && input.EditMode == "single" {
 		hasOverlap, err := h.scheduleOverlaps(station.ID, input.StartsAt, input.EndsAt, realID)
