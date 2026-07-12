@@ -8,6 +8,7 @@ package broadcast
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -193,22 +194,28 @@ func TestMount_ListenerStatsOnlyForEstablished(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(m.ServeHTTP))
 	defer srv.Close()
 
-	// Cycle 1: connect and immediately drop, never establishing.
-	resp, err := http.Get(srv.URL + "/live")
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
+	// Cycle 1: connect and immediately drop, never establishing. Drive the request
+	// through a context we cancel ourselves rather than a real socket close: with
+	// no audio flowing there is no write to fail against, so disconnect would ride
+	// on net/http noticing the closed socket, which starves under CI load and
+	// flakes. Cancelling our own context makes the serve loop's <-ctx.Done() fire
+	// deterministically.
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/live", nil).WithContext(ctx)
+	served := make(chan struct{})
+	go func() {
+		m.ServeHTTP(httptest.NewRecorder(), req)
+		close(served)
+	}()
 	if !waitFor(t, 2*time.Second, func() bool { return m.ConnectionCount() == 1 }) {
+		cancel()
 		t.Fatal("client never registered")
 	}
-	resp.Body.Close()
-	// Unregister happens when the serve goroutine sees r.Context() cancel. With
-	// no audio flowing this cycle, there's no write to fail against, so detection
-	// rides on server-goroutine scheduling and runs slow under CI load. Match the
-	// 5s rollback bound the other unestablished-close checks use (line 117).
-	if !waitFor(t, 5*time.Second, func() bool { return m.ConnectionCount() == 0 }) {
+	cancel() // deterministic client disconnect
+	if !waitFor(t, 2*time.Second, func() bool { return m.ConnectionCount() == 0 }) {
 		t.Fatal("client never unregistered")
 	}
+	<-served
 	select {
 	case ev := <-sub:
 		t.Fatalf("unestablished connection published a stats event: %+v", ev)
