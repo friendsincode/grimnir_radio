@@ -822,7 +822,7 @@ func (s *Server) configureRoutes() {
 		_, _ = w.Write([]byte(response))
 	})
 
-	s.router.Handle("/metrics", telemetry.Handler())
+	s.router.Handle("/metrics", metricsGate(s.db, telemetry.Handler()))
 
 	// Audio broadcast streams (served directly by Go, no Icecast needed)
 	s.router.HandleFunc("/live/{mount}", func(w http.ResponseWriter, r *http.Request) {

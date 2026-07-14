@@ -497,7 +497,7 @@ func (a *API) Routes(r chi.Router) {
 				a.migrationHandler.RegisterRoutes(mr)
 			})
 
-			pr.Get("/events", a.handleEvents)
+			pr.Get("/events", websocketGate(a.db, http.HandlerFunc(a.handleEvents)).ServeHTTP)
 		})
 	})
 }

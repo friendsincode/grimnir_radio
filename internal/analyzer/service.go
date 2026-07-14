@@ -40,22 +40,28 @@ type Service struct {
 	workDir           string
 	cfg               Config
 	mediaEngineClient *client.Client
+
+	// analysisEnabledLast tracks the last-seen AnalysisEnabled toggle state so
+	// Run logs only on transitions. Starts true (assume enabled) to avoid a
+	// spurious "resumed" log on startup.
+	analysisEnabledLast bool
 }
 
 // New constructs an analyzer service without media engine support.
 // Deprecated: Use NewWithConfig instead to enable media analysis.
 func New(db *gorm.DB, workDir string, logger zerolog.Logger) *Service {
 	logger.Warn().Msg("analyzer created without media engine - analysis will fail")
-	return &Service{db: db, workDir: workDir, logger: logger}
+	return &Service{db: db, workDir: workDir, logger: logger, analysisEnabledLast: true}
 }
 
 // NewWithConfig constructs an analyzer service with media engine support.
 func NewWithConfig(db *gorm.DB, workDir string, logger zerolog.Logger, cfg Config) *Service {
 	s := &Service{
-		db:      db,
-		workDir: workDir,
-		logger:  logger,
-		cfg:     cfg,
+		db:                  db,
+		workDir:             workDir,
+		logger:              logger,
+		cfg:                 cfg,
+		analysisEnabledLast: true,
 	}
 
 	if cfg.MediaEngineGRPCAddr == "" {
@@ -94,6 +100,10 @@ func (s *Service) Enqueue(ctx context.Context, mediaID string) (string, error) {
 	return job.ID, nil
 }
 
+// analysisPausedPollInterval is how long the drain loop waits between checks of
+// the AnalysisEnabled toggle while analysis is disabled.
+const analysisPausedPollInterval = 3 * time.Second
+
 // Run drains the analysis queue until context cancellation.
 func (s *Service) Run(ctx context.Context) error {
 	s.logger.Info().Msg("analyzer loop started")
@@ -103,6 +113,27 @@ func (s *Service) Run(ctx context.Context) error {
 			s.logger.Info().Msg("analyzer loop stopped")
 			return ctx.Err()
 		default:
+		}
+
+		// Respect the runtime AnalysisEnabled toggle. When disabled, leave
+		// pending jobs in place (they resume when re-enabled) and log only on
+		// the transition so the loop doesn't spam every poll.
+		if !models.IsAnalysisEnabled(s.db) {
+			if s.analysisEnabledLast {
+				s.logger.Info().Msg("analysis disabled via settings; pausing queue drain")
+				s.analysisEnabledLast = false
+			}
+			select {
+			case <-ctx.Done():
+				s.logger.Info().Msg("analyzer loop stopped")
+				return ctx.Err()
+			case <-time.After(analysisPausedPollInterval):
+			}
+			continue
+		}
+		if !s.analysisEnabledLast {
+			s.logger.Info().Msg("analysis re-enabled via settings; resuming queue drain")
+			s.analysisEnabledLast = true
 		}
 
 		job, err := s.nextPendingJob(ctx)

@@ -56,6 +56,33 @@ func IsValidLogLevel(val string) bool {
 	return false
 }
 
+// featureEnabled reads the singleton settings and returns pick(settings).
+// It fails open: if the settings can't be read, the feature is treated as
+// enabled so a transient database error never silently disables metrics,
+// websockets, or analysis (all of which default to on).
+func featureEnabled(db *gorm.DB, pick func(*SystemSettings) bool) bool {
+	settings, err := GetSystemSettings(db)
+	if err != nil {
+		return true
+	}
+	return pick(settings)
+}
+
+// IsMetricsEnabled reports whether the Prometheus /metrics endpoint should be served.
+func IsMetricsEnabled(db *gorm.DB) bool {
+	return featureEnabled(db, func(s *SystemSettings) bool { return s.MetricsEnabled })
+}
+
+// IsWebsocketEnabled reports whether dashboard live-update WebSockets should be served.
+func IsWebsocketEnabled(db *gorm.DB) bool {
+	return featureEnabled(db, func(s *SystemSettings) bool { return s.WebsocketEnabled })
+}
+
+// IsAnalysisEnabled reports whether the media analysis queue should be drained.
+func IsAnalysisEnabled(db *gorm.DB) bool {
+	return featureEnabled(db, func(s *SystemSettings) bool { return s.AnalysisEnabled })
+}
+
 // GetSystemSettings retrieves the singleton settings row, creating it if it doesn't exist.
 func GetSystemSettings(db *gorm.DB) (*SystemSettings, error) {
 	var settings SystemSettings
