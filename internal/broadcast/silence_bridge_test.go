@@ -7,9 +7,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package broadcast
 
 import (
+	"encoding/binary"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -272,6 +274,76 @@ func TestMount_SilenceBridge_IdleWhileFeeding(t *testing.T) {
 			t.Fatal("inGap true while a live feed is attached")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// A client connecting while chunks are broadcasting must receive a clean
+// splice: every chunk lands either wholly in the ring-buffer preroll or wholly
+// in the live channel, never both (double delivery) and never neither (a lost
+// chunk). The old connect seam registered the client and THEN snapshotted the
+// ring outside any common lock, so a chunk arriving in between was delivered
+// twice: once in the preroll, once through the channel.
+func TestMount_AttachClient_NoDoubleDeliveryAtConnectSeam(t *testing.T) {
+	bus := events.NewBus()
+	m := NewMount("test", "audio/mpeg", 128, zerolog.Nop(), bus)
+	defer m.Close()
+
+	// Broadcast 4-byte big-endian sequence numbers in a tight loop. Chunk size
+	// divides the ring size (80000 at 128kbps), so chunk boundaries survive the
+	// ring wrap and the preroll tail is always a whole chunk.
+	var seq uint32
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			binary.BigEndian.PutUint32(buf, atomic.AddUint32(&seq, 1))
+			m.Broadcast(append([]byte(nil), buf...))
+			time.Sleep(50 * time.Microsecond)
+		}
+	}()
+	defer func() { close(stop); wg.Wait() }()
+
+	// Let the ring accumulate more than the preroll we'll ask for, so the
+	// snapshot holds only real numbered chunks.
+	const prerollBytes = 400
+	if !waitFor(t, 2*time.Second, func() bool { return atomic.LoadUint32(&seq) > prerollBytes }) {
+		t.Fatal("broadcaster never filled the ring")
+	}
+
+	for i := 0; i < 300; i++ {
+		c := &client{ch: make(chan []byte, 4096), done: make(chan struct{})}
+		preroll, _ := m.attachClient(c, prerollBytes)
+		if len(preroll) < 4 {
+			t.Fatalf("iteration %d: preroll too short: %d bytes", i, len(preroll))
+		}
+		tail := binary.BigEndian.Uint32(preroll[len(preroll)-4:])
+
+		var first uint32
+		select {
+		case data := <-c.ch:
+			first = binary.BigEndian.Uint32(data)
+		case <-time.After(time.Second):
+			t.Fatalf("iteration %d: no live chunk after attach", i)
+		}
+
+		if first <= tail {
+			t.Fatalf("iteration %d: connect seam double-delivered: preroll tail seq %d, first live seq %d", i, tail, first)
+		}
+		if first != tail+1 {
+			t.Fatalf("iteration %d: chunk lost at connect seam: preroll tail seq %d, first live seq %d", i, tail, first)
+		}
+
+		m.mu.Lock()
+		delete(m.clients, c)
+		m.mu.Unlock()
 	}
 }
 

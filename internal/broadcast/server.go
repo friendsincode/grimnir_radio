@@ -293,11 +293,15 @@ func (m *Mount) Broadcast(data []byte) {
 	// silence bridge can hold its output to a wall-clock realtime budget.
 	atomic.AddInt64(&m.bytesOut, int64(len(data)))
 
-	// Store in ring buffer for new clients
-	m.buffer.Write(data)
-
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	// The ring write happens under the same mount lock as the client fan-out
+	// below so that both are atomic against attachClient's snapshot+register:
+	// a chunk lands either wholly before the snapshot (delivered via preroll)
+	// or wholly after registration (delivered via the channel), never both and
+	// never neither.
+	m.buffer.Write(data)
 
 	skipped := false
 	for c := range m.clients {
@@ -412,6 +416,23 @@ func (m *Mount) inGap() bool {
 		return false
 	}
 	return time.Since(time.Unix(0, fedNs)) > m.bridgeGraceD
+}
+
+// attachClient atomically snapshots up to prerollBytes of recent ring-buffer
+// audio and registers c for live delivery, under the write side of the same
+// lock Broadcast holds across its ring write and channel fan-out. That
+// pairing is what makes the connect seam clean: every chunk is either wholly
+// in the returned preroll or wholly in c.ch, so the caller can write the
+// preroll first and then drain the channel without duplicating or losing a
+// chunk. Returns the snapshot and the connection count after registration.
+func (m *Mount) attachClient(c *client, prerollBytes int) (preroll []byte, connections int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if prerollBytes > 0 {
+		preroll = m.buffer.GetRecent(prerollBytes)
+	}
+	m.clients[c] = struct{}{}
+	return preroll, len(m.clients)
 }
 
 // FeedFrom reads from an io.Reader and broadcasts the data.
@@ -554,15 +575,33 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		userAgent:  r.UserAgent(),
 	}
 
-	// Register client for delivery. It does NOT count as a listener yet:
-	// the counters roll only after the connection is fully established
+	// Preroll sizing. Quality switches (nobuffer=1) get ~200ms to prime the
+	// connection without affecting sync; normal connects get 2 seconds of
+	// audio for a quick, stable start (capped at 64KB, floored at 8KB).
+	var prerollBytes int
+	if skipBuffer {
+		prerollBytes = (m.Bitrate * 1000 / 8) / 5 // 200ms of audio
+		if prerollBytes < 1000 {
+			prerollBytes = 1000
+		}
+	} else {
+		prerollBytes = (m.Bitrate * 1000 / 8) * 2 // 2 seconds of audio
+		if prerollBytes > 64000 {
+			prerollBytes = 64000 // Cap at 64KB (~4s at 128kbps)
+		}
+		if prerollBytes < 8000 {
+			prerollBytes = 8000 // Minimum 8KB
+		}
+	}
+
+	// Register client for delivery, snapshotting the preroll atomically with
+	// registration (attachClient) so a chunk arriving at the connect seam is
+	// never delivered twice or lost. The client does NOT count as a listener
+	// yet: the counters roll only after the connection is fully established
 	// (establishThresholdBytes delivered), so recycled/parked connections
 	// never inflate the listener numbers they used to (issue #18: ~1,415
 	// reported against ~15 real).
-	m.mu.Lock()
-	m.clients[c] = struct{}{}
-	connectionCount := len(m.clients)
-	m.mu.Unlock()
+	preroll, connectionCount := m.attachClient(c, prerollBytes)
 
 	m.logger.Info().Str("mount", m.Name).Int("connections", connectionCount).Bool("quality_switch", skipBuffer).
 		Str("remote", c.remoteAddr).Str("ua", c.userAgent).Msg("client connected (unestablished)")
@@ -590,42 +629,10 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		m.publishListenerStats(listeners, "connect")
 	}
 
-	// Send buffered data to help client start faster
-	// For quality switches (nobuffer=1), send minimal data to prime connection
-	// This prevents browser timeout while waiting for live data
-	if skipBuffer {
-		// Send ~200ms of audio to prime the connection without affecting sync much
-		// At 128kbps: 200ms = ~3KB, At 64kbps: 200ms = ~1.5KB
-		primeBytes := (m.Bitrate * 1000 / 8) / 5 // 200ms of audio
-		if primeBytes < 1000 {
-			primeBytes = 1000
-		}
-		if recent := m.buffer.GetRecent(primeBytes); len(recent) > 0 {
-			if err := writeAndFlush(recent); err != nil {
-				m.logger.Info().Err(err).Msg("initial buffer write failed (skipBuffer)")
-				return
-			}
-		}
-	} else {
-		// Send 2 seconds of audio for quick start and stable playback
-		// At 128kbps: 2s = 32KB, At 64kbps: 2s = 16KB
-		bufferBytes := (m.Bitrate * 1000 / 8) * 2 // 2 seconds of audio
-		if bufferBytes > 64000 {
-			bufferBytes = 64000 // Cap at 64KB (~4s at 128kbps)
-		}
-		if bufferBytes < 8000 {
-			bufferBytes = 8000 // Minimum 8KB
-		}
-		if recent := m.buffer.GetRecent(bufferBytes); len(recent) > 0 {
-			if err := writeAndFlush(recent); err != nil {
-				m.logger.Info().Err(err).Int("bytes", len(recent)).Msg("initial buffer write failed")
-				return
-			}
-			m.logger.Info().Int("bytes", len(recent)).Msg("initial buffer sent, entering main loop")
-		}
-	}
-
-	// Cleanup on disconnect. Only an established client rolls the counters
+	// Cleanup on disconnect. Registered BEFORE the preroll write below: an
+	// early return on a failed preroll used to leave the client behind in
+	// m.clients forever (a zombie connection no serve loop would ever remove).
+	// Only an established client rolls the counters
 	// back and emits a disconnect event — a connection that never qualified
 	// was never counted, so it has nothing to undo.
 	defer func() {
@@ -654,6 +661,19 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			m.publishListenerStats(listeners, "disconnect")
 		}
 	}()
+
+	// Write the preroll snapshot before draining live chunks: c.ch only holds
+	// chunks broadcast after the snapshot, so this order preserves the stream.
+	// It bypasses delivered() on purpose; a single connect burst absorbs into
+	// socket buffers whether or not a listener exists, so it must not count
+	// toward establishment.
+	if len(preroll) > 0 {
+		if err := writeAndFlush(preroll); err != nil {
+			m.logger.Info().Err(err).Int("bytes", len(preroll)).Msg("initial buffer write failed")
+			return
+		}
+		m.logger.Info().Int("bytes", len(preroll)).Msg("initial buffer sent, entering main loop")
+	}
 
 	// Create a single timer for keepalive - reused instead of creating new ones.
 	// Stays above writeTimeout (30s) and below the server IdleTimeout (60s).
