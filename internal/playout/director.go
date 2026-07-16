@@ -3999,6 +3999,11 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 // interrupted when the cut happens meaningfully early (>30s before expected end). It records
 // cut_offset_ms so findResumeOffset can use it for the next play of the same track.
 func (d *Director) closeCurrentPlayHistory(ctx context.Context, stationID, mountID string, positionMS int64) {
+	// Empty IDs can't match a row and Postgres rejects "" bound against a uuid
+	// column with 22P02, so bail before the query rather than log a hard error.
+	if stationID == "" || mountID == "" {
+		return
+	}
 	now := time.Now()
 	var h models.PlayHistory
 	if err := d.db.WithContext(ctx).
