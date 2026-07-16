@@ -496,6 +496,101 @@ func TestTick_HardBoundaryPreemption_ClearsOldActiveBeforeStartingNew(t *testing
 	}
 }
 
+// At a hard-boundary preemption the director must NOT stop the old pipeline
+// explicitly. The successor launch (playMedia → EnsurePipeline*, which calls
+// stopIfRunning directly) already tears the old process down back-to-back with
+// the start, so the old audio keeps flowing until the handover. Stopping it
+// early instead left the mount silent through all of handleEntry's DB/prep work
+// — the per-boundary "double-clutch" gap prod operators felt (426 preemptions
+// in one window, one every 2-3 min on busy mounts).
+//
+// playMedia does its own legitimate stop-before-start, so the meaningful
+// invariant is a delta, not an absolute count: preempting entry1 must drive the
+// SAME number of Manager.StopPipeline calls as launching entry2 fresh. Any
+// excess is the redundant early stop the double-clutch fix removes.
+func TestTick_HardBoundaryPreemption_AddsNoExtraStopVsFreshLaunch(t *testing.T) {
+	// launchStops seeds entry2 as the sole current media entry and runs one
+	// tick, optionally seeding d.active with a stale, already-ended entry to
+	// force the hard-boundary preemption path. The stale entry lives only in
+	// d.active (the preemption block reads memory, not the DB), so the two runs
+	// differ by exactly that block; entry2's launch is otherwise identical.
+	// Returns how many times the tick called Manager.StopPipeline.
+	launchStops := func(t *testing.T, withPreemptedActive bool) int {
+		t.Helper()
+		d, mgr := newMockDirector(t, &models.ScheduleEntry{}, &models.Playlist{}, &models.PlaylistItem{}, &models.SmartBlock{})
+
+		stationID := uuid.NewString()
+		mountID := uuid.NewString()
+
+		mount := models.Mount{
+			ID:         mountID,
+			StationID:  stationID,
+			Name:       "hb-delta-" + mountID[:8],
+			Format:     "mp3",
+			Bitrate:    128,
+			SampleRate: 44100,
+			Channels:   2,
+		}
+		if err := d.db.Create(&mount).Error; err != nil {
+			t.Fatalf("seed mount: %v", err)
+		}
+
+		media2 := models.MediaItem{
+			ID: uuid.NewString(), StationID: stationID, Path: "/tmp/m2.mp3",
+			Duration: 5 * time.Minute, AnalysisState: models.AnalysisComplete,
+		}
+		if err := d.db.Create(&media2).Error; err != nil {
+			t.Fatalf("seed media2: %v", err)
+		}
+
+		now := time.Now().UTC()
+		entry2 := models.ScheduleEntry{
+			ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+			SourceType: "media", SourceID: media2.ID,
+			StartsAt: now.Add(-1 * time.Second), EndsAt: now.Add(5 * time.Minute),
+		}
+		if err := d.db.Create(&entry2).Error; err != nil {
+			t.Fatalf("seed entry2: %v", err)
+		}
+
+		if withPreemptedActive {
+			// A stale active entry, past its end, that entry2 must preempt. Kept
+			// out of the DB on purpose so it is never independently processed.
+			d.mu.Lock()
+			d.active[mountID] = playoutState{
+				EntryID: uuid.NewString(), StationID: stationID, MediaID: uuid.NewString(),
+				Ends: now.Add(-1 * time.Second), SourceType: "media",
+			}
+			d.mu.Unlock()
+		}
+
+		d.broadcast.CreateMount(mount.Name, "audio/mpeg", 128)
+		d.broadcast.CreateMount(mount.Name+"-lq", "audio/mpeg", 64)
+
+		if err := d.tick(context.Background()); err != nil {
+			t.Errorf("tick returned error: %v", err)
+		}
+
+		// Sanity: entry2 must own the mount in both cases, else the counts
+		// aren't comparing the same launch.
+		d.mu.Lock()
+		st, ok := d.active[mountID]
+		d.mu.Unlock()
+		if !ok || st.EntryID != entry2.ID {
+			t.Fatalf("entry2 did not take the mount (preempt=%v); got %+v ok=%v", withPreemptedActive, st, ok)
+		}
+		return mgr.stopCalls
+	}
+
+	fresh := launchStops(t, false)
+	preempted := launchStops(t, true)
+
+	if preempted != fresh {
+		t.Errorf("hard-boundary preemption drove %d StopPipeline calls vs %d for a fresh launch; the %d extra is the redundant early stop the double-clutch fix removes",
+			preempted, fresh, preempted-fresh)
+	}
+}
+
 func TestCheckDeadAir_RestartsIdleMount(t *testing.T) {
 	d, _ := newMockDirector(t, &models.ScheduleEntry{})
 
