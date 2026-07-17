@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1042,6 +1043,33 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(entry)
 }
 
+// selfHealStation repopulates a station's materialized horizon after an operator
+// fixes a recurring overlap (removes or changes a recurring entry). It drops the
+// station's stale future plain instances for the parent (operator overrides are
+// preserved) and immediately re-materializes via RefreshStation. Fail-soft: a
+// self-heal error is logged, never surfaced to the operator, so a delete/edit is
+// never blocked on it (#75).
+func (h *Handler) selfHealStation(ctx context.Context, stationID, parentID string) {
+	if h.scheduler == nil {
+		return
+	}
+	if err := h.scheduler.InvalidateStationInstances(ctx, stationID, parentID); err != nil {
+		h.logger.Warn().Err(err).Str("station", stationID).Msg("self-heal invalidate failed")
+	}
+	if err := h.scheduler.RefreshStation(ctx, stationID); err != nil {
+		h.logger.Warn().Err(err).Str("station", stationID).Msg("self-heal refresh failed")
+	}
+}
+
+// scheduleEntryParentID returns the id to invalidate for an entry: its recurrence
+// parent when it is an instance/override, else its own id (it IS the parent).
+func scheduleEntryParentID(e models.ScheduleEntry) string {
+	if e.RecurrenceParentID != nil && *e.RecurrenceParentID != "" {
+		return *e.RecurrenceParentID
+	}
+	return e.ID
+}
+
 // ScheduleUpdateEntry updates a schedule entry
 func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
@@ -1233,6 +1261,12 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Forward edit splits the series: the truncated parent's future
+		// materialized instances past the split are now stale. Invalidate them for
+		// the parent; RefreshStation then repopulates the whole horizon (including
+		// the new forward segment) (#75).
+		h.selfHealStation(r.Context(), station.ID, scheduleEntryParentID(entry))
+
 		if h.eventBus != nil {
 			h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
 				"entry_id":    newEntry.ID,
@@ -1329,6 +1363,14 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+
+	// Self-heal only when the recurrence pattern actually changed. A pure
+	// title/source/metadata or time edit leaves the materialized horizon valid, so
+	// it must not invalidate. Recurrence fields (type/days/end-date) reshape which
+	// occurrences exist, so drop this parent's stale instances and repopulate (#75).
+	if input.RecurrenceType != nil || input.RecurrenceDays != nil || input.RecurrenceEndDate != nil {
+		h.selfHealStation(r.Context(), station.ID, scheduleEntryParentID(entry))
 	}
 
 	if h.eventBus != nil {
@@ -1471,6 +1513,9 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to update recurring entry", http.StatusInternalServerError)
 			return
 		}
+		// Truncating the series leaves stale future instances past the new end
+		// date; drop them for this parent and repopulate the horizon (#75).
+		h.selfHealStation(r.Context(), station.ID, parentID)
 		h.publishScheduleDelete(station, parent, "end_recurrence")
 
 	case "all":
@@ -1483,6 +1528,9 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to delete series", http.StatusInternalServerError)
 			return
 		}
+		// The parent is gone, so invalidate finds nothing to delete, but
+		// RefreshStation still repopulates the freed horizon (#75).
+		h.selfHealStation(r.Context(), station.ID, parentID)
 		h.publishScheduleDelete(station, parent, "delete")
 
 	default: // "occurrence" or unspecified: the safe default, never touches the series
@@ -1506,6 +1554,9 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r) // nothing to except and nothing to delete
 			return
 		}
+		// The new EXDATE changes what should materialize for this day; drop this
+		// parent's stale instances and repopulate the horizon (#75).
+		h.selfHealStation(r.Context(), station.ID, parentID)
 		if parentErr == nil {
 			h.publishScheduleDelete(station, parent, "delete_occurrence")
 		} else {

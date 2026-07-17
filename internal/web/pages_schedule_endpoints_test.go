@@ -27,15 +27,25 @@ import (
 type stubSchedulerService struct {
 	stationID string
 	err       error
+
+	// Recording fields for self-heal wiring assertions (#75).
+	refreshCalls    []string
+	invalidateCalls [][2]string // {stationID, parentID}
 }
 
 func (s *stubSchedulerService) RefreshStation(_ context.Context, stationID string) error {
 	s.stationID = stationID
+	s.refreshCalls = append(s.refreshCalls, stationID)
 	return s.err
 }
 
 func (s *stubSchedulerService) Materialize(_ context.Context, _ smartblock.GenerateRequest) (smartblock.GenerateResult, error) {
 	return smartblock.GenerateResult{}, errors.New("unused")
+}
+
+func (s *stubSchedulerService) InvalidateStationInstances(_ context.Context, stationID, parentID string) error {
+	s.invalidateCalls = append(s.invalidateCalls, [2]string{stationID, parentID})
+	return nil
 }
 
 func newScheduleEndpointTestHandler(t *testing.T) (*Handler, *gorm.DB, models.User, models.Station) {
@@ -2058,4 +2068,56 @@ func TestScheduleSmartBlockTrustPreviewExposesBumperUsage(t *testing.T) {
 			t.Fatalf("unexpected bumper track flags: %+v", payload.Tracks)
 		}
 	})
+}
+
+// TestScheduleDeleteSelfHealsMaterializedHorizon guards the Remove-button round
+// trip (#75): deleting a recurring series must invalidate the station's stale
+// future instances for the parent and re-materialize via RefreshStation. Both
+// calls must fire exactly once with the station id and (for invalidate) the
+// parent id.
+func TestScheduleDeleteSelfHealsMaterializedHorizon(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	start := time.Date(2026, 3, 10, 9, 0, 0, 0, time.UTC)
+	parent := models.ScheduleEntry{
+		ID:             "recurring-parent",
+		StationID:      station.ID,
+		MountID:        "m1",
+		StartsAt:       start,
+		EndsAt:         start.Add(time.Hour),
+		SourceType:     "media",
+		SourceID:       "media-1",
+		RecurrenceType: models.RecurrenceDaily,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create recurring parent: %v", err)
+	}
+
+	stub := &stubSchedulerService{}
+	h.scheduler = stub
+
+	// Delete "this and all following" for the occurrence on 2026-03-12.
+	virtualID := parent.ID + "_20260312"
+	req := scheduleRequest(http.MethodDelete, "/dashboard/schedule/entries/"+virtualID+"?scope=forward", nil, &station, virtualID)
+	rr := httptest.NewRecorder()
+	h.ScheduleDeleteEntry(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	if len(stub.invalidateCalls) != 1 {
+		t.Fatalf("expected InvalidateStationInstances called once, got %d: %v", len(stub.invalidateCalls), stub.invalidateCalls)
+	}
+	if got := stub.invalidateCalls[0]; got[0] != station.ID || got[1] != parent.ID {
+		t.Fatalf("expected invalidate(%q, %q), got (%q, %q)", station.ID, parent.ID, got[0], got[1])
+	}
+	if len(stub.refreshCalls) != 1 {
+		t.Fatalf("expected RefreshStation called once, got %d: %v", len(stub.refreshCalls), stub.refreshCalls)
+	}
+	if stub.refreshCalls[0] != station.ID {
+		t.Fatalf("expected refresh(%q), got %q", station.ID, stub.refreshCalls[0])
+	}
 }
