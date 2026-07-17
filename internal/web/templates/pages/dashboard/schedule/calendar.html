@@ -120,6 +120,43 @@
             -45deg, transparent, transparent 6px, rgba(255,255,255,0.12) 6px, rgba(255,255,255,0.12) 12px
         ) !important;
     }
+    /* Schedule conflicts: reuse the overlap danger language but split
+       the provisional winner (airing) from the flagged-not-airing entries. */
+    .fc-event.event-has-conflict {
+        box-shadow: 0 0 0 2px rgba(var(--bs-danger-rgb), 0.35);
+    }
+    .fc-event.event-conflict-airing {
+        border-color: #8b1a1a !important;
+        box-shadow: 0 0 0 2px rgba(var(--bs-danger-rgb), 0.55);
+    }
+    .fc-event.event-conflict-flagged {
+        opacity: 0.72;
+        border-style: dashed !important;
+        border-color: #8b1a1a !important;
+        background-image: repeating-linear-gradient(
+            45deg, transparent, transparent 5px, rgba(0,0,0,0.14) 5px, rgba(0,0,0,0.14) 10px
+        ) !important;
+    }
+    .event-conflict-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        margin-right: 4px;
+        border-radius: 50%;
+        background: rgba(220,53,69,0.95);
+        color: #fff;
+        font-size: 0.62rem;
+        font-weight: 700;
+        line-height: 1;
+        vertical-align: middle;
+        flex-shrink: 0;
+        cursor: help;
+    }
+    .event-conflict-remove {
+        margin-left: auto;
+    }
     /* Badge for purple/clock type */
     .badge.bg-purple { background-color: var(--calendar-color-clock) !important; }
     .badge.bg-pink { background-color: var(--calendar-color-show) !important; }
@@ -1515,12 +1552,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (props.status === 'cancelled') classes.push('event-cancelled');
                 if (props.exception_type) classes.push('event-exception');
                 if (props.overlap_highlight || overlapEventIDs.has(arg.event.id)) classes.push('event-overlap');
+                if (props.conflict) {
+                    classes.push('event-has-conflict');
+                    classes.push(props.provisional_winner ? 'event-conflict-airing' : 'event-conflict-flagged');
+                }
                 return classes;
             }
             const type = props.source_type;
             const classes = ['event-' + (type || 'media')];
             if (props.overlap_highlight || overlapEventIDs.has(arg.event.id)) classes.push('event-overlap');
             if (props.runtime_mismatch) classes.push('event-runtime-mismatch');
+            if (props.conflict) {
+                classes.push('event-has-conflict');
+                classes.push(props.provisional_winner ? 'event-conflict-airing' : 'event-conflict-flagged');
+            }
             return classes;
         },
 
@@ -1609,6 +1654,38 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             if (info.event.extendedProps?.runtime_mismatch) {
                 info.el.title = info.event.extendedProps.runtime_mismatch_reason || info.event.extendedProps.status_reason || 'Runtime does not match the scheduled source.';
+            }
+            // Schedule conflict: warning badge + inline remove. Only touch
+            // conflict_ids AFTER confirming conflict is true (nil serializes to
+            // JSON null for non-conflicting events, not []).
+            if (props.conflict) {
+                const airing = !!props.provisional_winner;
+                const otherCount = (props.conflict_ids || []).length;
+                const badge = document.createElement('span');
+                badge.className = 'event-conflict-badge';
+                badge.textContent = '!';
+                badge.title = airing
+                    ? 'Airing (newest); overlaps ' + otherCount + ' other ' + (otherCount === 1 ? 'entry' : 'entries')
+                    : 'Conflict, not airing (overlaps ' + otherCount + ' other ' + (otherCount === 1 ? 'entry' : 'entries') + ')';
+                const badgeHost = info.el.querySelector('.fc-event-title, .fc-list-event-title')
+                    || info.el.querySelector('.fc-event-main') || info.el;
+                badgeHost.prepend(badge);
+
+                // Inline remove control: reuses the existing deleteEvent() path,
+                // which prompts recurrence scope and DELETEs the entry so the
+                // backend self-heals the surviving entry on refetch.
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'btn btn-sm btn-link p-0 event-conflict-remove text-white';
+                remove.textContent = 'Remove';
+                remove.title = 'Remove this entry to clear the conflict';
+                remove.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteEvent(info.event);
+                });
+                const removeHost = info.el.querySelector('.fc-event-main') || info.el;
+                removeHost.appendChild(remove);
             }
         },
 
@@ -3507,11 +3584,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const url = `/dashboard/schedule/entries/${event.id}` + (scope ? `?scope=${scope}` : '');
         fetch(url, { method: 'DELETE' }).then(response => {
             if (response.ok) {
-                if (isRecurring) {
-                    calendar.refetchEvents();
-                } else {
-                    event.remove();
-                }
+                // Always refetch: deleting one entry can clear a conflict on a
+                // surviving overlapping entry, so re-pull to pick up the
+                // backend self-heal instead of a local event.remove().
+                calendar.refetchEvents();
                 eventModal.hide();
                 grimnirUtils.showToast('Entry deleted', 'success');
             } else {
