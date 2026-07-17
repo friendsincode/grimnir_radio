@@ -1157,6 +1157,29 @@ func (s *Service) InvalidateStationInstances(ctx context.Context, stationID, par
 	return nil
 }
 
+// SweepFillWindow deletes future auto-generated fill rows for one station that
+// overlap [from, to). Fill rows are materialized media instances tagged
+// metadata->>'fill'='true'; they carry no recurrence_parent_id, so
+// InvalidateStationInstances (which filters recurrence_parent_id = ?) cannot
+// reach them. Callers sweep a window before inserting real content there so a
+// fill row never blocks the operator's edit via the overlap check or the
+// prevent_station_schedule_overlap trigger. Station-scoped; never touches past rows.
+func (s *Service) SweepFillWindow(ctx context.Context, stationID string, from, to time.Time) (int64, error) {
+	res := s.db.WithContext(ctx).
+		Where("station_id = ? AND source_type = 'media' AND is_instance = true", stationID).
+		Where("recurrence_parent_id IS NULL AND metadata->>'fill' = 'true'").
+		Where("starts_at < ? AND ends_at > ? AND starts_at > ?", to, from, time.Now().UTC()).
+		Delete(&models.ScheduleEntry{})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	if res.RowsAffected > 0 {
+		s.logger.Info().Str("station", stationID).Int64("deleted", res.RowsAffected).
+			Time("from", from).Time("to", to).Msg("swept fill rows before real entry")
+	}
+	return res.RowsAffected, nil
+}
+
 // Upcoming returns upcoming schedule entries within horizon.
 // Simulate returns slot plans calculated by the planner.
 func (s *Service) Simulate(ctx context.Context, stationID string, start time.Time, horizon time.Duration) ([]clock.SlotPlan, error) {
