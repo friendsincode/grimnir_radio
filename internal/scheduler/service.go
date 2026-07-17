@@ -323,6 +323,14 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 		telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "direct_schedule_entry").Inc()
 	}
 
+	// Final pass: fill any horizon window still uncovered by real content from the
+	// station's recurring smart-block pool. Runs strictly LAST so real entries (which
+	// already materialized above and count as coverage here) are never displaced.
+	if err := s.fillStationHoles(ctx, stationID, start, start.Add(s.lookahead)); err != nil {
+		s.logger.Warn().Err(err).Str("station", stationID).Msg("fill pass failed")
+		telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "fill_holes").Inc()
+	}
+
 	// Record metrics
 	duration := time.Since(startTime).Seconds()
 	telemetry.ScheduleBuildDuration.WithLabelValues(stationID).Observe(duration)
@@ -494,6 +502,99 @@ func (s *Service) materializeSmartBlockEntry(ctx context.Context, stationID stri
 				Time("gap_end", g.End).
 				Msg("failed to materialize smart block into gap")
 			// continue with remaining gaps rather than abort the whole block
+		}
+	}
+	return nil
+}
+
+// fillStationHoles is the final materialize pass: after every real entry (clock plans
+// and directly-placed entries) has materialized, any horizon window still uncovered is
+// filled from the station's recurring smart-block pool. Produced media rows are tagged
+// metadata["fill"]="true" so SweepFillWindow can reclaim them when real content later
+// takes the window.
+//
+// Coverage counts EVERY existing schedule row overlapping [start, horizonEnd) — real
+// entries AND prior fill rows. Counting prior fill as coverage is what makes the pass
+// idempotent: a re-run sees the fill it already produced and adds nothing. Real entries
+// always materialize first, so the fill pass never displaces real content.
+//
+// start is clamped to now (mirroring materializeSmartBlockEntry): holes entirely in the
+// past are dead air and are never filled.
+func (s *Service) fillStationHoles(ctx context.Context, stationID string, start, horizonEnd time.Time) error {
+	now := time.Now().UTC()
+	if start.Before(now) {
+		start = now
+	}
+	if !start.Before(horizonEnd) {
+		return nil
+	}
+	window := interval{start, horizonEnd}
+
+	// Coverage: all schedule rows overlapping the window. Recurring smart_block parent
+	// templates are excluded — they occupy no real playout time and would otherwise mask
+	// the very holes they are meant to fill.
+	var rows []models.ScheduleEntry
+	if err := s.db.WithContext(ctx).
+		Where("station_id = ? AND starts_at < ? AND ends_at > ?", stationID, horizonEnd, start).
+		Where("NOT (is_instance = false AND source_type = 'smart_block')").
+		Find(&rows).Error; err != nil {
+		return err
+	}
+	covered := make([]interval, 0, len(rows))
+	for _, r := range rows {
+		covered = append(covered, interval{r.StartsAt, r.EndsAt})
+	}
+
+	const minGap = time.Minute
+	gaps := subtractCovered(window, covered, minGap)
+	if len(gaps) == 0 {
+		return nil
+	}
+
+	// Pool: the station's recurring smart-block parents. Predicate mirrors the Pass 2
+	// recurringParents query in materializeDirectScheduleEntries, restricted to
+	// smart_block source_type. An empty pool means there is nothing to fill holes with.
+	var pool []models.ScheduleEntry
+	if err := s.db.WithContext(ctx).
+		Where("station_id = ? AND source_type = 'smart_block' AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false AND (recurrence_end_date IS NULL OR recurrence_end_date >= ?)",
+			stationID, start).
+		Order("created_at DESC").
+		Find(&pool).Error; err != nil {
+		return err
+	}
+	if len(pool) == 0 {
+		return nil
+	}
+
+	// Task 2.1 uses a single pool block for all holes; round-robin LRU across the pool
+	// is Task 2.2. The pool is loaded as a set so that slot-in is a local change.
+	block := pool[0]
+	mountID := block.MountID
+	if mountID == "" {
+		mountID = s.getDefaultMountID(ctx, stationID)
+	}
+
+	for _, g := range gaps {
+		plan := clock.SlotPlan{
+			SlotID:   block.ID,
+			StartsAt: g.Start,
+			EndsAt:   g.End,
+			Duration: g.End.Sub(g.Start),
+			SlotType: string(models.SlotTypeSmartBlock),
+			Payload: map[string]any{
+				"smart_block_id": block.SourceID,
+				"mount_id":       mountID,
+				"fill":           true,
+			},
+		}
+		if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
+			s.logger.Warn().Err(err).
+				Str("station", stationID).
+				Str("smart_block_id", block.SourceID).
+				Time("gap_start", g.Start).
+				Time("gap_end", g.End).
+				Msg("failed to fill horizon hole from recurring block")
+			// continue with remaining holes rather than abort the whole pass
 		}
 	}
 	return nil
@@ -928,6 +1029,15 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		}
 		if result.Exhausted && i == 0 {
 			meta["sequence_exhausted"] = true
+		}
+		// Fill-pass rows are tagged with the STRING "true" so the portable
+		// metadata->>'fill'='true' predicate (SQLite coerces a JSON boolean to
+		// integer 1) matches. Gated on a truthy bool payload flag so only the
+		// hole-fill pass tags rows; normal smart-block scheduling never does.
+		if f, ok := plan.Payload["fill"]; ok {
+			if b, isBool := f.(bool); isBool && b {
+				meta["fill"] = "true"
+			}
 		}
 		entry := models.ScheduleEntry{
 			ID:         uuid.NewString(),

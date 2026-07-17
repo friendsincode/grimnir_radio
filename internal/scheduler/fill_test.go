@@ -112,3 +112,62 @@ func TestSweepFillWindow(t *testing.T) {
 		t.Errorf("st-2 fill %s should survive (station scope)", st2Fill)
 	}
 }
+
+// TestFillPass_TagsFillRows seeds a station whose recurring smart-block pool has ONE
+// parent (a pool of 1) backed by analyzed media, then carves a horizon HOLE with no
+// real entry covering [start, start+2h). fillStationHoles must expand the pool block
+// into that hole and tag every produced media row with metadata["fill"]=="true" (the
+// STRING) and a non-empty smart_block_id.
+func TestFillPass_TagsFillRows(t *testing.T) {
+	svc, db := newRunTestService(t)
+	stationID, mountID := "st-fillpass", "mt-fillpass"
+	if err := db.Create(&models.Station{ID: stationID, Name: "Test", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.Mount{
+		ID: mountID, StationID: stationID, Name: "Main",
+		URL: "https://example.invalid/main.mp3", Format: "mp3",
+	}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	// A single recurring smart-block parent forms the fill pool. seedNamedSmartBlock
+	// gives it loopToFill + 40 analyzed tracks so it can physically fill a 2h hole.
+	poolBlockID := seedNamedSmartBlock(t, db, stationID, "sb-pool")
+	parent := models.ScheduleEntry{
+		ID: "parent-pool", StationID: stationID, MountID: mountID,
+		SourceType: "smart_block", SourceID: poolBlockID,
+		// Recurring parent template (is_instance=false). Its own window is irrelevant
+		// to the hole; the pool query only needs it to be a live recurring parent.
+		StartsAt:       time.Now().UTC().Add(-24 * time.Hour),
+		EndsAt:         time.Now().UTC().Add(-24 * time.Hour).Add(time.Hour),
+		RecurrenceType: models.RecurrenceDaily, IsInstance: false,
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create pool parent: %v", err)
+	}
+
+	// Horizon hole: no real entry covers [start, start+2h).
+	start := time.Now().UTC().Truncate(time.Minute)
+	horizonEnd := start.Add(2 * time.Hour)
+
+	if err := svc.fillStationHoles(context.Background(), stationID, start, horizonEnd); err != nil {
+		t.Fatalf("fillStationHoles: %v", err)
+	}
+
+	var media []models.ScheduleEntry
+	db.Where("station_id = ? AND source_type = 'media'", stationID).
+		Order("starts_at ASC").Find(&media)
+	if len(media) == 0 {
+		t.Fatal("fill pass produced no media in the 2h hole")
+	}
+	for _, m := range media {
+		if got, _ := m.Metadata["fill"].(string); got != "true" {
+			t.Errorf("fill row %s: metadata[fill]=%v, want string \"true\"", m.ID, m.Metadata["fill"])
+		}
+		if sb, _ := m.Metadata["smart_block_id"].(string); sb == "" {
+			t.Errorf("fill row %s: missing smart_block_id", m.ID)
+		}
+	}
+}
