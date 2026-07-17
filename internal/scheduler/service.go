@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -566,35 +567,119 @@ func (s *Service) fillStationHoles(ctx context.Context, stationID string, start,
 		return nil
 	}
 
-	// Task 2.1 uses a single pool block for all holes; round-robin LRU across the pool
-	// is Task 2.2. The pool is loaded as a set so that slot-in is a local change.
-	block := pool[0]
-	mountID := block.MountID
-	if mountID == "" {
-		mountID = s.getDefaultMountID(ctx, stationID)
+	// Round-robin LRU across the pool. Each block's LRU key is the max starts_at among
+	// existing fill rows carrying its source id in metadata->>'smart_block_id'. A block
+	// with no fill rows has no key and sorts oldest (highest fill priority). Holes are
+	// filled in chronological order; after a block fills a hole it becomes most-recently-
+	// used for the next hole (its key is bumped to that hole's end in-memory). The
+	// persisted authority remains the row starts_at, so a later pass recomputes the same
+	// ordering from the DB.
+	type lruBlock struct {
+		entry   models.ScheduleEntry
+		lruKey  time.Time // zero => never filled
+		hasFill bool
+		blockID string // SourceID; what fill rows record and what we sort ties by
+	}
+	lrus := make([]*lruBlock, 0, len(pool))
+	for i := range pool {
+		lb := &lruBlock{entry: pool[i], blockID: pool[i].SourceID}
+		// Max starts_at across this block's persisted fill rows for the station.
+		var maxStart *time.Time
+		var row models.ScheduleEntry
+		err := s.db.WithContext(ctx).
+			Where("station_id = ? AND source_type = 'media' AND metadata->>'fill' = 'true' AND metadata->>'smart_block_id' = ?",
+				stationID, lb.blockID).
+			Order("starts_at DESC").
+			Limit(1).
+			First(&row).Error
+		if err == nil {
+			ms := row.StartsAt
+			maxStart = &ms
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if maxStart != nil {
+			lb.lruKey = *maxStart
+			lb.hasFill = true
+		}
+		lrus = append(lrus, lb)
+	}
+
+	// less reports whether block a sorts before b (least-recently-used first):
+	// never-filled blocks first, then oldest fill first, ties broken by the
+	// lexicographically-smaller block id so the pass is deterministic and
+	// reproducible across ticks.
+	less := func(a, b *lruBlock) bool {
+		if a.hasFill != b.hasFill {
+			return !a.hasFill // never-filled sorts first
+		}
+		if a.hasFill && !a.lruKey.Equal(b.lruKey) {
+			return a.lruKey.Before(b.lruKey)
+		}
+		return a.blockID < b.blockID
+	}
+	orderPool := func() []*lruBlock {
+		ordered := make([]*lruBlock, len(lrus))
+		copy(ordered, lrus)
+		sort.SliceStable(ordered, func(i, j int) bool { return less(ordered[i], ordered[j]) })
+		return ordered
+	}
+
+	countFillRows := func(from, to time.Time) (int64, error) {
+		var n int64
+		err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+			Where("station_id = ? AND source_type = 'media' AND metadata->>'fill' = 'true' AND starts_at >= ? AND starts_at < ?",
+				stationID, from, to).
+			Count(&n).Error
+		return n, err
 	}
 
 	for _, g := range gaps {
-		plan := clock.SlotPlan{
-			SlotID:   block.ID,
-			StartsAt: g.Start,
-			EndsAt:   g.End,
-			Duration: g.End.Sub(g.Start),
-			SlotType: string(models.SlotTypeSmartBlock),
-			Payload: map[string]any{
-				"smart_block_id": block.SourceID,
-				"mount_id":       mountID,
-				"fill":           true,
-			},
-		}
-		if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
-			s.logger.Warn().Err(err).
-				Str("station", stationID).
-				Str("smart_block_id", block.SourceID).
-				Time("gap_start", g.Start).
-				Time("gap_end", g.End).
-				Msg("failed to fill horizon hole from recurring block")
-			// continue with remaining holes rather than abort the whole pass
+		// Try pool blocks in LRU order; a block that produces nothing (dry) is skipped
+		// and the next-LRU block is tried. If every block is dry the hole is left
+		// uncovered and the pass moves on.
+		for _, lb := range orderPool() {
+			mountID := lb.entry.MountID
+			if mountID == "" {
+				mountID = s.getDefaultMountID(ctx, stationID)
+			}
+			before, err := countFillRows(g.Start, g.End)
+			if err != nil {
+				return err
+			}
+			plan := clock.SlotPlan{
+				SlotID:   lb.entry.ID,
+				StartsAt: g.Start,
+				EndsAt:   g.End,
+				Duration: g.End.Sub(g.Start),
+				SlotType: string(models.SlotTypeSmartBlock),
+				Payload: map[string]any{
+					"smart_block_id": lb.blockID,
+					"mount_id":       mountID,
+					"fill":           true,
+				},
+			}
+			if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
+				s.logger.Warn().Err(err).
+					Str("station", stationID).
+					Str("smart_block_id", lb.blockID).
+					Time("gap_start", g.Start).
+					Time("gap_end", g.End).
+					Msg("failed to fill horizon hole from recurring block")
+				// treat as dry and try the next block rather than abort the pass
+				continue
+			}
+			after, err := countFillRows(g.Start, g.End)
+			if err != nil {
+				return err
+			}
+			if after <= before {
+				continue // dry block, produced nothing — try the next-LRU block
+			}
+			// Filled: this block is now most-recently-used for the next hole.
+			lb.lruKey = g.End
+			lb.hasFill = true
+			break
 		}
 	}
 	return nil

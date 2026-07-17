@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	"github.com/google/uuid"
 )
 
 // TestSweepFillWindow verifies that SweepFillWindow deletes only the future
@@ -170,4 +171,170 @@ func TestFillPass_TagsFillRows(t *testing.T) {
 			t.Errorf("fill row %s: missing smart_block_id", m.ID)
 		}
 	}
+}
+
+// TestFillPass_RoundRobinLRU proves fillStationHoles rotates across the recurring pool by
+// least-recently-used order instead of always using pool[0]. Two future holes must be
+// filled by DIFFERENT pool blocks; a never-filled block outranks a previously-filled one;
+// and with no prior fill, ties break deterministically by the lexicographically-smaller
+// block id.
+func TestFillPass_RoundRobinLRU(t *testing.T) {
+	// --- Scenario 1: two holes fill with two different pool blocks. ------------------
+	t.Run("two_holes_different_blocks", func(t *testing.T) {
+		svc, db := newRunTestService(t)
+		stationID, mountID := "st-rr", "mt-rr"
+		if err := db.Create(&models.Station{ID: stationID, Name: "Test", Timezone: "UTC"}).Error; err != nil {
+			t.Fatalf("create station: %v", err)
+		}
+		if err := db.Create(&models.Mount{
+			ID: mountID, StationID: stationID, Name: "Main",
+			URL: "https://example.invalid/main.mp3", Format: "mp3",
+		}).Error; err != nil {
+			t.Fatalf("create mount: %v", err)
+		}
+
+		// Two recurring pool parents, sb-a and sb-b.
+		for _, sbID := range []string{"sb-a", "sb-b"} {
+			seedNamedSmartBlock(t, db, stationID, sbID)
+			p := models.ScheduleEntry{
+				ID: "parent-" + sbID, StationID: stationID, MountID: mountID,
+				SourceType: "smart_block", SourceID: sbID,
+				StartsAt:       time.Now().UTC().Add(-24 * time.Hour),
+				EndsAt:         time.Now().UTC().Add(-23 * time.Hour),
+				RecurrenceType: models.RecurrenceDaily, IsInstance: false,
+				CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			}
+			if err := db.Create(&p).Error; err != nil {
+				t.Fatalf("create pool parent %s: %v", sbID, err)
+			}
+		}
+
+		// Fixed future date so both holes are ahead of the pass start. Anchor the day on
+		// tomorrow to guarantee 12:00 and 14:00 are in the future.
+		day := time.Now().UTC().Add(24 * time.Hour).Truncate(24 * time.Hour)
+		hole1Start := day.Add(12 * time.Hour)
+		hole1End := day.Add(13 * time.Hour)
+		hole2Start := day.Add(14 * time.Hour)
+		hole2End := day.Add(15 * time.Hour)
+
+		// A real entry occupies 13:00-14:00 between the two holes so subtractCovered
+		// yields two distinct gaps rather than one merged span.
+		bridge := models.ScheduleEntry{
+			ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+			SourceType: "media", SourceID: uuid.NewString(), IsInstance: true,
+			StartsAt: hole1End, EndsAt: hole2Start,
+		}
+		if err := db.Create(&bridge).Error; err != nil {
+			t.Fatalf("create bridge entry: %v", err)
+		}
+
+		if err := svc.fillStationHoles(context.Background(), stationID, day.Add(11*time.Hour), day.Add(16*time.Hour)); err != nil {
+			t.Fatalf("fillStationHoles: %v", err)
+		}
+
+		blocksIn := func(from, to time.Time) map[string]bool {
+			var media []models.ScheduleEntry
+			db.Where("station_id = ? AND source_type = 'media' AND starts_at >= ? AND starts_at < ?",
+				stationID, from, to).Find(&media)
+			out := map[string]bool{}
+			for _, m := range media {
+				if m.Metadata["fill"] != "true" {
+					continue
+				}
+				if sb, _ := m.Metadata["smart_block_id"].(string); sb != "" {
+					out[sb] = true
+				}
+			}
+			return out
+		}
+
+		h1 := blocksIn(hole1Start, hole1End)
+		h2 := blocksIn(hole2Start, hole2End)
+		if len(h1) != 1 {
+			t.Fatalf("hole1 filled by %v blocks, want exactly 1", h1)
+		}
+		if len(h2) != 1 {
+			t.Fatalf("hole2 filled by %v blocks, want exactly 1", h2)
+		}
+		var b1, b2 string
+		for k := range h1 {
+			b1 = k
+		}
+		for k := range h2 {
+			b2 = k
+		}
+		if b1 == b2 {
+			t.Fatalf("both holes filled by the same block %q; round-robin LRU should differ", b1)
+		}
+		// Determinism: with no prior fill, both blocks are never-filled and tie; the tie
+		// breaks by the lexicographically-smaller block id, so hole1 (chronologically
+		// first) is filled by sb-a.
+		if b1 != "sb-a" {
+			t.Errorf("hole1 filled by %q, want deterministic tie winner sb-a", b1)
+		}
+	})
+
+	// --- Scenario 2: a pre-existing fill for sb-a makes sb-b (never filled) win. -----
+	t.Run("never_filled_block_wins", func(t *testing.T) {
+		svc, db := newRunTestService(t)
+		stationID, mountID := "st-rr2", "mt-rr2"
+		if err := db.Create(&models.Station{ID: stationID, Name: "Test", Timezone: "UTC"}).Error; err != nil {
+			t.Fatalf("create station: %v", err)
+		}
+		if err := db.Create(&models.Mount{
+			ID: mountID, StationID: stationID, Name: "Main",
+			URL: "https://example.invalid/main.mp3", Format: "mp3",
+		}).Error; err != nil {
+			t.Fatalf("create mount: %v", err)
+		}
+		for _, sbID := range []string{"sb-a", "sb-b"} {
+			seedNamedSmartBlock(t, db, stationID, sbID)
+			p := models.ScheduleEntry{
+				ID: "parent-" + sbID, StationID: stationID, MountID: mountID,
+				SourceType: "smart_block", SourceID: sbID,
+				StartsAt:       time.Now().UTC().Add(-24 * time.Hour),
+				EndsAt:         time.Now().UTC().Add(-23 * time.Hour),
+				RecurrenceType: models.RecurrenceDaily, IsInstance: false,
+				CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			}
+			if err := db.Create(&p).Error; err != nil {
+				t.Fatalf("create pool parent %s: %v", sbID, err)
+			}
+		}
+
+		day := time.Now().UTC().Add(24 * time.Hour).Truncate(24 * time.Hour)
+
+		// sb-a already has a fill row in the past. sb-b has none -> sb-b is LRU.
+		priorFill := models.ScheduleEntry{
+			ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+			SourceType: "media", SourceID: uuid.NewString(), IsInstance: true,
+			StartsAt: day.Add(-2 * time.Hour), EndsAt: day.Add(-90 * time.Minute),
+			Metadata: map[string]any{"fill": "true", "smart_block_id": "sb-a"},
+		}
+		if err := db.Create(&priorFill).Error; err != nil {
+			t.Fatalf("create prior fill: %v", err)
+		}
+
+		holeStart := day.Add(12 * time.Hour)
+		holeEnd := day.Add(13 * time.Hour)
+		if err := svc.fillStationHoles(context.Background(), stationID, holeStart, holeEnd); err != nil {
+			t.Fatalf("fillStationHoles: %v", err)
+		}
+
+		var media []models.ScheduleEntry
+		db.Where("station_id = ? AND source_type = 'media' AND starts_at >= ? AND starts_at < ?",
+			stationID, holeStart, holeEnd).Find(&media)
+		got := map[string]bool{}
+		for _, m := range media {
+			if m.Metadata["fill"] != "true" {
+				continue
+			}
+			if sb, _ := m.Metadata["smart_block_id"].(string); sb != "" {
+				got[sb] = true
+			}
+		}
+		if len(got) != 1 || !got["sb-b"] {
+			t.Fatalf("fresh hole filled by %v, want only sb-b (never-filled sorts LRU)", got)
+		}
+	})
 }
