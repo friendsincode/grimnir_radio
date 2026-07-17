@@ -197,6 +197,40 @@ func TestCloseCurrentPlayHistory_EmptyMediaIDSafe(t *testing.T) {
 	d.closeCurrentPlayHistory(ctx, stationID, mountID, 60_000)
 }
 
+func TestCloseCurrentPlayHistory_EmptyIDsGuarded(t *testing.T) {
+	// Empty station/mount IDs bound into the WHERE against uuid columns make
+	// Postgres throw 22P02 (invalid input syntax for type uuid); prod hit this
+	// at a hard-boundary cut whose ended entry carried no IDs (director.go,
+	// 2026-07-06 21:00:05). The guard must return before the query runs.
+	// SQLite, unlike Postgres, happily matches empty strings, which gives this
+	// test its observable: a seeded row with empty IDs must stay untouched.
+	d := newCoverageDirector(t)
+	ctx := context.Background()
+
+	now := time.Now()
+	h := models.PlayHistory{
+		ID:        uuid.NewString(),
+		StationID: "",
+		MountID:   "",
+		Title:     "orphan row",
+		StartedAt: now.Add(-1 * time.Minute),
+		EndedAt:   now.Add(10 * time.Minute), // in-progress; a cut now is >30s early
+	}
+	if err := d.db.Create(&h).Error; err != nil {
+		t.Fatalf("seed play history: %v", err)
+	}
+
+	d.closeCurrentPlayHistory(ctx, "", "", 60_000)
+
+	var got models.PlayHistory
+	if err := d.db.First(&got, "id = ?", h.ID).Error; err != nil {
+		t.Fatalf("reload play history: %v", err)
+	}
+	if got.Metadata != nil && got.Metadata["was_interrupted"] == true {
+		t.Fatal("closeCurrentPlayHistory ran its query with empty IDs; guard did not return early")
+	}
+}
+
 // ── resolveEntryForNow ────────────────────────────────────────────────────
 
 func TestResolveEntryForNow_NonRecurringInWindow(t *testing.T) {

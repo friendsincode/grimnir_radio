@@ -372,6 +372,19 @@ var (
 		},
 		[]string{"mount"},
 	)
+
+	// BroadcastBridgedChunksTotal counts silent frames the silence bridge fed
+	// into a mount to cover an input gap while delivery was behind realtime.
+	// A steady trickle at track boundaries is expected; a sustained climb means
+	// the playout side is leaving real gaps (pipeline spin-up too slow, encoder
+	// crashing) that the bridge is papering over.
+	BroadcastBridgedChunksTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "grimnir_broadcast_bridged_chunks_total",
+			Help: "Total silent chunks fed by the silence bridge, per mount",
+		},
+		[]string{"mount"},
+	)
 )
 
 // Track resume (cut-position recovery) metrics

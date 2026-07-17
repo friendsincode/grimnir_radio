@@ -33,12 +33,16 @@ type InterstitialSource struct {
 
 // InterstitialsConfig controls periodic ad/interstitial insertion within the sequence.
 type InterstitialsConfig struct {
-	Enabled              bool                 `json:"enabled"`
-	EveryN               int                  `json:"every"`    // insert after every N music tracks
-	PerBreak             int                  `json:"perBreak"` // how many ads per break
-	Logic                string               `json:"logic"`    // "any" (OR) or "all" (AND)
-	IncludePublicArchive bool                 `json:"includePublicArchive"`
-	Sources              []InterstitialSource `json:"sources"`
+	Enabled              bool   `json:"enabled"`
+	EveryN               int    `json:"every"`    // insert after every N music tracks
+	PerBreak             int    `json:"perBreak"` // how many ads per break
+	Logic                string `json:"logic"`    // "any" (OR) or "all" (AND)
+	IncludePublicArchive bool   `json:"includePublicArchive"`
+	// MaxDurationSec caps how long a picked interstitial may be, in seconds.
+	// Zero uses defaultInterstitialMaxDuration. Keeps a title/label substring
+	// match from pulling a full episode into a short-insert slot.
+	MaxDurationSec int                  `json:"maxDurationSec"`
+	Sources        []InterstitialSource `json:"sources"`
 }
 
 // BumperConfig controls tail-fill with short tracks after the main sequence.
@@ -50,6 +54,10 @@ type BumperConfig struct {
 	Query                string `json:"query"`
 	IncludePublicArchive bool   `json:"include_public_archive"`
 	MaxPerGap            int    `json:"max_per_gap"`
+	// MaxDurationSec caps how long a picked bumper may be, in seconds. Zero uses
+	// defaultBumperMaxDuration. Bumpers are the shortest inserts (station IDs,
+	// jingles), so the default is tighter than the interstitial one.
+	MaxDurationSec int `json:"max_duration_sec"`
 }
 
 // FilterRule applies a comparison against media metadata.

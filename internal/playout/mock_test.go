@@ -39,6 +39,7 @@ type mockManager struct {
 	ensureErr   error
 	stopErr     error
 	stdinWriter io.WriteCloser
+	stopCalls   int // number of StopPipeline invocations (preemption assertions)
 }
 
 func newMockManager() *mockManager {
@@ -82,6 +83,7 @@ func (m *mockManager) GetPipeline(mountID string) PipelineInterface {
 }
 
 func (m *mockManager) StopPipeline(mountID string) error {
+	m.stopCalls++
 	delete(m.pipelines, mountID)
 	return m.stopErr
 }

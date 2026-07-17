@@ -366,6 +366,11 @@ func applyLegacyRuleCompat(def Definition, rules map[string]any) Definition {
 		if def.Bumpers.MaxPerGap < 1 {
 			def.Bumpers.MaxPerGap = 8
 		}
+		// Dashboard emits camelCase, which the snake_case struct tag misses on
+		// the direct unmarshal, so pick up the bumper duration cap here too.
+		if maxDur, ok := bumpers["maxDurationSec"]; ok {
+			def.Bumpers.MaxDurationSec = toInt(maxDur)
+		}
 	}
 
 	// Loop-to-fill preference from legacy flat rules key.
@@ -489,15 +494,37 @@ func (e *Engine) tailFillBumpers(ctx context.Context, result *GenerateResult, cf
 	}
 }
 
+// Insert-duration caps. Bumpers and interstitials are short inserts between
+// music tracks, so a title/label substring match must never pull in a full
+// episode that merely contains the search word (a ~60-minute "Before the First
+// Cup ... Donate Your Body ..." episode matched a "donate" interstitial query
+// on prod, 2026-07). The defaults are grounded in the station-local pools at
+// the time: bumpers ran 21s to 1:59, interstitials 2:45 to 4:47. A station that
+// genuinely needs longer inserts raises MaxDurationSec on the rule.
+const (
+	defaultBumperMaxDuration       = 5 * time.Minute
+	defaultInterstitialMaxDuration = 10 * time.Minute
+)
+
+// effectiveMaxDuration resolves a configured MaxDurationSec (seconds) to a
+// duration, falling back to def when unset or non-positive.
+func effectiveMaxDuration(sec int, def time.Duration) time.Duration {
+	if sec > 0 {
+		return time.Duration(sec) * time.Second
+	}
+	return def
+}
+
 // fetchBumperCandidates loads media items matching the bumper source config.
 func (e *Engine) fetchBumperCandidates(ctx context.Context, cfg BumperConfig, stationID string) ([]models.MediaItem, error) {
+	maxDur := effectiveMaxDuration(cfg.MaxDurationSec, defaultBumperMaxDuration)
 	query := e.db.WithContext(ctx).Where("station_id = ?", stationID).
-		Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
+		Where("analysis_state != ? AND duration > 0 AND duration <= ?", models.AnalysisFailed, maxDur)
 	if cfg.IncludePublicArchive {
 		query = e.db.WithContext(ctx).
 			Where("(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
 				stationID, true, true, true, true).
-			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
+			Where("analysis_state != ? AND duration > 0 AND duration <= ?", models.AnalysisFailed, maxDur)
 	}
 
 	var tracks []models.MediaItem
@@ -541,13 +568,14 @@ func (e *Engine) fetchInterstitialCandidates(ctx context.Context, cfg Interstiti
 		return nil, nil
 	}
 
+	maxDur := effectiveMaxDuration(cfg.MaxDurationSec, defaultInterstitialMaxDuration)
 	baseQuery := e.db.WithContext(ctx).Where("station_id = ?", stationID).
-		Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
+		Where("analysis_state != ? AND duration > 0 AND duration <= ?", models.AnalysisFailed, maxDur)
 	if cfg.IncludePublicArchive {
 		baseQuery = e.db.WithContext(ctx).
 			Where("(station_id = ?) OR (show_in_archive = ? AND station_id IN (SELECT id FROM stations WHERE active = ? AND public = ? AND approved = ?))",
 				stationID, true, true, true, true).
-			Where("analysis_state != ? AND duration > 0", models.AnalysisFailed)
+			Where("analysis_state != ? AND duration > 0 AND duration <= ?", models.AnalysisFailed, maxDur)
 	}
 
 	clauses := make([]string, 0, len(cfg.Sources))
