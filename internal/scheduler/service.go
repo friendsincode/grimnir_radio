@@ -379,6 +379,10 @@ func (s *Service) materializeDirectScheduleEntries(ctx context.Context, stationI
 	if err := s.db.WithContext(ctx).
 		Where("station_id = ? AND source_type IN ? AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false AND (recurrence_end_date IS NULL OR recurrence_end_date >= ?)",
 			stationID, directMaterializableSourceTypes, start).
+		// Newest parent first: on a contested overlap span the most-recently-created
+		// recurring parent materializes first and claims it; older parents fill only
+		// the remainder via the coverage subtraction in materializeSmartBlockEntry (#75).
+		Order("created_at DESC").
 		Find(&recurringParents).Error; err != nil {
 		return err
 	}
