@@ -1137,6 +1137,26 @@ func (s *Service) RefreshStation(ctx context.Context, stationID string) error {
 	return s.scheduleStation(ctx, stationID)
 }
 
+// InvalidateStationInstances deletes future materialized instances for one
+// station that were produced by a parent whose recurrence changed or which was
+// removed, so the next materialize pass regenerates them. Per-occurrence
+// operator overrides (SeriesID set) are preserved. Strictly station-scoped;
+// never touches another station's rows.
+func (s *Service) InvalidateStationInstances(ctx context.Context, stationID, parentID string) error {
+	// series_id IS NULL selects ONLY plain materializer expansions: the override
+	// path sets SeriesID and the materializer never does.
+	res := s.db.WithContext(ctx).
+		Where("station_id = ? AND is_instance = true AND recurrence_parent_id = ? AND starts_at > ? AND series_id IS NULL",
+			stationID, parentID, time.Now().UTC()).
+		Delete(&models.ScheduleEntry{})
+	if res.Error != nil {
+		return res.Error
+	}
+	s.logger.Info().Str("station", stationID).Str("parent", parentID).
+		Int64("deleted", res.RowsAffected).Msg("invalidated stale instances for regenerate")
+	return nil
+}
+
 // Upcoming returns upcoming schedule entries within horizon.
 // Simulate returns slot plans calculated by the planner.
 func (s *Service) Simulate(ctx context.Context, stationID string, start time.Time, horizon time.Duration) ([]clock.SlotPlan, error) {

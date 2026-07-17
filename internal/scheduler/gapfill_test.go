@@ -228,3 +228,111 @@ func seedMinimalSmartBlock(t *testing.T, db *gorm.DB, stationID string) string {
 	}
 	return sb.ID
 }
+
+// TestInvalidateStationInstances verifies InvalidateStationInstances deletes only
+// plain future materializer expansions (SeriesID == nil) for one station+parent,
+// while preserving per-occurrence operator overrides (SeriesID set) and never
+// touching another station's rows.
+func TestInvalidateStationInstances(t *testing.T) {
+	svc, db := newRunTestService(t)
+	station1, mount1 := "st-inv-1", "mt-inv-1"
+	station2, mount2 := "st-inv-2", "mt-inv-2"
+	if err := db.Create(&models.Station{ID: station1, Name: "S1", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station1: %v", err)
+	}
+	if err := db.Create(&models.Station{ID: station2, Name: "S2", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station2: %v", err)
+	}
+
+	future := time.Now().UTC().Add(24 * time.Hour)
+
+	// station1 recurring parent.
+	parentID := uuid.NewString()
+	if err := db.Create(&models.ScheduleEntry{
+		ID: parentID, StationID: station1, MountID: mount1,
+		SourceType: "smart_block", SourceID: uuid.NewString(),
+		StartsAt: future, EndsAt: future.Add(time.Hour),
+		RecurrenceType: models.RecurrenceDaily, IsInstance: false,
+	}).Error; err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	// Several plain future expansions (SeriesID nil) produced by the parent.
+	var plainIDs []string
+	for i := 0; i < 3; i++ {
+		id := uuid.NewString()
+		plainIDs = append(plainIDs, id)
+		start := future.Add(time.Duration(i) * 24 * time.Hour)
+		if err := db.Create(&models.ScheduleEntry{
+			ID: id, StationID: station1, MountID: mount1,
+			SourceType: "media", SourceID: uuid.NewString(),
+			StartsAt: start, EndsAt: start.Add(time.Hour),
+			IsInstance: true, RecurrenceParentID: &parentID,
+		}).Error; err != nil {
+			t.Fatalf("create plain expansion %d: %v", i, err)
+		}
+	}
+
+	// One per-occurrence override (SeriesID set) on the same parent, future.
+	overrideID := uuid.NewString()
+	overrideSeries := overrideID
+	if err := db.Create(&models.ScheduleEntry{
+		ID: overrideID, StationID: station1, MountID: mount1,
+		SourceType: "media", SourceID: uuid.NewString(),
+		StartsAt: future.Add(4 * 24 * time.Hour), EndsAt: future.Add(4*24*time.Hour + time.Hour),
+		RecurrenceType: models.RecurrenceNone,
+		IsInstance:     true, RecurrenceParentID: &parentID, SeriesID: &overrideSeries,
+	}).Error; err != nil {
+		t.Fatalf("create override: %v", err)
+	}
+
+	// station2's own parent + plain future expansions.
+	parent2ID := uuid.NewString()
+	if err := db.Create(&models.ScheduleEntry{
+		ID: parent2ID, StationID: station2, MountID: mount2,
+		SourceType: "smart_block", SourceID: uuid.NewString(),
+		StartsAt: future, EndsAt: future.Add(time.Hour),
+		RecurrenceType: models.RecurrenceDaily, IsInstance: false,
+	}).Error; err != nil {
+		t.Fatalf("create parent2: %v", err)
+	}
+	var station2IDs []string
+	for i := 0; i < 2; i++ {
+		id := uuid.NewString()
+		station2IDs = append(station2IDs, id)
+		start := future.Add(time.Duration(i) * 24 * time.Hour)
+		if err := db.Create(&models.ScheduleEntry{
+			ID: id, StationID: station2, MountID: mount2,
+			SourceType: "media", SourceID: uuid.NewString(),
+			StartsAt: start, EndsAt: start.Add(time.Hour),
+			IsInstance: true, RecurrenceParentID: &parent2ID,
+		}).Error; err != nil {
+			t.Fatalf("create station2 expansion %d: %v", i, err)
+		}
+	}
+
+	if err := svc.InvalidateStationInstances(context.Background(), station1, parentID); err != nil {
+		t.Fatalf("InvalidateStationInstances: %v", err)
+	}
+
+	// 1. station1 plain expansions gone.
+	var remainingPlain int64
+	db.Model(&models.ScheduleEntry{}).Where("id IN ?", plainIDs).Count(&remainingPlain)
+	if remainingPlain != 0 {
+		t.Errorf("expected all %d plain expansions deleted, %d remain", len(plainIDs), remainingPlain)
+	}
+
+	// 2. station1 override survives.
+	var overrideCount int64
+	db.Model(&models.ScheduleEntry{}).Where("id = ?", overrideID).Count(&overrideCount)
+	if overrideCount != 1 {
+		t.Errorf("expected override row preserved, got count %d", overrideCount)
+	}
+
+	// 3. station2 untouched.
+	var station2Count int64
+	db.Model(&models.ScheduleEntry{}).Where("id IN ?", station2IDs).Count(&station2Count)
+	if station2Count != int64(len(station2IDs)) {
+		t.Errorf("expected all %d station2 rows untouched, got %d", len(station2IDs), station2Count)
+	}
+}
