@@ -401,7 +401,7 @@ func (s *Service) materializeDirectScheduleEntries(ctx context.Context, stationI
 
 		switch entry.SourceType {
 		case "smart_block":
-			if err := s.materializeSmartBlockEntry(ctx, stationID, entry, mountID); err != nil {
+			if err := s.materializeSmartBlockEntry(ctx, stationID, entry, mountID, start); err != nil {
 				s.logger.Warn().Err(err).
 					Str("station", stationID).
 					Str("entry_id", entry.ID).
@@ -423,51 +423,76 @@ func (s *Service) materializeDirectScheduleEntries(ctx context.Context, stationI
 }
 
 // materializeSmartBlockEntry runs the smart-block-specific materialization path: it expands
-// the smart block into concrete media schedule rows. It enforces idempotency via two checks:
+// the smart block into concrete media schedule rows for the sub-windows of its slot that are
+// not already covered. Filling only the uncovered remainder (instead of skipping the whole
+// block when any part is covered) avoids the dead air that the old whole-block-skip guard
+// caused (#71/#75).
 //
-//  1. Mount-agnostic media-overlap check — prevents cross-mount double-materialization when
-//     a clock template on a different mount has already filled this window with media.
-//  2. Same-mount any-source-type check — prevents materializing a smart block on a mount that
-//     already has a playlist, webstream, or other entry occupying the slot.
+// A window position counts as covered by either:
 //
-// Both checks use full overlap predicates (not just starts_at range) so that a track that
-// starts before the slot boundary but ends inside it is correctly detected, preventing
-// spurious 23514 (overlap trigger) violations.
-func (s *Service) materializeSmartBlockEntry(ctx context.Context, stationID string, entry models.ScheduleEntry, mountID string) error {
-	var mediaCount int64
-	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
-		Where("station_id = ? AND source_type = 'media' AND starts_at < ? AND ends_at > ?",
-			stationID, entry.EndsAt, entry.StartsAt).
-		Count(&mediaCount).Error; err != nil {
-		return err
+//  1. Any same-mount row that occupies the mount — that is, any real playable row except a
+//     non-instance smart_block parent template. The carve-out `NOT (is_instance = false AND
+//     source_type = 'smart_block')` mirrors the one materializeDirectInstanceEntry uses so the
+//     block never treats its own recurring parent as coverage (which would leave it never
+//     filled). This preserves the old same-mount any-source-type skip: a playlist, webstream,
+//     media instance, or already-materialized media on the mount still blocks the overlap.
+//  2. Any cross-mount source_type = 'media' row — the mount-agnostic 23514 (overlap trigger)
+//     protection that prevents cross-mount double-materialization when a clock template on a
+//     different mount already filled the window with media.
+//
+// Coverage uses a full overlap predicate (starts_at < end AND ends_at > start) so a track that
+// starts before the slot boundary but ends inside it is correctly detected.
+//
+// now clamps the fill window's start: gaps entirely before now are dead past air and are never
+// materialized, so a partially-covered block whose only uncovered remainder is in the past
+// produces nothing (matching the old whole-block skip for already-in-progress slots).
+func (s *Service) materializeSmartBlockEntry(ctx context.Context, stationID string, entry models.ScheduleEntry, mountID string, now time.Time) error {
+	windowStart := entry.StartsAt
+	if windowStart.Before(now) {
+		windowStart = now
 	}
-	if mediaCount > 0 {
+	if !windowStart.Before(entry.EndsAt) {
 		return nil
 	}
+	window := interval{windowStart, entry.EndsAt}
 
-	var mountCount int64
-	if err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
-		Where("station_id = ? AND mount_id = ? AND starts_at < ? AND ends_at > ?",
-			stationID, mountID, entry.EndsAt, entry.StartsAt).
-		Count(&mountCount).Error; err != nil {
+	var rows []models.ScheduleEntry
+	if err := s.db.WithContext(ctx).
+		Where("station_id = ? AND starts_at < ? AND ends_at > ?", stationID, entry.EndsAt, entry.StartsAt).
+		Where("(mount_id = ? AND NOT (is_instance = false AND source_type = 'smart_block')) OR source_type = 'media'", mountID).
+		Find(&rows).Error; err != nil {
 		return err
 	}
-	if mountCount > 0 {
-		return nil
+	covered := make([]interval, 0, len(rows))
+	for _, r := range rows {
+		covered = append(covered, interval{r.StartsAt, r.EndsAt})
 	}
 
-	plan := clock.SlotPlan{
-		SlotID:   entry.ID,
-		StartsAt: entry.StartsAt,
-		EndsAt:   entry.EndsAt,
-		Duration: entry.EndsAt.Sub(entry.StartsAt),
-		SlotType: string(models.SlotTypeSmartBlock),
-		Payload: map[string]any{
-			"smart_block_id": entry.SourceID,
-			"mount_id":       mountID,
-		},
+	const minGap = time.Minute
+	gaps := subtractCovered(window, covered, minGap)
+	for _, g := range gaps {
+		plan := clock.SlotPlan{
+			SlotID:   entry.ID,
+			StartsAt: g.Start,
+			EndsAt:   g.End,
+			Duration: g.End.Sub(g.Start),
+			SlotType: string(models.SlotTypeSmartBlock),
+			Payload: map[string]any{
+				"smart_block_id": entry.SourceID,
+				"mount_id":       mountID,
+			},
+		}
+		if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
+			s.logger.Warn().Err(err).
+				Str("station", stationID).
+				Str("entry_id", entry.ID).
+				Time("gap_start", g.Start).
+				Time("gap_end", g.End).
+				Msg("failed to materialize smart block into gap")
+			// continue with remaining gaps rather than abort the whole block
+		}
 	}
-	return s.materializeSmartBlock(ctx, stationID, plan)
+	return nil
 }
 
 // materializeDirectInstanceEntry creates the is_instance=true row that the executor plays
