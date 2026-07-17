@@ -278,11 +278,36 @@ func (d *Director) tick(ctx context.Context) error {
 		return err
 	}
 
+	// Unresolved-overlap safety net: when two is_instance entries on one mount both
+	// cover now, the newest instance (latest created_at) is the canonical plan; the
+	// older one is a stale overlap the scheduler failed to trim (#75). Record, per
+	// mount, the newest created_at among instances that cover now so the loop can
+	// refuse to start (or let an older overlap overwrite) the mount. Only instances
+	// are considered — recurring parents and crossfade lookahead are untouched.
+	overlapWinner := make(map[string]time.Time)
+	for i := range entries {
+		e := entries[i]
+		if !e.IsInstance || e.StartsAt.After(now) || e.EndsAt.Before(now) {
+			continue
+		}
+		if cur, ok := overlapWinner[e.MountID]; !ok || e.CreatedAt.After(cur) {
+			overlapWinner[e.MountID] = e.CreatedAt
+		}
+	}
+
 	for _, rawEntry := range entries {
 		loc := d.getStationTimezone(ctx, rawEntry.StationID)
 		entry, playKey, playUntil, ok := resolveEntryForNow(rawEntry, now, loc)
 		if !ok {
 			continue
+		}
+
+		// If a newer instance also covers now on this mount, this older instance is a
+		// stale overlap: don't let it claim the mount or overwrite the newer one.
+		if rawEntry.IsInstance && !rawEntry.StartsAt.After(now) && !rawEntry.EndsAt.Before(now) {
+			if winner, ok := overlapWinner[entry.MountID]; ok && winner.After(rawEntry.CreatedAt) {
+				continue
+			}
 		}
 
 		// Soft boundary mode: if something is currently active on this mount, allow it to overrun
@@ -492,6 +517,7 @@ func (d *Director) getScheduleSnapshot(ctx context.Context, now time.Time) ([]mo
 			now.Add(lookahead), now.Add(-lookback), false, now.Add(lookahead)).
 		Where("recurrence_end_date IS NULL OR recurrence_end_date >= ?", now.AddDate(0, 0, -1).Truncate(24*time.Hour)).
 		Order("starts_at ASC").
+		Order("created_at DESC").
 		Find(&entries).Error
 	if err != nil {
 		// If we have a cache, keep running and try again next tick.
