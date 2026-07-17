@@ -414,6 +414,188 @@ func TestScheduleEventsReturnsExpandedRecurringAndOrphanedEntries(t *testing.T) 
 	}
 }
 
+func TestScheduleEvents_ConflictMetadata(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	for _, record := range []any{
+		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
+		&models.MediaItem{ID: "media-a", StationID: station.ID, Title: "Track A", Artist: "Artist A", Duration: 3 * time.Minute, Path: "a.mp3"},
+		&models.MediaItem{ID: "media-b", StationID: station.ID, Title: "Track B", Artist: "Artist B", Duration: 3 * time.Minute, Path: "b.mp3"},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+
+	// Two entries on the same mount with an overlapping time window and
+	// different CreatedAt. The newer entry (later CreatedAt) is the
+	// provisional winner.
+	older := models.ScheduleEntry{
+		ID:         "conflict-older",
+		StationID:  station.ID,
+		MountID:    "m1",
+		StartsAt:   time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC),
+		EndsAt:     time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC),
+		SourceType: "media",
+		SourceID:   "media-a",
+		CreatedAt:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+	}
+	newer := models.ScheduleEntry{
+		ID:         "conflict-newer",
+		StationID:  station.ID,
+		MountID:    "m1",
+		StartsAt:   time.Date(2026, 3, 10, 10, 30, 0, 0, time.UTC),
+		EndsAt:     time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC),
+		SourceType: "media",
+		SourceID:   "media-b",
+		CreatedAt:  time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC),
+	}
+	for _, entry := range []models.ScheduleEntry{older, newer} {
+		if err := db.Create(&entry).Error; err != nil {
+			t.Fatalf("create entry: %v", err)
+		}
+	}
+
+	req := scheduleRequest(
+		http.MethodGet,
+		"/dashboard/schedule/events?start=2026-03-09T00:00:00Z&end=2026-03-11T00:00:00Z&view=timeGridWeek&mount_id=m1",
+		nil,
+		&station,
+		"",
+	)
+	rr := httptest.NewRecorder()
+
+	h.ScheduleEvents(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var payload []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode events payload: %v", err)
+	}
+	if len(payload) != 2 {
+		t.Fatalf("expected 2 events, got %d: %+v", len(payload), payload)
+	}
+
+	byID := make(map[string]map[string]any, len(payload))
+	for _, event := range payload {
+		id, _ := event["id"].(string)
+		props, ok := event["extendedProps"].(map[string]any)
+		if !ok {
+			t.Fatalf("event %q missing extendedProps: %+v", id, event)
+		}
+		byID[id] = props
+	}
+
+	olderProps, ok := byID["conflict-older"]
+	if !ok {
+		t.Fatalf("older event missing from payload: %+v", payload)
+	}
+	newerProps, ok := byID["conflict-newer"]
+	if !ok {
+		t.Fatalf("newer event missing from payload: %+v", payload)
+	}
+
+	// Both flagged in conflict.
+	if conflict, _ := olderProps["conflict"].(bool); !conflict {
+		t.Fatalf("expected older event conflict=true, got %+v", olderProps["conflict"])
+	}
+	if conflict, _ := newerProps["conflict"].(bool); !conflict {
+		t.Fatalf("expected newer event conflict=true, got %+v", newerProps["conflict"])
+	}
+
+	// Each event's conflict_ids references the other.
+	assertContainsID := func(props map[string]any, want string) {
+		t.Helper()
+		raw, ok := props["conflict_ids"].([]any)
+		if !ok {
+			t.Fatalf("conflict_ids not a slice: %+v", props["conflict_ids"])
+		}
+		for _, v := range raw {
+			if s, _ := v.(string); s == want {
+				return
+			}
+		}
+		t.Fatalf("conflict_ids %+v does not contain %q", raw, want)
+	}
+	assertContainsID(olderProps, "conflict-newer")
+	assertContainsID(newerProps, "conflict-older")
+
+	// Only the newer (later CreatedAt) event is the provisional winner.
+	if winner, _ := newerProps["provisional_winner"].(bool); !winner {
+		t.Fatalf("expected newer event provisional_winner=true, got %+v", newerProps["provisional_winner"])
+	}
+	if winner, _ := olderProps["provisional_winner"].(bool); winner {
+		t.Fatalf("expected older event provisional_winner=false, got %+v", olderProps["provisional_winner"])
+	}
+}
+
+// TestScheduleEvents_ExpandedTracksNotConflicts guards against a false-positive
+// where the conflict pass compared materialized smart_block track expansions
+// against their own parent block. On day/list views a single normal smart block
+// expands into child track events that sit inside the parent's window on the same
+// mount; those must NOT be flagged as conflicts (#75).
+func TestScheduleEvents_ExpandedTracksNotConflicts(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	for _, record := range []any{
+		&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"},
+		&models.MediaItem{ID: "media-1", StationID: station.ID, Title: "Block Track", Artist: "Block Artist", Duration: 180 * time.Second, Path: "block.mp3", Genre: "rock"},
+		&models.SmartBlock{ID: "sb-expand", StationID: station.ID, Name: "Expandable Block", Rules: map[string]any{"genre": "rock", "targetMinutes": 3}},
+	} {
+		if err := db.Create(record).Error; err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+	entry := models.ScheduleEntry{
+		ID:         "sb-single",
+		StationID:  station.ID,
+		MountID:    "m1",
+		StartsAt:   time.Date(2026, 3, 8, 13, 0, 0, 0, time.UTC),
+		EndsAt:     time.Date(2026, 3, 8, 13, 3, 0, 0, time.UTC),
+		SourceType: "smart_block",
+		SourceID:   "sb-expand",
+	}
+	if err := db.Create(&entry).Error; err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+
+	// Day view forces track expansion (expandTracks true).
+	req := scheduleRequest(http.MethodGet, "/dashboard/schedule/events?start=2026-03-08T00:00:00Z&end=2026-03-08T23:59:59Z&view=timeGridDay&mount_id=m1", nil, &station, "")
+	rr := httptest.NewRecorder()
+	h.ScheduleEvents(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var payload []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload) < 2 {
+		t.Fatalf("expected parent block plus expanded track(s), got %+v", payload)
+	}
+
+	sawExpanded := false
+	for _, event := range payload {
+		id, _ := event["id"].(string)
+		props, ok := event["extendedProps"].(map[string]any)
+		if !ok {
+			t.Fatalf("event %q missing extendedProps: %+v", id, event)
+		}
+		if strings.Contains(id, "-t-media-1") {
+			sawExpanded = true
+		}
+		if conflict, _ := props["conflict"].(bool); conflict {
+			t.Fatalf("event %q falsely flagged conflict=true: %+v", id, props)
+		}
+		if winner, _ := props["provisional_winner"].(bool); winner {
+			t.Fatalf("event %q falsely flagged provisional_winner=true: %+v", id, props)
+		}
+	}
+	if !sawExpanded {
+		t.Fatalf("expected at least one expanded track event, got %+v", payload)
+	}
+}
+
 func TestScheduleEventsHonorsMountFilterAndMetadataFallbacks(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	now := time.Now().UTC().Truncate(time.Minute)

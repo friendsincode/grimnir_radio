@@ -572,6 +572,79 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		activeMountStates[state.MountID] = state
 	}
 
+	// Annotate overlapping entries as operator-resolvable conflicts (#75).
+	// Two entries on the same mount conflict iff their time windows overlap.
+	// The newest (later CreatedAt) entry in a conflicting set is flagged as the
+	// provisional winner; ties break deterministically on the larger id string.
+	// This only annotates — every event that was collected above is still emitted.
+	conflictIDs := make(map[string][]string)
+	provisionalWinner := make(map[string]bool)
+	{
+		byMount := make(map[string][]models.ScheduleEntry)
+		for _, entry := range entries {
+			// Skip materialized display rows (smart_block track expansions). Those
+			// children sit inside their parent's window on the same mount, so
+			// including them would flag every block as conflicting with its own
+			// tracks. Only operator-authored entries participate in conflict
+			// detection.
+			if entry.Metadata != nil {
+				if expanded, _ := entry.Metadata["expanded"].(bool); expanded {
+					continue
+				}
+			}
+			byMount[entry.MountID] = append(byMount[entry.MountID], entry)
+		}
+		newer := func(a, b models.ScheduleEntry) bool {
+			if a.CreatedAt.Equal(b.CreatedAt) {
+				return a.ID > b.ID
+			}
+			return a.CreatedAt.After(b.CreatedAt)
+		}
+		for _, group := range byMount {
+			// Union-find over the group so each connected cluster of mutually
+			// (transitively) overlapping entries gets exactly one winner.
+			parent := make([]int, len(group))
+			for i := range parent {
+				parent[i] = i
+			}
+			var find func(int) int
+			find = func(x int) int {
+				for parent[x] != x {
+					parent[x] = parent[parent[x]]
+					x = parent[x]
+				}
+				return x
+			}
+			for i := 0; i < len(group); i++ {
+				for j := i + 1; j < len(group); j++ {
+					a, b := group[i], group[j]
+					// Overlap predicate (mirrors Validator.itemsOverlap).
+					if a.StartsAt.Before(b.EndsAt) && a.EndsAt.After(b.StartsAt) {
+						conflictIDs[a.ID] = append(conflictIDs[a.ID], b.ID)
+						conflictIDs[b.ID] = append(conflictIDs[b.ID], a.ID)
+						parent[find(i)] = find(j)
+					}
+				}
+			}
+			// For each cluster (root), the newest entry is the provisional
+			// winner. A single-entry cluster (no overlaps) has no conflicts and
+			// so gets no winner.
+			winnerByRoot := make(map[int]int)
+			for idx := range group {
+				if len(conflictIDs[group[idx].ID]) == 0 {
+					continue
+				}
+				root := find(idx)
+				if w, ok := winnerByRoot[root]; !ok || newer(group[idx], group[w]) {
+					winnerByRoot[root] = idx
+				}
+			}
+			for _, idx := range winnerByRoot {
+				provisionalWinner[group[idx].ID] = true
+			}
+		}
+	}
+
 	events := make([]calendarEvent, 0, len(entries))
 	for _, entry := range entries {
 		// Get title based on source type and detect orphaned references
@@ -757,6 +830,9 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 				"runtime_mismatch_reason": runtimeMismatchReason,
 				"status_label":            statusLabel,
 				"status_reason":           statusReason,
+				"conflict":                len(conflictIDs[entry.ID]) > 0,
+				"conflict_ids":            conflictIDs[entry.ID],
+				"provisional_winner":      provisionalWinner[entry.ID],
 			},
 		}
 
