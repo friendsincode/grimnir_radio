@@ -251,14 +251,14 @@ func NewMount(name, contentType string, bitrate int, logger zerolog.Logger, bus 
 	}
 
 	return &Mount{
-		Name:        name,
-		ContentType: contentType,
-		Bitrate:     bitrate,
-		clients:     make(map[*client]struct{}),
-		buffer:      newRingBuffer(bufferSize),
-		logger:      logger.With().Str("mount", name).Logger(),
-		inputDone:   make(chan struct{}),
-		bus:         bus,
+		Name:         name,
+		ContentType:  contentType,
+		Bitrate:      bitrate,
+		clients:      make(map[*client]struct{}),
+		buffer:       newRingBuffer(bufferSize),
+		logger:       logger.With().Str("mount", name).Logger(),
+		inputDone:    make(chan struct{}),
+		bus:          bus,
 		silentFrame:  mp3SilenceFrame(contentType, bitrate),
 		bridgeStop:   make(chan struct{}),
 		bridgeGraceD: bridgeGrace,

@@ -33,11 +33,11 @@ type InterstitialSource struct {
 
 // InterstitialsConfig controls periodic ad/interstitial insertion within the sequence.
 type InterstitialsConfig struct {
-	Enabled              bool                 `json:"enabled"`
-	EveryN               int                  `json:"every"`    // insert after every N music tracks
-	PerBreak             int                  `json:"perBreak"` // how many ads per break
-	Logic                string               `json:"logic"`    // "any" (OR) or "all" (AND)
-	IncludePublicArchive bool                 `json:"includePublicArchive"`
+	Enabled              bool   `json:"enabled"`
+	EveryN               int    `json:"every"`    // insert after every N music tracks
+	PerBreak             int    `json:"perBreak"` // how many ads per break
+	Logic                string `json:"logic"`    // "any" (OR) or "all" (AND)
+	IncludePublicArchive bool   `json:"includePublicArchive"`
 	// MaxDurationSec caps how long a picked interstitial may be, in seconds.
 	// Zero uses defaultInterstitialMaxDuration. Keeps a title/label substring
 	// match from pulling a full episode into a short-insert slot.
