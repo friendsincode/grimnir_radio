@@ -173,6 +173,82 @@ func TestFillPass_TagsFillRows(t *testing.T) {
 	}
 }
 
+// TestFillPass_Idempotent proves that running fillStationHoles twice over the same window
+// adds zero new fill rows on the second pass. The coverage query in fillStationHoles loads
+// ALL overlapping rows — including rows already tagged fill=true — so the first pass's
+// output is treated as coverage on the second pass and no gaps remain.
+func TestFillPass_Idempotent(t *testing.T) {
+	svc, db := newRunTestService(t)
+	stationID, mountID := "st-idem", "mt-idem"
+	if err := db.Create(&models.Station{ID: stationID, Name: "Test", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.Mount{
+		ID: mountID, StationID: stationID, Name: "Main",
+		URL: "https://example.invalid/main.mp3", Format: "mp3",
+	}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	// Single recurring smart-block parent forms the fill pool. seedNamedSmartBlock gives it
+	// loopToFill + 40 analyzed tracks so it can physically cover the 2 h hole.
+	poolBlockID := seedNamedSmartBlock(t, db, stationID, "sb-idem")
+	parent := models.ScheduleEntry{
+		ID: "parent-idem", StationID: stationID, MountID: mountID,
+		SourceType: "smart_block", SourceID: poolBlockID,
+		StartsAt:       time.Now().UTC().Add(-24 * time.Hour),
+		EndsAt:         time.Now().UTC().Add(-24 * time.Hour).Add(time.Hour),
+		RecurrenceType: models.RecurrenceDaily, IsInstance: false,
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create pool parent: %v", err)
+	}
+
+	// Horizon hole: no real entry covers [start, start+2h).
+	start := time.Now().UTC().Truncate(time.Minute)
+	horizonEnd := start.Add(2 * time.Hour)
+
+	// First pass: should fill the hole.
+	if err := svc.fillStationHoles(context.Background(), stationID, start, horizonEnd); err != nil {
+		t.Fatalf("fillStationHoles (pass 1): %v", err)
+	}
+
+	// Count fill rows after the first pass.
+	var after1 []models.ScheduleEntry
+	db.Where("station_id = ? AND source_type = 'media'", stationID).
+		Order("starts_at ASC").Find(&after1)
+	fillCount1 := 0
+	for _, m := range after1 {
+		if m.Metadata["fill"] == "true" {
+			fillCount1++
+		}
+	}
+	if fillCount1 == 0 {
+		t.Fatal("fill pass 1 produced no fill rows in the 2 h hole")
+	}
+
+	// Second pass over the same window: existing fill rows count as coverage so no new
+	// fill rows should appear.
+	if err := svc.fillStationHoles(context.Background(), stationID, start, horizonEnd); err != nil {
+		t.Fatalf("fillStationHoles (pass 2): %v", err)
+	}
+
+	var after2 []models.ScheduleEntry
+	db.Where("station_id = ? AND source_type = 'media'", stationID).
+		Order("starts_at ASC").Find(&after2)
+	fillCount2 := 0
+	for _, m := range after2 {
+		if m.Metadata["fill"] == "true" {
+			fillCount2++
+		}
+	}
+	if fillCount2 != fillCount1 {
+		t.Errorf("fill row count after pass 2 = %d, want %d (idempotent: second pass must add zero rows)",
+			fillCount2, fillCount1)
+	}
+}
+
 // TestFillPass_RoundRobinLRU proves fillStationHoles rotates across the recurring pool by
 // least-recently-used order instead of always using pool[0]. Two future holes must be
 // filled by DIFFERENT pool blocks; a never-filled block outranks a previously-filled one;
