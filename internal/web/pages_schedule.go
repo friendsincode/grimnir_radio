@@ -1057,6 +1057,12 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.scheduler != nil {
+		if _, err := h.scheduler.SweepFillWindow(r.Context(), station.ID, input.StartsAt, input.EndsAt); err != nil {
+			h.logger.Warn().Err(err).Str("station", station.ID).Msg("sweep fill before overlap check failed")
+		}
+	}
+
 	hasOverlap, err := h.scheduleOverlaps(station.ID, input.StartsAt, input.EndsAt, "")
 	if err != nil {
 		http.Error(w, "Failed to validate schedule", http.StatusInternalServerError)
@@ -1202,6 +1208,12 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 
 	// If editing a single instance of a recurring entry, create an exception
 	if instanceDate != "" && input.EditMode == "single" {
+		if h.scheduler != nil {
+			if _, err := h.scheduler.SweepFillWindow(r.Context(), station.ID, input.StartsAt, input.EndsAt); err != nil {
+				h.logger.Warn().Err(err).Str("station", station.ID).Msg("sweep fill before overlap check failed")
+			}
+		}
+
 		hasOverlap, err := h.scheduleOverlaps(station.ID, input.StartsAt, input.EndsAt, realID)
 		if err != nil {
 			http.Error(w, "Failed to validate schedule", http.StatusInternalServerError)
@@ -1360,6 +1372,12 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(newEntry)
 		return
+	}
+
+	if h.scheduler != nil {
+		if _, err := h.scheduler.SweepFillWindow(r.Context(), station.ID, input.StartsAt, input.EndsAt); err != nil {
+			h.logger.Warn().Err(err).Str("station", station.ID).Msg("sweep fill before overlap check failed")
+		}
 	}
 
 	hasOverlap, err := h.scheduleOverlaps(station.ID, input.StartsAt, input.EndsAt, entry.ID)
