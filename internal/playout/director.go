@@ -448,8 +448,8 @@ func (d *Director) checkDeadAir(ctx context.Context, now time.Time) {
 // mountPipelineLive reports whether the manager holds a RUNNING pipeline for the
 // mount. GetPipeline stays non-nil for a self-exited pipeline (it lingers in the
 // manager's map until StopPipeline), so a bare non-nil check would treat a
-// crashed-and-unrestarted pipeline as alive and never mark the mount dark —
-// exactly the failure the dark gauge must catch (#74). A pipeline whose Done()
+// crashed-and-unrestarted pipeline as alive and never mark the mount dark,
+// the exact failure the dark gauge must catch (#74). A pipeline whose Done()
 // channel has closed is not live.
 func mountPipelineLive(p PipelineInterface) bool {
 	if p == nil {
@@ -468,7 +468,7 @@ func mountPipelineLive(p PipelineInterface) bool {
 // has no running pipeline for that mount. The gauge flips to 1 only once the
 // mount has been continuously dark for darkGrace; a pipeline reappearing clears
 // the dark-since timestamp and resets the gauge to 0. This tracks a distinct
-// concern from checkDeadAir's 15s dead-air recovery — its own grace, its own
+// concern from checkDeadAir's 15s dead-air recovery: its own grace, its own
 // per-mount state (d.darkSince) under the same d.mu lock. (#74)
 func (d *Director) updateDarkMountGauge(entries []models.ScheduleEntry, now time.Time) {
 	const darkGrace = 45 * time.Second

@@ -96,7 +96,7 @@ func TestPlayoutActivePipelinesGauge(t *testing.T) {
 // an entry that should be playing but whose mount has no running pipeline
 // (Manager.GetPipeline returns nil). The dark gauge must stay 0 within the 45s
 // grace window and flip to 1 once the mount has been dark past it. Time is
-// injected via the `now` argument — no wall-clock sleep. A pipeline that
+// injected via the `now` argument, no wall-clock sleep. A pipeline that
 // reappears before the grace elapses must keep the gauge at 0.
 func TestDarkMountGauge_FiresAfterGrace(t *testing.T) {
 	d, mgr := newMockDirector(t, &models.ScheduleEntry{})

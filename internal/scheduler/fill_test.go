@@ -175,7 +175,7 @@ func TestFillPass_TagsFillRows(t *testing.T) {
 
 // TestFillPass_Idempotent proves that running fillStationHoles twice over the same window
 // adds zero new fill rows on the second pass. The coverage query in fillStationHoles loads
-// ALL overlapping rows — including rows already tagged fill=true — so the first pass's
+// ALL overlapping rows, including rows already tagged fill=true, so the first pass's
 // output is treated as coverage on the second pass and no gaps remain.
 func TestFillPass_Idempotent(t *testing.T) {
 	svc, db := newRunTestService(t)

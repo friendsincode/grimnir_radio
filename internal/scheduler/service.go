@@ -514,7 +514,7 @@ func (s *Service) materializeSmartBlockEntry(ctx context.Context, stationID stri
 // metadata["fill"]="true" so SweepFillWindow can reclaim them when real content later
 // takes the window.
 //
-// Coverage counts EVERY existing schedule row overlapping [start, horizonEnd) — real
+// Coverage counts EVERY existing schedule row overlapping [start, horizonEnd): real
 // entries AND prior fill rows. Counting prior fill as coverage is what makes the pass
 // idempotent: a re-run sees the fill it already produced and adds nothing. Real entries
 // always materialize first, so the fill pass never displaces real content.
@@ -532,7 +532,7 @@ func (s *Service) fillStationHoles(ctx context.Context, stationID string, start,
 	window := interval{start, horizonEnd}
 
 	// Coverage: all schedule rows overlapping the window. Recurring smart_block parent
-	// templates are excluded — they occupy no real playout time and would otherwise mask
+	// templates are excluded; they occupy no real playout time and would otherwise mask
 	// the very holes they are meant to fill.
 	var rows []models.ScheduleEntry
 	if err := s.db.WithContext(ctx).
@@ -674,7 +674,7 @@ func (s *Service) fillStationHoles(ctx context.Context, stationID string, start,
 				return err
 			}
 			if after <= before {
-				continue // dry block, produced nothing — try the next-LRU block
+				continue // dry block, produced nothing; try the next-LRU block
 			}
 			// Filled: this block is now most-recently-used for the next hole.
 			lb.lruKey = g.End
