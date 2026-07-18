@@ -1947,13 +1947,18 @@ func (d *Director) startMountPipelineDualInput(ctx context.Context, stationID, m
 }
 
 // stopMountPipeline is the single chokepoint for stopping a mount pipeline. It
-// clears the per-mount active-pipelines gauge to 0 and forwards the Manager's
-// StopPipeline result. stationID is passed by the caller (it isn't uniformly in
-// scope at every stop site, but is always derivable from the entry/mount/state
-// there) (#74).
+// calls StopPipeline first; if that succeeds, it clears the per-mount
+// active-pipelines gauge to 0 and returns nil. On error it returns the error
+// and leaves the gauge unchanged (the checkDeadAir tick reconciler corrects
+// it from actual pipeline liveness). stationID is passed by the caller (it
+// isn't uniformly in scope at every stop site, but is always derivable from
+// the entry/mount/state there) (#74).
 func (d *Director) stopMountPipeline(stationID, mountID string) error {
+	if err := d.manager.StopPipeline(mountID); err != nil {
+		return err
+	}
 	telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID).Set(0)
-	return d.manager.StopPipeline(mountID)
+	return nil
 }
 
 // buildWebstreamBroadcastPipeline creates a GStreamer pipeline that relays a webstream
