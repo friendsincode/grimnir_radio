@@ -31,6 +31,14 @@ type stubSchedulerService struct {
 	// Recording fields for self-heal wiring assertions (#75).
 	refreshCalls    []string
 	invalidateCalls [][2]string // {stationID, parentID}
+
+	// Recording fields for hole-recovery wiring assertions (#74).
+	sweepCalls []sweepFillCall
+}
+
+type sweepFillCall struct {
+	stationID string
+	from, to  time.Time
 }
 
 func (s *stubSchedulerService) RefreshStation(_ context.Context, stationID string) error {
@@ -46,6 +54,11 @@ func (s *stubSchedulerService) Materialize(_ context.Context, _ smartblock.Gener
 func (s *stubSchedulerService) InvalidateStationInstances(_ context.Context, stationID, parentID string) error {
 	s.invalidateCalls = append(s.invalidateCalls, [2]string{stationID, parentID})
 	return nil
+}
+
+func (s *stubSchedulerService) SweepFillWindow(_ context.Context, stationID string, from, to time.Time) (int64, error) {
+	s.sweepCalls = append(s.sweepCalls, sweepFillCall{stationID: stationID, from: from, to: to})
+	return 0, nil
 }
 
 func newScheduleEndpointTestHandler(t *testing.T) (*Handler, *gorm.DB, models.User, models.Station) {

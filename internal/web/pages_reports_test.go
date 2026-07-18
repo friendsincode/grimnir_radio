@@ -527,6 +527,10 @@ func (m *mockScheduler) InvalidateStationInstances(ctx context.Context, stationI
 	return nil
 }
 
+func (m *mockScheduler) SweepFillWindow(_ context.Context, _ string, _, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
 // ---------------------------------------------------------------------------
 // DayHealth coverage calculation (pure unit tests)
 // ---------------------------------------------------------------------------
