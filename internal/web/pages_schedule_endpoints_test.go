@@ -2265,11 +2265,6 @@ func TestScheduleSmartBlockTrustPreviewExposesBumperUsage(t *testing.T) {
 	})
 }
 
-// TestScheduleDeleteSelfHealsMaterializedHorizon guards the Remove-button round
-// trip (#75): deleting a recurring series must invalidate the station's stale
-// future instances for the parent and re-materialize via RefreshStation. Both
-// calls must fire exactly once with the station id and (for invalidate) the
-// parent id.
 func TestScheduleCreate_SweepsFillFirst(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
@@ -2320,6 +2315,11 @@ func TestScheduleCreate_SweepsFillFirst(t *testing.T) {
 	}
 }
 
+// TestScheduleDeleteSelfHealsMaterializedHorizon guards the Remove-button round
+// trip (#75): deleting a recurring series must invalidate the station's stale
+// future instances for the parent and re-materialize via RefreshStation. Both
+// calls must fire exactly once with the station id and (for invalidate) the
+// parent id.
 func TestScheduleDeleteSelfHealsMaterializedHorizon(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
