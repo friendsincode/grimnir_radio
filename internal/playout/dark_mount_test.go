@@ -8,6 +8,7 @@ package playout
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -89,6 +90,37 @@ func TestPlayoutActivePipelinesGauge(t *testing.T) {
 
 	if got := testutil.ToFloat64(telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID)); got != 0 {
 		t.Fatalf("active-pipelines gauge after stop = %v, want 0", got)
+	}
+}
+
+// TestStopMountPipeline_GaugeUnchangedOnError proves that stopMountPipeline
+// leaves the active-pipelines gauge unchanged when StopPipeline returns an error.
+// The gauge is seeded to 1, the mock manager is configured to return an error,
+// and after the call the gauge must still read 1 and the error must be returned.
+func TestStopMountPipeline_GaugeUnchangedOnError(t *testing.T) {
+	d, mgr := newMockDirector(t)
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+
+	// Isolate this gauge series from any other test that might touch it.
+	telemetry.PlayoutActivePipelines.DeleteLabelValues(stationID, mountID)
+
+	// Seed the gauge to 1, simulating a running pipeline.
+	telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID).Set(1)
+
+	// Make StopPipeline return an error (pipeline may still be running).
+	mgr.stopErr = errors.New("gstreamer: stop timed out")
+
+	err := d.stopMountPipeline(stationID, mountID)
+	if err == nil {
+		t.Fatal("stopMountPipeline returned nil, want the StopPipeline error")
+	}
+
+	// Gauge must remain 1: the pipeline may still be alive, and the
+	// checkDeadAir reconciler will correct the gauge on the next tick.
+	if got := testutil.ToFloat64(telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID)); got != 1 {
+		t.Errorf("active-pipelines gauge = %v after failed stop, want 1 (gauge must not be zeroed on error)", got)
 	}
 }
 
