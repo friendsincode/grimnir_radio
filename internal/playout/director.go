@@ -476,7 +476,7 @@ func (d *Director) checkStuckTracks(now time.Time) {
 			Str("entry", s.entry.ID).
 			Msg("watchdog: track overdue — forcing pipeline restart")
 		// Stop the stuck pipeline so the next track can start cleanly.
-		if err := d.manager.StopPipeline(s.mountID); err != nil {
+		if err := d.stopMountPipeline(s.entry.StationID, s.mountID); err != nil {
 			d.logger.Warn().Err(err).Str("mount", s.mountID).Msg("watchdog: stop pipeline failed")
 		}
 		go d.handleTrackEnded(s.entry, s.mountName)
@@ -1227,7 +1227,7 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 	d.persistMountState(ctx, entry.MountID, s)
 
 	// Stop previous pipeline
-	if err := d.manager.StopPipeline(entry.MountID); err != nil {
+	if err := d.stopMountPipeline(entry.StationID, entry.MountID); err != nil {
 		d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
 	}
 
@@ -1286,7 +1286,7 @@ func (d *Director) startWebstreamEntry(ctx context.Context, entry models.Schedul
 		return fmt.Errorf("build webstream pipeline: %w", err)
 	}
 
-	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipeline, nil, hqHandler, lqHandler); err != nil {
+	if err := d.startMountPipelineDual(ctx, entry.StationID, entry.MountID, pipeline, nil, hqHandler, lqHandler); err != nil {
 		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start webstream pipeline")
 		return err
 	}
@@ -1476,7 +1476,7 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 		d.broadcast.GetMount(mountName),
 		doneCh,
 		webstreamStallGrace, webstreamStallTimeout, webstreamStallCheckTick,
-		func() { _ = d.manager.StopPipeline(entry.MountID) },
+		func() { _ = d.stopMountPipeline(entry.StationID, entry.MountID) },
 	)
 
 	baseDelay := time.Duration(ws.ReconnectDelayMS) * time.Millisecond
@@ -1608,7 +1608,7 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				}
 			}
 
-			if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipelineStr, nil, hqHandler, lqHandler); err != nil {
+			if err := d.startMountPipelineDual(ctx, entry.StationID, entry.MountID, pipelineStr, nil, hqHandler, lqHandler); err != nil {
 				d.logger.Warn().Err(err).Int("attempt", attempt).Msg("reconnect attempt failed")
 				delay *= 2
 				continue
@@ -1749,12 +1749,12 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 				// Stop the fill pipeline so EnsurePipelineWithDualOutput can claim
 				// the mount slot for the webstream. Only needed if we're actually filling.
 				if isFilling {
-					if stopErr := d.manager.StopPipeline(entry.MountID); stopErr != nil {
+					if stopErr := d.stopMountPipeline(entry.StationID, entry.MountID); stopErr != nil {
 						d.logger.Debug().Err(stopErr).Msg("slow-retry: stop fill pipeline")
 					}
 				}
 
-				if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, pipelineStr, nil, hqHandler, lqHandler); err != nil {
+				if err := d.startMountPipelineDual(ctx, entry.StationID, entry.MountID, pipelineStr, nil, hqHandler, lqHandler); err != nil {
 					d.logger.Warn().Err(err).Msg("slow-retry: reconnect attempt failed")
 					// Only fill if we're past the startup grace period to avoid
 					// playing wrong-station content during a startup ordering race.
@@ -1801,7 +1801,7 @@ func (d *Director) watchWebstreamPipeline(ctx context.Context, entry models.Sche
 			d.broadcast.GetMount(mountName),
 			doneCh,
 			webstreamStallGrace, webstreamStallTimeout, webstreamStallCheckTick,
-			func() { _ = d.manager.StopPipeline(entry.MountID) },
+			func() { _ = d.stopMountPipeline(entry.StationID, entry.MountID) },
 		)
 	}
 }
@@ -1814,6 +1814,40 @@ func (d *Director) stopICYPoller(mountID string) {
 		delete(d.icyPollers, mountID)
 	}
 	d.icyPollerMu.Unlock()
+}
+
+// startMountPipelineDual is the single chokepoint for starting a mount pipeline
+// via EnsurePipelineWithDualOutput. On a successful start it sets the per-mount
+// active-pipelines gauge to 1. Every EnsurePipelineWithDualOutput call site in
+// this file routes through here so the gauge can't drift from reality (#74).
+func (d *Director) startMountPipelineDual(ctx context.Context, stationID, mountID, launch string, seekFile *os.File, hqHandler, lqHandler func(io.Reader)) error {
+	if err := d.manager.EnsurePipelineWithDualOutput(ctx, mountID, launch, seekFile, hqHandler, lqHandler); err != nil {
+		return err
+	}
+	telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID).Set(1)
+	return nil
+}
+
+// startMountPipelineDualInput is the chokepoint for the input-carrying start
+// variant (EnsurePipelineWithDualOutputAndInput). On success it sets the
+// per-mount active-pipelines gauge to 1 and returns the encoder stdin (#74).
+func (d *Director) startMountPipelineDualInput(ctx context.Context, stationID, mountID, launch string, hqHandler, lqHandler func(io.Reader)) (io.WriteCloser, error) {
+	stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, mountID, launch, hqHandler, lqHandler)
+	if err != nil {
+		return stdin, err
+	}
+	telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID).Set(1)
+	return stdin, nil
+}
+
+// stopMountPipeline is the single chokepoint for stopping a mount pipeline. It
+// clears the per-mount active-pipelines gauge to 0 and forwards the Manager's
+// StopPipeline result. stationID is passed by the caller (it isn't uniformly in
+// scope at every stop site, but is always derivable from the entry/mount/state
+// there) (#74).
+func (d *Director) stopMountPipeline(stationID, mountID string) error {
+	telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID).Set(0)
+	return d.manager.StopPipeline(mountID)
 }
 
 // buildWebstreamBroadcastPipeline creates a GStreamer pipeline that relays a webstream
@@ -2608,10 +2642,10 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 		_, hasSess := d.xfadeSessions[entry.MountID]
 		d.xfadeMu.Unlock()
 		if !hasSess {
-			_ = d.manager.StopPipeline(entry.MountID)
+			_ = d.stopMountPipeline(entry.StationID, entry.MountID)
 		}
 	} else {
-		if err := d.manager.StopPipeline(entry.MountID); err != nil {
+		if err := d.stopMountPipeline(entry.StationID, entry.MountID); err != nil {
 			d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
 		}
 	}
@@ -2669,7 +2703,7 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 			return fmt.Errorf("build pcm encoder pipeline: %w", err)
 		}
 
-		stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, entry.MountID, launch, hqHandler, lqHandler)
+		stdin, err := d.startMountPipelineDualInput(ctx, entry.StationID, entry.MountID, launch, hqHandler, lqHandler)
 		if err != nil {
 			return fmt.Errorf("start pcm encoder pipeline: %w", err)
 		}
@@ -2727,7 +2761,7 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 			}
 			d.handleTrackEnded(entry, mount.Name)
 		}
-		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
+		if err := d.startMountPipelineDual(ctx, entry.StationID, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
 		}
 	}
@@ -2838,10 +2872,10 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 		_, hasSess := d.xfadeSessions[entry.MountID]
 		d.xfadeMu.Unlock()
 		if !hasSess {
-			_ = d.manager.StopPipeline(entry.MountID)
+			_ = d.stopMountPipeline(entry.StationID, entry.MountID)
 		}
 	} else {
-		if err := d.manager.StopPipeline(entry.MountID); err != nil {
+		if err := d.stopMountPipeline(entry.StationID, entry.MountID); err != nil {
 			d.logger.Debug().Err(err).Str("mount", entry.MountID).Msg("stop pipeline failed")
 		}
 	}
@@ -2896,7 +2930,7 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 		if err != nil {
 			return fmt.Errorf("build pcm encoder pipeline: %w", err)
 		}
-		stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, entry.MountID, launch, hqHandler, lqHandler)
+		stdin, err := d.startMountPipelineDualInput(ctx, entry.StationID, entry.MountID, launch, hqHandler, lqHandler)
 		if err != nil {
 			return fmt.Errorf("start pcm encoder pipeline: %w", err)
 		}
@@ -2953,7 +2987,7 @@ func (d *Director) playMediaWithState(ctx context.Context, entry models.Schedule
 			}
 			d.handleTrackEnded(entry, mount.Name)
 		}
-		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
+		if err := d.startMountPipelineDual(ctx, entry.StationID, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start dual pipeline")
 		}
 	}
@@ -3573,7 +3607,7 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 			d.logger.Warn().Err(err).Msg("failed to build pcm encoder pipeline")
 			return
 		}
-		stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, entry.MountID, encLaunch, hqHandler, lqHandler)
+		stdin, err := d.startMountPipelineDualInput(ctx, entry.StationID, entry.MountID, encLaunch, hqHandler, lqHandler)
 		if err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start pcm encoder pipeline")
 			return
@@ -3612,7 +3646,7 @@ func (d *Director) playNextFromState(entry models.ScheduleEntry, state playoutSt
 			}
 			d.handleTrackEnded(entry, mount.Name)
 		}
-		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
+		if err := d.startMountPipelineDual(ctx, entry.StationID, entry.MountID, launch, seekFile, hqHandlerWithEnd, lqHandler); err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track pipeline")
 		}
 	}
@@ -3711,7 +3745,7 @@ func (d *Director) playQueuedTrack(entry models.ScheduleEntry, state playoutStat
 			d.logger.Warn().Err(err).Msg("failed to build pcm encoder pipeline for queued track")
 			return
 		}
-		stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, entry.MountID, encLaunch, hqHandler, lqHandler)
+		stdin, err := d.startMountPipelineDualInput(ctx, entry.StationID, entry.MountID, encLaunch, hqHandler, lqHandler)
 		if err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start pcm encoder pipeline for queued track")
 			return
@@ -3744,7 +3778,7 @@ func (d *Director) playQueuedTrack(entry models.ScheduleEntry, state playoutStat
 			d.logger.Warn().Err(err).Msg("failed to build pipeline for queued track")
 			return
 		}
-		if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandler, lqHandler); err != nil {
+		if err := d.startMountPipelineDual(ctx, entry.StationID, entry.MountID, launch, seekFile, hqHandler, lqHandler); err != nil {
 			d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start queued track pipeline")
 		}
 	}
@@ -3854,7 +3888,7 @@ func (d *Director) playRandomNextTrack(entry models.ScheduleEntry, mountName str
 		}
 	}
 
-	if err := d.manager.EnsurePipelineWithDualOutput(ctx, entry.MountID, launch, seekFile, hqHandler, lqHandler); err != nil {
+	if err := d.startMountPipelineDual(ctx, entry.StationID, entry.MountID, launch, seekFile, hqHandler, lqHandler); err != nil {
 		d.logger.Warn().Err(err).Str("mount", entry.MountID).Msg("failed to start next track dual pipeline")
 	}
 
@@ -3897,7 +3931,7 @@ func (d *Director) scheduleStop(ctx context.Context, stationID, mountID string, 
 		// In crossfade mode we keep a persistent encoder pipeline per-mount so transitions can overlap.
 		// We only stop the pipeline when explicitly requested (emergency stop/skip/etc.).
 		if !(xfade.Enabled && xfade.Duration > 0) {
-			if err := d.manager.StopPipeline(mountID); err != nil {
+			if err := d.stopMountPipeline(stationID, mountID); err != nil {
 				d.logger.Debug().Err(err).Str("mount", mountID).Msg("scheduled stop failed")
 			}
 		}
@@ -4188,7 +4222,7 @@ func (d *Director) StopStation(ctx context.Context, stationID string) (int, erro
 
 		// Stop pipeline and ICY poller for this mount
 		d.stopICYPoller(mount.ID)
-		if err := d.manager.StopPipeline(mount.ID); err != nil {
+		if err := d.stopMountPipeline(mount.StationID, mount.ID); err != nil {
 			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline")
 			continue
 		}
@@ -4268,7 +4302,7 @@ func (d *Director) SkipStation(ctx context.Context, stationID string) (int, erro
 		}
 
 		d.stopICYPoller(mount.ID)
-		if err := d.manager.StopPipeline(mount.ID); err != nil {
+		if err := d.stopMountPipeline(mount.StationID, mount.ID); err != nil {
 			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline for skip")
 		}
 
@@ -4317,7 +4351,7 @@ func (d *Director) ReloadStation(ctx context.Context, stationID string) (int, er
 	defer d.mu.Unlock()
 	for _, mount := range mounts {
 		d.stopICYPoller(mount.ID)
-		if err := d.manager.StopPipeline(mount.ID); err != nil {
+		if err := d.stopMountPipeline(mount.StationID, mount.ID); err != nil {
 			d.logger.Warn().Err(err).Str("mount", mount.ID).Msg("failed to stop pipeline during reload")
 		}
 		if _, ok := d.active[mount.ID]; ok {
@@ -4365,7 +4399,7 @@ func (d *Director) InjectLiveSource(ctx context.Context, stationID, mountID stri
 	d.logger.Info().Msg("InjectLiveSource: stopping existing pipeline")
 	// Stop any existing pipeline and ICY poller to start fresh.
 	d.stopICYPoller(mount.ID)
-	_ = d.manager.StopPipeline(mount.ID)
+	_ = d.stopMountPipeline(stationID, mount.ID)
 	d.logger.Info().Msg("InjectLiveSource: pipeline stopped, building PCM encoder")
 
 	mountBitrate := mount.Bitrate
@@ -4416,7 +4450,7 @@ func (d *Director) InjectLiveSource(ctx context.Context, stationID, mountID stri
 	}
 	d.logger.Info().Str("launch", launch).Msg("InjectLiveSource: starting encoder pipeline")
 
-	stdin, err := d.manager.EnsurePipelineWithDualOutputAndInput(ctx, mount.ID, launch, hqHandler, lqHandler)
+	stdin, err := d.startMountPipelineDualInput(ctx, stationID, mount.ID, launch, hqHandler, lqHandler)
 	if err != nil {
 		return nil, nil, fmt.Errorf("start pcm encoder pipeline: %w", err)
 	}
@@ -4449,7 +4483,7 @@ func (d *Director) InjectLiveSource(ctx context.Context, stationID, mountID stri
 			Str("mount_id", mount.ID).
 			Msg("live source released, resuming automation")
 
-		_ = d.manager.StopPipeline(mount.ID)
+		_ = d.stopMountPipeline(stationID, mount.ID)
 
 		// Clear active state so the director tick picks up the schedule again.
 		d.mu.Lock()
