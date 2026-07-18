@@ -249,6 +249,89 @@ func TestFillPass_Idempotent(t *testing.T) {
 	}
 }
 
+// TestFillPass_DryBlockNotRetriedPerGap proves that a pool block which produces no fill rows
+// on its first attempt (dry) is not retried for subsequent gaps in the same pass. Two 1-hour
+// gaps are carved for a station whose pool contains two recurring smart-block parents, neither
+// of which has analyzed media (so both are dry). The pass must return nil and produce zero fill
+// rows. The O(N) bound is enforced by construction: the dry set in fillStationHoles ensures
+// each block is attempted at most once per pass. Because s.engine is a concrete
+// *smartblock.Engine (not an interface), a call-count spy would require invasive harness
+// changes, so this test asserts correctness (nil error, zero fill rows, two gaps handled) and
+// relies on code inspection for the perf bound.
+func TestFillPass_DryBlockNotRetriedPerGap(t *testing.T) {
+	svc, db := newRunTestService(t)
+	stationID, mountID := "st-dry", "mt-dry"
+	if err := db.Create(&models.Station{ID: stationID, Name: "Test", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.Mount{
+		ID: mountID, StationID: stationID, Name: "Main",
+		URL: "https://example.invalid/main.mp3", Format: "mp3",
+	}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	// Two recurring pool parents whose smart blocks have a playlist but NO analyzed
+	// media items. The engine will produce nothing for either block (dry).
+	seedDrySmartBlock := func(sbID string) {
+		t.Helper()
+		plID := uuid.NewString()
+		sb := models.SmartBlock{
+			ID: sbID, StationID: stationID, Name: sbID,
+			Rules: map[string]any{"targetMinutes": 60, "sourcePlaylists": []string{plID}},
+		}
+		if err := db.Create(&sb).Error; err != nil {
+			t.Fatalf("seed dry smart block %s: %v", sbID, err)
+		}
+		if err := db.Create(&models.Playlist{ID: plID, StationID: stationID, Name: sbID + " PL"}).Error; err != nil {
+			t.Fatalf("seed playlist for %s: %v", sbID, err)
+		}
+		// No media items seeded: the playlist exists but is empty, so the engine
+		// resolves the block but has nothing to schedule.
+		p := models.ScheduleEntry{
+			ID: "parent-dry-" + sbID, StationID: stationID, MountID: mountID,
+			SourceType: "smart_block", SourceID: sbID,
+			StartsAt:       time.Now().UTC().Add(-24 * time.Hour),
+			EndsAt:         time.Now().UTC().Add(-23 * time.Hour),
+			RecurrenceType: models.RecurrenceDaily, IsInstance: false,
+			CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		}
+		if err := db.Create(&p).Error; err != nil {
+			t.Fatalf("create pool parent %s: %v", sbID, err)
+		}
+	}
+	seedDrySmartBlock("sb-dry-a")
+	seedDrySmartBlock("sb-dry-b")
+
+	// Two 1-hour holes separated by a real entry so subtractCovered yields two
+	// distinct gaps.
+	day := time.Now().UTC().Add(24 * time.Hour).Truncate(24 * time.Hour)
+	hole1End := day.Add(13 * time.Hour)
+	hole2Start := day.Add(14 * time.Hour)
+
+	bridge := models.ScheduleEntry{
+		ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+		SourceType: "media", SourceID: uuid.NewString(), IsInstance: true,
+		StartsAt: hole1End, EndsAt: hole2Start,
+	}
+	if err := db.Create(&bridge).Error; err != nil {
+		t.Fatalf("create bridge entry: %v", err)
+	}
+
+	if err := svc.fillStationHoles(context.Background(), stationID, day.Add(11*time.Hour), day.Add(16*time.Hour)); err != nil {
+		t.Fatalf("fillStationHoles returned error: %v", err)
+	}
+
+	// No fill rows: both blocks are dry, so neither hole is covered.
+	var n int64
+	db.Model(&models.ScheduleEntry{}).
+		Where("station_id = ? AND source_type = 'media' AND metadata->>'fill' = 'true'", stationID).
+		Count(&n)
+	if n != 0 {
+		t.Errorf("fill row count = %d, want 0 (all blocks are dry)", n)
+	}
+}
+
 // TestFillPass_RoundRobinLRU proves fillStationHoles rotates across the recurring pool by
 // least-recently-used order instead of always using pool[0]. Two future holes must be
 // filled by DIFFERENT pool blocks; a never-filled block outranks a previously-filled one;

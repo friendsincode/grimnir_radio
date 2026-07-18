@@ -625,6 +625,12 @@ func (s *Service) fillStationHoles(ctx context.Context, stationID string, start,
 		return ordered
 	}
 
+	// countFillRows counts ALL fill rows in [from, to) for the station. The
+	// before/after delta correctly attributes production to the block just
+	// materialized only under the single-writer assumption: one station is
+	// materialized at a time and at most one block fills each gap (the inner loop
+	// breaks on the first success). Concurrent fill for the same station and window
+	// would misattribute the count delta.
 	countFillRows := func(from, to time.Time) (int64, error) {
 		var n int64
 		err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
@@ -634,11 +640,22 @@ func (s *Service) fillStationHoles(ctx context.Context, stationID string, start,
 		return n, err
 	}
 
+	// dry tracks blocks that produced no fill rows (or errored) on their first
+	// attempt this pass. Because materializeSmartBlock output depends only on the
+	// block's rules and the analyzed track pool (not on the specific gap's time
+	// window), a block that is dry for one gap is dry for every gap in the same
+	// pass. Skipping it after its first empty result keeps total attempts O(N)
+	// instead of O(N*M) for N pool blocks and M gaps.
+	dry := map[string]bool{}
+
 	for _, g := range gaps {
 		// Try pool blocks in LRU order; a block that produces nothing (dry) is skipped
 		// and the next-LRU block is tried. If every block is dry the hole is left
 		// uncovered and the pass moves on.
 		for _, lb := range orderPool() {
+			if dry[lb.blockID] {
+				continue
+			}
 			mountID := lb.entry.MountID
 			if mountID == "" {
 				mountID = s.getDefaultMountID(ctx, stationID)
@@ -667,6 +684,7 @@ func (s *Service) fillStationHoles(ctx context.Context, stationID string, start,
 					Time("gap_end", g.End).
 					Msg("failed to fill horizon hole from recurring block")
 				// treat as dry and try the next block rather than abort the pass
+				dry[lb.blockID] = true
 				continue
 			}
 			after, err := countFillRows(g.Start, g.End)
@@ -674,6 +692,7 @@ func (s *Service) fillStationHoles(ctx context.Context, stationID string, start,
 				return err
 			}
 			if after <= before {
+				dry[lb.blockID] = true
 				continue // dry block, produced nothing; try the next-LRU block
 			}
 			// Filled: this block is now most-recently-used for the next hole.
