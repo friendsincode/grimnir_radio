@@ -191,6 +191,21 @@ var (
 		},
 		[]string{"station_id", "mount_id"},
 	)
+
+	// PlayoutActivePipelines is 1 when the internal/playout gst-launch Manager has a
+	// running pipeline for a mount, else 0. Distinct from MediaEngineActivePipelines
+	// (the mediaengine DSP path). Used to detect a dark mount (#74).
+	PlayoutActivePipelines = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "grimnir_playout_active_pipelines",
+		Help: "Running internal/playout gst-launch pipelines for a mount (0 or 1)",
+	}, []string{"station_id", "mount_id"})
+
+	// PlayoutMountDark is 1 when a mount's station is active but it has had no
+	// running pipeline for longer than the grace window (#74). Alert target.
+	PlayoutMountDark = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "grimnir_playout_mount_dark",
+		Help: "1 when an active station's mount has 0 pipelines past the grace window",
+	}, []string{"station_id", "mount_id"})
 )
 
 // API metrics

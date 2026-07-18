@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -323,6 +324,14 @@ func (s *Service) scheduleStation(ctx context.Context, stationID string) error {
 		telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "direct_schedule_entry").Inc()
 	}
 
+	// Final pass: fill any horizon window still uncovered by real content from the
+	// station's recurring smart-block pool. Runs strictly LAST so real entries (which
+	// already materialized above and count as coverage here) are never displaced.
+	if err := s.fillStationHoles(ctx, stationID, start, start.Add(s.lookahead)); err != nil {
+		s.logger.Warn().Err(err).Str("station", stationID).Msg("fill pass failed")
+		telemetry.SchedulerErrorsTotal.WithLabelValues(stationID, "fill_holes").Inc()
+	}
+
 	// Record metrics
 	duration := time.Since(startTime).Seconds()
 	telemetry.ScheduleBuildDuration.WithLabelValues(stationID).Observe(duration)
@@ -494,6 +503,183 @@ func (s *Service) materializeSmartBlockEntry(ctx context.Context, stationID stri
 				Time("gap_end", g.End).
 				Msg("failed to materialize smart block into gap")
 			// continue with remaining gaps rather than abort the whole block
+		}
+	}
+	return nil
+}
+
+// fillStationHoles is the final materialize pass: after every real entry (clock plans
+// and directly-placed entries) has materialized, any horizon window still uncovered is
+// filled from the station's recurring smart-block pool. Produced media rows are tagged
+// metadata["fill"]="true" so SweepFillWindow can reclaim them when real content later
+// takes the window.
+//
+// Coverage counts EVERY existing schedule row overlapping [start, horizonEnd): real
+// entries AND prior fill rows. Counting prior fill as coverage is what makes the pass
+// idempotent: a re-run sees the fill it already produced and adds nothing. Real entries
+// always materialize first, so the fill pass never displaces real content.
+//
+// start is clamped to now (mirroring materializeSmartBlockEntry): holes entirely in the
+// past are dead air and are never filled.
+func (s *Service) fillStationHoles(ctx context.Context, stationID string, start, horizonEnd time.Time) error {
+	now := time.Now().UTC()
+	if start.Before(now) {
+		start = now
+	}
+	if !start.Before(horizonEnd) {
+		return nil
+	}
+	window := interval{start, horizonEnd}
+
+	// Coverage: all schedule rows overlapping the window. Recurring smart_block parent
+	// templates are excluded; they occupy no real playout time and would otherwise mask
+	// the very holes they are meant to fill.
+	var rows []models.ScheduleEntry
+	if err := s.db.WithContext(ctx).
+		Where("station_id = ? AND starts_at < ? AND ends_at > ?", stationID, horizonEnd, start).
+		Where("NOT (is_instance = false AND source_type = 'smart_block')").
+		Find(&rows).Error; err != nil {
+		return err
+	}
+	covered := make([]interval, 0, len(rows))
+	for _, r := range rows {
+		covered = append(covered, interval{r.StartsAt, r.EndsAt})
+	}
+
+	const minGap = time.Minute
+	gaps := subtractCovered(window, covered, minGap)
+	if len(gaps) == 0 {
+		return nil
+	}
+
+	// Pool: the station's recurring smart-block parents. Predicate mirrors the Pass 2
+	// recurringParents query in materializeDirectScheduleEntries, restricted to
+	// smart_block source_type. An empty pool means there is nothing to fill holes with.
+	var pool []models.ScheduleEntry
+	if err := s.db.WithContext(ctx).
+		Where("station_id = ? AND source_type = 'smart_block' AND recurrence_type != '' AND recurrence_type IS NOT NULL AND is_instance = false AND (recurrence_end_date IS NULL OR recurrence_end_date >= ?)",
+			stationID, start).
+		Order("created_at DESC").
+		Find(&pool).Error; err != nil {
+		return err
+	}
+	if len(pool) == 0 {
+		return nil
+	}
+
+	// Round-robin LRU across the pool. Each block's LRU key is the max starts_at among
+	// existing fill rows carrying its source id in metadata->>'smart_block_id'. A block
+	// with no fill rows has no key and sorts oldest (highest fill priority). Holes are
+	// filled in chronological order; after a block fills a hole it becomes most-recently-
+	// used for the next hole (its key is bumped to that hole's end in-memory). The
+	// persisted authority remains the row starts_at, so a later pass recomputes the same
+	// ordering from the DB.
+	type lruBlock struct {
+		entry   models.ScheduleEntry
+		lruKey  time.Time // zero => never filled
+		hasFill bool
+		blockID string // SourceID; what fill rows record and what we sort ties by
+	}
+	lrus := make([]*lruBlock, 0, len(pool))
+	for i := range pool {
+		lb := &lruBlock{entry: pool[i], blockID: pool[i].SourceID}
+		// Max starts_at across this block's persisted fill rows for the station.
+		var maxStart *time.Time
+		var row models.ScheduleEntry
+		err := s.db.WithContext(ctx).
+			Where("station_id = ? AND source_type = 'media' AND metadata->>'fill' = 'true' AND metadata->>'smart_block_id' = ?",
+				stationID, lb.blockID).
+			Order("starts_at DESC").
+			Limit(1).
+			First(&row).Error
+		if err == nil {
+			ms := row.StartsAt
+			maxStart = &ms
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if maxStart != nil {
+			lb.lruKey = *maxStart
+			lb.hasFill = true
+		}
+		lrus = append(lrus, lb)
+	}
+
+	// less reports whether block a sorts before b (least-recently-used first):
+	// never-filled blocks first, then oldest fill first, ties broken by the
+	// lexicographically-smaller block id so the pass is deterministic and
+	// reproducible across ticks.
+	less := func(a, b *lruBlock) bool {
+		if a.hasFill != b.hasFill {
+			return !a.hasFill // never-filled sorts first
+		}
+		if a.hasFill && !a.lruKey.Equal(b.lruKey) {
+			return a.lruKey.Before(b.lruKey)
+		}
+		return a.blockID < b.blockID
+	}
+	orderPool := func() []*lruBlock {
+		ordered := make([]*lruBlock, len(lrus))
+		copy(ordered, lrus)
+		sort.SliceStable(ordered, func(i, j int) bool { return less(ordered[i], ordered[j]) })
+		return ordered
+	}
+
+	countFillRows := func(from, to time.Time) (int64, error) {
+		var n int64
+		err := s.db.WithContext(ctx).Model(&models.ScheduleEntry{}).
+			Where("station_id = ? AND source_type = 'media' AND metadata->>'fill' = 'true' AND starts_at >= ? AND starts_at < ?",
+				stationID, from, to).
+			Count(&n).Error
+		return n, err
+	}
+
+	for _, g := range gaps {
+		// Try pool blocks in LRU order; a block that produces nothing (dry) is skipped
+		// and the next-LRU block is tried. If every block is dry the hole is left
+		// uncovered and the pass moves on.
+		for _, lb := range orderPool() {
+			mountID := lb.entry.MountID
+			if mountID == "" {
+				mountID = s.getDefaultMountID(ctx, stationID)
+			}
+			before, err := countFillRows(g.Start, g.End)
+			if err != nil {
+				return err
+			}
+			plan := clock.SlotPlan{
+				SlotID:   lb.entry.ID,
+				StartsAt: g.Start,
+				EndsAt:   g.End,
+				Duration: g.End.Sub(g.Start),
+				SlotType: string(models.SlotTypeSmartBlock),
+				Payload: map[string]any{
+					"smart_block_id": lb.blockID,
+					"mount_id":       mountID,
+					"fill":           true,
+				},
+			}
+			if err := s.materializeSmartBlock(ctx, stationID, plan); err != nil {
+				s.logger.Warn().Err(err).
+					Str("station", stationID).
+					Str("smart_block_id", lb.blockID).
+					Time("gap_start", g.Start).
+					Time("gap_end", g.End).
+					Msg("failed to fill horizon hole from recurring block")
+				// treat as dry and try the next block rather than abort the pass
+				continue
+			}
+			after, err := countFillRows(g.Start, g.End)
+			if err != nil {
+				return err
+			}
+			if after <= before {
+				continue // dry block, produced nothing; try the next-LRU block
+			}
+			// Filled: this block is now most-recently-used for the next hole.
+			lb.lruKey = g.End
+			lb.hasFill = true
+			break
 		}
 	}
 	return nil
@@ -929,6 +1115,15 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		if result.Exhausted && i == 0 {
 			meta["sequence_exhausted"] = true
 		}
+		// Fill-pass rows are tagged with the STRING "true" so the portable
+		// metadata->>'fill'='true' predicate (SQLite coerces a JSON boolean to
+		// integer 1) matches. Gated on a truthy bool payload flag so only the
+		// hole-fill pass tags rows; normal smart-block scheduling never does.
+		if f, ok := plan.Payload["fill"]; ok {
+			if b, isBool := f.(bool); isBool && b {
+				meta["fill"] = "true"
+			}
+		}
 		entry := models.ScheduleEntry{
 			ID:         uuid.NewString(),
 			StationID:  stationID,
@@ -1155,6 +1350,29 @@ func (s *Service) InvalidateStationInstances(ctx context.Context, stationID, par
 	s.logger.Info().Str("station", stationID).Str("parent", parentID).
 		Int64("deleted", res.RowsAffected).Msg("invalidated stale instances for regenerate")
 	return nil
+}
+
+// SweepFillWindow deletes future auto-generated fill rows for one station that
+// overlap [from, to). Fill rows are materialized media instances tagged
+// metadata->>'fill'='true'; they carry no recurrence_parent_id, so
+// InvalidateStationInstances (which filters recurrence_parent_id = ?) cannot
+// reach them. Callers sweep a window before inserting real content there so a
+// fill row never blocks the operator's edit via the overlap check or the
+// prevent_station_schedule_overlap trigger. Station-scoped; never touches past rows.
+func (s *Service) SweepFillWindow(ctx context.Context, stationID string, from, to time.Time) (int64, error) {
+	res := s.db.WithContext(ctx).
+		Where("station_id = ? AND source_type = 'media' AND is_instance = true", stationID).
+		Where("recurrence_parent_id IS NULL AND metadata->>'fill' = 'true'").
+		Where("starts_at < ? AND ends_at > ? AND starts_at > ?", to, from, time.Now().UTC()).
+		Delete(&models.ScheduleEntry{})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	if res.RowsAffected > 0 {
+		s.logger.Info().Str("station", stationID).Int64("deleted", res.RowsAffected).
+			Time("from", from).Time("to", to).Msg("swept fill rows before real entry")
+	}
+	return res.RowsAffected, nil
 }
 
 // Upcoming returns upcoming schedule entries within horizon.

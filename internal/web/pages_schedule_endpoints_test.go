@@ -31,6 +31,14 @@ type stubSchedulerService struct {
 	// Recording fields for self-heal wiring assertions (#75).
 	refreshCalls    []string
 	invalidateCalls [][2]string // {stationID, parentID}
+
+	// Recording fields for hole-recovery wiring assertions (#74).
+	sweepCalls []sweepFillCall
+}
+
+type sweepFillCall struct {
+	stationID string
+	from, to  time.Time
 }
 
 func (s *stubSchedulerService) RefreshStation(_ context.Context, stationID string) error {
@@ -46,6 +54,11 @@ func (s *stubSchedulerService) Materialize(_ context.Context, _ smartblock.Gener
 func (s *stubSchedulerService) InvalidateStationInstances(_ context.Context, stationID, parentID string) error {
 	s.invalidateCalls = append(s.invalidateCalls, [2]string{stationID, parentID})
 	return nil
+}
+
+func (s *stubSchedulerService) SweepFillWindow(_ context.Context, stationID string, from, to time.Time) (int64, error) {
+	s.sweepCalls = append(s.sweepCalls, sweepFillCall{stationID: stationID, from: from, to: to})
+	return 0, nil
 }
 
 func newScheduleEndpointTestHandler(t *testing.T) (*Handler, *gorm.DB, models.User, models.Station) {
@@ -2250,6 +2263,56 @@ func TestScheduleSmartBlockTrustPreviewExposesBumperUsage(t *testing.T) {
 			t.Fatalf("unexpected bumper track flags: %+v", payload.Tracks)
 		}
 	})
+}
+
+func TestScheduleCreate_SweepsFillFirst(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	stub := &stubSchedulerService{}
+	h.scheduler = stub
+
+	startsAt := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	endsAt := time.Date(2026, 4, 1, 11, 0, 0, 0, time.UTC)
+	body, _ := json.Marshal(map[string]any{
+		"mount_id":    "m1",
+		"starts_at":   startsAt,
+		"ends_at":     endsAt,
+		"source_type": "live",
+		"source_id":   "",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+	rr := httptest.NewRecorder()
+
+	h.ScheduleCreateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var created models.ScheduleEntry
+	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatalf("expected created entry to have an ID, got %+v", created)
+	}
+
+	if len(stub.sweepCalls) != 1 {
+		t.Fatalf("expected SweepFillWindow called once, got %d: %v", len(stub.sweepCalls), stub.sweepCalls)
+	}
+	got := stub.sweepCalls[0]
+	if got.stationID != station.ID {
+		t.Fatalf("expected sweep stationID=%q, got %q", station.ID, got.stationID)
+	}
+	if !got.from.Equal(startsAt) {
+		t.Fatalf("expected sweep from=%v, got %v", startsAt, got.from)
+	}
+	if !got.to.Equal(endsAt) {
+		t.Fatalf("expected sweep to=%v, got %v", endsAt, got.to)
+	}
 }
 
 // TestScheduleDeleteSelfHealsMaterializedHorizon guards the Remove-button round

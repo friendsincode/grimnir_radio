@@ -44,6 +44,16 @@ groups:
           summary: "Playout buffer critically low for station {{ $labels.station_id }}"
           description: "Buffer depth is {{ $value }} samples ({{ $value | humanize }}ms @ 48kHz) for station {{ $labels.station_id }}. Risk of dropout."
 
+      - alert: PlayoutMountDark
+        expr: grimnir_playout_mount_dark == 1
+        for: 2m
+        labels:
+          severity: critical
+          component: playout
+        annotations:
+          summary: "Playout mount dark on station {{ $labels.station_id }}"
+          description: "Mount {{ $labels.mount_id }} on station {{ $labels.station_id }} has had no producer pipeline past the grace window; the station is dark."
+
       # Schedule Health
       - alert: ScheduleGap
         expr: grimnir_schedule_entries_total == 0
