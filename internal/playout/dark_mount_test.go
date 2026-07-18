@@ -189,3 +189,63 @@ func TestDarkMountGauge_FiresAfterGrace(t *testing.T) {
 		t.Fatalf("dark gauge after deschedule = %v, want 0 (stale series)", got)
 	}
 }
+
+// TestDarkMountGauge_DeadButPresentPipelineIsDark proves the gauge treats a
+// self-exited pipeline as dark. Manager.GetPipeline stays non-nil for a pipeline
+// that crashed or hit EOS until StopPipeline removes it from the map, so a bare
+// non-nil check would miss genuine dead air. The mount here has a pipeline whose
+// Done() channel is already closed; the gauge must still flip to 1 past grace.
+func TestDarkMountGauge_DeadButPresentPipelineIsDark(t *testing.T) {
+	d, mgr := newMockDirector(t, &models.ScheduleEntry{})
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+
+	telemetry.PlayoutMountDark.DeleteLabelValues(stationID, mountID)
+
+	base := time.Now().UTC()
+
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "media",
+		SourceID:   uuid.NewString(),
+		StartsAt:   base.Add(-1 * time.Minute),
+		EndsAt:     base.Add(10 * time.Minute),
+	}
+	if err := d.db.Create(&entry).Error; err != nil {
+		t.Fatalf("seed schedule entry: %v", err)
+	}
+
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		MediaID:    entry.SourceID,
+		EntryID:    entry.ID,
+		StationID:  stationID,
+		SourceType: "media",
+		Started:    base,
+		Ends:       base.Add(10 * time.Minute),
+	}
+	d.mu.Unlock()
+
+	// Present-but-exited pipeline: non-nil, Done() already closed.
+	mgr.pipelines[mountID] = newDeadMockPipeline()
+
+	dark := func() float64 {
+		return testutil.ToFloat64(telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID))
+	}
+
+	// Within grace: dark tracking has started but gauge is still 0.
+	d.checkDeadAir(ctx, base)
+	if got := dark(); got != 0 {
+		t.Fatalf("dark gauge within grace (dead-but-present) = %v, want 0", got)
+	}
+
+	// Past the 45s grace: a lingering dead pipeline must read as dark.
+	d.checkDeadAir(ctx, base.Add(46*time.Second))
+	if got := dark(); got != 1 {
+		t.Fatalf("dark gauge past grace (dead-but-present) = %v, want 1", got)
+	}
+}

@@ -445,6 +445,24 @@ func (d *Director) checkDeadAir(ctx context.Context, now time.Time) {
 	d.updateDarkMountGauge(entries, now)
 }
 
+// mountPipelineLive reports whether the manager holds a RUNNING pipeline for the
+// mount. GetPipeline stays non-nil for a self-exited pipeline (it lingers in the
+// manager's map until StopPipeline), so a bare non-nil check would treat a
+// crashed-and-unrestarted pipeline as alive and never mark the mount dark —
+// exactly the failure the dark gauge must catch (#74). A pipeline whose Done()
+// channel has closed is not live.
+func mountPipelineLive(p PipelineInterface) bool {
+	if p == nil {
+		return false
+	}
+	select {
+	case <-p.Done():
+		return false
+	default:
+		return true
+	}
+}
+
 // updateDarkMountGauge maintains grimnir_playout_mount_dark: for every mount a
 // station should currently be driving, it is "dark" when the playout Manager
 // has no running pipeline for that mount. The gauge flips to 1 only once the
@@ -482,8 +500,8 @@ func (d *Director) updateDarkMountGauge(entries []models.ScheduleEntry, now time
 	}
 
 	for mountID, stationID := range shouldDrive {
-		if d.manager.GetPipeline(mountID) != nil {
-			// Pipeline present → not dark. Clear any pending window and reset.
+		if mountPipelineLive(d.manager.GetPipeline(mountID)) {
+			// Pipeline present and running → not dark. Clear window and reset.
 			delete(d.darkSince, mountID)
 			telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID).Set(0)
 			continue

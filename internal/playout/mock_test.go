@@ -23,6 +23,15 @@ func newMockPipeline() *mockPipeline {
 	return &mockPipeline{done: ch}
 }
 
+// newDeadMockPipeline returns a pipeline that is present but has already exited:
+// its Done() channel is pre-closed, modeling a GStreamer process that self-exited
+// (EOS/crash) and lingers in the manager's map until StopPipeline runs.
+func newDeadMockPipeline() *mockPipeline {
+	ch := make(chan struct{})
+	close(ch)
+	return &mockPipeline{done: ch}
+}
+
 func (m *mockPipeline) Done() <-chan struct{} { return m.done }
 func (m *mockPipeline) Stop() error {
 	select {
