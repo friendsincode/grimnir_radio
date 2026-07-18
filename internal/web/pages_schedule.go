@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -571,6 +572,79 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 		activeMountStates[state.MountID] = state
 	}
 
+	// Annotate overlapping entries as operator-resolvable conflicts (#75).
+	// Two entries on the same mount conflict iff their time windows overlap.
+	// The newest (later CreatedAt) entry in a conflicting set is flagged as the
+	// provisional winner; ties break deterministically on the larger id string.
+	// This only annotates — every event that was collected above is still emitted.
+	conflictIDs := make(map[string][]string)
+	provisionalWinner := make(map[string]bool)
+	{
+		byMount := make(map[string][]models.ScheduleEntry)
+		for _, entry := range entries {
+			// Skip materialized display rows (smart_block track expansions). Those
+			// children sit inside their parent's window on the same mount, so
+			// including them would flag every block as conflicting with its own
+			// tracks. Only operator-authored entries participate in conflict
+			// detection.
+			if entry.Metadata != nil {
+				if expanded, _ := entry.Metadata["expanded"].(bool); expanded {
+					continue
+				}
+			}
+			byMount[entry.MountID] = append(byMount[entry.MountID], entry)
+		}
+		newer := func(a, b models.ScheduleEntry) bool {
+			if a.CreatedAt.Equal(b.CreatedAt) {
+				return a.ID > b.ID
+			}
+			return a.CreatedAt.After(b.CreatedAt)
+		}
+		for _, group := range byMount {
+			// Union-find over the group so each connected cluster of mutually
+			// (transitively) overlapping entries gets exactly one winner.
+			parent := make([]int, len(group))
+			for i := range parent {
+				parent[i] = i
+			}
+			var find func(int) int
+			find = func(x int) int {
+				for parent[x] != x {
+					parent[x] = parent[parent[x]]
+					x = parent[x]
+				}
+				return x
+			}
+			for i := 0; i < len(group); i++ {
+				for j := i + 1; j < len(group); j++ {
+					a, b := group[i], group[j]
+					// Overlap predicate (mirrors Validator.itemsOverlap).
+					if a.StartsAt.Before(b.EndsAt) && a.EndsAt.After(b.StartsAt) {
+						conflictIDs[a.ID] = append(conflictIDs[a.ID], b.ID)
+						conflictIDs[b.ID] = append(conflictIDs[b.ID], a.ID)
+						parent[find(i)] = find(j)
+					}
+				}
+			}
+			// For each cluster (root), the newest entry is the provisional
+			// winner. A single-entry cluster (no overlaps) has no conflicts and
+			// so gets no winner.
+			winnerByRoot := make(map[int]int)
+			for idx := range group {
+				if len(conflictIDs[group[idx].ID]) == 0 {
+					continue
+				}
+				root := find(idx)
+				if w, ok := winnerByRoot[root]; !ok || newer(group[idx], group[w]) {
+					winnerByRoot[root] = idx
+				}
+			}
+			for _, idx := range winnerByRoot {
+				provisionalWinner[group[idx].ID] = true
+			}
+		}
+	}
+
 	events := make([]calendarEvent, 0, len(entries))
 	for _, entry := range entries {
 		// Get title based on source type and detect orphaned references
@@ -756,6 +830,9 @@ func (h *Handler) ScheduleEvents(w http.ResponseWriter, r *http.Request) {
 				"runtime_mismatch_reason": runtimeMismatchReason,
 				"status_label":            statusLabel,
 				"status_reason":           statusReason,
+				"conflict":                len(conflictIDs[entry.ID]) > 0,
+				"conflict_ids":            conflictIDs[entry.ID],
+				"provisional_winner":      provisionalWinner[entry.ID],
 			},
 		}
 
@@ -1042,6 +1119,33 @@ func (h *Handler) ScheduleCreateEntry(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(entry)
 }
 
+// selfHealStation repopulates a station's materialized horizon after an operator
+// fixes a recurring overlap (removes or changes a recurring entry). It drops the
+// station's stale future plain instances for the parent (operator overrides are
+// preserved) and immediately re-materializes via RefreshStation. Fail-soft: a
+// self-heal error is logged, never surfaced to the operator, so a delete/edit is
+// never blocked on it (#75).
+func (h *Handler) selfHealStation(ctx context.Context, stationID, parentID string) {
+	if h.scheduler == nil {
+		return
+	}
+	if err := h.scheduler.InvalidateStationInstances(ctx, stationID, parentID); err != nil {
+		h.logger.Warn().Err(err).Str("station", stationID).Msg("self-heal invalidate failed")
+	}
+	if err := h.scheduler.RefreshStation(ctx, stationID); err != nil {
+		h.logger.Warn().Err(err).Str("station", stationID).Msg("self-heal refresh failed")
+	}
+}
+
+// scheduleEntryParentID returns the id to invalidate for an entry: its recurrence
+// parent when it is an instance/override, else its own id (it IS the parent).
+func scheduleEntryParentID(e models.ScheduleEntry) string {
+	if e.RecurrenceParentID != nil && *e.RecurrenceParentID != "" {
+		return *e.RecurrenceParentID
+	}
+	return e.ID
+}
+
 // ScheduleUpdateEntry updates a schedule entry
 func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 	station := h.GetStation(r)
@@ -1233,6 +1337,12 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Forward edit splits the series: the truncated parent's future
+		// materialized instances past the split are now stale. Invalidate them for
+		// the parent; RefreshStation then repopulates the whole horizon (including
+		// the new forward segment) (#75).
+		h.selfHealStation(r.Context(), station.ID, scheduleEntryParentID(entry))
+
 		if h.eventBus != nil {
 			h.eventBus.Publish(events.EventScheduleUpdate, events.Payload{
 				"entry_id":    newEntry.ID,
@@ -1329,6 +1439,14 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+
+	// Self-heal only when the recurrence pattern actually changed. A pure
+	// title/source/metadata or time edit leaves the materialized horizon valid, so
+	// it must not invalidate. Recurrence fields (type/days/end-date) reshape which
+	// occurrences exist, so drop this parent's stale instances and repopulate (#75).
+	if input.RecurrenceType != nil || input.RecurrenceDays != nil || input.RecurrenceEndDate != nil {
+		h.selfHealStation(r.Context(), station.ID, scheduleEntryParentID(entry))
 	}
 
 	if h.eventBus != nil {
@@ -1471,6 +1589,9 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to update recurring entry", http.StatusInternalServerError)
 			return
 		}
+		// Truncating the series leaves stale future instances past the new end
+		// date; drop them for this parent and repopulate the horizon (#75).
+		h.selfHealStation(r.Context(), station.ID, parentID)
 		h.publishScheduleDelete(station, parent, "end_recurrence")
 
 	case "all":
@@ -1483,6 +1604,9 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to delete series", http.StatusInternalServerError)
 			return
 		}
+		// The parent is gone, so invalidate finds nothing to delete, but
+		// RefreshStation still repopulates the freed horizon (#75).
+		h.selfHealStation(r.Context(), station.ID, parentID)
 		h.publishScheduleDelete(station, parent, "delete")
 
 	default: // "occurrence" or unspecified: the safe default, never touches the series
@@ -1506,6 +1630,9 @@ func (h *Handler) ScheduleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r) // nothing to except and nothing to delete
 			return
 		}
+		// The new EXDATE changes what should materialize for this day; drop this
+		// parent's stale instances and repopulate the horizon (#75).
+		h.selfHealStation(r.Context(), station.ID, parentID)
 		if parentErr == nil {
 			h.publishScheduleDelete(station, parent, "delete_occurrence")
 		} else {

@@ -47,6 +47,7 @@ const (
 type SchedulerService interface {
 	RefreshStation(ctx context.Context, stationID string) error
 	Materialize(ctx context.Context, req smartblock.GenerateRequest) (smartblock.GenerateResult, error)
+	InvalidateStationInstances(ctx context.Context, stationID, parentID string) error
 }
 
 // WebstreamService defines the interface for webstream operations.

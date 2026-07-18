@@ -505,7 +505,8 @@ func TestScheduleRefreshReport_CallsSchedulerWhenSet(t *testing.T) {
 
 // mockScheduler implements SchedulerService for tests.
 type mockScheduler struct {
-	refreshFn func(ctx context.Context, stationID string) error
+	refreshFn    func(ctx context.Context, stationID string) error
+	invalidateFn func(ctx context.Context, stationID, parentID string) error
 }
 
 func (m *mockScheduler) RefreshStation(ctx context.Context, stationID string) error {
@@ -517,6 +518,13 @@ func (m *mockScheduler) RefreshStation(ctx context.Context, stationID string) er
 
 func (m *mockScheduler) Materialize(ctx context.Context, req smartblock.GenerateRequest) (smartblock.GenerateResult, error) {
 	return smartblock.GenerateResult{}, nil
+}
+
+func (m *mockScheduler) InvalidateStationInstances(ctx context.Context, stationID, parentID string) error {
+	if m.invalidateFn != nil {
+		return m.invalidateFn(ctx, stationID, parentID)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
