@@ -158,6 +158,7 @@ type Director struct {
 	active       map[string]playoutState
 	sbGeneration map[string]int       // regeneration counter per entry; incremented on sequence exhaustion so each cycle uses a different shuffle seed
 	darkSince    map[string]darkState // mountID -> station id + when the mount first had 0 pipelines while its station was active; drives the dark-mount gauge (#74)
+	darkGaugeSet map[string]string    // mountID -> station id for every mount whose dark/active gauge the reconciler has set; used to delete both series on deschedule (#74)
 
 	policyMu    sync.Mutex
 	policyCache map[string]cachedScheduleBoundaryPolicy
@@ -203,6 +204,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager ManagerInterface, bus 
 		active:        make(map[string]playoutState),
 		sbGeneration:  make(map[string]int),
 		darkSince:     make(map[string]darkState),
+		darkGaugeSet:  make(map[string]string),
 		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
 		webrtcCache:   make(map[string]cachedWebRTCPort),
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
@@ -489,18 +491,36 @@ func (d *Director) updateDarkMountGauge(entries []models.ScheduleEntry, now time
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// Drop dark-since state for mounts a station is no longer expected to drive,
-	// and remove the gauge series so a mount that was dark (gauge 1) doesn't read
-	// 1 forever once it leaves the schedule. Uses the stored station id label.
-	for mountID, st := range d.darkSince {
+	// Drop reconciler state for mounts a station is no longer expected to drive,
+	// and remove both gauge series so a mount that was dark (dark=1) or active
+	// (active=1) doesn't read its last value forever once it leaves the schedule.
+	// darkGaugeSet covers every mount this reconciler has touched — including
+	// always-live mounts that never got a darkSince entry — so the active series
+	// is cleared too. Uses the stored station id label.
+	for mountID, stationID := range d.darkGaugeSet {
 		if _, ok := shouldDrive[mountID]; !ok {
-			telemetry.PlayoutMountDark.DeleteLabelValues(st.stationID, mountID)
+			telemetry.PlayoutMountDark.DeleteLabelValues(stationID, mountID)
+			telemetry.PlayoutActivePipelines.DeleteLabelValues(stationID, mountID)
 			delete(d.darkSince, mountID)
+			delete(d.darkGaugeSet, mountID)
 		}
 	}
 
 	for mountID, stationID := range shouldDrive {
-		if mountPipelineLive(d.manager.GetPipeline(mountID)) {
+		// One liveness read drives both gauges. GetPipeline reflects map-presence
+		// only, so a self-exited pipeline lingers non-nil until StopPipeline;
+		// mountPipelineLive checks Done() so a crashed/EOS'd pipeline reads dead.
+		// Reconciling active-pipelines here each tick corrects any self-exit drift
+		// the start/stop chokepoints can't see.
+		d.darkGaugeSet[mountID] = stationID
+		live := mountPipelineLive(d.manager.GetPipeline(mountID))
+		if live {
+			telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID).Set(1)
+		} else {
+			telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID).Set(0)
+		}
+
+		if live {
 			// Pipeline present and running → not dark. Clear window and reset.
 			delete(d.darkSince, mountID)
 			telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID).Set(0)

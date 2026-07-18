@@ -61,6 +61,7 @@ func newMockDirector(t *testing.T, tables ...any) (*Director, *mockManager) {
 		played:        make(map[string]time.Time),
 		sbGeneration:  make(map[string]int),
 		darkSince:     make(map[string]darkState),
+		darkGaugeSet:  make(map[string]string),
 		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
 		webrtcCache:   make(map[string]cachedWebRTCPort),
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),

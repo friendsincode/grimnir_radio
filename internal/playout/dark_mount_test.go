@@ -249,3 +249,88 @@ func TestDarkMountGauge_DeadButPresentPipelineIsDark(t *testing.T) {
 		t.Fatalf("dark gauge past grace (dead-but-present) = %v, want 1", got)
 	}
 }
+
+// TestActivePipelinesGauge_ReconciledOnTick proves checkDeadAir's reconciler
+// corrects the active-pipelines gauge each tick. A self-exited pipeline lingers
+// non-nil in the manager map without a StopPipeline call, so the chokepoint-set
+// gauge stays stuck at 1; the tick must pull it back to 0. Descheduling the mount
+// must then delete the series entirely.
+func TestActivePipelinesGauge_ReconciledOnTick(t *testing.T) {
+	d, mgr := newMockDirector(t, &models.ScheduleEntry{})
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+
+	telemetry.PlayoutActivePipelines.DeleteLabelValues(stationID, mountID)
+	telemetry.PlayoutMountDark.DeleteLabelValues(stationID, mountID)
+
+	base := time.Now().UTC()
+
+	entry := models.ScheduleEntry{
+		ID:         uuid.NewString(),
+		StationID:  stationID,
+		MountID:    mountID,
+		SourceType: "media",
+		SourceID:   uuid.NewString(),
+		StartsAt:   base.Add(-1 * time.Minute),
+		EndsAt:     base.Add(10 * time.Minute),
+	}
+	if err := d.db.Create(&entry).Error; err != nil {
+		t.Fatalf("seed schedule entry: %v", err)
+	}
+
+	d.mu.Lock()
+	d.active[mountID] = playoutState{
+		MediaID:    entry.SourceID,
+		EntryID:    entry.ID,
+		StationID:  stationID,
+		SourceType: "media",
+		Started:    base,
+		Ends:       base.Add(10 * time.Minute),
+	}
+	d.mu.Unlock()
+
+	// Simulate the start chokepoint having set the gauge to 1, then a self-exit:
+	// the pipeline lingers in the map (non-nil) with a closed Done() and no
+	// StopPipeline (which would have cleared the gauge). Gauge is stuck at 1.
+	telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID).Set(1)
+	mgr.pipelines[mountID] = newDeadMockPipeline()
+
+	active := func() float64 {
+		return testutil.ToFloat64(telemetry.PlayoutActivePipelines.WithLabelValues(stationID, mountID))
+	}
+	if got := active(); got != 1 {
+		t.Fatalf("active gauge before reconcile = %v, want 1 (stuck)", got)
+	}
+
+	// A tick reconciles the stale 1 down to 0 using the same liveness check.
+	d.checkDeadAir(ctx, base)
+	if got := active(); got != 0 {
+		t.Fatalf("active gauge after reconcile tick = %v, want 0", got)
+	}
+
+	// Now flip to a LIVE pipeline so the reconciler drives it back to 1, proving
+	// the same path also corrects upward drift.
+	mgr.pipelines[mountID] = newMockPipeline()
+	d.checkDeadAir(ctx, base.Add(1*time.Second))
+	if got := active(); got != 1 {
+		t.Fatalf("active gauge after live reconcile = %v, want 1", got)
+	}
+
+	// Deschedule: remove the entry and drop the active mount, then tick. The
+	// active series must be deleted (reads 0), not linger at its last value —
+	// even though this mount was live and never had a darkSince entry.
+	if err := d.db.Where("id = ?", entry.ID).Delete(&models.ScheduleEntry{}).Error; err != nil {
+		t.Fatalf("delete schedule entry: %v", err)
+	}
+	d.markScheduleDirty()
+	d.mu.Lock()
+	delete(d.active, mountID)
+	d.mu.Unlock()
+
+	d.checkDeadAir(ctx, base.Add(2*time.Second))
+	if got := active(); got != 0 {
+		t.Fatalf("active gauge after deschedule = %v, want 0 (stale series)", got)
+	}
+}
