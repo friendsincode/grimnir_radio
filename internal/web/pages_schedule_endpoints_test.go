@@ -2270,6 +2270,56 @@ func TestScheduleSmartBlockTrustPreviewExposesBumperUsage(t *testing.T) {
 // future instances for the parent and re-materialize via RefreshStation. Both
 // calls must fire exactly once with the station id and (for invalidate) the
 // parent id.
+func TestScheduleCreate_SweepsFillFirst(t *testing.T) {
+	h, db, _, station := newScheduleEndpointTestHandler(t)
+	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+
+	stub := &stubSchedulerService{}
+	h.scheduler = stub
+
+	startsAt := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	endsAt := time.Date(2026, 4, 1, 11, 0, 0, 0, time.UTC)
+	body, _ := json.Marshal(map[string]any{
+		"mount_id":    "m1",
+		"starts_at":   startsAt,
+		"ends_at":     endsAt,
+		"source_type": "live",
+		"source_id":   "",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/schedule/entries", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyStation, &station))
+	rr := httptest.NewRecorder()
+
+	h.ScheduleCreateEntry(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var created models.ScheduleEntry
+	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatalf("expected created entry to have an ID, got %+v", created)
+	}
+
+	if len(stub.sweepCalls) != 1 {
+		t.Fatalf("expected SweepFillWindow called once, got %d: %v", len(stub.sweepCalls), stub.sweepCalls)
+	}
+	got := stub.sweepCalls[0]
+	if got.stationID != station.ID {
+		t.Fatalf("expected sweep stationID=%q, got %q", station.ID, got.stationID)
+	}
+	if !got.from.Equal(startsAt) {
+		t.Fatalf("expected sweep from=%v, got %v", startsAt, got.from)
+	}
+	if !got.to.Equal(endsAt) {
+		t.Fatalf("expected sweep to=%v, got %v", endsAt, got.to)
+	}
+}
+
 func TestScheduleDeleteSelfHealsMaterializedHorizon(t *testing.T) {
 	h, db, _, station := newScheduleEndpointTestHandler(t)
 	if err := db.Create(&models.Mount{ID: "m1", StationID: station.ID, Name: "Main", Format: "mp3"}).Error; err != nil {
