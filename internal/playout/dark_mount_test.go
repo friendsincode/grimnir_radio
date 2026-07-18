@@ -166,8 +166,26 @@ func TestDarkMountGauge_FiresAfterGrace(t *testing.T) {
 	}
 
 	// Past the 45s grace measured from the re-darkening: gauge flips to 1.
-	d.checkDeadAir(ctx, base.Add(20*time.Second).Add(46*time.Second))
+	darkNow := base.Add(20 * time.Second).Add(46 * time.Second)
+	d.checkDeadAir(ctx, darkNow)
 	if got := dark(); got != 1 {
 		t.Fatalf("dark gauge past grace = %v, want 1", got)
+	}
+
+	// Deschedule the mount: remove the entry so no station should drive it, then
+	// force a schedule refresh. The dark gauge series must be reset to 0 rather
+	// than reading 1 forever for a mount that is no longer scheduled.
+	if err := d.db.Where("id = ?", entry.ID).Delete(&models.ScheduleEntry{}).Error; err != nil {
+		t.Fatalf("delete schedule entry: %v", err)
+	}
+	d.markScheduleDirty()
+	// Drop the active mount too so the entry is fully gone from the director's view.
+	d.mu.Lock()
+	delete(d.active, mountID)
+	d.mu.Unlock()
+
+	d.checkDeadAir(ctx, darkNow.Add(1*time.Second))
+	if got := dark(); got != 0 {
+		t.Fatalf("dark gauge after deschedule = %v, want 0 (stale series)", got)
 	}
 }

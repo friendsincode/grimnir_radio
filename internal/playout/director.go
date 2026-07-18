@@ -85,6 +85,14 @@ type playoutState struct {
 	MountName   string // mount name for logging in watchdog path
 }
 
+// darkState tracks, per mount, when it first went dark (0 pipelines while its
+// station should be driving it) along with the station id so the dark-mount
+// gauge series can be reset when the mount later leaves the schedule. (#74)
+type darkState struct {
+	stationID string
+	since     time.Time
+}
+
 type playbackResumeContext struct {
 	Offset        time.Duration
 	LogicalStart  time.Time
@@ -149,7 +157,7 @@ type Director struct {
 	played       map[string]time.Time
 	active       map[string]playoutState
 	sbGeneration map[string]int       // regeneration counter per entry; incremented on sequence exhaustion so each cycle uses a different shuffle seed
-	darkSince    map[string]time.Time // mountID -> when the mount first had 0 pipelines while its station was active; drives the dark-mount gauge (#74)
+	darkSince    map[string]darkState // mountID -> station id + when the mount first had 0 pipelines while its station was active; drives the dark-mount gauge (#74)
 
 	policyMu    sync.Mutex
 	policyCache map[string]cachedScheduleBoundaryPolicy
@@ -194,7 +202,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager ManagerInterface, bus 
 		played:        make(map[string]time.Time),
 		active:        make(map[string]playoutState),
 		sbGeneration:  make(map[string]int),
-		darkSince:     make(map[string]time.Time),
+		darkSince:     make(map[string]darkState),
 		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
 		webrtcCache:   make(map[string]cachedWebRTCPort),
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
@@ -463,9 +471,12 @@ func (d *Director) updateDarkMountGauge(entries []models.ScheduleEntry, now time
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// Drop dark-since state for mounts a station is no longer expected to drive.
-	for mountID := range d.darkSince {
+	// Drop dark-since state for mounts a station is no longer expected to drive,
+	// and remove the gauge series so a mount that was dark (gauge 1) doesn't read
+	// 1 forever once it leaves the schedule. Uses the stored station id label.
+	for mountID, st := range d.darkSince {
 		if _, ok := shouldDrive[mountID]; !ok {
+			telemetry.PlayoutMountDark.DeleteLabelValues(st.stationID, mountID)
 			delete(d.darkSince, mountID)
 		}
 	}
@@ -477,12 +488,12 @@ func (d *Director) updateDarkMountGauge(entries []models.ScheduleEntry, now time
 			telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID).Set(0)
 			continue
 		}
-		since, tracking := d.darkSince[mountID]
+		st, tracking := d.darkSince[mountID]
 		if !tracking {
-			since = now
-			d.darkSince[mountID] = since
+			st = darkState{stationID: stationID, since: now}
+			d.darkSince[mountID] = st
 		}
-		if now.Sub(since) >= darkGrace {
+		if now.Sub(st.since) >= darkGrace {
 			telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID).Set(1)
 		} else {
 			telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID).Set(0)
