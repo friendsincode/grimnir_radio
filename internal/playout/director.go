@@ -148,7 +148,8 @@ type Director struct {
 	mu           sync.Mutex
 	played       map[string]time.Time
 	active       map[string]playoutState
-	sbGeneration map[string]int // regeneration counter per entry; incremented on sequence exhaustion so each cycle uses a different shuffle seed
+	sbGeneration map[string]int       // regeneration counter per entry; incremented on sequence exhaustion so each cycle uses a different shuffle seed
+	darkSince    map[string]time.Time // mountID -> when the mount first had 0 pipelines while its station was active; drives the dark-mount gauge (#74)
 
 	policyMu    sync.Mutex
 	policyCache map[string]cachedScheduleBoundaryPolicy
@@ -193,6 +194,7 @@ func NewDirector(db *gorm.DB, cfg *config.Config, manager ManagerInterface, bus 
 		played:        make(map[string]time.Time),
 		active:        make(map[string]playoutState),
 		sbGeneration:  make(map[string]int),
+		darkSince:     make(map[string]time.Time),
 		policyCache:   make(map[string]cachedScheduleBoundaryPolicy),
 		webrtcCache:   make(map[string]cachedWebRTCPort),
 		xfadeSessions: make(map[string]*pcmCrossfadeSession),
@@ -429,6 +431,61 @@ func (d *Director) checkDeadAir(ctx context.Context, now time.Time) {
 			d.logger.Warn().Err(err).Str("entry", rawEntry.ID).Msg("dead air recovery failed")
 		} else {
 			d.markPlayed(playbackKey(rawEntry.ID, rawEntry.StartsAt), rawEntry.EndsAt)
+		}
+	}
+
+	d.updateDarkMountGauge(entries, now)
+}
+
+// updateDarkMountGauge maintains grimnir_playout_mount_dark: for every mount a
+// station should currently be driving, it is "dark" when the playout Manager
+// has no running pipeline for that mount. The gauge flips to 1 only once the
+// mount has been continuously dark for darkGrace; a pipeline reappearing clears
+// the dark-since timestamp and resets the gauge to 0. This tracks a distinct
+// concern from checkDeadAir's 15s dead-air recovery — its own grace, its own
+// per-mount state (d.darkSince) under the same d.mu lock. (#74)
+func (d *Director) updateDarkMountGauge(entries []models.ScheduleEntry, now time.Time) {
+	const darkGrace = 45 * time.Second
+
+	// Collapse to one station per mount for entries that are currently in their
+	// play window (live entries are still valid air, but a live mount with no
+	// pipeline is genuine dead air, so it is monitored like any other).
+	shouldDrive := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if now.Before(e.StartsAt) || now.After(e.EndsAt) {
+			continue
+		}
+		if _, ok := shouldDrive[e.MountID]; !ok {
+			shouldDrive[e.MountID] = e.StationID
+		}
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	// Drop dark-since state for mounts a station is no longer expected to drive.
+	for mountID := range d.darkSince {
+		if _, ok := shouldDrive[mountID]; !ok {
+			delete(d.darkSince, mountID)
+		}
+	}
+
+	for mountID, stationID := range shouldDrive {
+		if d.manager.GetPipeline(mountID) != nil {
+			// Pipeline present → not dark. Clear any pending window and reset.
+			delete(d.darkSince, mountID)
+			telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID).Set(0)
+			continue
+		}
+		since, tracking := d.darkSince[mountID]
+		if !tracking {
+			since = now
+			d.darkSince[mountID] = since
+		}
+		if now.Sub(since) >= darkGrace {
+			telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID).Set(1)
+		} else {
+			telemetry.PlayoutMountDark.WithLabelValues(stationID, mountID).Set(0)
 		}
 	}
 }
