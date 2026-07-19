@@ -225,6 +225,21 @@ func TestService_Recording_ValidationBranches(t *testing.T) {
 	}
 }
 
+func TestService_RouteLive_Error(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// An empty session_id makes the live input manager reject the request, so
+	// RouteLive returns a failure response and a transport error.
+	resp, err := svc.RouteLive(context.Background(), &pb.RouteLiveRequest{StationId: "st1", MountId: "mt1"})
+	if err == nil {
+		t.Error("expected an error for a missing session_id")
+	}
+	if resp.Success {
+		t.Error("expected Success=false")
+	}
+}
+
 func TestService_GetStatus(t *testing.T) {
 	svc := New(&Config{}, zerolog.Nop())
 	defer func() { _ = svc.Shutdown(context.Background()) }()

@@ -61,6 +61,15 @@ func (fakeEngine) StartRecording(context.Context, *pb.StartRecordingRequest) (*p
 func (fakeEngine) StopRecording(context.Context, *pb.StopRecordingRequest) (*pb.StopRecordingResponse, error) {
 	return &pb.StopRecordingResponse{Success: true, RecordingId: "r1", FileSizeBytes: 10, DurationMs: 20}, nil
 }
+func (fakeEngine) StreamTelemetry(_ *pb.TelemetryRequest, stream pb.MediaEngine_StreamTelemetryServer) error {
+	// Send two updates then return; the client loop should see both and then EOF.
+	for i := 0; i < 2; i++ {
+		if err := stream.Send(&pb.TelemetryData{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // startFakeEngine starts the fake server on a random port and returns a
 // connected client plus a cleanup func.
@@ -143,5 +152,34 @@ func TestConnectedRPCWrappers(t *testing.T) {
 	}
 	if res, err := c.StopRecording(ctx, "s", "r1"); err != nil || res.RecordingID != "r1" {
 		t.Errorf("StopRecording = %+v, %v; want r1, nil", res, err)
+	}
+}
+
+func TestConnectedStreamTelemetry(t *testing.T) {
+	c, cleanup := startFakeEngine(t)
+	defer cleanup()
+
+	got := 0
+	err := c.StreamTelemetry(context.Background(), "s", "m", 100, func(*pb.TelemetryData) error {
+		got++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("StreamTelemetry() = %v, want nil", err)
+	}
+	if got != 2 {
+		t.Errorf("callback fired %d times, want 2", got)
+	}
+}
+
+func TestConnect_Failure(t *testing.T) {
+	c := New(DefaultConfig("127.0.0.1:1"), zerolog.Nop())
+	// A cancelled context makes the readiness wait fail fast instead of blocking
+	// on the (unreachable) address for the full 5s.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := c.Connect(ctx); err == nil {
+		t.Error("Connect to an unreachable address with a cancelled context should error")
+		_ = c.Close()
 	}
 }
