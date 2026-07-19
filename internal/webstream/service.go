@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -86,6 +87,15 @@ func (s *Service) CreateWebstream(ctx context.Context, ws *models.Webstream) err
 	if ws.HealthCheckMethod == "" {
 		ws.HealthCheckMethod = "GET"
 	}
+	if ws.HealthCheckSampleMS == 0 {
+		ws.HealthCheckSampleMS = 4000
+	}
+	if ws.HealthCheckMinBytes == 0 {
+		ws.HealthCheckMinBytes = 16384
+	}
+	if ws.HealthCheckMaxStallMS == 0 {
+		ws.HealthCheckMaxStallMS = 2000
+	}
 	if ws.FailoverGraceMs == 0 {
 		ws.FailoverGraceMs = 5000
 	}
@@ -110,7 +120,14 @@ func (s *Service) CreateWebstream(ctx context.Context, ws *models.Webstream) err
 
 	// Optionally run preflight check
 	if ws.PreflightCheck {
-		if err := s.checkURL(ws.GetPrimaryURL(), ws.HealthCheckMethod, ws.HealthCheckTimeout); err != nil {
+		if err := s.checkURL(
+			ws.GetPrimaryURL(),
+			ws.HealthCheckMethod,
+			ws.HealthCheckTimeout,
+			time.Duration(ws.HealthCheckSampleMS)*time.Millisecond,
+			ws.HealthCheckMinBytes,
+			time.Duration(ws.HealthCheckMaxStallMS)*time.Millisecond,
+		); err != nil {
 			s.logger.Warn().Err(err).Str("webstream_id", ws.ID).Msg("preflight check failed")
 			ws.MarkUnhealthy()
 			s.db.WithContext(ctx).Save(ws)
@@ -413,11 +430,41 @@ func (s *Service) stopHealthCheckerLocked(id string) {
 	}
 }
 
-func (s *Service) checkURL(url, method string, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// checkURL runs a liveness check against url. The configured method is accepted
+// for signature compatibility but ignored: liveness has to read the body, and a
+// HEAD returns none, so the check always issues a GET.
+func (s *Service) checkURL(url, method string, timeout, sampleWindow time.Duration, minBytes int, maxStall time.Duration) error {
+	_ = method
+	return livenessCheck(http.DefaultClient, url, timeout, sampleWindow, minBytes, maxStall)
+}
+
+// livenessCheck issues a GET and confirms the stream is actually delivering
+// audio: at least minBytes within sampleWindow with no gap between reads longer
+// than maxStall. This catches streams that answer 200 then fall silent, which a
+// status-code-only check marks healthy.
+func livenessCheck(client *http.Client, url string, timeout, sampleWindow time.Duration, minBytes int, maxStall time.Duration) error {
+	// Zero/negative thresholds (e.g. rows created before these columns existed)
+	// fall back to defaults so a legacy webstream is never failed on a 0-byte or
+	// instant-stall bound.
+	if sampleWindow <= 0 {
+		sampleWindow = 4 * time.Second
+	}
+	if minBytes <= 0 {
+		minBytes = 16384
+	}
+	if maxStall <= 0 {
+		maxStall = 2 * time.Second
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+
+	// timeout is the connect/first-byte budget; sampleWindow is the read budget.
+	// The context has to cover both so streaming is not cut off early.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout+sampleWindow)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -425,7 +472,7 @@ func (s *Service) checkURL(url, method string, timeout time.Duration) error {
 	req.Header.Set("User-Agent", "Grimnir-Radio/1.0")
 	req.Header.Set("Icy-MetaData", "1")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -435,5 +482,72 @@ func (s *Service) checkURL(url, method string, timeout time.Duration) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	return nil
+	return sampleBody(resp.Body, sampleWindow, minBytes, maxStall)
+}
+
+// sampleBody reads r for up to window, requiring at least minBytes total with no
+// gap between successive reads longer than maxStall. A reader goroutine feeds
+// byte counts back so the select can distinguish a stall (silence) from a slow
+// but steady trickle.
+func sampleBody(r io.Reader, window time.Duration, minBytes int, maxStall time.Duration) error {
+	type readResult struct {
+		n   int
+		err error
+	}
+	reads := make(chan readResult, 1)
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := r.Read(buf)
+			select {
+			case reads <- readResult{n, err}:
+			case <-done:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	windowTimer := time.NewTimer(window)
+	defer windowTimer.Stop()
+	stallTimer := time.NewTimer(maxStall)
+	defer stallTimer.Stop()
+
+	total := 0
+	for {
+		select {
+		case <-windowTimer.C:
+			if total < minBytes {
+				return fmt.Errorf("insufficient throughput: %d bytes in %s, need %d", total, window, minBytes)
+			}
+			return nil
+		case <-stallTimer.C:
+			return fmt.Errorf("stream stalled: no data for %s (read %d bytes)", maxStall, total)
+		case res := <-reads:
+			total += res.n
+			if res.err != nil {
+				if errors.Is(res.err, io.EOF) {
+					if total >= minBytes {
+						return nil
+					}
+					return fmt.Errorf("stream closed early: %d bytes, need %d", total, minBytes)
+				}
+				return fmt.Errorf("read error: %w", res.err)
+			}
+			if res.n > 0 {
+				if !stallTimer.Stop() {
+					select {
+					case <-stallTimer.C:
+					default:
+					}
+				}
+				stallTimer.Reset(maxStall)
+			}
+		}
+	}
 }
