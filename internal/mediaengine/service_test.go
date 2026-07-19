@@ -112,6 +112,54 @@ func TestService_GetOrCreateStation(t *testing.T) {
 	}
 }
 
+func TestService_LoadGraph_Success(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// A minimal valid graph (input -> loudness -> output). CreatePipeline builds
+	// the pipeline struct without spawning GStreamer, so the whole path runs.
+	graph := &pb.DSPGraph{
+		Nodes: []*pb.DSPNode{
+			{Id: "input", Type: pb.NodeType_NODE_TYPE_INPUT},
+			{Id: "loudness", Type: pb.NodeType_NODE_TYPE_LOUDNESS_NORMALIZE},
+			{Id: "output", Type: pb.NodeType_NODE_TYPE_OUTPUT},
+		},
+		Connections: []*pb.DSPConnection{
+			{FromNode: "input", ToNode: "loudness"},
+			{FromNode: "loudness", ToNode: "output"},
+		},
+	}
+
+	resp, err := svc.LoadGraph(context.Background(), &pb.LoadGraphRequest{StationId: "st1", MountId: "mt1", Graph: graph})
+	if err != nil {
+		t.Fatalf("LoadGraph() error: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("LoadGraph() success=false, error=%q", resp.Error)
+	}
+	if resp.GraphHandle == "" {
+		t.Error("expected a non-empty graph handle")
+	}
+}
+
+func TestService_LoadGraph_BuildFailure(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// An empty node list is rejected by the DSP builder, so LoadGraph reports a
+	// failure response rather than an error.
+	resp, err := svc.LoadGraph(context.Background(), &pb.LoadGraphRequest{StationId: "st1", MountId: "mt1", Graph: &pb.DSPGraph{Nodes: []*pb.DSPNode{}}})
+	if err != nil {
+		t.Fatalf("LoadGraph() returned a transport error, want a failure response: %v", err)
+	}
+	if resp.Success {
+		t.Error("expected Success=false for an invalid graph")
+	}
+	if resp.Error == "" {
+		t.Error("expected an error message on the failure response")
+	}
+}
+
 func TestService_GetStatus(t *testing.T) {
 	svc := New(&Config{}, zerolog.Nop())
 	defer func() { _ = svc.Shutdown(context.Background()) }()
