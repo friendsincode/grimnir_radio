@@ -112,6 +112,151 @@ func TestService_GetOrCreateStation(t *testing.T) {
 	}
 }
 
+func TestService_LoadGraph_Success(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// A minimal valid graph (input -> loudness -> output). CreatePipeline builds
+	// the pipeline struct without spawning GStreamer, so the whole path runs.
+	graph := &pb.DSPGraph{
+		Nodes: []*pb.DSPNode{
+			{Id: "input", Type: pb.NodeType_NODE_TYPE_INPUT},
+			{Id: "loudness", Type: pb.NodeType_NODE_TYPE_LOUDNESS_NORMALIZE},
+			{Id: "output", Type: pb.NodeType_NODE_TYPE_OUTPUT},
+		},
+		Connections: []*pb.DSPConnection{
+			{FromNode: "input", ToNode: "loudness"},
+			{FromNode: "loudness", ToNode: "output"},
+		},
+	}
+
+	resp, err := svc.LoadGraph(context.Background(), &pb.LoadGraphRequest{StationId: "st1", MountId: "mt1", Graph: graph})
+	if err != nil {
+		t.Fatalf("LoadGraph() error: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("LoadGraph() success=false, error=%q", resp.Error)
+	}
+	if resp.GraphHandle == "" {
+		t.Error("expected a non-empty graph handle")
+	}
+}
+
+func TestService_LoadGraph_BuildFailure(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// An empty node list is rejected by the DSP builder, so LoadGraph reports a
+	// failure response rather than an error.
+	resp, err := svc.LoadGraph(context.Background(), &pb.LoadGraphRequest{StationId: "st1", MountId: "mt1", Graph: &pb.DSPGraph{Nodes: []*pb.DSPNode{}}})
+	if err != nil {
+		t.Fatalf("LoadGraph() returned a transport error, want a failure response: %v", err)
+	}
+	if resp.Success {
+		t.Error("expected Success=false for an invalid graph")
+	}
+	if resp.Error == "" {
+		t.Error("expected an error message on the failure response")
+	}
+}
+
+func TestService_PlayFadeEmergency_NoPipeline(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// With no pipeline loaded, each of these fails fast at GetPipeline and
+	// returns a failure response rather than reaching GStreamer.
+	src := &pb.SourceConfig{SourceId: "x"}
+	if resp, _ := svc.Play(context.Background(), &pb.PlayRequest{StationId: "none", Source: src}); resp.Success {
+		t.Error("Play with no pipeline should report failure")
+	}
+	if resp, _ := svc.Fade(context.Background(), &pb.FadeRequest{StationId: "none", NextSource: src}); resp.Success {
+		t.Error("Fade with no pipeline should report failure")
+	}
+	if resp, _ := svc.InsertEmergency(context.Background(), &pb.InsertEmergencyRequest{StationId: "none", Source: src}); resp.Success {
+		t.Error("InsertEmergency with no pipeline should report failure")
+	}
+}
+
+func TestService_Stop(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// Unknown station: no pipeline, failure response.
+	if resp, _ := svc.Stop(context.Background(), &pb.StopRequest{StationId: "none"}); resp.Success {
+		t.Error("Stop with no pipeline should report failure")
+	}
+
+	// Load a graph so a (never-started) pipeline exists, then Stop succeeds:
+	// Pipeline.Stop() on a process that was never started is a no-op.
+	graph := &pb.DSPGraph{
+		Nodes: []*pb.DSPNode{
+			{Id: "input", Type: pb.NodeType_NODE_TYPE_INPUT},
+			{Id: "output", Type: pb.NodeType_NODE_TYPE_OUTPUT},
+		},
+		Connections: []*pb.DSPConnection{{FromNode: "input", ToNode: "output"}},
+	}
+	if _, err := svc.LoadGraph(context.Background(), &pb.LoadGraphRequest{StationId: "st1", MountId: "mt1", Graph: graph}); err != nil {
+		t.Fatalf("LoadGraph() error: %v", err)
+	}
+	resp, err := svc.Stop(context.Background(), &pb.StopRequest{StationId: "st1", MountId: "mt1"})
+	if err != nil {
+		t.Fatalf("Stop() error: %v", err)
+	}
+	if !resp.Success {
+		t.Errorf("Stop() on a loaded station failed: %s", resp.Error)
+	}
+}
+
+func TestService_Recording_ValidationBranches(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// StartRecording rejects missing required fields before any gst work.
+	if resp, _ := svc.StartRecording(context.Background(), &pb.StartRecordingRequest{StationId: "s1"}); resp.Success {
+		t.Error("StartRecording without output_path should fail")
+	}
+	// StopRecording rejects an empty id and reports unknown ids as failures.
+	if resp, _ := svc.StopRecording(context.Background(), &pb.StopRecordingRequest{}); resp.Success {
+		t.Error("StopRecording with empty id should fail")
+	}
+	if resp, _ := svc.StopRecording(context.Background(), &pb.StopRecordingRequest{RecordingId: "ghost"}); resp.Success {
+		t.Error("StopRecording for an unknown id should fail")
+	}
+}
+
+func TestService_RouteLive_Error(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// An empty session_id makes the live input manager reject the request, so
+	// RouteLive returns a failure response and a transport error.
+	resp, err := svc.RouteLive(context.Background(), &pb.RouteLiveRequest{StationId: "st1", MountId: "mt1"})
+	if err == nil {
+		t.Error("expected an error for a missing session_id")
+	}
+	if resp.Success {
+		t.Error("expected Success=false")
+	}
+}
+
+func TestService_RouteLive_Success(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// Seed an already-connected live input so the manager returns success
+	// without opening a real input, exercising RouteLive's success path.
+	svc.liveInputMgr.inputs["sess-1"] = &LiveInput{SessionID: "sess-1", Connected: true}
+
+	resp, err := svc.RouteLive(context.Background(), &pb.RouteLiveRequest{StationId: "st1", MountId: "mt1", SessionId: "sess-1"})
+	if err != nil {
+		t.Fatalf("RouteLive() error: %v", err)
+	}
+	if !resp.Success {
+		t.Error("expected Success=true for an already-connected session")
+	}
+}
+
 func TestService_GetStatus(t *testing.T) {
 	svc := New(&Config{}, zerolog.Nop())
 	defer func() { _ = svc.Shutdown(context.Background()) }()
