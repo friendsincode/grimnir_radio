@@ -134,7 +134,8 @@ func (hc *HealthChecker) performHealthCheck(ws *models.Webstream) {
 		Str("method", ws.HealthCheckMethod).
 		Msg("performing health check")
 
-	err := hc.checkURL(currentURL, ws.HealthCheckMethod, ws.HealthCheckTimeout)
+	err := hc.checkURL(currentURL, ws.HealthCheckMethod, ws.HealthCheckTimeout,
+		ws.HealthCheckSampleWindow(), ws.HealthCheckMinBytes, ws.HealthCheckMaxStall())
 
 	if err != nil {
 		hc.handleFailedCheck(ws, err)
@@ -176,7 +177,8 @@ func (hc *HealthChecker) handleSuccessfulCheck(ws *models.Webstream) {
 	if wasUnhealthy && ws.AutoRecoverEnabled && ws.CurrentIndex != 0 {
 		// Check if primary is healthy
 		primaryURL := ws.GetPrimaryURL()
-		if hc.checkURL(primaryURL, ws.HealthCheckMethod, ws.HealthCheckTimeout) == nil {
+		if hc.checkURL(primaryURL, ws.HealthCheckMethod, ws.HealthCheckTimeout,
+			ws.HealthCheckSampleWindow(), ws.HealthCheckMinBytes, ws.HealthCheckMaxStall()) == nil {
 			hc.logger.Info().
 				Str("from_url", ws.CurrentURL).
 				Str("to_url", primaryURL).
@@ -307,7 +309,8 @@ func (hc *HealthChecker) triggerFailover(ws *models.Webstream) {
 	}
 
 	// Test the next URL before failing over
-	if err := hc.checkURL(nextURL, ws.HealthCheckMethod, ws.HealthCheckTimeout); err != nil {
+	if err := hc.checkURL(nextURL, ws.HealthCheckMethod, ws.HealthCheckTimeout,
+		ws.HealthCheckSampleWindow(), ws.HealthCheckMinBytes, ws.HealthCheckMaxStall()); err != nil {
 		hc.logger.Warn().
 			Err(err).
 			Str("next_url", nextURL).
@@ -364,31 +367,15 @@ func (hc *HealthChecker) triggerFailover(ws *models.Webstream) {
 	}
 }
 
-func (hc *HealthChecker) checkURL(url, method string, timeout time.Duration) error {
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, method, url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("User-Agent", "Grimnir-Radio/1.0")
-	req.Header.Set("Icy-MetaData", "1")
-
-	hc.httpClient.Timeout = timeout
-	resp, err := hc.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	return nil
+// checkURL runs a liveness check against url, reading the body to confirm the
+// stream is delivering audio rather than trusting the status code alone. The
+// configured method is ignored; the check always issues a GET (a HEAD has no
+// body). Thresholds come from the webstream's HealthCheck* fields.
+func (hc *HealthChecker) checkURL(url, method string, timeout, sampleWindow time.Duration, minBytes int, maxStall time.Duration) error {
+	_ = method
+	// The whole-request deadline is derived inside livenessCheck (connect budget
+	// plus the read window), so leave the client-level timeout off to avoid
+	// cutting the sample short.
+	hc.httpClient.Timeout = 0
+	return livenessCheck(hc.httpClient, url, timeout, sampleWindow, minBytes, maxStall)
 }

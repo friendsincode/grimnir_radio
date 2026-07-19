@@ -32,6 +32,15 @@ type Webstream struct {
 	HealthCheckTimeout  time.Duration `gorm:"type:bigint"`
 	HealthCheckMethod   string        `gorm:"type:varchar(10);default:'GET'"` // GET or HEAD
 
+	// Liveness thresholds for the read-the-body health check. A stream can
+	// answer 200 then send a burst and fall silent; status-code checks pass it
+	// anyway. The check samples the body for HealthCheckSampleMS, requiring at
+	// least HealthCheckMinBytes total with no gap between reads longer than
+	// HealthCheckMaxStallMS.
+	HealthCheckSampleMS   int `gorm:"type:int;default:4000"`
+	HealthCheckMinBytes   int `gorm:"type:int;default:16384"`
+	HealthCheckMaxStallMS int `gorm:"type:int;default:2000"`
+
 	// Failover settings
 	FailoverEnabled    bool `gorm:""`
 	FailoverGraceMs    int  `gorm:"type:int;default:5000"` // Grace period before failover
@@ -67,6 +76,16 @@ func (Webstream) TableName() string {
 // IsHealthy checks if the webstream is currently healthy.
 func (ws *Webstream) IsHealthy() bool {
 	return ws.HealthStatus == "healthy"
+}
+
+// HealthCheckSampleWindow returns the liveness sample window as a Duration.
+func (ws *Webstream) HealthCheckSampleWindow() time.Duration {
+	return time.Duration(ws.HealthCheckSampleMS) * time.Millisecond
+}
+
+// HealthCheckMaxStall returns the maximum tolerated read gap as a Duration.
+func (ws *Webstream) HealthCheckMaxStall() time.Duration {
+	return time.Duration(ws.HealthCheckMaxStallMS) * time.Millisecond
 }
 
 // GetPrimaryURL returns the primary (first) URL in the failover chain.
