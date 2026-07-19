@@ -35,6 +35,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            gstreamer1.0-tools \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav
+
       - name: Tidy (must be clean)
         run: |
           go mod tidy
