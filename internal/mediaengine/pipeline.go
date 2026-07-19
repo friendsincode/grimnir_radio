@@ -367,10 +367,17 @@ func (p *Pipeline) monitorCrossfadeCompletion() {
 				p.CurrentTrack = p.crossfadeMgr.GetCurrentTrack()
 				p.NextTrack = nil
 				p.State = pb.PlaybackState_PLAYBACK_STATE_PLAYING
+				// GetCurrentTrack returns nil when the crossfade was torn down
+				// before it produced a track; guard the log so this background
+				// goroutine can't panic and take the process down with it.
+				sourceID := ""
+				if p.CurrentTrack != nil {
+					sourceID = p.CurrentTrack.SourceID
+				}
 				p.mu.Unlock()
 
 				p.logger.Info().
-					Str("current_track", p.CurrentTrack.SourceID).
+					Str("current_track", sourceID).
 					Msg("crossfade completed, transition successful")
 				return
 			}
