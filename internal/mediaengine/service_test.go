@@ -240,6 +240,23 @@ func TestService_RouteLive_Error(t *testing.T) {
 	}
 }
 
+func TestService_RouteLive_Success(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// Seed an already-connected live input so the manager returns success
+	// without opening a real input, exercising RouteLive's success path.
+	svc.liveInputMgr.inputs["sess-1"] = &LiveInput{SessionID: "sess-1", Connected: true}
+
+	resp, err := svc.RouteLive(context.Background(), &pb.RouteLiveRequest{StationId: "st1", MountId: "mt1", SessionId: "sess-1"})
+	if err != nil {
+		t.Fatalf("RouteLive() error: %v", err)
+	}
+	if !resp.Success {
+		t.Error("expected Success=true for an already-connected session")
+	}
+}
+
 func TestService_GetStatus(t *testing.T) {
 	svc := New(&Config{}, zerolog.Nop())
 	defer func() { _ = svc.Shutdown(context.Background()) }()
