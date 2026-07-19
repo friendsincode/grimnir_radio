@@ -160,6 +160,71 @@ func TestService_LoadGraph_BuildFailure(t *testing.T) {
 	}
 }
 
+func TestService_PlayFadeEmergency_NoPipeline(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// With no pipeline loaded, each of these fails fast at GetPipeline and
+	// returns a failure response rather than reaching GStreamer.
+	src := &pb.SourceConfig{SourceId: "x"}
+	if resp, _ := svc.Play(context.Background(), &pb.PlayRequest{StationId: "none", Source: src}); resp.Success {
+		t.Error("Play with no pipeline should report failure")
+	}
+	if resp, _ := svc.Fade(context.Background(), &pb.FadeRequest{StationId: "none", NextSource: src}); resp.Success {
+		t.Error("Fade with no pipeline should report failure")
+	}
+	if resp, _ := svc.InsertEmergency(context.Background(), &pb.InsertEmergencyRequest{StationId: "none", Source: src}); resp.Success {
+		t.Error("InsertEmergency with no pipeline should report failure")
+	}
+}
+
+func TestService_Stop(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// Unknown station: no pipeline, failure response.
+	if resp, _ := svc.Stop(context.Background(), &pb.StopRequest{StationId: "none"}); resp.Success {
+		t.Error("Stop with no pipeline should report failure")
+	}
+
+	// Load a graph so a (never-started) pipeline exists, then Stop succeeds:
+	// Pipeline.Stop() on a process that was never started is a no-op.
+	graph := &pb.DSPGraph{
+		Nodes: []*pb.DSPNode{
+			{Id: "input", Type: pb.NodeType_NODE_TYPE_INPUT},
+			{Id: "output", Type: pb.NodeType_NODE_TYPE_OUTPUT},
+		},
+		Connections: []*pb.DSPConnection{{FromNode: "input", ToNode: "output"}},
+	}
+	if _, err := svc.LoadGraph(context.Background(), &pb.LoadGraphRequest{StationId: "st1", MountId: "mt1", Graph: graph}); err != nil {
+		t.Fatalf("LoadGraph() error: %v", err)
+	}
+	resp, err := svc.Stop(context.Background(), &pb.StopRequest{StationId: "st1", MountId: "mt1"})
+	if err != nil {
+		t.Fatalf("Stop() error: %v", err)
+	}
+	if !resp.Success {
+		t.Errorf("Stop() on a loaded station failed: %s", resp.Error)
+	}
+}
+
+func TestService_Recording_ValidationBranches(t *testing.T) {
+	svc := New(&Config{}, zerolog.Nop())
+	defer func() { _ = svc.Shutdown(context.Background()) }()
+
+	// StartRecording rejects missing required fields before any gst work.
+	if resp, _ := svc.StartRecording(context.Background(), &pb.StartRecordingRequest{StationId: "s1"}); resp.Success {
+		t.Error("StartRecording without output_path should fail")
+	}
+	// StopRecording rejects an empty id and reports unknown ids as failures.
+	if resp, _ := svc.StopRecording(context.Background(), &pb.StopRecordingRequest{}); resp.Success {
+		t.Error("StopRecording with empty id should fail")
+	}
+	if resp, _ := svc.StopRecording(context.Background(), &pb.StopRecordingRequest{RecordingId: "ghost"}); resp.Success {
+		t.Error("StopRecording for an unknown id should fail")
+	}
+}
+
 func TestService_GetStatus(t *testing.T) {
 	svc := New(&Config{}, zerolog.Nop())
 	defer func() { _ = svc.Shutdown(context.Background()) }()
