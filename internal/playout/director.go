@@ -307,10 +307,23 @@ func (d *Director) tick(ctx context.Context) error {
 		}
 	}
 
+	// At most one entry may launch per mount per tick. The overlap-winner check
+	// below only skips an instance when a STRICTLY newer one covers now, so two
+	// overlapping entries it can't separate (equal created_at, or non-instance
+	// rows) would otherwise both reach handleEntry in a single pass and build the
+	// pipeline twice back-to-back — the audible "double-clutch" at boundaries
+	// seen on air (e.g. mount rlmradioxyz). This guard collapses that to one
+	// launch; a legitimately newer entry still preempts on the next tick.
+	launchedThisTick := make(map[string]bool)
+
 	for _, rawEntry := range entries {
 		loc := d.getStationTimezone(ctx, rawEntry.StationID)
 		entry, playKey, playUntil, ok := resolveEntryForNow(rawEntry, now, loc)
 		if !ok {
+			continue
+		}
+
+		if launchedThisTick[entry.MountID] {
 			continue
 		}
 
@@ -382,6 +395,12 @@ func (d *Director) tick(ctx context.Context) error {
 			continue
 		}
 
+		// Only a still-current entry claims the mount's single launch. An entry
+		// resolved inside resolveEntryForNow's 2s end-grace has already ended and
+		// must not block its valid successor from preempting in the same tick.
+		if now.Before(entry.EndsAt) {
+			launchedThisTick[entry.MountID] = true
+		}
 		d.markPlayed(playKey, playUntil)
 	}
 

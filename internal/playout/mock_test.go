@@ -48,14 +48,23 @@ type mockManager struct {
 	ensureErr   error
 	stopErr     error
 	stdinWriter io.WriteCloser
-	stopCalls   int // number of StopPipeline invocations (preemption assertions)
+	stopCalls   int            // number of StopPipeline invocations (preemption assertions)
+	ensureCalls map[string]int // per-mount EnsurePipeline* invocations (double-launch assertions)
 }
 
 func newMockManager() *mockManager {
-	return &mockManager{pipelines: make(map[string]*mockPipeline)}
+	return &mockManager{pipelines: make(map[string]*mockPipeline), ensureCalls: make(map[string]int)}
+}
+
+func (m *mockManager) countEnsure(mountID string) {
+	if m.ensureCalls == nil {
+		m.ensureCalls = make(map[string]int)
+	}
+	m.ensureCalls[mountID]++
 }
 
 func (m *mockManager) EnsurePipeline(ctx context.Context, mountID, launch string) error {
+	m.countEnsure(mountID)
 	if _, ok := m.pipelines[mountID]; !ok {
 		m.pipelines[mountID] = newMockPipeline()
 	}
@@ -63,6 +72,7 @@ func (m *mockManager) EnsurePipeline(ctx context.Context, mountID, launch string
 }
 
 func (m *mockManager) EnsurePipelineWithOutput(ctx context.Context, mountID, launch string, outputHandler func(io.Reader)) error {
+	m.countEnsure(mountID)
 	if _, ok := m.pipelines[mountID]; !ok {
 		m.pipelines[mountID] = newMockPipeline()
 	}
@@ -70,6 +80,7 @@ func (m *mockManager) EnsurePipelineWithOutput(ctx context.Context, mountID, lau
 }
 
 func (m *mockManager) EnsurePipelineWithDualOutput(ctx context.Context, mountID, launch string, seekFile *os.File, hqHandler, lqHandler func(io.Reader)) error {
+	m.countEnsure(mountID)
 	if _, ok := m.pipelines[mountID]; !ok {
 		m.pipelines[mountID] = newMockPipeline()
 	}
@@ -77,6 +88,7 @@ func (m *mockManager) EnsurePipelineWithDualOutput(ctx context.Context, mountID,
 }
 
 func (m *mockManager) EnsurePipelineWithDualOutputAndInput(ctx context.Context, mountID, launch string, hqHandler, lqHandler func(io.Reader)) (io.WriteCloser, error) {
+	m.countEnsure(mountID)
 	if _, ok := m.pipelines[mountID]; !ok {
 		m.pipelines[mountID] = newMockPipeline()
 	}
