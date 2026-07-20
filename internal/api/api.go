@@ -803,11 +803,21 @@ func (a *API) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobID, err := a.analyzer.Enqueue(r.Context(), mediaID)
-	if err != nil {
-		a.db.WithContext(r.Context()).Model(&models.MediaItem{}).Where("id = ?", mediaID).Update("analysis_state", models.AnalysisFailed)
-		writeError(w, http.StatusInternalServerError, "analysis_queue_error")
-		return
+	var jobID string
+	if a.analysisEnabled() {
+		id, err := a.analyzer.Enqueue(r.Context(), mediaID)
+		if err != nil {
+			a.db.WithContext(r.Context()).Model(&models.MediaItem{}).Where("id = ?", mediaID).Update("analysis_state", models.AnalysisFailed)
+			writeError(w, http.StatusInternalServerError, "analysis_queue_error")
+			return
+		}
+		jobID = id
+	} else {
+		// Media Analysis is disabled in system settings: the file's duration is
+		// already set from the upload probe, so mark it playable and skip the
+		// analysis queue rather than leaving it stuck pending.
+		item.AnalysisState = models.AnalysisComplete
+		a.db.WithContext(r.Context()).Model(&models.MediaItem{}).Where("id = ?", mediaID).Update("analysis_state", models.AnalysisComplete)
 	}
 
 	success = true
@@ -1613,8 +1623,25 @@ func (a *API) handleWebhookTrackStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "received"})
 }
 
+// analysisEnabled reports whether the Media Analysis system setting is on. It
+// defaults to enabled when the settings row can't be read, so a transient DB
+// error never silently stops analysis.
+func (a *API) analysisEnabled() bool {
+	s, err := models.GetSystemSettings(a.db)
+	if err != nil {
+		return true
+	}
+	return s.AnalysisEnabled
+}
+
 func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// The WebSocket-updates setting gates the live event stream. When it's off,
+	// refuse the connection rather than pushing updates the operator disabled.
+	if s, err := models.GetSystemSettings(a.db); err == nil && !s.WebsocketEnabled {
+		http.Error(w, "live updates are disabled in system settings", http.StatusServiceUnavailable)
+		return
+	}
 	conn, err := ws.Accept(w, r, &ws.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		a.logger.Error().Err(err).Msg("websocket accept failed")
@@ -1977,6 +2004,14 @@ func (a *API) handleReanalyzeMissingArtwork(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"success": false,
 			"error":   "Analyzer service not available",
+		})
+		return
+	}
+
+	if !a.analysisEnabled() {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"success": false,
+			"error":   "Media Analysis is disabled in system settings",
 		})
 		return
 	}
