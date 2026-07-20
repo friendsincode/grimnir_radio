@@ -205,6 +205,9 @@ type scheduleUpdateRequest struct {
 	EndsAt   string         `json:"ends_at"`
 	MountID  string         `json:"mount_id"`
 	Metadata map[string]any `json:"metadata"`
+	// Shuffle overrides a playlist entry's order for this slot (pointer so an
+	// omitted field leaves the entry untouched; send false to force in-order).
+	Shuffle *bool `json:"shuffle,omitempty"`
 }
 
 type liveAuthorizeRequest struct {
@@ -1254,6 +1257,11 @@ func (a *API) handleScheduleUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.Metadata != nil {
 		entry.Metadata = req.Metadata
 		updates["metadata"] = req.Metadata
+	}
+
+	if req.Shuffle != nil {
+		entry.Shuffle = req.Shuffle
+		updates["shuffle"] = req.Shuffle
 	}
 
 	if entry.Metadata == nil {

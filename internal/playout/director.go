@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math/rand"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -2130,6 +2131,7 @@ func (d *Director) startPlaylistEntry(ctx context.Context, entry models.Schedule
 	for i, item := range playlist.Items {
 		items[i] = item.MediaID
 	}
+	items = maybeShufflePlaylistItems(entry, playlist, items)
 	items = d.applyTrackOverrides(ctx, entry, items)
 	if len(items) == 0 {
 		d.logger.Warn().Str("playlist", playlist.ID).Msg("playlist has no items after track overrides")
@@ -2528,6 +2530,45 @@ func deterministicSmartBlockSeed(entry models.ScheduleEntry, blockID string, gen
 	return int64(h.Sum64() & 0x7fffffffffffffff)
 }
 
+// playlistShuffleEnabled reports whether this playlist entry should play in a
+// randomized order: the schedule entry's per-slot override if set, otherwise the
+// playlist's own Shuffle flag.
+func playlistShuffleEnabled(playlist models.Playlist, entry models.ScheduleEntry) bool {
+	if entry.Shuffle != nil {
+		return *entry.Shuffle
+	}
+	return playlist.Shuffle
+}
+
+// deterministicPlaylistSeed derives a stable shuffle seed from the entry and
+// playlist so a shuffled order is reproducible across a process restart
+// (resume-safe, matching MountPlayoutState) and each recurring occurrence
+// (distinct StartsAt) reshuffles differently.
+func deterministicPlaylistSeed(entry models.ScheduleEntry, playlistID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(entry.ID))
+	_, _ = h.Write([]byte(playlistID))
+	_, _ = h.Write([]byte(entry.StartsAt.UTC().Format(time.RFC3339Nano)))
+	_, _ = h.Write([]byte(entry.EndsAt.UTC().Format(time.RFC3339Nano)))
+	_, _ = h.Write([]byte(entry.StationID))
+	_, _ = h.Write([]byte(entry.MountID))
+	return int64(h.Sum64() & 0x7fffffffffffffff)
+}
+
+// maybeShufflePlaylistItems returns items in a deterministic shuffled order when
+// the playlist (or its overriding schedule entry) calls for it, and unchanged
+// otherwise. It shuffles a copy so the caller's slice is left intact.
+func maybeShufflePlaylistItems(entry models.ScheduleEntry, playlist models.Playlist, items []string) []string {
+	if !playlistShuffleEnabled(playlist, entry) || len(items) < 2 {
+		return items
+	}
+	shuffled := make([]string, len(items))
+	copy(shuffled, items)
+	r := rand.New(rand.NewSource(deterministicPlaylistSeed(entry, playlist.ID)))
+	r.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	return shuffled
+}
+
 func (d *Director) applyTrackOverrides(ctx context.Context, entry models.ScheduleEntry, items []string) []string {
 	if len(items) == 0 || entry.Metadata == nil {
 		return items
@@ -2632,6 +2673,7 @@ func (d *Director) startPlaylistByID(ctx context.Context, entry models.ScheduleE
 	for i, item := range playlist.Items {
 		items[i] = item.MediaID
 	}
+	items = maybeShufflePlaylistItems(entry, playlist, items)
 	items = d.applyTrackOverrides(ctx, entry, items)
 	if len(items) == 0 {
 		d.logger.Warn().

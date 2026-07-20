@@ -156,6 +156,7 @@ func (h *Handler) PlaylistCreate(w http.ResponseWriter, r *http.Request) {
 		StationID:   station.ID,
 		Name:        r.FormValue("name"),
 		Description: r.FormValue("description"),
+		Shuffle:     playlistShuffleFromForm(r.FormValue("shuffle")),
 	}
 
 	if playlist.Name == "" {
@@ -314,6 +315,7 @@ func (h *Handler) PlaylistUpdate(w http.ResponseWriter, r *http.Request) {
 
 	playlist.Name = r.FormValue("name")
 	playlist.Description = r.FormValue("description")
+	playlist.Shuffle = playlistShuffleFromForm(r.FormValue("shuffle"))
 
 	if err := h.db.Save(&playlist).Error; err != nil {
 		http.Error(w, "Failed to update playlist", http.StatusInternalServerError)
@@ -326,6 +328,17 @@ func (h *Handler) PlaylistUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/dashboard/playlists/"+id, http.StatusSeeOther)
+}
+
+// playlistShuffleFromForm interprets a checkbox form value as a bool. An
+// unchecked checkbox submits nothing, so an empty/unknown value is false.
+func playlistShuffleFromForm(v string) bool {
+	switch v {
+	case "on", "true", "1", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 // PlaylistDelete handles playlist deletion
