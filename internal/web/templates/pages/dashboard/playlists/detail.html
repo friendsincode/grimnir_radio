@@ -107,6 +107,11 @@
                     <button class="btn btn-sm btn-outline-danger d-none" id="removeSelectedBtn" onclick="removeSelectedItems()">
                         <i class="bi bi-trash me-1"></i>Remove selected (<span id="selectedItemCount">0</span>)
                     </button>
+                    {{if $items}}
+                    <button class="btn btn-sm btn-outline-primary" id="shuffleTracksBtn" type="button" onclick="shufflePlaylistNow()" title="Randomize the track order now. Click again to reshuffle.">
+                        <i class="bi bi-shuffle me-1"></i>Shuffle
+                    </button>
+                    {{end}}
                     <small class="text-body-secondary"><i class="bi bi-grip-vertical me-1"></i>Drag to reorder or drop media here</small>
                 </div>
             </div>
@@ -563,6 +568,28 @@ function updatePositionNumbers() {
         const posNum = item.querySelector('.position-number');
         if (posNum) posNum.textContent = idx + 1;
     });
+}
+
+// Randomize the stored track order in place. Re-clickable: each click is a fresh
+// shuffle. Reorders the DOM, renumbers, and persists via the same reorder endpoint
+// the drag handler uses.
+function shufflePlaylistNow() {
+    if (!list) return;
+    const items = Array.from(list.querySelectorAll('.playlist-item'));
+    if (items.length < 2) return;
+
+    // Fisher-Yates
+    for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+    }
+
+    const frag = document.createDocumentFragment();
+    items.forEach(el => frag.appendChild(el));
+    list.appendChild(frag);
+
+    updatePositionNumbers();
+    saveOrder();
 }
 
 function saveOrder() {
