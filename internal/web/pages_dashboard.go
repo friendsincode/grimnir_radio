@@ -30,8 +30,10 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 
 	// If no station selected, redirect to selection
 	if station == nil {
-		var stations []models.Station
-		h.db.Where("active = ?", true).Find(&stations)
+		// Scope to the stations this user can actually reach. Querying every
+		// active station instead bounced single-station users through the picker
+		// on multi-station installs (the select page then auto-selected anyway).
+		stations := h.LoadStations(r)
 
 		if len(stations) == 1 {
 			// Auto-select single station
