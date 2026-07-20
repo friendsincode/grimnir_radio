@@ -56,6 +56,11 @@
                         <textarea class="form-control" name="description" rows="3"
                                   placeholder="Optional description for this playlist">{{$playlist.Description}}</textarea>
                     </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="playlistShuffle" name="shuffle" value="on" {{if $playlist.Shuffle}}checked{{end}}>
+                        <label class="form-check-label" for="playlistShuffle">Shuffle</label>
+                        <div class="form-text">Play this playlist's tracks in a randomized order instead of by position.</div>
+                    </div>
                 </div>
                 <div class="card-footer d-flex gap-2">
                     <button type="submit" class="btn btn-primary">

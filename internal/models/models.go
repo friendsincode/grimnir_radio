@@ -672,6 +672,11 @@ type ScheduleEntry struct {
 	SourceID   string         `gorm:"type:uuid"`
 	Metadata   map[string]any `gorm:"type:jsonb;serializer:json"`
 
+	// Shuffle overrides a playlist source's own Shuffle setting for this slot:
+	// nil inherits the playlist's setting, non-nil forces randomized (true) or
+	// in-order (false) playback. Only meaningful when SourceType == "playlist".
+	Shuffle *bool `gorm:"type:boolean"`
+
 	// Recurrence fields
 	RecurrenceType       RecurrenceType `gorm:"type:varchar(16)"`
 	RecurrenceDays       []int          `gorm:"type:jsonb;serializer:json"` // 0=Sun, 1=Mon, ..., 6=Sat
@@ -806,6 +811,10 @@ type Playlist struct {
 	CoverImage     []byte         `gorm:"type:bytea"`
 	CoverImageMime string         `gorm:"type:varchar(32)"`
 	Items          []PlaylistItem `gorm:"foreignKey:PlaylistID"`
+
+	// Shuffle plays the playlist's items in a randomized order rather than by
+	// position. A schedule entry can override this per slot (ScheduleEntry.Shuffle).
+	Shuffle bool `gorm:"default:false"`
 
 	// Import provenance (nullable for manually created items)
 	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
