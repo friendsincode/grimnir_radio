@@ -58,9 +58,18 @@ type Broadcaster struct {
 }
 
 type peerConnection struct {
-	id   string
-	pc   *webrtc.PeerConnection
-	done chan struct{}
+	id        string
+	pc        *webrtc.PeerConnection
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+// closeDone closes the peer's done channel exactly once. Pion fires
+// OnConnectionStateChange more than once during teardown (Failed then Closed,
+// or Closed twice), and Stop() also closes done; without this guard the second
+// close panics ("close of closed channel") and takes down the whole process.
+func (p *peerConnection) closeDone() {
+	p.closeOnce.Do(func() { close(p.done) })
 }
 
 // SignalMessage is the WebSocket signaling message format.
@@ -175,7 +184,7 @@ func (b *Broadcaster) Stop() error {
 	b.mu.Lock()
 	for _, peer := range b.peers {
 		peer.pc.Close()
-		close(peer.done)
+		peer.closeDone()
 	}
 	b.peers = make(map[string]*peerConnection)
 	b.mu.Unlock()
@@ -362,7 +371,7 @@ func (b *Broadcaster) HandleSignaling(w http.ResponseWriter, r *http.Request) {
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		b.logger.Debug().Str("peer_id", peerID).Str("state", s.String()).Msg("connection state changed")
 		if s == webrtc.PeerConnectionStateFailed || s == webrtc.PeerConnectionStateClosed {
-			close(peer.done)
+			peer.closeDone()
 		}
 	})
 
