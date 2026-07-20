@@ -837,6 +837,19 @@ func (s *Server) configureRoutes() {
 		mountName := chi.URLParam(r, "mount")
 		mount := s.director.Broadcast().GetMount(mountName)
 		if mount == nil {
+			// The name isn't a live broadcast mount. It may be a custom mount the
+			// operator added in Stream Mounts, which is a pure alias to that
+			// station's own live stream (a station only aliases its own). Resolve
+			// it to whichever of the station's mounts is currently broadcasting so
+			// /live/<alias> streams the station's live output instead of 404ing.
+			for _, sibling := range aliasSiblingMountNames(s.db, mountName) {
+				if bm := s.director.Broadcast().GetMount(sibling); bm != nil {
+					mount = bm
+					break
+				}
+			}
+		}
+		if mount == nil {
 			http.Error(w, "Stream not found", http.StatusNotFound)
 			return
 		}
@@ -852,4 +865,30 @@ func (s *Server) configureRoutes() {
 
 	// Web UI routes
 	s.webHandler.Routes(s.router)
+}
+
+// aliasSiblingMountNames returns the names of the OTHER mounts belonging to the
+// station that owns the mount named requestedName. It backs custom-mount
+// aliasing: a mount added in Stream Mounts that isn't itself a live broadcast
+// mount resolves to one of its station's live mounts. Scoped to the owning
+// station, so a mount can only ever alias its own station's stream. Returns nil
+// when no mount by that name exists.
+func aliasSiblingMountNames(db *gorm.DB, requestedName string) []string {
+	if db == nil || requestedName == "" {
+		return nil
+	}
+	var owner models.Mount
+	if err := db.Where("name = ?", requestedName).First(&owner).Error; err != nil {
+		return nil
+	}
+	var siblings []models.Mount
+	if err := db.Where("station_id = ? AND name <> ?", owner.StationID, requestedName).
+		Find(&siblings).Error; err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(siblings))
+	for _, m := range siblings {
+		names = append(names, m.Name)
+	}
+	return names
 }
