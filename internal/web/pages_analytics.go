@@ -68,10 +68,13 @@ func (h *Handler) AnalyticsDashboard(w http.ResponseWriter, r *http.Request) {
 		Count  int64
 	}
 	var topArtists []artistCount
+	// Group case- and surrounding-whitespace-insensitively so "Sound Minds" and
+	// "sound minds " are one artist, not two ranks; MIN(artist) shows a
+	// representative original spelling. Blank/Unknown is labeled in the template.
 	h.db.Model(&models.PlayHistory{}).
-		Select("artist, COUNT(*) as count").
+		Select("MIN(TRIM(artist)) as artist, COUNT(*) as count").
 		Where("station_id = ? AND started_at >= ?", station.ID, time.Now().AddDate(0, 0, -7)).
-		Group("artist").
+		Group("LOWER(TRIM(artist))").
 		Order("count DESC").
 		Limit(10).
 		Scan(&topArtists)
@@ -352,10 +355,11 @@ func (h *Handler) AnalyticsSpins(w http.ResponseWriter, r *http.Request) {
 		Count  int64
 	}
 	var topTracks []trackSpin
+	// Merge case-/whitespace-variant spellings of the same track.
 	h.db.Model(&models.PlayHistory{}).
-		Select("artist, title, COUNT(*) as count").
+		Select("MIN(TRIM(artist)) as artist, MIN(TRIM(title)) as title, COUNT(*) as count").
 		Where("station_id = ? AND started_at >= ? AND started_at <= ?", station.ID, fromDate, toDate).
-		Group("artist, title").
+		Group("LOWER(TRIM(artist)), LOWER(TRIM(title))").
 		Order("count DESC").
 		Limit(50).
 		Scan(&topTracks)
@@ -366,10 +370,11 @@ func (h *Handler) AnalyticsSpins(w http.ResponseWriter, r *http.Request) {
 		Count  int64
 	}
 	var topArtists []artistSpin
+	// Case- and whitespace-insensitive grouping (see AnalyticsDashboard).
 	h.db.Model(&models.PlayHistory{}).
-		Select("artist, COUNT(*) as count").
+		Select("MIN(TRIM(artist)) as artist, COUNT(*) as count").
 		Where("station_id = ? AND started_at >= ? AND started_at <= ?", station.ID, fromDate, toDate).
-		Group("artist").
+		Group("LOWER(TRIM(artist))").
 		Order("count DESC").
 		Limit(20).
 		Scan(&topArtists)
