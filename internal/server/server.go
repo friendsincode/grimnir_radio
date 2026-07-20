@@ -39,6 +39,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/logbuffer"
 	"github.com/friendsincode/grimnir_radio/internal/media"
 	meclient "github.com/friendsincode/grimnir_radio/internal/mediaengine/client"
+	"github.com/friendsincode/grimnir_radio/internal/models"
 	"github.com/friendsincode/grimnir_radio/internal/notifications"
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 	"github.com/friendsincode/grimnir_radio/internal/priority"
@@ -822,7 +823,14 @@ func (s *Server) configureRoutes() {
 		_, _ = w.Write([]byte(response))
 	})
 
-	s.router.Handle("/metrics", telemetry.Handler())
+	// The Prometheus Metrics setting gates the /metrics endpoint (read once at
+	// startup; toggling it takes effect on restart). Default-on: a settings read
+	// error still registers it.
+	if settings, err := models.GetSystemSettings(s.db); err != nil || settings.MetricsEnabled {
+		s.router.Handle("/metrics", telemetry.Handler())
+	} else {
+		s.logger.Info().Msg("Prometheus /metrics endpoint disabled by system settings")
+	}
 
 	// Audio broadcast streams (served directly by Go, no Icecast needed)
 	s.router.HandleFunc("/live/{mount}", func(w http.ResponseWriter, r *http.Request) {
