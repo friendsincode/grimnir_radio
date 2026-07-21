@@ -45,7 +45,7 @@ func TestMountsPlayingPlaylist(t *testing.T) {
 		"m1": {StationID: "sA", MountName: "main-a", EntryID: "e1", SourceType: "playlist", SourceID: "pl-1"},
 		"m2": {StationID: "sA", MountName: "main-a-lq", EntryID: "e1", SourceType: "clock_playlist", SourceID: "pl-1"},
 		"m3": {StationID: "sC", MountName: "sb", EntryID: "e3", SourceType: "smart_block", SourceID: "pl-1"}, // wrong type
-		"m4": {StationID: "sD", MountName: "other", EntryID: "e4", SourceType: "playlist", SourceID: "pl-2"},  // other playlist
+		"m4": {StationID: "sD", MountName: "other", EntryID: "e4", SourceType: "playlist", SourceID: "pl-2"}, // other playlist
 	}}
 
 	got := d.mountsPlayingPlaylist("pl-1")
