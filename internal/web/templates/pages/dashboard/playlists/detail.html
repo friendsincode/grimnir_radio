@@ -111,9 +111,15 @@
                     <button class="btn btn-sm btn-outline-primary" id="shuffleTracksBtn" type="button" onclick="shufflePlaylistNow()" title="Randomize the track order now. Click again to reshuffle.">
                         <i class="bi bi-shuffle me-1"></i>Shuffle
                     </button>
-                    <button class="btn btn-sm btn-outline-warning" id="requeuePlaylistBtn" type="button" onclick="requeuePlaylistNow()" title="If this playlist is on air, re-queue it now so your edits take effect immediately (briefly restarts that station's stream).">
-                        <i class="bi bi-arrow-repeat me-1"></i>Re-queue on air
-                    </button>
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-sm btn-outline-warning dropdown-toggle" id="requeuePlaylistBtn" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="If this playlist is on air, re-queue it now so your edits take effect immediately.">
+                            <i class="bi bi-arrow-repeat me-1"></i>Re-queue on air
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><button class="dropdown-item" type="button" onclick="requeuePlaylistNow('cut')"><i class="bi bi-scissors me-2"></i>Instant cut</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="requeuePlaylistNow('crossfade')"><i class="bi bi-soundwave me-2"></i>Crossfade (uses this station's crossfade setting)</button></li>
+                        </ul>
+                    </div>
                     {{end}}
                     <small class="text-body-secondary"><i class="bi bi-grip-vertical me-1"></i>Drag to reorder or drop media here</small>
                 </div>
@@ -595,19 +601,24 @@ function shufflePlaylistNow() {
     saveOrder();
 }
 
-// Ask the director to re-queue this playlist on any station currently playing it,
-// so edits take effect immediately instead of at the next source change. Reloads
-// the station, so it briefly restarts that stream — hence the confirm. (#55)
-function requeuePlaylistNow() {
-    if (!confirm("Re-queue this playlist on any station currently playing it?\n\nThis briefly restarts that station's stream to apply your changes now.")) return;
+// Ask the director to re-queue this playlist on anything currently playing it,
+// so edits take effect immediately instead of at the next source change.
+// transition "cut" hard-reloads the station (brief restart); "crossfade" bleeds
+// off into the new source using the station's crossfade setting. (#55/#56)
+function requeuePlaylistNow(transition) {
+    const cut = transition !== 'crossfade';
+    const msg = cut
+        ? "Instant re-queue: hard-cut to your edited playlist now?\n\nThis briefly restarts the stream on any station playing it."
+        : "Crossfade re-queue: bleed the current track into your edited playlist now?\n\nUses this station's crossfade setting.";
+    if (!confirm(msg)) return;
     const btn = document.getElementById('requeuePlaylistBtn');
     if (btn) btn.disabled = true;
-    fetch(`/dashboard/playlists/${playlistId}/requeue`, { method: 'POST' })
+    fetch(`/dashboard/playlists/${playlistId}/requeue?transition=${cut ? 'cut' : 'crossfade'}`, { method: 'POST' })
         .then(res => res.ok ? res.json() : Promise.reject(res))
         .then(data => {
             const n = data.requeued || 0;
             alert(n > 0
-                ? `Re-queued ${n} station${n === 1 ? '' : 's'} now playing this playlist.`
+                ? `Re-queued ${n} ${n === 1 ? 'target' : 'targets'} now playing this playlist (${data.transition}).`
                 : 'This playlist is not currently on air — nothing to re-queue.');
         })
         .catch(() => alert('Failed to re-queue. Please try again.'))

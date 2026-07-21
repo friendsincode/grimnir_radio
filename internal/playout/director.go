@@ -2111,6 +2111,20 @@ func (d *Director) buildWebstreamBroadcastPipeline(sourceURL string, mount model
 	return pipeline, nil
 }
 
+// buildPlaylistItems produces the ordered media-ID list for a playlist schedule
+// entry: items in stored position order, with shuffle and track overrides
+// applied. Shared by the initial start paths and the crossfade re-queue so both
+// materialize identically. (#54/#55/#56)
+func (d *Director) buildPlaylistItems(ctx context.Context, entry models.ScheduleEntry, playlist models.Playlist) []string {
+	items := make([]string, len(playlist.Items))
+	for i, item := range playlist.Items {
+		items[i] = item.MediaID
+	}
+	items = maybeShufflePlaylistItems(entry, playlist, items)
+	items = d.applyTrackOverrides(ctx, entry, items)
+	return items
+}
+
 func (d *Director) startPlaylistEntry(ctx context.Context, entry models.ScheduleEntry) error {
 	// Load playlist with items ordered by position
 	var playlist models.Playlist
@@ -2127,12 +2141,7 @@ func (d *Director) startPlaylistEntry(ctx context.Context, entry models.Schedule
 	}
 
 	// Build items list (media IDs in order)
-	items := make([]string, len(playlist.Items))
-	for i, item := range playlist.Items {
-		items[i] = item.MediaID
-	}
-	items = maybeShufflePlaylistItems(entry, playlist, items)
-	items = d.applyTrackOverrides(ctx, entry, items)
+	items := d.buildPlaylistItems(ctx, entry, playlist)
 	if len(items) == 0 {
 		d.logger.Warn().Str("playlist", playlist.ID).Msg("playlist has no items after track overrides")
 		d.publishNowPlaying(entry, map[string]any{
@@ -2712,12 +2721,7 @@ func (d *Director) startPlaylistByID(ctx context.Context, entry models.ScheduleE
 	}
 
 	// Build items list (media IDs in order)
-	items := make([]string, len(playlist.Items))
-	for i, item := range playlist.Items {
-		items[i] = item.MediaID
-	}
-	items = maybeShufflePlaylistItems(entry, playlist, items)
-	items = d.applyTrackOverrides(ctx, entry, items)
+	items := d.buildPlaylistItems(ctx, entry, playlist)
 	if len(items) == 0 {
 		d.logger.Warn().
 			Str("playlist", playlist.ID).
@@ -4624,12 +4628,50 @@ func (d *Director) stationsPlayingPlaylist(playlistID string) []string {
 	return stations
 }
 
-// RequeuePlaylist re-queues from the director for any station currently playing
-// the given playlist, so an edited playlist takes effect immediately instead of
-// waiting for the current source to finish. It reuses ReloadStation, which
-// re-materializes each affected station's playout from the current DB state.
-// Returns the number of stations re-queued (0 if the playlist isn't on air). (#55)
-func (d *Director) RequeuePlaylist(ctx context.Context, playlistID string) (int, error) {
+// requeueTarget identifies a mount whose active playout is sourced from a
+// re-queued playlist, along with the state needed to transition it. (#56)
+type requeueTarget struct {
+	mountID   string
+	mountName string
+	entryID   string
+	state     playoutState
+}
+
+// mountsPlayingPlaylist returns one target per active mount currently sourced
+// from the given playlist (direct entry or clock slot). (#56)
+func (d *Director) mountsPlayingPlaylist(playlistID string) []requeueTarget {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var targets []requeueTarget
+	for mountID, st := range d.active {
+		if st.SourceID != playlistID {
+			continue
+		}
+		if st.SourceType != "playlist" && st.SourceType != "clock_playlist" {
+			continue
+		}
+		targets = append(targets, requeueTarget{
+			mountID:   mountID,
+			mountName: st.MountName,
+			entryID:   st.EntryID,
+			state:     st,
+		})
+	}
+	return targets
+}
+
+// RequeuePlaylist re-queues from the director for anything currently playing the
+// given playlist, so an edited playlist takes effect immediately instead of
+// waiting for the current source to finish. The transition controls how the
+// switch sounds: "crossfade" bleeds the current item into the new first item
+// through the live session (honoring the station/slot crossfade setting), while
+// any other value ("cut", the default) hard-reloads via ReloadStation. Returns
+// the number of targets re-queued (0 if the playlist isn't on air). (#55/#56)
+func (d *Director) RequeuePlaylist(ctx context.Context, playlistID, transition string) (int, error) {
+	if transition == "crossfade" {
+		return d.requeuePlaylistCrossfade(ctx, playlistID)
+	}
+
 	stations := d.stationsPlayingPlaylist(playlistID)
 	requeued := 0
 	for _, stationID := range stations {
@@ -4640,7 +4682,54 @@ func (d *Director) RequeuePlaylist(ctx context.Context, playlistID string) (int,
 	}
 	d.logger.Info().
 		Str("playlist_id", playlistID).
+		Str("transition", "cut").
 		Int("stations_requeued", requeued).
+		Msg("playlist re-queue requested")
+	return requeued, nil
+}
+
+// requeuePlaylistCrossfade re-materializes the playlist for each mount playing it
+// and transitions into the new first item through the live crossfade session,
+// without tearing the pipeline down. When crossfade is enabled for the station
+// or slot the switch bleeds off; otherwise playNextFromState performs a clean
+// pipeline swap. (#56)
+func (d *Director) requeuePlaylistCrossfade(ctx context.Context, playlistID string) (int, error) {
+	targets := d.mountsPlayingPlaylist(playlistID)
+	requeued := 0
+	for _, t := range targets {
+		var entry models.ScheduleEntry
+		if err := d.db.WithContext(ctx).First(&entry, "id = ?", t.entryID).Error; err != nil {
+			d.logger.Warn().Err(err).Str("entry", t.entryID).Msg("requeue crossfade: entry load failed")
+			continue
+		}
+		var playlist models.Playlist
+		if err := d.db.WithContext(ctx).Preload("Items", func(db *gorm.DB) *gorm.DB {
+			return db.Order("position ASC")
+		}).First(&playlist, "id = ?", playlistID).Error; err != nil {
+			d.logger.Warn().Err(err).Str("playlist", playlistID).Msg("requeue crossfade: playlist load failed")
+			continue
+		}
+
+		items := d.buildPlaylistItems(ctx, entry, playlist)
+		if len(items) == 0 {
+			continue
+		}
+
+		// Carry the current source identity, swap in the freshly materialized
+		// items, and hand position 0 to playNextFromState, which crossfades from
+		// the currently-playing item into items[0] via the live session.
+		st := t.state
+		st.Items = items
+		st.TotalItems = len(items)
+
+		d.updateEntryPosition(entry.ID, 0, entry.StartsAt)
+		d.playNextFromState(entry, st, 0, t.mountName)
+		requeued++
+	}
+	d.logger.Info().
+		Str("playlist_id", playlistID).
+		Str("transition", "crossfade").
+		Int("mounts_requeued", requeued).
 		Msg("playlist re-queue requested")
 	return requeued, nil
 }

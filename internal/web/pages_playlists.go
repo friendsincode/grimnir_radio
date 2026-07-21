@@ -355,14 +355,20 @@ func (h *Handler) PlaylistRequeue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requeued, err := h.director.RequeuePlaylist(r.Context(), playlist.ID)
+	// transition: "crossfade" bleeds off into the new source; anything else cuts.
+	transition := "cut"
+	if r.URL.Query().Get("transition") == "crossfade" || r.FormValue("transition") == "crossfade" {
+		transition = "crossfade"
+	}
+
+	requeued, err := h.director.RequeuePlaylist(r.Context(), playlist.ID, transition)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to re-queue playlist: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"requeued": requeued})
+	_ = json.NewEncoder(w).Encode(map[string]any{"requeued": requeued, "transition": transition})
 }
 
 // playlistShuffleFromForm interprets a checkbox form value as a bool. An
