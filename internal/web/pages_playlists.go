@@ -332,6 +332,39 @@ func (h *Handler) PlaylistUpdate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/playlists/"+id, http.StatusSeeOther)
 }
 
+// PlaylistRequeue asks the director to re-queue any station currently playing
+// this playlist, so edits take effect immediately instead of waiting for the
+// current source to finish. Responds with the number of stations re-queued
+// (0 when the playlist isn't on air). (#55)
+func (h *Handler) PlaylistRequeue(w http.ResponseWriter, r *http.Request) {
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	var playlist models.Playlist
+	if err := h.db.First(&playlist, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if h.director == nil {
+		http.Error(w, "Playout system unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	requeued, err := h.director.RequeuePlaylist(r.Context(), playlist.ID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to re-queue playlist: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"requeued": requeued})
+}
+
 // playlistShuffleFromForm interprets a checkbox form value as a bool. An
 // unchecked checkbox submits nothing, so an empty/unknown value is false.
 func playlistShuffleFromForm(v string) bool {

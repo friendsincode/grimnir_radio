@@ -199,6 +199,7 @@ func (h *Handler) Routes(r chi.Router) {
 					r.Delete("/{id}/items/{itemID}", h.PlaylistRemoveItem)
 					r.Post("/{id}/items/bulk-remove", h.PlaylistRemoveItems)
 					r.Post("/{id}/items/reorder", h.PlaylistReorderItems)
+					r.Post("/{id}/requeue", h.PlaylistRequeue)
 					r.Get("/{id}/cover", h.PlaylistCover)
 					r.Post("/{id}/cover", h.PlaylistUploadCover)
 					r.Delete("/{id}/cover", h.PlaylistDeleteCover)

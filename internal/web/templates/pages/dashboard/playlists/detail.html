@@ -111,6 +111,9 @@
                     <button class="btn btn-sm btn-outline-primary" id="shuffleTracksBtn" type="button" onclick="shufflePlaylistNow()" title="Randomize the track order now. Click again to reshuffle.">
                         <i class="bi bi-shuffle me-1"></i>Shuffle
                     </button>
+                    <button class="btn btn-sm btn-outline-warning" id="requeuePlaylistBtn" type="button" onclick="requeuePlaylistNow()" title="If this playlist is on air, re-queue it now so your edits take effect immediately (briefly restarts that station's stream).">
+                        <i class="bi bi-arrow-repeat me-1"></i>Re-queue on air
+                    </button>
                     {{end}}
                     <small class="text-body-secondary"><i class="bi bi-grip-vertical me-1"></i>Drag to reorder or drop media here</small>
                 </div>
@@ -590,6 +593,25 @@ function shufflePlaylistNow() {
 
     updatePositionNumbers();
     saveOrder();
+}
+
+// Ask the director to re-queue this playlist on any station currently playing it,
+// so edits take effect immediately instead of at the next source change. Reloads
+// the station, so it briefly restarts that stream — hence the confirm. (#55)
+function requeuePlaylistNow() {
+    if (!confirm("Re-queue this playlist on any station currently playing it?\n\nThis briefly restarts that station's stream to apply your changes now.")) return;
+    const btn = document.getElementById('requeuePlaylistBtn');
+    if (btn) btn.disabled = true;
+    fetch(`/dashboard/playlists/${playlistId}/requeue`, { method: 'POST' })
+        .then(res => res.ok ? res.json() : Promise.reject(res))
+        .then(data => {
+            const n = data.requeued || 0;
+            alert(n > 0
+                ? `Re-queued ${n} station${n === 1 ? '' : 's'} now playing this playlist.`
+                : 'This playlist is not currently on air — nothing to re-queue.');
+        })
+        .catch(() => alert('Failed to re-queue. Please try again.'))
+        .finally(() => { if (btn) btn.disabled = false; });
 }
 
 function saveOrder() {
