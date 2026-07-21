@@ -152,11 +152,12 @@ func (h *Handler) PlaylistCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	playlist := models.Playlist{
-		ID:          uuid.New().String(),
-		StationID:   station.ID,
-		Name:        r.FormValue("name"),
-		Description: r.FormValue("description"),
-		Shuffle:     playlistShuffleFromForm(r.FormValue("shuffle")),
+		ID:            uuid.New().String(),
+		StationID:     station.ID,
+		Name:          r.FormValue("name"),
+		Description:   r.FormValue("description"),
+		Shuffle:       playlistShuffleFromForm(r.FormValue("shuffle")),
+		UnderfillMode: playlistUnderfillModeFromForm(r.FormValue("underfill_mode")),
 	}
 
 	if playlist.Name == "" {
@@ -316,6 +317,7 @@ func (h *Handler) PlaylistUpdate(w http.ResponseWriter, r *http.Request) {
 	playlist.Name = r.FormValue("name")
 	playlist.Description = r.FormValue("description")
 	playlist.Shuffle = playlistShuffleFromForm(r.FormValue("shuffle"))
+	playlist.UnderfillMode = playlistUnderfillModeFromForm(r.FormValue("underfill_mode"))
 
 	if err := h.db.Save(&playlist).Error; err != nil {
 		http.Error(w, "Failed to update playlist", http.StatusInternalServerError)
@@ -339,6 +341,16 @@ func playlistShuffleFromForm(v string) bool {
 	default:
 		return false
 	}
+}
+
+// playlistUnderfillModeFromForm normalizes the underfill-mode select value.
+// Only "randomize" is honored; anything else (including empty) falls back to the
+// default replay behavior, so a missing field never persists an invalid mode.
+func playlistUnderfillModeFromForm(v string) string {
+	if v == models.UnderfillRandomize {
+		return models.UnderfillRandomize
+	}
+	return models.UnderfillReplay
 }
 
 // PlaylistDelete handles playlist deletion

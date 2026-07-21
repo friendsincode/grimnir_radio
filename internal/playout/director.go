@@ -2569,6 +2569,49 @@ func maybeShufflePlaylistItems(entry models.ScheduleEntry, playlist models.Playl
 	return shuffled
 }
 
+// playlistUnderfillMode resolves the effective underfill behavior for a playlist
+// schedule entry: the entry's per-slot override if set, otherwise the playlist's
+// own setting, defaulting to UnderfillReplay. Only UnderfillRandomize is treated
+// specially; anything else means replay. (#54)
+func playlistUnderfillMode(playlist models.Playlist, entry models.ScheduleEntry) string {
+	mode := playlist.UnderfillMode
+	if entry.UnderfillMode != nil && *entry.UnderfillMode != "" {
+		mode = *entry.UnderfillMode
+	}
+	if mode == models.UnderfillRandomize {
+		return models.UnderfillRandomize
+	}
+	return models.UnderfillReplay
+}
+
+// underfillModeForActivePlaylist loads the playlist behind an active state and
+// returns its effective underfill mode. Called only when a short playlist wraps
+// (once per full cycle), so the extra read is negligible. Defaults to
+// UnderfillReplay when the playlist can't be loaded. (#54)
+func (d *Director) underfillModeForActivePlaylist(playlistID string, entry models.ScheduleEntry) string {
+	var pl models.Playlist
+	if err := d.db.Select("id", "underfill_mode").First(&pl, "id = ?", playlistID).Error; err != nil {
+		return models.UnderfillReplay
+	}
+	return playlistUnderfillMode(pl, entry)
+}
+
+// reshuffleForUnderfill returns a freshly randomized copy of items for a playlist
+// wrapping to fill its block. Each wrap gets a new order (time-seeded, not the
+// deterministic per-occurrence seed) so a short loop doesn't repeat the same
+// sequence. It avoids placing justPlayed first so the wrap doesn't replay the
+// track that just ended back-to-back. (#54)
+func reshuffleForUnderfill(items []string, justPlayed string) []string {
+	out := make([]string, len(items))
+	copy(out, items)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	if len(out) > 1 && out[0] == justPlayed {
+		out[0], out[1] = out[1], out[0]
+	}
+	return out
+}
+
 func (d *Director) applyTrackOverrides(ctx context.Context, entry models.ScheduleEntry, items []string) []string {
 	if len(items) == 0 || entry.Metadata == nil {
 		return items
@@ -3502,18 +3545,28 @@ func (d *Director) handleTrackEnded(entry models.ScheduleEntry, mountName string
 	// Context-aware track selection based on source type
 	switch state.SourceType {
 	case "playlist":
-		// Playlists wrap around
+		// Playlists wrap around to fill their block. On a full wrap the underfill
+		// mode decides whether to replay the same order or reshuffle. (#54)
 		nextPos := (state.Position + 1) % state.TotalItems
 		if len(state.Items) > nextPos {
+			if nextPos == 0 && state.TotalItems > 1 &&
+				d.underfillModeForActivePlaylist(state.SourceID, entry) == models.UnderfillRandomize {
+				state.Items = reshuffleForUnderfill(state.Items, state.Items[state.Position])
+			}
 			d.updateEntryPosition(entry.ID, nextPos, entry.StartsAt)
 			d.playNextFromState(entry, state, nextPos, mountName)
 			return
 		}
 
 	case "clock_playlist":
-		// Playlist slots inside clocks should also wrap around until slot end.
+		// Playlist slots inside clocks should also wrap around until slot end,
+		// honoring the playlist's underfill mode on each wrap. (#54)
 		nextPos := (state.Position + 1) % state.TotalItems
 		if len(state.Items) > nextPos {
+			if nextPos == 0 && state.TotalItems > 1 &&
+				d.underfillModeForActivePlaylist(state.SourceID, entry) == models.UnderfillRandomize {
+				state.Items = reshuffleForUnderfill(state.Items, state.Items[state.Position])
+			}
 			d.updateEntryPosition(entry.ID, nextPos, entry.StartsAt)
 			d.playNextFromState(entry, state, nextPos, mountName)
 			return

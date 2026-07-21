@@ -677,6 +677,11 @@ type ScheduleEntry struct {
 	// in-order (false) playback. Only meaningful when SourceType == "playlist".
 	Shuffle *bool `gorm:"type:boolean"`
 
+	// UnderfillMode overrides the playlist's own underfill behavior for this slot:
+	// empty inherits the playlist's setting, otherwise UnderfillReplay or
+	// UnderfillRandomize. Only meaningful when SourceType == "playlist".
+	UnderfillMode *string `gorm:"type:varchar(20)"`
+
 	// Recurrence fields
 	RecurrenceType       RecurrenceType `gorm:"type:varchar(16)"`
 	RecurrenceDays       []int          `gorm:"type:jsonb;serializer:json"` // 0=Sun, 1=Mon, ..., 6=Sat
@@ -803,6 +808,13 @@ type MountPlayoutState struct {
 }
 
 // Playlist represents a static playlist of media items.
+// Underfill modes for a playlist that is shorter than its scheduled block.
+// Both keep the block filled (no dead air); they differ in the order on replay.
+const (
+	UnderfillReplay    = "replay"    // loop from the top in the same order (default)
+	UnderfillRandomize = "randomize" // reshuffle the order on each wrap
+)
+
 type Playlist struct {
 	ID             string         `gorm:"type:uuid;primaryKey"`
 	StationID      string         `gorm:"type:uuid;index"`
@@ -815,6 +827,13 @@ type Playlist struct {
 	// Shuffle plays the playlist's items in a randomized order rather than by
 	// position. A schedule entry can override this per slot (ScheduleEntry.Shuffle).
 	Shuffle bool `gorm:"default:false"`
+
+	// UnderfillMode controls what happens when the playlist is shorter than its
+	// scheduled block and reaches the end: it loops instead of going dark.
+	// UnderfillReplay (default) loops from the top in the same order;
+	// UnderfillRandomize reshuffles the order on each wrap. A schedule entry can
+	// override this per slot (ScheduleEntry.UnderfillMode).
+	UnderfillMode string `gorm:"type:varchar(20);default:'replay'"`
 
 	// Import provenance (nullable for manually created items)
 	ImportJobID    *string `gorm:"type:uuid;index"`   // Which import job created this
