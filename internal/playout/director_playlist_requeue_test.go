@@ -36,6 +36,40 @@ func TestStationsPlayingPlaylist(t *testing.T) {
 	}
 }
 
+// TestMountsPlayingPlaylist backs the crossfade re-queue: it returns one target
+// per active mount sourced from the playlist (mounts are distinct even within a
+// station), carrying the mount name and entry id, and skips other source types
+// and other playlists.
+func TestMountsPlayingPlaylist(t *testing.T) {
+	d := &Director{active: map[string]playoutState{
+		"m1": {StationID: "sA", MountName: "main-a", EntryID: "e1", SourceType: "playlist", SourceID: "pl-1"},
+		"m2": {StationID: "sA", MountName: "main-a-lq", EntryID: "e1", SourceType: "clock_playlist", SourceID: "pl-1"},
+		"m3": {StationID: "sC", MountName: "sb", EntryID: "e3", SourceType: "smart_block", SourceID: "pl-1"}, // wrong type
+		"m4": {StationID: "sD", MountName: "other", EntryID: "e4", SourceType: "playlist", SourceID: "pl-2"},  // other playlist
+	}}
+
+	got := d.mountsPlayingPlaylist("pl-1")
+	if len(got) != 2 {
+		t.Fatalf("mountsPlayingPlaylist = %d targets, want 2: %+v", len(got), got)
+	}
+	byMount := map[string]requeueTarget{}
+	for _, tg := range got {
+		byMount[tg.mountID] = tg
+	}
+	if _, ok := byMount["m1"]; !ok {
+		t.Error("expected mount m1 among targets")
+	}
+	if _, ok := byMount["m2"]; !ok {
+		t.Error("expected clock-playlist mount m2 among targets")
+	}
+	if _, ok := byMount["m3"]; ok {
+		t.Error("smart_block mount m3 must not be a target")
+	}
+	if byMount["m1"].mountName != "main-a" || byMount["m1"].entryID != "e1" {
+		t.Errorf("m1 target carries wrong metadata: %+v", byMount["m1"])
+	}
+}
+
 // TestStationsPlayingPlaylist_None returns nil when nothing is on air for the
 // playlist, which drives RequeuePlaylist's 0-stations (not-on-air) result.
 func TestStationsPlayingPlaylist_None(t *testing.T) {
