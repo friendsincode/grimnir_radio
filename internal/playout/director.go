@@ -4601,6 +4601,50 @@ func (d *Director) ReloadStation(ctx context.Context, stationID string) (int, er
 	return reloaded, nil
 }
 
+// stationsPlayingPlaylist returns the distinct station IDs whose active playout
+// is currently sourced from the given playlist, whether as a direct playlist
+// entry or a playlist slot inside a clock. (#55)
+func (d *Director) stationsPlayingPlaylist(playlistID string) []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	seen := make(map[string]struct{})
+	var stations []string
+	for _, st := range d.active {
+		if st.SourceID != playlistID {
+			continue
+		}
+		if st.SourceType != "playlist" && st.SourceType != "clock_playlist" {
+			continue
+		}
+		if _, ok := seen[st.StationID]; !ok {
+			seen[st.StationID] = struct{}{}
+			stations = append(stations, st.StationID)
+		}
+	}
+	return stations
+}
+
+// RequeuePlaylist re-queues from the director for any station currently playing
+// the given playlist, so an edited playlist takes effect immediately instead of
+// waiting for the current source to finish. It reuses ReloadStation, which
+// re-materializes each affected station's playout from the current DB state.
+// Returns the number of stations re-queued (0 if the playlist isn't on air). (#55)
+func (d *Director) RequeuePlaylist(ctx context.Context, playlistID string) (int, error) {
+	stations := d.stationsPlayingPlaylist(playlistID)
+	requeued := 0
+	for _, stationID := range stations {
+		if _, err := d.ReloadStation(ctx, stationID); err != nil {
+			return requeued, fmt.Errorf("requeue station %s: %w", stationID, err)
+		}
+		requeued++
+	}
+	d.logger.Info().
+		Str("playlist_id", playlistID).
+		Int("stations_requeued", requeued).
+		Msg("playlist re-queue requested")
+	return requeued, nil
+}
+
 // InjectLiveSource pauses the crossfade session for a mount, starts (or reuses) a PCM
 // encoder pipeline, and returns the encoder's stdin for writing raw PCM. The returned
 // release function must be called when the live source disconnects; it resumes automation.
