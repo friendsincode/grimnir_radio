@@ -61,6 +61,14 @@
                         <label class="form-check-label" for="playlistShuffle">Shuffle</label>
                         <div class="form-text">Play this playlist's tracks in a randomized order instead of by position.</div>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="playlistUnderfill">When shorter than its scheduled block</label>
+                        <select class="form-select" id="playlistUnderfill" name="underfill_mode">
+                            <option value="replay" {{if ne $playlist.UnderfillMode "randomize"}}selected{{end}}>Replay &mdash; loop in the same order</option>
+                            <option value="randomize" {{if eq $playlist.UnderfillMode "randomize"}}selected{{end}}>Randomize &mdash; reshuffle on each loop</option>
+                        </select>
+                        <div class="form-text">A playlist that ends before its block does loops to fill the remaining time instead of going silent.</div>
+                    </div>
                 </div>
                 <div class="card-footer d-flex gap-2">
                     <button type="submit" class="btn btn-primary">
