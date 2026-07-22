@@ -15,7 +15,7 @@
                             {{.RuntimeState.State}}
                         </span>
                         {{if .CurrentMount}}
-                        <span class="small text-body-secondary">{{if .CurrentMount.MountName}}{{.CurrentMount.MountName}}{{else}}{{.CurrentMount.MountID}}{{end}}</span>
+                        <span class="small text-body-secondary">{{if .CurrentMount.MountName}}{{mountLabel .CurrentMount.MountName}}{{else}}{{.CurrentMount.MountID}}{{end}}</span>
                         {{end}}
                     </div>
                     <div class="small mb-1">Heartbeat: <strong>{{localTime .RuntimeState.LastHeartbeat}}</strong></div>
@@ -29,7 +29,7 @@
                         <div class="small text-body-secondary">Now Playing</div>
                         {{if .MismatchReasons}}<span class="badge bg-warning text-dark">Needs Review</span>{{end}}
                     </div>
-                    <div class="small mb-1">Mount: <strong>{{if .CurrentMount.MountName}}{{.CurrentMount.MountName}}{{else}}{{.CurrentMount.MountID}}{{end}}</strong></div>
+                    <div class="small mb-1">Mount: <strong>{{if .CurrentMount.MountName}}{{mountLabel .CurrentMount.MountName}}{{else}}{{.CurrentMount.MountID}}{{end}}</strong></div>
                     <div class="small mb-1">Source: <strong>{{.CurrentMount.SourceType}}</strong></div>
                     <div class="small mb-1">Position: <strong>{{.CurrentMount.Position}}</strong>{{if gt .CurrentMount.TotalItems 0}} / {{.CurrentMount.TotalItems}}{{end}}</div>
                     <div class="small">Window: <strong>{{localTime .CurrentMount.StartedAt}}</strong> → <strong>{{localTime .CurrentMount.EndsAt}}</strong></div>
@@ -84,7 +84,7 @@
                     {{range .QueuedByMount}}
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center gap-2">
-                            <div class="fw-semibold small">{{if .MountName}}{{.MountName}}{{else}}{{.MountID}}{{end}}</div>
+                            <div class="fw-semibold small">{{if .MountName}}{{mountLabel .MountName}}{{else}}{{.MountID}}{{end}}</div>
                             <span class="badge bg-secondary">{{len .Items}} queued</span>
                         </div>
                         <ul class="list-unstyled small mb-0 mt-2">
