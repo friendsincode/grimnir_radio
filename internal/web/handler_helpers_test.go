@@ -253,3 +253,31 @@ func TestFormatBytesUint64(t *testing.T) {
 		t.Fatal("1MB should not be empty")
 	}
 }
+
+// TestMountLabel covers the friendly-name helper that turns kebab/underscore
+// mount slugs into human-readable labels (issue #69).
+func TestMountLabel(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"rlm-music", "RLM Music"},
+		{"rlm-ai", "RLM AI"},
+		{"vincent-easley-ii", "Vincent Easley II"},
+		{"conversation-without-compromise-news-events", "Conversation Without Compromise News Events"},
+		{"grim-leftovers", "Grim Leftovers"},
+		{"before_the_first_cup_with_jules", "Before The First Cup With Jules"},
+		{"  liberty-tunes  ", "Liberty Tunes"},
+		{"", ""},
+		// No separators: returned title-cased but not split (best effort).
+		{"rlmradioxyz", "Rlmradioxyz"},
+		// A uuid-prefix fallback has no separators; left effectively intact.
+		{"9d9c3382", "9d9c3382"},
+		// A standalone "v" must NOT be upper-cased as a roman numeral.
+		{"studio-v-live", "Studio V Live"},
+	}
+	for _, c := range cases {
+		if got := mountLabel(c.in); got != c.want {
+			t.Errorf("mountLabel(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

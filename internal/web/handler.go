@@ -283,6 +283,7 @@ func (h *Handler) loadTemplates() error {
 		"string":             stringify,
 		"stationColor":       stationColor,
 		"sourceTypeName":     sourceTypeName,
+		"mountLabel":         mountLabel,
 		"formatDurationMs":   formatDurationMs,
 		"formatDurationSec":  formatDurationSec,
 		"sourceStationID":    sourceStationID,
@@ -690,6 +691,48 @@ func sourceTypeName(sourceType string) string {
 	default:
 		return sourceType
 	}
+}
+
+// mountAcronyms are lower-cased mount-name words shown fully upper-cased in a
+// friendly label. Kept small on purpose so ordinary words are not mangled.
+var mountAcronyms = map[string]bool{
+	"rlm": true, "ai": true, "tv": true, "fm": true, "xyz": true,
+}
+
+// mountRomanNumerals covers the suffix numerals that actually appear in mount
+// names (e.g. "vincent-easley-ii"). Single letters are omitted so real words
+// like "v" or "x" are not upper-cased by accident.
+var mountRomanNumerals = map[string]bool{
+	"ii": true, "iii": true, "iv": true, "vi": true, "vii": true, "viii": true, "ix": true,
+}
+
+// mountLabel turns a machine mount name (a kebab/underscore slug such as
+// "rlm-music" or "vincent-easley-ii") into a human-readable display label
+// ("RLM Music", "Vincent Easley II"). Known acronyms and roman numerals are
+// upper-cased; every other word is title-cased. A blank name yields "", and a
+// value with no separators (e.g. a uuid-prefix fallback) is returned as-is so
+// callers keep their own fallback text intact.
+func mountLabel(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	fields := strings.FieldsFunc(name, func(r rune) bool {
+		return r == '-' || r == '_' || r == ' '
+	})
+	if len(fields) == 0 {
+		return name
+	}
+	for i, w := range fields {
+		lw := strings.ToLower(w)
+		switch {
+		case mountAcronyms[lw], mountRomanNumerals[lw]:
+			fields[i] = strings.ToUpper(w)
+		default:
+			fields[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
+		}
+	}
+	return strings.Join(fields, " ")
 }
 
 func formatDurationMs(v any) string {

@@ -204,7 +204,7 @@
                         {{range .Data.History}}
                         <tr>
                             <td>{{formatTime .StartedAt}}</td>
-                            <td>{{.MountName}}</td>
+                            <td>{{mountLabel .MountName}}</td>
                             <td>{{if .Duration}}{{formatDuration .Duration}}{{end}}</td>
                         </tr>
                         {{else}}
@@ -234,7 +234,7 @@
                         <label for="queueMountSelect" class="form-label small text-body-secondary mb-1">Queue Target Mount</label>
                         <select id="queueMountSelect" class="form-select form-select-sm" {{if not $mounts}}disabled{{end}}>
                             {{range $mounts}}
-                            <option value="{{.ID}}">{{.Name}}</option>
+                            <option value="{{.ID}}">{{mountLabel .Name}}</option>
                             {{end}}
                         </select>
                     </div>
