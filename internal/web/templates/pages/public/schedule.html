@@ -152,6 +152,25 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const themeColors = colorThemes[colorTheme] || colorThemes['default'];
 
+    // Phone-width handling: the month/week grids squeeze 7 columns into ~390px
+    // and render event labels one character per line (GitLab #68), and the
+    // day-grid nowrap rule overflows the card (GitLab #61). Below this
+    // breakpoint we default to the list agenda and only offer Day/List, which
+    // both read fine in a single narrow column.
+    const MOBILE_BREAKPOINT = 768;
+    const isMobile = () => window.innerWidth < MOBILE_BREAKPOINT;
+    const GRID_VIEWS = ['dayGridMonth', 'timeGridWeek'];
+    const desktopToolbar = {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+    };
+    const mobileToolbar = {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'timeGridDay,listWeek'
+    };
+
     // Station colors mapping using selected theme
     const stationColors = {
         {{range $i, $s := $stations}}
@@ -166,11 +185,17 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     const calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: 'dayGridMonth',
-        headerToolbar: {
-            left: 'prev,next today',
-            center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+        initialView: isMobile() ? 'listWeek' : 'dayGridMonth',
+        headerToolbar: isMobile() ? mobileToolbar : desktopToolbar,
+
+        // Swap the toolbar and drop out of the unreadable grid views when the
+        // window crosses the phone breakpoint (GitLab #68/#61).
+        windowResize: function() {
+            const mobile = isMobile();
+            calendar.setOption('headerToolbar', mobile ? mobileToolbar : desktopToolbar);
+            if (mobile && GRID_VIEWS.includes(calendar.view.type)) {
+                calendar.changeView('listWeek');
+            }
         },
         buttonText: {
             today: 'Today',
