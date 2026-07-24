@@ -196,7 +196,7 @@
                 </div>
                 {{if .Data.NowPlaying.MountID}}
                 <div class="small mt-2">
-                    <span class="badge bg-secondary">Mount: {{.Data.NowPlaying.MountID}}</span>
+                    <span class="badge bg-secondary">Mount: {{if .Data.NowPlaying.MountName}}{{mountLabel .Data.NowPlaying.MountName}}{{else}}{{.Data.NowPlaying.MountID}}{{end}}</span>
                 </div>
                 {{end}}
                 <div class="d-flex gap-2 mt-3">

@@ -116,13 +116,26 @@ func (h *Handler) DashboardHome(w http.ResponseWriter, r *http.Request) {
 			if !history.EndedAt.IsZero() && history.EndedAt.After(history.StartedAt) {
 				duration = history.EndedAt.Sub(history.StartedAt)
 			}
+			// Resolve the mount uuid to its slug so the badge can render a
+			// friendly label via mountLabel; fall back to a short id prefix.
+			mountName := ""
+			if history.MountID != "" {
+				var mount models.Mount
+				if err := h.db.Select("name").Where("id = ?", history.MountID).First(&mount).Error; err == nil {
+					mountName = mount.Name
+				}
+				if mountName == "" {
+					mountName = history.MountID[:min(8, len(history.MountID))] + "…"
+				}
+			}
 			data.NowPlaying = &NowPlayingInfo{
-				Title:    history.Title,
-				Artist:   history.Artist,
-				Album:    history.Album,
-				Duration: duration,
-				Elapsed:  elapsed,
-				MountID:  history.MountID,
+				Title:     history.Title,
+				Artist:    history.Artist,
+				Album:     history.Album,
+				Duration:  duration,
+				Elapsed:   elapsed,
+				MountID:   history.MountID,
+				MountName: mountName,
 			}
 		}
 	}
@@ -337,12 +350,13 @@ type DashboardData struct {
 
 // NowPlayingInfo holds current playback info
 type NowPlayingInfo struct {
-	Title    string
-	Artist   string
-	Album    string
-	Duration time.Duration
-	Elapsed  time.Duration
-	MountID  string
+	Title     string
+	Artist    string
+	Album     string
+	Duration  time.Duration
+	Elapsed   time.Duration
+	MountID   string
+	MountName string
 }
 
 type DashboardConfidenceData struct {
