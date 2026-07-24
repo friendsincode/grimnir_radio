@@ -57,6 +57,10 @@ type Monitor struct {
 
 	mu                sync.Mutex
 	lastNotifiedLevel string // severity of the last notification sent
+
+	// usageFn reads filesystem usage; defaults to diskUsage and is overridable
+	// in tests to exercise the threshold-escalation state machine deterministically.
+	usageFn func(path string) (total, free uint64, usedPct float64, err error)
 }
 
 // NewMonitor creates a new storage monitor.
@@ -65,9 +69,10 @@ func NewMonitor(db *gorm.DB, cfg MonitorConfig, logger zerolog.Logger) *Monitor 
 		cfg.CheckInterval = 30 * time.Minute
 	}
 	return &Monitor{
-		db:     db,
-		cfg:    cfg,
-		logger: logger.With().Str("component", "storage-monitor").Logger(),
+		db:      db,
+		cfg:     cfg,
+		logger:  logger.With().Str("component", "storage-monitor").Logger(),
+		usageFn: diskUsage,
 	}
 }
 
@@ -112,7 +117,7 @@ func diskUsage(path string) (total, free uint64, usedPct float64, err error) {
 }
 
 func (m *Monitor) check(ctx context.Context) {
-	total, free, usedPct, err := diskUsage(m.cfg.MediaRoot)
+	total, free, usedPct, err := m.usageFn(m.cfg.MediaRoot)
 	if err != nil {
 		m.logger.Error().Err(err).Msg("failed to check disk usage")
 		return
