@@ -7,12 +7,14 @@ cd "$ROOT_DIR"
 COVERAGE_MIN="${COVERAGE_MIN:-80}"
 COVERAGE_ENFORCE="${COVERAGE_ENFORCE:-0}"
 COVERAGE_PROFILE="${COVERAGE_PROFILE:-coverage.out}"
-COVERAGE_EXCLUDE_REGEX="${COVERAGE_EXCLUDE_REGEX:-/test/e2e}"
+# Generated protobuf/gRPC stubs under proto/ carry no hand-written logic worth
+# covering, so they only distort the denominator; exclude them alongside e2e.
+COVERAGE_EXCLUDE_REGEX="${COVERAGE_EXCLUDE_REGEX:-(/test/e2e|/proto/)}"
 
 export GOCACHE="${GOCACHE:-$ROOT_DIR/.gocache}"
 export GOMODCACHE="${GOMODCACHE:-$ROOT_DIR/.gomodcache}"
 
-mapfile -t packages < <(go list ./... | grep -v "$COVERAGE_EXCLUDE_REGEX" || true)
+mapfile -t packages < <(go list ./... | grep -Ev "$COVERAGE_EXCLUDE_REGEX" || true)
 if [ "${#packages[@]}" -eq 0 ]; then
   echo "No packages selected for coverage."
   exit 1
