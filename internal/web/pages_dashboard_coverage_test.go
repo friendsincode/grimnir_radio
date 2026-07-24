@@ -193,6 +193,44 @@ func TestDashboardHome_WithPlayHistory_ShowsNowPlaying(t *testing.T) {
 	}
 }
 
+// The Now Playing badge must resolve the mount uuid to its slug and render a
+// friendly label (mountLabel), not the raw uuid. Regression for GitLab #69
+// follow-up (home.html badge showed the raw MountID).
+func TestDashboardHome_NowPlayingMount_ShowsFriendlyLabel(t *testing.T) {
+	db := newDashboardTestDB(t)
+	h := newDashboardTestHandler(t, db)
+	u := seedDashboardUser(t, db)
+	s := seedDashboardStation(t, db)
+
+	mountID := "11111111-2222-3333-4444-555555555555"
+	db.Create(&models.Mount{ID: mountID, StationID: s.ID, Name: "rlm-music"})
+
+	now := time.Now()
+	db.Create(&models.PlayHistory{
+		ID:        "ph-mount",
+		StationID: s.ID,
+		Title:     "Current Track",
+		Artist:    "Some Artist",
+		MountID:   mountID,
+		StartedAt: now.Add(-1 * time.Minute),
+	})
+
+	req := dashboardReq(http.MethodGet, "/dashboard", &u, &s)
+	rr := httptest.NewRecorder()
+	h.DashboardHome(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "RLM Music") {
+		t.Errorf("expected friendly mount label %q in body", "RLM Music")
+	}
+	if strings.Contains(body, mountID) {
+		t.Errorf("raw mount uuid %q should not appear in the badge", mountID)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // loadDashboardUpcomingEntries
 // ---------------------------------------------------------------------------
