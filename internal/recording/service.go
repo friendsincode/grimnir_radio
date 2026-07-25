@@ -21,16 +21,24 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
+// MediaEngine is the subset of the media-engine client that the recording
+// service depends on. Declaring it as an interface lets tests inject a fake
+// without a live gRPC connection; *meclient.Client satisfies it in production.
+type MediaEngine interface {
+	StartRecording(ctx context.Context, req *meclient.StartRecordingRequest) error
+	StopRecording(ctx context.Context, stationID, recordingID string) (*meclient.StopRecordingResult, error)
+}
+
 // Service manages recordings: start, stop, quota, chapters, cleanup.
 type Service struct {
 	db        *gorm.DB
-	meClient  *meclient.Client
+	meClient  MediaEngine
 	mediaRoot string
 	logger    zerolog.Logger
 }
 
 // NewService creates a new recording service.
-func NewService(db *gorm.DB, meClient *meclient.Client, mediaRoot string, logger zerolog.Logger) *Service {
+func NewService(db *gorm.DB, meClient MediaEngine, mediaRoot string, logger zerolog.Logger) *Service {
 	return &Service{
 		db:        db,
 		meClient:  meClient,
