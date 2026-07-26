@@ -16,6 +16,7 @@ import (
 
 	"github.com/friendsincode/grimnir_radio/internal/mediaengine/client"
 	"github.com/friendsincode/grimnir_radio/internal/models"
+	pb "github.com/friendsincode/grimnir_radio/proto/mediaengine/v1"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -32,6 +33,16 @@ type Config struct {
 	MediaEngineGRPCAddr string // gRPC address of the media engine (required)
 }
 
+// MediaEngine is the slice of the media engine client the analyzer depends on.
+// Narrowing it to an interface lets tests substitute a fake for the gRPC client.
+type MediaEngine interface {
+	Connect(ctx context.Context) error
+	IsConnected() bool
+	Close() error
+	AnalyzeMedia(ctx context.Context, filePath string) (*pb.AnalyzeMediaResponse, error)
+	ExtractArtwork(ctx context.Context, filePath string, maxWidth, maxHeight int32, format string, quality int32) (*pb.ExtractArtworkResponse, error)
+}
+
 // Service performs loudness and cue point analysis on media imports.
 // Analysis is performed by the media engine via gRPC.
 type Service struct {
@@ -39,7 +50,7 @@ type Service struct {
 	logger            zerolog.Logger
 	workDir           string
 	cfg               Config
-	mediaEngineClient *client.Client
+	mediaEngineClient MediaEngine
 }
 
 // New constructs an analyzer service without media engine support.
