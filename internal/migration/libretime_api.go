@@ -86,6 +86,11 @@ func decodeResponse[T any](resp *http.Response) (T, error) {
 	return result, nil
 }
 
+// ltVersionInfo is the /api/v2/version response.
+type ltVersionInfo struct {
+	APIVersion string `json:"api_version"`
+}
+
 // LibreTimeConnectionStatus represents the status of a connection test.
 type LibreTimeConnectionStatus struct {
 	Online          bool   `json:"online"`
@@ -102,10 +107,10 @@ func (c *LibreTimeAPIClient) TestConnection(ctx context.Context) (*LibreTimeConn
 		return nil, fmt.Errorf("API unreachable: %w", err)
 	}
 
-	var versionInfo struct {
-		APIVersion string `json:"api_version"`
-	}
-	if _, err := decodeResponse[any](resp); err != nil {
+	// Decode into the version struct rather than discarding the body, so
+	// status.Version below reports what /version actually returned.
+	versionInfo, err := decodeResponse[ltVersionInfo](resp)
+	if err != nil {
 		// Try alternate version detection
 		resp2, err2 := c.doRequest(ctx, "GET", "/api/v2/info")
 		if err2 != nil {
