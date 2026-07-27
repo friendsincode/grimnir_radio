@@ -61,8 +61,10 @@ func UpdateStationMetrics(db *gorm.DB) {
 		DurationHours float64
 	}
 	var stationMediaStats []stationMedia
+	// media_items.duration holds a Go time.Duration, which gorm persists as
+	// nanoseconds — divide by nanoseconds-per-hour, not milliseconds-per-hour.
 	db.Table("media_items").
-		Select("station_id, COUNT(*) as item_count, COALESCE(SUM(duration), 0) / 3600000.0 as duration_hours").
+		Select("station_id, COUNT(*) as item_count, COALESCE(SUM(duration), 0) / 3600000000000.0 as duration_hours").
 		Where("analysis_state <> 'failed' AND duration > 0").
 		Group("station_id").
 		Scan(&stationMediaStats)
