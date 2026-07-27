@@ -485,7 +485,9 @@ tr:has(.preview-playing) {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    width: 400px;
+    /* 480 over the old 400 buys the track title ~80px more before the
+       marquee has to scroll. max-width still protects narrow screens. */
+    width: 480px;
     max-width: calc(100vw - 40px);
     background: var(--bs-body-bg);
     border: 1px solid var(--bs-border-color);

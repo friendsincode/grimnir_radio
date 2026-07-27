@@ -721,7 +721,10 @@ class GlobalPlayer {
         this.webrtcEnabled = this.webrtcCfg.enabled === true;
         this.webrtcFailureCooldownMs = 5 * 60 * 1000;
         this.webrtcFailureUntil = Number(localStorage.getItem('grimnir-webrtc-disabled-until') || '0') || 0;
-        this.liveTransport = localStorage.getItem('grimnir-live-transport') || 'webrtc';
+        // Default to plain HTTP streaming. WebRTC is still selectable from the
+        // transport menu, but it needs a signaling WebSocket, and the websocket
+        // path to the edge is where the observed listener drops occur.
+        this.liveTransport = localStorage.getItem('grimnir-live-transport') || 'http';
         if (!this.webrtcEnabled || Date.now() < this.webrtcFailureUntil) {
             this.liveTransport = 'http';
             localStorage.setItem('grimnir-live-transport', 'http');
