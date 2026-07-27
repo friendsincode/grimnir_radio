@@ -81,3 +81,133 @@ func TestTick_NoDoubleClutchOnEqualCreatedAtOverlap(t *testing.T) {
 		t.Error("expected the mount to be active after tick")
 	}
 }
+
+// TestTick_EndedEntryDoesNotBuildOverSuccessor reproduces the double-clutch that
+// survived #280, taken from prod mount d4f41798 at the top of every hour.
+//
+// resolveEntryForNow keeps an entry resolvable for 2s past its own EndsAt. At a
+// hard boundary that means an entry ending exactly now and its successor both
+// resolve in the same pass. #280's per-tick guard deliberately does not let the
+// ended entry claim the launch (so a valid successor can still preempt), but
+// nothing stopped the ended entry running handleEntry FIRST and building a whole
+// pipeline that the successor then immediately replaced. On air that was two
+// builds 0.81s apart on one mount: a recurring "custom" template ending at
+// 00:00:00 launching Behind The Woodshed, then the 00:00 instance rebuilding the
+// same upstream.
+//
+// An entry that has already ended must not build when something still current
+// covers the same mount.
+func TestTick_EndedEntryDoesNotBuildOverSuccessor(t *testing.T) {
+	now := time.Now().UTC()
+	d, mgr := newMockDirector(t, &models.ScheduleEntry{})
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+
+	if err := d.db.Create(&models.Mount{
+		ID: mountID, StationID: stationID, Name: "boundary-" + mountID[:8],
+		Format: "mp3", Bitrate: 128, SampleRate: 44100, Channels: 2,
+	}).Error; err != nil {
+		t.Fatalf("seed mount: %v", err)
+	}
+
+	outgoing := uuid.NewString()
+	incoming := uuid.NewString()
+	for _, m := range []models.MediaItem{
+		{ID: outgoing, StationID: stationID, Title: "Outgoing", Path: "/tmp/out.mp3", Duration: 4 * time.Minute, AnalysisState: models.AnalysisComplete},
+		{ID: incoming, StationID: stationID, Title: "Incoming", Path: "/tmp/in.mp3", Duration: 4 * time.Minute, AnalysisState: models.AnalysisComplete},
+	} {
+		if err := d.db.Create(&m).Error; err != nil {
+			t.Fatalf("seed media: %v", err)
+		}
+	}
+
+	// The outgoing entry ended 1s ago: still inside the 2s resolve grace, so it
+	// resolves, but it is over. The incoming entry started at that same instant.
+	boundary := now.Add(-1 * time.Second)
+	outgoingEntry := models.ScheduleEntry{
+		ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+		SourceType: "media", SourceID: outgoing, IsInstance: true,
+		StartsAt: boundary.Add(-1 * time.Hour), EndsAt: boundary,
+		CreatedAt: now.Add(-48 * time.Hour),
+	}
+	incomingEntry := models.ScheduleEntry{
+		ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+		SourceType: "media", SourceID: incoming, IsInstance: true,
+		StartsAt: boundary, EndsAt: boundary.Add(2 * time.Hour),
+		CreatedAt: now.Add(-24 * time.Hour),
+	}
+	// Seed the ended entry first so it is the one the loop reaches first.
+	for _, e := range []models.ScheduleEntry{outgoingEntry, incomingEntry} {
+		if err := d.db.Create(&e).Error; err != nil {
+			t.Fatalf("seed entry: %v", err)
+		}
+	}
+
+	d.markScheduleDirty()
+	if err := d.tick(ctx); err != nil {
+		t.Fatalf("tick returned error: %v", err)
+	}
+
+	if got := mgr.ensureCalls[mountID]; got != 1 {
+		t.Errorf("pipeline builds for mount = %d, want exactly 1; the ended entry built a throwaway pipeline over its successor", got)
+	}
+
+	// The mount must be left on the incoming entry, not the one that ended.
+	d.mu.Lock()
+	state, active := d.active[mountID]
+	d.mu.Unlock()
+	if !active {
+		t.Fatal("expected the mount to be active after tick")
+	}
+	if state.EntryID != incomingEntry.ID {
+		t.Errorf("mount is on entry %s, want the incoming entry %s", state.EntryID, incomingEntry.ID)
+	}
+}
+
+// An ended entry inside the grace must still launch when nothing else covers the
+// mount: the grace is dead-air cover, and the fix must not turn a boundary with
+// no successor into silence.
+func TestTick_EndedEntryStillLaunchesWithNoSuccessor(t *testing.T) {
+	now := time.Now().UTC()
+	d, mgr := newMockDirector(t, &models.ScheduleEntry{})
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+
+	if err := d.db.Create(&models.Mount{
+		ID: mountID, StationID: stationID, Name: "grace-" + mountID[:8],
+		Format: "mp3", Bitrate: 128, SampleRate: 44100, Channels: 2,
+	}).Error; err != nil {
+		t.Fatalf("seed mount: %v", err)
+	}
+
+	mediaID := uuid.NewString()
+	if err := d.db.Create(&models.MediaItem{
+		ID: mediaID, StationID: stationID, Title: "Only", Path: "/tmp/only.mp3",
+		Duration: 4 * time.Minute, AnalysisState: models.AnalysisComplete,
+	}).Error; err != nil {
+		t.Fatalf("seed media: %v", err)
+	}
+
+	boundary := now.Add(-1 * time.Second)
+	if err := d.db.Create(&models.ScheduleEntry{
+		ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+		SourceType: "media", SourceID: mediaID, IsInstance: true,
+		StartsAt: boundary.Add(-1 * time.Hour), EndsAt: boundary,
+		CreatedAt: now.Add(-48 * time.Hour),
+	}).Error; err != nil {
+		t.Fatalf("seed entry: %v", err)
+	}
+
+	d.markScheduleDirty()
+	if err := d.tick(ctx); err != nil {
+		t.Fatalf("tick returned error: %v", err)
+	}
+
+	if got := mgr.ensureCalls[mountID]; got != 1 {
+		t.Errorf("pipeline builds = %d, want 1; the grace launch was lost and the mount goes dark", got)
+	}
+}

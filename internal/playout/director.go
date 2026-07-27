@@ -317,10 +317,35 @@ func (d *Director) tick(ctx context.Context) error {
 	// launch; a legitimately newer entry still preempts on the next tick.
 	launchedThisTick := make(map[string]bool)
 
+	// resolveEntryForNow keeps an entry resolvable for 2s past its own EndsAt so a
+	// boundary tick can still find it. That grace is what makes the remaining
+	// double-clutch: at a hard boundary an already-ended entry and its successor
+	// both resolve, the ended one runs handleEntry first and builds a full
+	// pipeline, then the successor immediately replaces it. Prod mount
+	// d4f41798 hit this at the top of every hour — a recurring "custom" template
+	// ending exactly at 00:00:00 launching Behind The Woodshed, then the 00:00
+	// instance rebuilding the same upstream 0.81s later.
+	//
+	// So: an entry that has already ended may only launch when nothing still
+	// current covers the same mount. That keeps the grace working as dead-air
+	// cover while removing the throwaway build whenever a successor is ready.
+	currentCoversMount := make(map[string]bool)
+	for i := range entries {
+		loc := d.getStationTimezone(ctx, entries[i].StationID)
+		resolved, _, _, ok := resolveEntryForNow(entries[i], now, loc)
+		if ok && now.Before(resolved.EndsAt) {
+			currentCoversMount[resolved.MountID] = true
+		}
+	}
+
 	for _, rawEntry := range entries {
 		loc := d.getStationTimezone(ctx, rawEntry.StationID)
 		entry, playKey, playUntil, ok := resolveEntryForNow(rawEntry, now, loc)
 		if !ok {
+			continue
+		}
+
+		if !now.Before(entry.EndsAt) && currentCoversMount[entry.MountID] {
 			continue
 		}
 
