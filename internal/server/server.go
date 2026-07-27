@@ -312,6 +312,16 @@ func (s *Server) initDependencies() error {
 	// Broadcast server for streaming without Icecast
 	broadcastSrv := broadcast.NewServer(s.logger, s.bus)
 
+	// Most webstreams here are cross-station syndication pointing at this same
+	// instance by its public URL. Health-check those over loopback so an internal
+	// relay's health does not depend on the public edge and the tunnel behind it.
+	webstreamService.SetLocalURLResolver(func(configuredURL string) string {
+		local, _ := webstream.LoopbackURL(configuredURL, s.cfg.HTTPPort, func(mountName string) bool {
+			return broadcastSrv.GetMount(mountName) != nil
+		})
+		return local
+	})
+
 	// WebRTC broadcaster for low-latency streaming
 	if s.cfg.WebRTCEnabled {
 		webrtcCfg := webrtc.Config{

@@ -13,7 +13,6 @@ import (
 	"hash/fnv"
 	"io"
 	"math/rand"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -317,10 +316,35 @@ func (d *Director) tick(ctx context.Context) error {
 	// launch; a legitimately newer entry still preempts on the next tick.
 	launchedThisTick := make(map[string]bool)
 
+	// resolveEntryForNow keeps an entry resolvable for 2s past its own EndsAt so a
+	// boundary tick can still find it. That grace is what makes the remaining
+	// double-clutch: at a hard boundary an already-ended entry and its successor
+	// both resolve, the ended one runs handleEntry first and builds a full
+	// pipeline, then the successor immediately replaces it. Prod mount
+	// d4f41798 hit this at the top of every hour — a recurring "custom" template
+	// ending exactly at 00:00:00 launching Behind The Woodshed, then the 00:00
+	// instance rebuilding the same upstream 0.81s later.
+	//
+	// So: an entry that has already ended may only launch when nothing still
+	// current covers the same mount. That keeps the grace working as dead-air
+	// cover while removing the throwaway build whenever a successor is ready.
+	currentCoversMount := make(map[string]bool)
+	for i := range entries {
+		loc := d.getStationTimezone(ctx, entries[i].StationID)
+		resolved, _, _, ok := resolveEntryForNow(entries[i], now, loc)
+		if ok && now.Before(resolved.EndsAt) {
+			currentCoversMount[resolved.MountID] = true
+		}
+	}
+
 	for _, rawEntry := range entries {
 		loc := d.getStationTimezone(ctx, rawEntry.StationID)
 		entry, playKey, playUntil, ok := resolveEntryForNow(rawEntry, now, loc)
 		if !ok {
+			continue
+		}
+
+		if !now.Before(entry.EndsAt) && currentCoversMount[entry.MountID] {
 			continue
 		}
 
@@ -1993,24 +2017,25 @@ func (d *Director) stopMountPipeline(stationID, mountID string) error {
 // mount is a feedback loop & is left alone (loopback would make it worse; that
 // is a config error to surface, not amplify).
 func (d *Director) rewriteSelfRelayURL(sourceURL, destMount string) string {
-	u, err := url.Parse(sourceURL)
-	if err != nil || !strings.HasPrefix(u.Path, "/live/") {
+	// Feeding a mount from itself is a loop, not a relay: never rewrite that.
+	if mountName := webstream.MountNameFromLiveURL(sourceURL); mountName == "" || mountName == destMount {
 		return sourceURL
 	}
-	mountName := strings.TrimPrefix(u.Path, "/live/")
-	if mountName == "" || mountName == destMount {
+	if d.broadcast == nil {
 		return sourceURL
 	}
-	if d.broadcast == nil || d.broadcast.GetMount(mountName) == nil {
-		return sourceURL // not one of ours: real external relay
-	}
-	port := 8080
-	if d.cfg != nil && d.cfg.HTTPPort > 0 {
+	port := 0
+	if d.cfg != nil {
 		port = d.cfg.HTTPPort
 	}
-	internal := fmt.Sprintf("http://127.0.0.1:%d/live/%s", port, mountName)
+	internal, rewritten := webstream.LoopbackURL(sourceURL, port, func(mountName string) bool {
+		return d.broadcast.GetMount(mountName) != nil
+	})
+	if !rewritten {
+		return sourceURL // not one of ours: real external relay
+	}
 	d.logger.Info().
-		Str("mount", mountName).
+		Str("mount", webstream.MountNameFromLiveURL(sourceURL)).
 		Str("public_url", sourceURL).
 		Str("loopback", internal).
 		Msg("relay targets a local mount; pulling over loopback instead of the public edge")

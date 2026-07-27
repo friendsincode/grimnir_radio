@@ -720,8 +720,20 @@ class GlobalPlayer {
         this.webrtcCfg = window.GRIMNIR_WEBRTC || {};
         this.webrtcEnabled = this.webrtcCfg.enabled === true;
         this.webrtcFailureCooldownMs = 5 * 60 * 1000;
+        // How long a live stream may sit stalled/buffering before the player
+        // gives up waiting and reconnects. Long enough that an ordinary rebuffer
+        // recovers untouched, short enough that a real drop is not mistaken for
+        // dead air by the listener.
+        this.liveStallTimeoutMs = 8000;
+        this.stalledTimer = null;
+        this.reconnectTimer = null;
+        this.isReconnecting = false;
+        this.reconnectAttempts = 0;
         this.webrtcFailureUntil = Number(localStorage.getItem('grimnir-webrtc-disabled-until') || '0') || 0;
-        this.liveTransport = localStorage.getItem('grimnir-live-transport') || 'webrtc';
+        // Default to plain HTTP streaming. WebRTC is still selectable from the
+        // transport menu, but it needs a signaling WebSocket, and the websocket
+        // path to the edge is where the observed listener drops occur.
+        this.liveTransport = localStorage.getItem('grimnir-live-transport') || 'http';
         if (!this.webrtcEnabled || Date.now() < this.webrtcFailureUntil) {
             this.liveTransport = 'http';
             localStorage.setItem('grimnir-live-transport', 'http');
@@ -1847,6 +1859,10 @@ class GlobalPlayer {
     }
 
     close() {
+        // Cancel pending reconnects first: currentTrack is cleared below and both
+        // reconnect paths bail on that, but an already-armed timer would otherwise
+        // still fire against a deliberately closed player.
+        this.cancelLiveReconnect();
         this.audio.pause();
         this.audio.src = '';
         this.closeWebRTC();  // Clean up WebRTC connection
@@ -1938,8 +1954,11 @@ class GlobalPlayer {
     }
 
     onEnded() {
-        // For live streams, ignore "ended" events - stream shouldn't end
+        // A live stream should never end. If the element reports "ended" the
+        // upstream connection dropped, so treat it as a disconnect and reconnect
+        // rather than silently stopping.
         if (this.isLive) {
+            this.reconnectLiveStream();
             return;
         }
 
@@ -1976,18 +1995,22 @@ class GlobalPlayer {
         // For non-live content, show error
         if (!this.isLive) {
             showToast('Failed to play audio', 'error');
+            return;
         }
-        // For live streams, just stop - user can click play to retry
+
+        // A live stream that errors has lost its connection. Reconnect instead of
+        // going silent and waiting for the listener to notice and hit play.
+        this.reconnectLiveStream();
     }
 
     onStalled() {
-        // Just show buffering indicator, don't auto-reconnect
         if (this.isLive && this.artistEl && this.currentTrack) {
             if (!this.artistEl.textContent.includes('Buffering')) {
                 this._savedArtist = this.artistEl.textContent;
             }
             this.setSecondaryText('Buffering...');
         }
+        this.scheduleLiveStallReconnect();
     }
 
     onWaiting() {
@@ -1999,6 +2022,24 @@ class GlobalPlayer {
             }
             this.setSecondaryText('Buffering...');
         }
+        this.scheduleLiveStallReconnect();
+    }
+
+    // A live stream that stalls usually recovers on its own within a second or
+    // two, so reconnecting immediately would churn the connection on every
+    // normal rebuffer. Arm a timer instead and only reconnect if playback has
+    // not resumed by the time it fires; onPlaying cancels it.
+    scheduleLiveStallReconnect() {
+        if (!this.isLive || !this.currentTrack) return;
+        if (this.stalledTimer || this.isReconnecting) return;
+
+        this.stalledTimer = setTimeout(() => {
+            this.stalledTimer = null;
+            // readyState >= 3 (HAVE_FUTURE_DATA) with the element unpaused means
+            // it recovered on its own; leave it alone.
+            if (!this.audio.paused && this.audio.readyState >= 3) return;
+            this.reconnectLiveStream();
+        }, this.liveStallTimeoutMs);
     }
 
     onPlaying() {
@@ -2020,6 +2061,20 @@ class GlobalPlayer {
             this.setSecondaryText(this.getLiveSecondaryText());
             this._savedArtist = null;
         }
+    }
+
+    // Cancel any armed stall timer or pending reconnect and reset the backoff.
+    cancelLiveReconnect() {
+        if (this.stalledTimer) {
+            clearTimeout(this.stalledTimer);
+            this.stalledTimer = null;
+        }
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        this.isReconnecting = false;
+        this.reconnectAttempts = 0;
     }
 
     // Reconnection with exponential backoff

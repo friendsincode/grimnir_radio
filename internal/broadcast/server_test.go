@@ -9,10 +9,15 @@ package broadcast
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -266,4 +271,97 @@ func TestMount_ListenerStatsOnlyForEstablished(t *testing.T) {
 	if got["listeners"] != 1 {
 		t.Fatalf("connect event listeners = %v, want 1", got["listeners"])
 	}
+}
+
+// TestIsWriteTimeout separates the two failure kinds the serve loop now treats
+// differently: a deadline means the client stalled and may come back, anything
+// else means the socket is gone.
+func TestIsWriteTimeout(t *testing.T) {
+	if isWriteTimeout(nil) {
+		t.Error("nil reported as a timeout")
+	}
+	if !isWriteTimeout(os.ErrDeadlineExceeded) {
+		t.Error("os.ErrDeadlineExceeded not reported as a timeout")
+	}
+	if !isWriteTimeout(fmt.Errorf("write tcp: %w", os.ErrDeadlineExceeded)) {
+		t.Error("wrapped deadline not reported as a timeout")
+	}
+	if !isWriteTimeout(&net.OpError{Op: "write", Err: os.ErrDeadlineExceeded}) {
+		t.Error("net.OpError wrapping a deadline not reported as a timeout")
+	}
+	// The errors that mean the peer is gone must NOT be treated as recoverable.
+	for _, err := range []error{
+		syscall.EPIPE,
+		syscall.ECONNRESET,
+		&net.OpError{Op: "write", Err: syscall.EPIPE},
+		errors.New("broken pipe"),
+		io.ErrClosedPipe,
+	} {
+		if isWriteTimeout(err) {
+			t.Errorf("%v reported as a timeout; it would hold a dead socket open", err)
+		}
+	}
+}
+
+// classifyWriteErr is the whole hold-open decision. Driving it directly keeps
+// the cases deterministic; a socket-level version of this fights kernel send
+// buffer autotuning and cannot reliably force the timeout it means to test.
+func TestClassifyWriteErr(t *testing.T) {
+	orig := writeTimeout
+	writeTimeout = 10 * time.Second // budget = 30s
+	defer func() { writeTimeout = orig }()
+
+	base := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	timeout := os.ErrDeadlineExceeded
+	dead := &net.OpError{Op: "write", Err: syscall.EPIPE}
+
+	t.Run("success clears the stall run", func(t *testing.T) {
+		drop, next := classifyWriteErr(nil, base, base.Add(time.Second))
+		if drop {
+			t.Error("nil error dropped the client")
+		}
+		if !next.IsZero() {
+			t.Errorf("stall start = %v, want cleared", next)
+		}
+	})
+
+	t.Run("first timeout starts the run and holds", func(t *testing.T) {
+		drop, next := classifyWriteErr(timeout, time.Time{}, base)
+		if drop {
+			t.Error("a single timeout dropped the client")
+		}
+		if !next.Equal(base) {
+			t.Errorf("stall start = %v, want %v", next, base)
+		}
+	})
+
+	t.Run("timeouts inside the budget keep holding", func(t *testing.T) {
+		// 29s into a 30s budget, after many failed writes.
+		drop, next := classifyWriteErr(timeout, base, base.Add(29*time.Second))
+		if drop {
+			t.Error("dropped inside the stall budget")
+		}
+		if !next.Equal(base) {
+			t.Errorf("stall start moved to %v, want the original %v", next, base)
+		}
+	})
+
+	t.Run("timeout past the budget drops", func(t *testing.T) {
+		if drop, _ := classifyWriteErr(timeout, base, base.Add(30*time.Second)); !drop {
+			t.Error("a client stalled for the full budget was not dropped")
+		}
+		if drop, _ := classifyWriteErr(timeout, base, base.Add(5*time.Minute)); !drop {
+			t.Error("a long-dead client was not dropped")
+		}
+	})
+
+	t.Run("a dead socket drops immediately", func(t *testing.T) {
+		if drop, _ := classifyWriteErr(dead, time.Time{}, base); !drop {
+			t.Error("broken pipe was held open; it means the peer is gone")
+		}
+		// Even one second into a stall run, a real connection error still ends it.
+		if drop, _ := classifyWriteErr(dead, base, base.Add(time.Second)); !drop {
+			t.Error("broken pipe during a stall run was held open")
+		}
+	})
 }

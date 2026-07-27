@@ -11,7 +11,9 @@ package broadcast
 import (
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +38,66 @@ import (
 // which in turn stays below the server IdleTimeout (60s).
 // It is a var, not a const, only so tests can shorten it.
 var writeTimeout = 30 * time.Second
+
+// maxClientStall is how long a client may keep failing writes before it is
+// disconnected. A deadline exceeded means the client stopped draining and may
+// come back; a broken pipe or connection reset means it is already gone. Only
+// the first is worth waiting on, so timeouts run against this stall budget and
+// every other error still disconnects on the spot.
+//
+// It is measured as elapsed time, not as a count of failed writes: a client
+// coming back from a dip has a backlog to work through and will blow several
+// deadlines in a row while catching up, so counting attempts disconnects
+// exactly the listener this is meant to keep. Derived from writeTimeout so the
+// two stay consistent (90s at the default 30s) and so tests that shorten the
+// deadline get a proportionally shorter budget.
+//
+// The tradeoff is deliberate: a timed-out write may have delivered part of its
+// chunk, so resuming splices mid-frame. Decoders resync, and the mount already
+// produces the same discontinuity whenever Broadcast skips a chunk for a slow
+// client. A brief artifact beats a dropped stream.
+func maxClientStall() time.Duration { return 3 * writeTimeout }
+
+// classifyWriteErr decides what a failed client write means for the connection.
+// stallStart is zero while the client is healthy, otherwise the time of the
+// first failure in the current stall run.
+//
+// Returns drop=true when the connection should end, and the stall-run start to
+// carry into the next iteration. A timeout inside the budget is held open
+// (drop=false) and its chunk is dropped; a timeout past the budget, or any
+// non-timeout error, drops the client.
+func classifyWriteErr(err error, stallStart, now time.Time) (drop bool, nextStallStart time.Time) {
+	if err == nil {
+		return false, time.Time{}
+	}
+	if !isWriteTimeout(err) {
+		return true, stallStart
+	}
+	if stallStart.IsZero() {
+		stallStart = now
+	}
+	if now.Sub(stallStart) >= maxClientStall() {
+		return true, stallStart
+	}
+	return false, stallStart
+}
+
+// isWriteTimeout reports whether err is a deadline/timeout rather than a dead
+// socket. http.ResponseController surfaces os.ErrDeadlineExceeded; the net layer
+// reports timeouts through net.Error.
+func isWriteTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	if errors.As(err, &ne) {
+		return ne.Timeout()
+	}
+	return false
+}
 
 // Mount represents a single audio stream mount point.
 type Mount struct {
@@ -684,6 +746,8 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Stream data to client - keep connected through track transitions
 	writeCount := 0
+	// Zero while the client is healthy; set to the first failure of a stall run.
+	var stallStart time.Time
 	for {
 		select {
 		case <-r.Context().Done():
@@ -692,10 +756,22 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		case data := <-c.ch:
 			if err := writeAndFlush(data); err != nil {
-				m.logger.Info().Err(err).Int("writes", writeCount).Int64("skipped", atomic.LoadInt64(&c.skipped)).
+				var drop bool
+				drop, stallStart = classifyWriteErr(err, stallStart, time.Now())
+				if !drop {
+					// Held open: the chunk is lost but the listener is not.
+					atomic.AddInt64(&c.skipped, 1)
+					m.logger.Debug().Err(err).Dur("stalled", time.Since(stallStart)).Int("writes", writeCount).
+						Str("remote", c.remoteAddr).Str("ua", c.userAgent).
+						Msg("write timed out, holding the connection open")
+					continue
+				}
+				m.logger.Info().Err(err).Int("writes", writeCount).
+					Int64("skipped", atomic.LoadInt64(&c.skipped)).
 					Str("remote", c.remoteAddr).Str("ua", c.userAgent).Msg("write failed, disconnecting client")
 				return
 			}
+			stallStart = time.Time{}
 			delivered(len(data))
 			writeCount++
 			// Log first few writes to debug streaming issues
@@ -724,10 +800,23 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := rc.Flush(); err != nil && !errors.Is(err, errors.ErrUnsupported) {
-				m.logger.Info().Err(err).Int("writes", writeCount).Int64("skipped", atomic.LoadInt64(&c.skipped)).
+				// Same rule as the write path: a keepalive that times out means a
+				// stalled client, not a dead one.
+				var drop bool
+				drop, stallStart = classifyWriteErr(err, stallStart, time.Now())
+				if !drop {
+					m.logger.Debug().Err(err).Dur("stalled", time.Since(stallStart)).
+						Str("remote", c.remoteAddr).Str("ua", c.userAgent).
+						Msg("keepalive flush timed out, holding the connection open")
+					keepalive.Reset(45 * time.Second)
+					continue
+				}
+				m.logger.Info().Err(err).Int("writes", writeCount).
+					Int64("skipped", atomic.LoadInt64(&c.skipped)).
 					Str("remote", c.remoteAddr).Str("ua", c.userAgent).Msg("keepalive flush failed, disconnecting client")
 				return
 			}
+			stallStart = time.Time{}
 			m.logger.Debug().Int("writes", writeCount).Msg("keepalive flush")
 			keepalive.Reset(45 * time.Second)
 		}

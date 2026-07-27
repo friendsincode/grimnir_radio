@@ -34,6 +34,10 @@ type HealthChecker struct {
 	// Set when consecutive failures reach the threshold; actual failover
 	// is deferred until this time passes (honoring FailoverGraceMs).
 	failoverEligibleAt time.Time
+
+	// localURLResolver maps a configured URL to a loopback one when it targets a
+	// mount this instance serves. Nil leaves every URL alone.
+	localURLResolver func(string) string
 }
 
 // NewHealthChecker creates a new health checker for a webstream.
@@ -129,12 +133,22 @@ func (hc *HealthChecker) performHealthCheck(ws *models.Webstream) {
 		return
 	}
 
+	// Check our own mounts over loopback. Probing them by their public URL sends
+	// every check out through the CDN edge and back over the tunnel, so a wobble
+	// on that link marks a perfectly healthy local mount unhealthy and can
+	// trigger a failover the source never needed.
+	checkURL := currentURL
+	if hc.localURLResolver != nil {
+		checkURL = hc.localURLResolver(currentURL)
+	}
+
 	hc.logger.Debug().
-		Str("url", currentURL).
+		Str("url", checkURL).
+		Str("configured_url", currentURL).
 		Str("method", ws.HealthCheckMethod).
 		Msg("performing health check")
 
-	err := hc.checkURL(currentURL, ws.HealthCheckMethod, ws.HealthCheckTimeout,
+	err := hc.checkURL(checkURL, ws.HealthCheckMethod, ws.HealthCheckTimeout,
 		ws.HealthCheckSampleWindow(), ws.HealthCheckMinBytes, ws.HealthCheckMaxStall())
 
 	if err != nil {
