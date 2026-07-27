@@ -39,6 +39,11 @@ type Service struct {
 	bus    *events.Bus
 	logger zerolog.Logger
 
+	// localURLResolver maps a configured webstream URL to a loopback URL when it
+	// targets a mount this instance serves. Set by the app wiring once the
+	// broadcast server exists; nil leaves every URL alone.
+	localURLResolver func(string) string
+
 	mu             sync.RWMutex
 	healthCheckers map[string]*HealthChecker // webstream_id -> health checker
 	ctx            context.Context
@@ -405,6 +410,7 @@ func (s *Service) startHealthCheckerLocked(id string) {
 	}
 
 	checker := NewHealthChecker(id, s.db, s.bus, s.logger)
+	checker.localURLResolver = s.localURLResolver
 	s.healthCheckers[id] = checker
 
 	s.wg.Add(1)
@@ -549,5 +555,17 @@ func sampleBody(r io.Reader, window time.Duration, minBytes int, maxStall time.D
 				stallTimer.Reset(maxStall)
 			}
 		}
+	}
+}
+
+// SetLocalURLResolver installs the resolver used to redirect health checks for
+// this instance's own mounts onto loopback. Call it before webstreams start so
+// checkers pick it up; existing checkers are updated in place.
+func (s *Service) SetLocalURLResolver(fn func(string) string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.localURLResolver = fn
+	for _, checker := range s.healthCheckers {
+		checker.localURLResolver = fn
 	}
 }
