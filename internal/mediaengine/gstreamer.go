@@ -42,6 +42,13 @@ type GStreamerProcess struct {
 	stderr     io.ReadCloser
 	outputDone chan struct{}
 
+	// waitDone is closed by monitorProcess once cmd.Wait has returned and the
+	// exit state has been recorded. monitorProcess is the ONLY caller of
+	// cmd.Wait: os/exec forbids calling it more than once, and two concurrent
+	// calls race on the Cmd's internal state (and can both mis-report the exit).
+	// Stop waits on this channel rather than calling Wait a second time.
+	waitDone chan struct{}
+
 	// Telemetry extracted from GStreamer output
 	telemetry *GStreamerTelemetry
 
@@ -138,6 +145,7 @@ func NewGStreamerProcess(ctx context.Context, cfg GStreamerProcessConfig, logger
 		state:         ProcessStateIdle,
 		telemetry:     &GStreamerTelemetry{},
 		outputDone:    make(chan struct{}),
+		waitDone:      make(chan struct{}),
 		onStateChange: cfg.OnStateChange,
 		onTelemetry:   cfg.OnTelemetry,
 		onExit:        cfg.OnExit,
@@ -225,23 +233,24 @@ func (gp *GStreamerProcess) Stop() error {
 			gp.logger.Warn().Err(err).Msg("failed to send interrupt signal")
 		}
 
-		// Wait for graceful shutdown with timeout
-		done := make(chan error, 1)
-		go func() {
-			done <- gp.cmd.Wait()
-		}()
-
+		// Wait for graceful shutdown with timeout. monitorProcess owns cmd.Wait
+		// and closes waitDone when the process is reaped, so observe that rather
+		// than calling Wait concurrently.
 		select {
 		case <-time.After(5 * time.Second):
-			// Timeout - force kill
+			// Timeout - force kill. monitorProcess is still blocked in Wait and
+			// will reap the process and close waitDone once the kill lands.
 			gp.logger.Warn().Msg("graceful shutdown timeout, force killing")
 			if err := gp.cmd.Process.Kill(); err != nil {
 				gp.logger.Error().Err(err).Msg("failed to kill process")
 				return err
 			}
-		case err := <-done:
-			if err != nil {
-				gp.logger.Debug().Err(err).Msg("process exited with error")
+		case <-gp.waitDone:
+			gp.mu.RLock()
+			exitErr := gp.exitError
+			gp.mu.RUnlock()
+			if exitErr != nil {
+				gp.logger.Debug().Err(exitErr).Msg("process exited with error")
 			}
 		}
 	}
@@ -373,7 +382,9 @@ func (gp *GStreamerProcess) monitorStderr() {
 }
 
 func (gp *GStreamerProcess) monitorProcess() {
+	// Sole owner of cmd.Wait; see waitDone.
 	err := gp.cmd.Wait()
+	defer close(gp.waitDone)
 
 	gp.mu.Lock()
 	if err != nil {
