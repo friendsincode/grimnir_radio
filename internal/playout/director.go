@@ -316,24 +316,53 @@ func (d *Director) tick(ctx context.Context) error {
 	// launch; a legitimately newer entry still preempts on the next tick.
 	launchedThisTick := make(map[string]bool)
 
-	// resolveEntryForNow keeps an entry resolvable for 2s past its own EndsAt so a
-	// boundary tick can still find it. That grace is what makes the remaining
-	// double-clutch: at a hard boundary an already-ended entry and its successor
-	// both resolve, the ended one runs handleEntry first and builds a full
-	// pipeline, then the successor immediately replaces it. Prod mount
-	// d4f41798 hit this at the top of every hour — a recurring "custom" template
-	// ending exactly at 00:00:00 launching Behind The Woodshed, then the 00:00
-	// instance rebuilding the same upstream 0.81s later.
+	// Exactly one entry may own a mount at a given instant, but several can
+	// resolve for it at once and the per-tick guard below only collapses them
+	// within a single pass. Two that land in consecutive ticks both launch, which
+	// is the double-clutch heard on air.
 	//
-	// So: an entry that has already ended may only launch when nothing still
-	// current covers the same mount. That keeps the grace working as dead-air
-	// cover while removing the throwaway build whenever a successor is ready.
-	currentCoversMount := make(map[string]bool)
+	// The prod case: a recurring parent and its own materialized instance. Mount
+	// f58c7e4a carried recurring `custom` 9a5fb9ee (19:00-21:00, template dated
+	// 2026-03-19) alongside instance f03ae643 (19:00-21:00 on the day) — same
+	// mount, same webstream, same window. Different entry IDs mean different
+	// playbackKeys, so isPlayed never deduped them; the first launch then blocked
+	// ~1.35s inside startWebstreamEntry's synchronous ICY FetchOnce, so the
+	// second entry launched on a later tick and rebuilt the identical source.
+	// The same shape covers the earlier boundary case, where an entry inside
+	// resolveEntryForNow's 2s end-grace built a pipeline its successor replaced.
+	//
+	// So pick a single winner per mount up front, among the entries that actually
+	// cover now, and let only that one launch. Preference order:
+	//   1. still current beats already-ended (the end-grace is dead-air cover, not
+	//      a licence to build over a ready successor)
+	//   2. a materialized instance beats a recurring parent (the instance is the
+	//      concrete plan the scheduler wrote for today)
+	//   3. newest created_at wins
+	// Entries starting in the future are left alone so crossfade lookahead below
+	// still gets to preempt early.
+	type mountCandidate struct {
+		entry   models.ScheduleEntry
+		current bool
+	}
+	winner := make(map[string]mountCandidate)
+	better := func(a, b mountCandidate) bool {
+		if a.current != b.current {
+			return a.current
+		}
+		if a.entry.IsInstance != b.entry.IsInstance {
+			return a.entry.IsInstance
+		}
+		return a.entry.CreatedAt.After(b.entry.CreatedAt)
+	}
 	for i := range entries {
 		loc := d.getStationTimezone(ctx, entries[i].StationID)
 		resolved, _, _, ok := resolveEntryForNow(entries[i], now, loc)
-		if ok && now.Before(resolved.EndsAt) {
-			currentCoversMount[resolved.MountID] = true
+		if !ok || resolved.StartsAt.After(now) {
+			continue
+		}
+		cand := mountCandidate{entry: resolved, current: now.Before(resolved.EndsAt)}
+		if cur, seen := winner[resolved.MountID]; !seen || better(cand, cur) {
+			winner[resolved.MountID] = cand
 		}
 	}
 
@@ -344,8 +373,12 @@ func (d *Director) tick(ctx context.Context) error {
 			continue
 		}
 
-		if !now.Before(entry.EndsAt) && currentCoversMount[entry.MountID] {
-			continue
+		// Only the winning entry may claim its mount. Future-start entries are not
+		// candidates and fall through to the crossfade lookahead unchanged.
+		if !entry.StartsAt.After(now) {
+			if w, seen := winner[entry.MountID]; seen && w.entry.ID != entry.ID {
+				continue
+			}
 		}
 
 		if launchedThisTick[entry.MountID] {

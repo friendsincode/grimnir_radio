@@ -211,3 +211,88 @@ func TestTick_EndedEntryStillLaunchesWithNoSuccessor(t *testing.T) {
 		t.Errorf("pipeline builds = %d, want 1; the grace launch was lost and the mount goes dark", got)
 	}
 }
+
+// TestTick_RecurringParentAndItsInstanceLaunchOnce reproduces the double-clutch
+// still heard on 1.40.34, taken from prod mount f58c7e4a at 19:00.
+//
+// The scheduler materializes a weekly slot into a concrete instance, but the
+// recurring parent keeps resolving for the same slot. Both then cover now on the
+// same mount with the same source. Their entry IDs differ, so playbackKey
+// differs and isPlayed never deduped them, and launchedThisTick only collapses
+// entries inside a single pass — the first launch blocks ~1.35s in
+// startWebstreamEntry's synchronous ICY fetch, so the second lands on a later
+// tick and rebuilds the identical source.
+//
+// The instance is the concrete plan for today, so it must win and the parent
+// must not build at all.
+func TestTick_RecurringParentAndItsInstanceLaunchOnce(t *testing.T) {
+	now := time.Now().UTC()
+	d, mgr := newMockDirector(t, &models.ScheduleEntry{})
+	ctx := context.Background()
+
+	stationID := uuid.NewString()
+	mountID := uuid.NewString()
+	if err := d.db.Create(&models.Mount{
+		ID: mountID, StationID: stationID, Name: "dup-" + mountID[:8],
+		Format: "mp3", Bitrate: 128, SampleRate: 44100, Channels: 2,
+	}).Error; err != nil {
+		t.Fatalf("seed mount: %v", err)
+	}
+
+	mediaID := uuid.NewString()
+	if err := d.db.Create(&models.MediaItem{
+		ID: mediaID, StationID: stationID, Title: "Shared Source", Path: "/tmp/shared.mp3",
+		Duration: 4 * time.Minute, AnalysisState: models.AnalysisComplete,
+	}).Error; err != nil {
+		t.Fatalf("seed media: %v", err)
+	}
+
+	slotStart := now.Add(-90 * time.Second)
+	slotEnd := now.Add(2 * time.Hour)
+
+	// The recurring parent: template dated months back, resolves to today's slot.
+	parent := models.ScheduleEntry{
+		ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+		SourceType: "media", SourceID: mediaID,
+		IsInstance: false, RecurrenceType: models.RecurrenceDaily,
+		StartsAt: slotStart.AddDate(0, -4, 0), EndsAt: slotEnd.AddDate(0, -4, 0),
+		CreatedAt: now.AddDate(0, -4, 0),
+	}
+	// The materialized instance for today, same mount, same source, same window.
+	instance := models.ScheduleEntry{
+		ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+		SourceType: "media", SourceID: mediaID, IsInstance: true,
+		StartsAt: slotStart, EndsAt: slotEnd,
+		CreatedAt: now.AddDate(0, 0, -7),
+	}
+	// Parent first so the loop would reach it first without the winner check.
+	for _, e := range []models.ScheduleEntry{parent, instance} {
+		if err := d.db.Create(&e).Error; err != nil {
+			t.Fatalf("seed entry: %v", err)
+		}
+	}
+
+	d.markScheduleDirty()
+	if err := d.tick(ctx); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	// A second tick must not rebuild either: this is where the on-air duplicate
+	// actually landed, one tick after the first launch.
+	if err := d.tick(ctx); err != nil {
+		t.Fatalf("second tick: %v", err)
+	}
+
+	if got := mgr.ensureCalls[mountID]; got != 1 {
+		t.Errorf("pipeline builds = %d, want exactly 1; the recurring parent and its own instance both built", got)
+	}
+
+	d.mu.Lock()
+	state, active := d.active[mountID]
+	d.mu.Unlock()
+	if !active {
+		t.Fatal("mount not active after tick")
+	}
+	if state.EntryID != instance.ID {
+		t.Errorf("mount is on entry %s, want the materialized instance %s", state.EntryID, instance.ID)
+	}
+}
