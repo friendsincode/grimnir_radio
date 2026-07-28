@@ -1998,7 +1998,7 @@ class GlobalPlayer {
         // upstream connection dropped, so treat it as a disconnect and reconnect
         // rather than silently stopping.
         if (this.isLive) {
-            this.reconnectLiveStream();
+            this.reconnectLiveStream({ force: true });
             return;
         }
 
@@ -2040,7 +2040,7 @@ class GlobalPlayer {
 
         // A live stream that errors has lost its connection. Reconnect instead of
         // going silent and waiting for the listener to notice and hit play.
-        this.reconnectLiveStream();
+        this.reconnectLiveStream({ force: true });
     }
 
     onStalled() {
@@ -2145,7 +2145,7 @@ class GlobalPlayer {
         }
         if (Date.now() - this.lastProgressAt >= this.liveNoProgressMs) {
             console.log('Live stream stopped advancing; reconnecting');
-            this.reconnectLiveStream();
+            this.reconnectLiveStream({ force: true });
         }
     }
 
@@ -2179,11 +2179,16 @@ class GlobalPlayer {
     }
 
     // Reconnection with exponential backoff
-    reconnectLiveStream() {
+    // force is for callers holding positive evidence that playback is broken: an
+    // error event, a live stream reporting ended, or the watchdog measuring a
+    // frozen currentTime. Without it the "looks fine" check below vetoes them,
+    // because a frozen live stream reports exactly !paused && readyState >= 3 —
+    // which made the watchdog inert.
+    reconnectLiveStream({ force = false } = {}) {
         if (!this.isLive || !this.currentTrack || !this.wantsLivePlayback) return;
 
-        // Don't reconnect if audio is playing fine
-        if (!this.audio.paused && this.audio.readyState >= 3) {
+        // Don't reconnect if audio is genuinely playing fine.
+        if (!force && !this.audio.paused && this.audio.readyState >= 3) {
             this.reconnectAttempts = 0;
             this.isReconnecting = false;
             return;
@@ -2246,7 +2251,12 @@ class GlobalPlayer {
                 if (this.reconnectAttempts % 10 === 0) {
                     console.log(`Stream still unreachable after ${this.reconnectAttempts} attempts; still trying`);
                 }
-                this.reconnectLiveStream();
+                // force: once a recovery sequence is under way, a failed attempt
+                // must not be vetoed by the "looks fine" check. A dead stream can
+                // still report !paused && readyState >= 3 off stale buffered data,
+                // and the veto also resets reconnectAttempts, which silently ends
+                // the retry chain. The sequence ends on onPlaying, pause or close.
+                this.reconnectLiveStream({ force: true });
             });
         }, delay);
     }
