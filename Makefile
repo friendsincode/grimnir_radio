@@ -6,7 +6,7 @@ RACE ?= 1
 PROTO_DIR ?= proto
 PROTO_OUT ?= proto
 
-.PHONY: help fmt fmt-check vet lint tidy test coverage coverage-check test-e2e test-frontend build build-mediascan verify ci proto proto-clean \
+.PHONY: help fmt fmt-check vet lint tidy test test-js coverage coverage-check test-e2e test-frontend build build-mediascan verify ci proto proto-clean \
         dev-db dev-redis dev-stack run-control run-media
 
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "  make vet         # go vet ./..."
 	@echo "  make lint        # golangci-lint run (if installed)"
 	@echo "  make test        # go test (-race)"
+	@echo "  make test-js     # player JS tests (node --test)"
 	@echo "  make coverage    # run coverage report (default target 80%)"
 	@echo "  make coverage-check # enforce coverage threshold (set COVERAGE_MIN)"
 	@echo "  make build       # build cmd/$(BIN)"
@@ -55,6 +56,12 @@ tidy:
 test:
 	@$(GO) test $(GOFLAGS) $(if $(filter 1,$(RACE)),-race,) $(PKG)
 
+# Player recovery logic lives in browser JS and is unreachable from go test.
+# Uses node's built-in runner against a vm sandbox; no package.json, no deps.
+test-js:
+	@command -v node >/dev/null 2>&1 || { echo "node not found; skipping JS tests"; exit 0; }
+	@node --test test/js/*.test.mjs
+
 coverage:
 	@COVERAGE_ENFORCE=0 COVERAGE_MIN=$${COVERAGE_MIN:-80} ./scripts/coverage.sh
 
@@ -70,7 +77,7 @@ build-mediascan:
 
 verify: tidy fmt vet lint test
 
-ci: verify fmt-check
+ci: verify fmt-check test-js
 
 proto:
 	@echo "Generating protobuf code..."

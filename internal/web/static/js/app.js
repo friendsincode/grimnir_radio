@@ -729,6 +729,19 @@ class GlobalPlayer {
         this.reconnectTimer = null;
         this.isReconnecting = false;
         this.reconnectAttempts = 0;
+        // wantsLivePlayback records listener INTENT, which is what separates a
+        // drop worth recovering from a deliberate pause. Only an explicit pause
+        // or close clears it; every automatic path leaves it alone.
+        this.wantsLivePlayback = false;
+        // Progress watchdog. A live <audio> element can sit reporting "playing"
+        // while currentTime never advances, which no media event fires for, so
+        // silence looks perfectly healthy. Poll instead.
+        this.liveWatchdogTimer = null;
+        this.liveWatchdogIntervalMs = 5000;
+        this.lastProgressAt = 0;
+        this.lastCurrentTime = -1;
+        // How long currentTime may stand still before we treat it as dead.
+        this.liveNoProgressMs = 12000;
         this.webrtcFailureUntil = Number(localStorage.getItem('grimnir-webrtc-disabled-until') || '0') || 0;
         // Default to plain HTTP streaming. WebRTC is still selectable from the
         // transport menu, but it needs a signaling WebSocket, and the websocket
@@ -794,6 +807,23 @@ class GlobalPlayer {
         this.audio.addEventListener('stalled', () => this.onStalled());
         this.audio.addEventListener('waiting', () => this.onWaiting());
         this.audio.addEventListener('playing', () => this.onPlaying());
+        // suspend/abort are the quieter cousins of stalled/waiting: the browser
+        // stopped fetching. For a live stream that is still a stall.
+        this.audio.addEventListener('suspend', () => this.onSuspend());
+        this.audio.addEventListener('abort', () => this.onSuspend());
+
+        // A backgrounded tab gets its timers throttled and its socket may be
+        // dropped entirely; a sleeping laptop wakes with a dead stream. Re-check
+        // as soon as the tab is visible again.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') this.verifyLivePlayback('tab visible');
+        });
+        // Network came back: retry now instead of waiting out the backoff.
+        window.addEventListener('online', () => this.verifyLivePlayback('network online'));
+        // Network went away: stop burning retries until it returns.
+        window.addEventListener('offline', () => {
+            if (this.isLive) this.setSecondaryText('Offline - waiting for network...');
+        });
 
         // Preload setting for better buffering
         this.audio.preload = 'auto';
@@ -1208,6 +1238,8 @@ class GlobalPlayer {
         };
         this.isLive = true;
         this.isLiveDJ = false;
+        this.wantsLivePlayback = true;
+        this.startLiveWatchdog();
         this._trackStarted = null;
         this._trackEnded = null;
         this._trackDuration = 0;
@@ -1827,8 +1859,14 @@ class GlobalPlayer {
 
     togglePlayPause() {
         if (this.audio.paused) {
+            // Explicit play is the only thing besides playLive that sets intent.
+            if (this.isLive) this.wantsLivePlayback = true;
             this.audio.play().catch(e => console.error('Play error:', e));
         } else {
+            // Explicit pause: drop intent and stand down every retry, otherwise
+            // the watchdog would fight the listener and resume on its own.
+            this.wantsLivePlayback = false;
+            this.cancelLiveReconnect();
             this.audio.pause();
         }
     }
@@ -1862,7 +1900,9 @@ class GlobalPlayer {
         // Cancel pending reconnects first: currentTrack is cleared below and both
         // reconnect paths bail on that, but an already-armed timer would otherwise
         // still fire against a deliberately closed player.
+        this.wantsLivePlayback = false;
         this.cancelLiveReconnect();
+        this.stopLiveWatchdog();
         this.audio.pause();
         this.audio.src = '';
         this.closeWebRTC();  // Clean up WebRTC connection
@@ -1958,7 +1998,7 @@ class GlobalPlayer {
         // upstream connection dropped, so treat it as a disconnect and reconnect
         // rather than silently stopping.
         if (this.isLive) {
-            this.reconnectLiveStream();
+            this.reconnectLiveStream({ force: true });
             return;
         }
 
@@ -2000,7 +2040,7 @@ class GlobalPlayer {
 
         // A live stream that errors has lost its connection. Reconnect instead of
         // going silent and waiting for the listener to notice and hit play.
-        this.reconnectLiveStream();
+        this.reconnectLiveStream({ force: true });
     }
 
     onStalled() {
@@ -2030,7 +2070,7 @@ class GlobalPlayer {
     // normal rebuffer. Arm a timer instead and only reconnect if playback has
     // not resumed by the time it fires; onPlaying cancels it.
     scheduleLiveStallReconnect() {
-        if (!this.isLive || !this.currentTrack) return;
+        if (!this.isLive || !this.currentTrack || !this.wantsLivePlayback) return;
         if (this.stalledTimer || this.isReconnecting) return;
 
         this.stalledTimer = setTimeout(() => {
@@ -2043,6 +2083,7 @@ class GlobalPlayer {
     }
 
     onPlaying() {
+        this.noteLiveProgress();
         // Playback resumed - clear any stalled timer and restore UI
         if (this.stalledTimer) {
             clearTimeout(this.stalledTimer);
@@ -2063,6 +2104,66 @@ class GlobalPlayer {
         }
     }
 
+    // suspend/abort mean the browser stopped fetching. Same treatment as a stall.
+    onSuspend() {
+        if (!this.isLive || !this.wantsLivePlayback) return;
+        if (this.audio.paused) return;
+        this.scheduleLiveStallReconnect();
+    }
+
+    // Record that audio actually moved. Everything below measures against this.
+    noteLiveProgress() {
+        this.lastProgressAt = Date.now();
+        this.lastCurrentTime = this.audio.currentTime;
+    }
+
+    startLiveWatchdog() {
+        this.stopLiveWatchdog();
+        this.noteLiveProgress();
+        this.liveWatchdogTimer = setInterval(() => this.checkLiveProgress(), this.liveWatchdogIntervalMs);
+    }
+
+    stopLiveWatchdog() {
+        if (this.liveWatchdogTimer) {
+            clearInterval(this.liveWatchdogTimer);
+            this.liveWatchdogTimer = null;
+        }
+    }
+
+    // The gap no media event covers: the element reports playing, fires no error,
+    // no stall, no waiting, and currentTime simply stops moving. To a listener
+    // that is dead air with a play button that looks fine.
+    checkLiveProgress() {
+        if (!this.isLive || !this.currentTrack || !this.wantsLivePlayback) return;
+        if (this.isReconnecting || this.audio.paused) return;
+        if (navigator.onLine === false) return; // nothing to reconnect to yet
+
+        const t = this.audio.currentTime;
+        if (t !== this.lastCurrentTime) {
+            this.noteLiveProgress();
+            return;
+        }
+        if (Date.now() - this.lastProgressAt >= this.liveNoProgressMs) {
+            console.log('Live stream stopped advancing; reconnecting');
+            this.reconnectLiveStream({ force: true });
+        }
+    }
+
+    // Called when the tab becomes visible or the network returns. A throttled or
+    // suspended tab can come back with a socket that is long gone.
+    verifyLivePlayback(reason) {
+        if (!this.isLive || !this.currentTrack || !this.wantsLivePlayback) return;
+        if (this.audio.paused || this.audio.readyState < 3) {
+            console.log(`Live stream not running after ${reason}; reconnecting`);
+            this.cancelLiveReconnect();
+            this.reconnectLiveStream();
+            return;
+        }
+        // Playing, but it may have been frozen the whole time it was hidden.
+        // Give it one watchdog interval to prove it is still advancing.
+        this.noteLiveProgress();
+    }
+
     // Cancel any armed stall timer or pending reconnect and reset the backoff.
     cancelLiveReconnect() {
         if (this.stalledTimer) {
@@ -2078,11 +2179,16 @@ class GlobalPlayer {
     }
 
     // Reconnection with exponential backoff
-    reconnectLiveStream() {
-        if (!this.isLive || !this.currentTrack) return;
+    // force is for callers holding positive evidence that playback is broken: an
+    // error event, a live stream reporting ended, or the watchdog measuring a
+    // frozen currentTime. Without it the "looks fine" check below vetoes them,
+    // because a frozen live stream reports exactly !paused && readyState >= 3 —
+    // which made the watchdog inert.
+    reconnectLiveStream({ force = false } = {}) {
+        if (!this.isLive || !this.currentTrack || !this.wantsLivePlayback) return;
 
-        // Don't reconnect if audio is playing fine
-        if (!this.audio.paused && this.audio.readyState >= 3) {
+        // Don't reconnect if audio is genuinely playing fine.
+        if (!force && !this.audio.paused && this.audio.readyState >= 3) {
             this.reconnectAttempts = 0;
             this.isReconnecting = false;
             return;
@@ -2099,8 +2205,10 @@ class GlobalPlayer {
         this.reconnectAttempts++;
         this.isReconnecting = true;
 
-        // Exponential backoff: 500ms, 1s, 2s, 4s, max 8s
-        const delay = Math.min(500 * Math.pow(2, this.reconnectAttempts - 1), 8000);
+        // Exponential backoff: 500ms, 1s, 2s, 4s, 8s, then hold at 15s. There is
+        // no attempt ceiling: a station the listener still wants is worth
+        // retrying quietly for as long as the tab is open.
+        const delay = Math.min(500 * Math.pow(2, this.reconnectAttempts - 1), 15000);
 
         console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})...`);
 
@@ -2135,17 +2243,20 @@ class GlobalPlayer {
                     this.fetchNowPlayingMetadata(); // Refresh metadata
                 }
             }).catch(err => {
-                console.log('Reconnect attempt failed, will retry...');
                 this.isReconnecting = false;
-                // Don't show error, just try again
-                if (this.reconnectAttempts < 20) { // Max 20 attempts (~2.5 min total)
-                    this.reconnectLiveStream();
-                } else {
-                    // Only notify after many failed attempts
-                    console.error('Stream connection lost after multiple attempts');
-                    this.setSecondaryText('Connection lost - click play to retry');
-                    this.reconnectAttempts = 0;
+                // Keep retrying. Giving up used to leave a dead player behind a
+                // "click play to retry" message, which for a radio station is the
+                // wrong ending: the stream usually comes back on its own and the
+                // listener should not have to notice.
+                if (this.reconnectAttempts % 10 === 0) {
+                    console.log(`Stream still unreachable after ${this.reconnectAttempts} attempts; still trying`);
                 }
+                // force: once a recovery sequence is under way, a failed attempt
+                // must not be vetoed by the "looks fine" check. A dead stream can
+                // still report !paused && readyState >= 3 off stale buffered data,
+                // and the veto also resets reconnectAttempts, which silently ends
+                // the retry chain. The sequence ends on onPlaying, pause or close.
+                this.reconnectLiveStream({ force: true });
             });
         }, delay);
     }
