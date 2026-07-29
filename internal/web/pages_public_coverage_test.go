@@ -1035,3 +1035,110 @@ func TestArchiveStream_PrivateStation_Returns404(t *testing.T) {
 		t.Fatalf("expected 404, got %d", rr.Code)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Hero button toggles
+// ---------------------------------------------------------------------------
+
+// seedPlatformLanding writes a published platform landing config. A platform
+// page is identified by a nil StationID.
+func seedPlatformLanding(t *testing.T, db *gorm.DB, hero map[string]any) {
+	t.Helper()
+	page := models.LandingPage{
+		ID:              "platform-landing-test",
+		PublishedConfig: map[string]any{"hero": hero},
+	}
+	if err := db.Create(&page).Error; err != nil {
+		t.Fatalf("seed landing page: %v", err)
+	}
+}
+
+// renderLandingHero returns only the hero <section> markup. Scoping matters:
+// /listen and /schedule also appear in the header nav, so asserting over the
+// whole page would report a hero button as present when it is switched off.
+func renderLandingHero(t *testing.T, h *Handler) string {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	h.Landing(rr, publicReq(http.MethodGet, "/"))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	start := strings.Index(body, `<section class="hero-section`)
+	if start < 0 {
+		t.Fatal("hero section not rendered")
+	}
+	end := strings.Index(body[start:], "</section>")
+	if end < 0 {
+		t.Fatal("hero section not closed")
+	}
+	return body[start : start+end]
+}
+
+// A config with none of the button keys must render exactly as before: the two
+// original buttons shown, and the newly added Archive button hidden until it is
+// explicitly switched on. Every already-published config on disk looks like
+// this, so getting the defaults wrong would change live pages.
+func TestLandingHeroButtons_DefaultsPreserveExistingPages(t *testing.T) {
+	db := newPublicTestDB(t)
+	h := newLandingTestHandler(t, db)
+	seedPublicStation(t, db, "st1", "Test FM")
+	seedPlatformLanding(t, db, map[string]any{"title": "Hello"})
+
+	hero := renderLandingHero(t, h)
+	if !strings.Contains(hero, `href="/listen"`) {
+		t.Error("Listen Now must default to shown")
+	}
+	if !strings.Contains(hero, `href="/schedule"`) {
+		t.Error("View Schedule must default to shown")
+	}
+	if strings.Contains(hero, `href="/archive"`) {
+		t.Error("Browse Archive must stay hidden until explicitly enabled")
+	}
+}
+
+func TestLandingHeroButtons_ArchiveShownWhenEnabled(t *testing.T) {
+	db := newPublicTestDB(t)
+	h := newLandingTestHandler(t, db)
+	seedPublicStation(t, db, "st1", "Test FM")
+	seedPlatformLanding(t, db, map[string]any{"showArchive": true})
+
+	hero := renderLandingHero(t, h)
+	if !strings.Contains(hero, `href="/archive"`) {
+		t.Error("Browse Archive must render when showArchive is true")
+	}
+}
+
+// Each toggle has to work independently, including hiding the two that used to
+// be unconditional.
+func TestLandingHeroButtons_EachToggleIndependently(t *testing.T) {
+	for _, tc := range []struct {
+		name                            string
+		hero                            map[string]any
+		wantListen, wantSched, wantArch bool
+	}{
+		{"all off", map[string]any{"showListen": false, "showSchedule": false, "showArchive": false}, false, false, false},
+		{"all on", map[string]any{"showListen": true, "showSchedule": true, "showArchive": true}, true, true, true},
+		{"archive only", map[string]any{"showListen": false, "showSchedule": false, "showArchive": true}, false, false, true},
+		{"listen only", map[string]any{"showListen": true, "showSchedule": false, "showArchive": false}, true, false, false},
+		{"schedule hidden, listen default", map[string]any{"showSchedule": false}, true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newPublicTestDB(t)
+			h := newLandingTestHandler(t, db)
+			seedPublicStation(t, db, "st1", "Test FM")
+			seedPlatformLanding(t, db, tc.hero)
+
+			hero := renderLandingHero(t, h)
+			if got := strings.Contains(hero, `href="/listen"`); got != tc.wantListen {
+				t.Errorf("Listen shown = %v, want %v", got, tc.wantListen)
+			}
+			if got := strings.Contains(hero, `href="/schedule"`); got != tc.wantSched {
+				t.Errorf("Schedule shown = %v, want %v", got, tc.wantSched)
+			}
+			if got := strings.Contains(hero, `href="/archive"`); got != tc.wantArch {
+				t.Errorf("Archive shown = %v, want %v", got, tc.wantArch)
+			}
+		})
+	}
+}

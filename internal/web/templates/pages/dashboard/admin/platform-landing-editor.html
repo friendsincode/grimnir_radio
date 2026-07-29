@@ -142,6 +142,22 @@
                                 </select>
                             </div>
                             <div class="mb-3">
+                                <label class="form-label">Hero Buttons</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="heroShowListen" onchange="updateConfig()">
+                                    <label class="form-check-label" for="heroShowListen">Listen Now</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="heroShowSchedule" onchange="updateConfig()">
+                                    <label class="form-check-label" for="heroShowSchedule">View Schedule</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="heroShowArchive" onchange="updateConfig()">
+                                    <label class="form-check-label" for="heroShowArchive">Browse Archive</label>
+                                </div>
+                                <small class="text-muted">Archive searches every public station, not just one.</small>
+                            </div>
+                            <div class="mb-3">
                                 <label class="form-label">Hero Background</label>
                                 <input type="file" id="heroBgUpload" accept="image/*" class="form-control form-control-sm" onchange="uploadHeroBackground(this)">
                                 <small class="text-muted">Leave empty for gradient background</small>
@@ -528,6 +544,9 @@ function loadConfigToForm() {
     document.getElementById('heroTitle').value = config.hero?.title || '';
     document.getElementById('heroDescription').value = config.hero?.description || '';
     document.getElementById('heroHeight').value = config.hero?.height || 'large';
+    document.getElementById('heroShowListen').checked = config.hero?.showListen !== false;
+    document.getElementById('heroShowSchedule').checked = config.hero?.showSchedule !== false;
+    document.getElementById('heroShowArchive').checked = config.hero?.showArchive === true;
 
     // Content
     document.getElementById('gridColumns').value = config.content?.columns || '3';
@@ -593,6 +612,9 @@ function updateConfig() {
     config.hero.title = document.getElementById('heroTitle').value;
     config.hero.description = document.getElementById('heroDescription').value;
     config.hero.height = document.getElementById('heroHeight').value;
+    config.hero.showListen = document.getElementById('heroShowListen').checked;
+    config.hero.showSchedule = document.getElementById('heroShowSchedule').checked;
+    config.hero.showArchive = document.getElementById('heroShowArchive').checked;
 
     config.content = config.content || {};
     config.content.columns = parseInt(document.getElementById('gridColumns').value) || 3;
