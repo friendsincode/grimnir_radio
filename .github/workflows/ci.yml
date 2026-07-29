@@ -75,7 +75,7 @@ jobs:
           node-version: '22'
 
       - name: player JS tests
-        run: node --test "test/js/*.test.mjs"
+        run: node --test test/js/*.test.mjs
 
       - name: Coverage report (80% target, non-blocking gate)
         run: |

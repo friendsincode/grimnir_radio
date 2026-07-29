@@ -60,7 +60,7 @@ test:
 # Uses node's built-in runner against a vm sandbox; no package.json, no deps.
 test-js:
 	@command -v node >/dev/null 2>&1 || { echo "node not found; skipping JS tests"; exit 0; }
-	@node --test "test/js/*.test.mjs"
+	@node --test test/js/*.test.mjs
 
 coverage:
 	@COVERAGE_ENFORCE=0 COVERAGE_MIN=$${COVERAGE_MIN:-80} ./scripts/coverage.sh
