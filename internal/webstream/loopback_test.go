@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package webstream
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -198,5 +199,192 @@ func TestHealthChecker_WithoutResolverUsesConfiguredURL(t *testing.T) {
 
 	if got := atomic.LoadInt32(&hits); got != 1 {
 		t.Errorf("hits = %d, want 1", got)
+	}
+}
+
+// An idle local mount must be skipped entirely: no probe, no DB write, no event.
+// This is the monitoring blind spot. Most webstreams here relay another mount on
+// the same box, those mounts only carry audio while their show is scheduled, and
+// probing one in between looks identical to a dead upstream. On prod that left 56
+// of 66 webstreams permanently unhealthy, so the signal could not report a real
+// outage.
+func TestHealthChecker_SkipsIdleLocalMount(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ws := &models.Webstream{
+		ID:                  "ws-idle",
+		URLs:                []string{srv.URL + "/live/night-show"},
+		HealthStatus:        "healthy",
+		HealthCheckMethod:   "GET",
+		HealthCheckTimeout:  time.Second,
+		HealthCheckMinBytes: 1,
+	}
+	hc := &HealthChecker{
+		webstreamID:    ws.ID,
+		db:             newCheckerDB(t, ws),
+		bus:            events.NewBus(),
+		logger:         zerolog.Nop(),
+		httpClient:     &http.Client{},
+		localMountIdle: func(string) bool { return true },
+	}
+
+	hc.performHealthCheck(ws)
+
+	if got := atomic.LoadInt32(&hits); got != 0 {
+		t.Errorf("probe hits = %d, want 0; an idle mount must not be probed", got)
+	}
+	if hc.consecutiveFails != 0 {
+		t.Errorf("consecutiveFails = %d, want 0", hc.consecutiveFails)
+	}
+	if ws.HealthStatus != "healthy" {
+		t.Errorf("HealthStatus = %q, want it left alone", ws.HealthStatus)
+	}
+}
+
+// A local mount that IS being fed still gets checked, so a genuine failure on an
+// on-air stream is still caught.
+func TestHealthChecker_ChecksActiveLocalMount(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(make([]byte, 64*1024))
+	}))
+	defer srv.Close()
+
+	ws := &models.Webstream{
+		ID:                  "ws-live",
+		URLs:                []string{srv.URL + "/live/on-air"},
+		HealthCheckMethod:   "GET",
+		HealthCheckTimeout:  2 * time.Second,
+		HealthCheckMinBytes: 1,
+	}
+	hc := &HealthChecker{
+		webstreamID:    ws.ID,
+		db:             newCheckerDB(t, ws),
+		bus:            events.NewBus(),
+		logger:         zerolog.Nop(),
+		httpClient:     &http.Client{},
+		localMountIdle: func(string) bool { return false },
+	}
+
+	hc.performHealthCheck(ws)
+
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("probe hits = %d, want 1; an on-air mount must still be checked", got)
+	}
+}
+
+// Failover machinery must not run when there is nowhere to go. Every webstream on
+// this deployment has exactly one URL, so the threshold, grace timer and
+// "failover threshold reached" log were firing thousands of times an hour toward
+// a switch that could never happen.
+func TestCanFailover(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ws   models.Webstream
+		want bool
+	}{
+		{"single url, failover enabled", models.Webstream{FailoverEnabled: true, URLs: []string{"a"}}, false},
+		{"two urls, failover enabled", models.Webstream{FailoverEnabled: true, URLs: []string{"a", "b"}}, true},
+		{"two urls, failover disabled", models.Webstream{FailoverEnabled: false, URLs: []string{"a", "b"}}, false},
+		{"no urls", models.Webstream{FailoverEnabled: true, URLs: nil}, false},
+	} {
+		if got := canFailover(&tc.ws); got != tc.want {
+			t.Errorf("%s: canFailover = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// recordUnhealthy writes and publishes only on a status change. Before this, every
+// failed check re-saved the same row and re-published the same event.
+func TestRecordUnhealthy_OnlyWritesOnChange(t *testing.T) {
+	ws := &models.Webstream{ID: "ws-1", URLs: []string{"http://x/live/a"}, HealthStatus: "healthy"}
+	db := newCheckerDB(t, ws)
+	bus := events.NewBus()
+	sub := bus.Subscribe(events.EventWebstreamHealth)
+	defer bus.Unsubscribe(events.EventWebstreamHealth, sub)
+
+	hc := &HealthChecker{webstreamID: ws.ID, db: db, bus: bus, logger: zerolog.Nop()}
+
+	hc.recordUnhealthy(ws)
+	if ws.HealthStatus != "unhealthy" {
+		t.Fatalf("HealthStatus = %q, want unhealthy", ws.HealthStatus)
+	}
+	select {
+	case <-sub:
+	case <-time.After(time.Second):
+		t.Fatal("first transition must publish an event")
+	}
+
+	// Already unhealthy: no second event.
+	hc.recordUnhealthy(ws)
+	select {
+	case ev := <-sub:
+		t.Fatalf("repeat call published another event: %+v", ev)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// The call site, not just the predicate: repeated failures on a single-URL stream
+// must never start the failover grace timer. On prod that timer logged
+// "failover threshold reached" 3,433 times an hour toward a switch that could
+// never happen, because every webstream carries exactly one URL and
+// GetNextFailoverURL returns empty below two.
+func TestHandleFailedCheck_NoFailoverMachineryWithoutSecondURL(t *testing.T) {
+	ws := &models.Webstream{
+		ID:              "ws-single",
+		URLs:            []string{"http://x/live/a"},
+		FailoverEnabled: true,
+		FailoverGraceMs: 5000,
+		HealthStatus:    "healthy",
+	}
+	hc := &HealthChecker{
+		webstreamID: ws.ID,
+		db:          newCheckerDB(t, ws),
+		bus:         events.NewBus(),
+		logger:      zerolog.Nop(),
+	}
+
+	for i := 0; i < 5; i++ {
+		hc.handleFailedCheck(ws, errors.New("stream stalled"))
+	}
+
+	if !hc.failoverEligibleAt.IsZero() {
+		t.Errorf("grace timer armed at %v; there is no second URL to fail over to", hc.failoverEligibleAt)
+	}
+	if ws.HealthStatus != "unhealthy" {
+		t.Errorf("HealthStatus = %q, want unhealthy still recorded", ws.HealthStatus)
+	}
+}
+
+// With a real second URL the machinery must still arm, so this does not quietly
+// disable failover for streams that actually have a backup.
+func TestHandleFailedCheck_ArmsFailoverWithSecondURL(t *testing.T) {
+	ws := &models.Webstream{
+		ID:              "ws-dual",
+		URLs:            []string{"http://x/live/a", "http://y/live/b"},
+		FailoverEnabled: true,
+		FailoverGraceMs: 60000,
+		HealthStatus:    "healthy",
+	}
+	hc := &HealthChecker{
+		webstreamID: ws.ID,
+		db:          newCheckerDB(t, ws),
+		bus:         events.NewBus(),
+		logger:      zerolog.Nop(),
+	}
+
+	for i := 0; i < 4; i++ {
+		hc.handleFailedCheck(ws, errors.New("stream stalled"))
+	}
+
+	if hc.failoverEligibleAt.IsZero() {
+		t.Error("grace timer must arm when a second URL exists")
 	}
 }

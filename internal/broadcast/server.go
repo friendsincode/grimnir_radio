@@ -828,6 +828,17 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // counter (TotalListeners, GetListenerStats, the analytics samples) reads, so
 // unproven connections never roll into the reported numbers. Raw connection
 // count (including unestablished) is ConnectionCount.
+// HasInput reports whether a live feed is currently attached to this mount.
+// A mount with no input is idle, not broken: its show simply is not on air yet.
+// The webstream health checker uses this to tell those two apart, because an
+// HTTP probe cannot — it drains the pre-roll buffer and then sees silence
+// either way.
+func (m *Mount) HasInput() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.inputCount > 0
+}
+
 func (m *Mount) ClientCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

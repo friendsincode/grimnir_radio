@@ -322,6 +322,18 @@ func (s *Server) initDependencies() error {
 		return local
 	})
 
+	// A relay whose source is one of our own mounts is idle, not broken, while
+	// that mount has no feed: its show is not on air yet. Skip those checks so
+	// the health signal means something when a stream really does fail.
+	webstreamService.SetLocalMountIdleFunc(func(configuredURL string) bool {
+		name := webstream.MountNameFromLiveURL(configuredURL)
+		if name == "" {
+			return false // not one of ours; a real external relay
+		}
+		mount := broadcastSrv.GetMount(name)
+		return mount != nil && !mount.HasInput()
+	})
+
 	// WebRTC broadcaster for low-latency streaming
 	if s.cfg.WebRTCEnabled {
 		webrtcCfg := webrtc.Config{

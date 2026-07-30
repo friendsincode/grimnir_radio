@@ -38,6 +38,11 @@ type HealthChecker struct {
 	// localURLResolver maps a configured URL to a loopback one when it targets a
 	// mount this instance serves. Nil leaves every URL alone.
 	localURLResolver func(string) string
+
+	// localMountIdle reports that a configured URL targets one of this instance's
+	// own mounts AND that mount currently has no feed attached. Such a mount is
+	// idle, not broken: its show is not on air. Nil disables the check.
+	localMountIdle func(string) bool
 }
 
 // NewHealthChecker creates a new health checker for a webstream.
@@ -133,6 +138,18 @@ func (hc *HealthChecker) performHealthCheck(ws *models.Webstream) {
 		return
 	}
 
+	// An idle local mount is not a fault. Most webstreams here relay another
+	// mount on this same box, and those mounts only carry audio while their show
+	// is scheduled. Probing one in between drains the pre-roll buffer and then
+	// sees nothing, which reads identically to a dead upstream — so before this
+	// guard, 56 of 66 webstreams sat permanently unhealthy and the health signal
+	// could not report a real outage. Skipping costs nothing: no probe, no DB
+	// write, no event, no log line.
+	if hc.localMountIdle != nil && hc.localMountIdle(currentURL) {
+		hc.logger.Debug().Str("url", currentURL).Msg("skipping health check: local mount is idle, not on air")
+		return
+	}
+
 	// Check our own mounts over loopback. Probing them by their public URL sends
 	// every check out through the CDN edge and back over the tunnel, so a wobble
 	// on that link marks a perfectly healthy local mount unhealthy and can
@@ -219,6 +236,35 @@ func (hc *HealthChecker) handleSuccessfulCheck(ws *models.Webstream) {
 	}
 }
 
+// canFailover reports whether this webstream has anywhere to fail over to.
+// Every webstream on this deployment carries exactly one URL, so the threshold,
+// grace timer and "failover threshold reached" log fired thousands of times an
+// hour to reach machinery that could never switch anything.
+func canFailover(ws *models.Webstream) bool {
+	return ws.FailoverEnabled && len(ws.URLs) > 1
+}
+
+// recordUnhealthy marks the stream unhealthy and publishes it, but only writes
+// when the status actually changes. Previously every failed check re-saved the
+// same row and re-published the same event, roughly two DB writes and two bus
+// events a second on a fleet whose streams were permanently unhealthy.
+func (hc *HealthChecker) recordUnhealthy(ws *models.Webstream) {
+	if ws.HealthStatus == "unhealthy" {
+		return
+	}
+	ws.MarkUnhealthy()
+	if err := hc.db.Save(ws).Error; err != nil {
+		hc.logger.Error().Err(err).Msg("failed to update health status")
+	}
+	telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(0)
+	hc.bus.Publish(events.EventWebstreamHealth, events.Payload{
+		"webstream_id": ws.ID,
+		"station_id":   ws.StationID,
+		"status":       ws.HealthStatus,
+		"url":          ws.GetCurrentURL(),
+	})
+}
+
 func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 	hc.consecutiveFails++
 
@@ -248,6 +294,14 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 		return
 	}
 
+	// With nowhere to fail over to, record the state and stop. Running the
+	// threshold and grace timer would only log an imminent switch that can never
+	// happen.
+	if !canFailover(ws) {
+		hc.recordUnhealthy(ws)
+		return
+	}
+
 	// Trigger failover after multiple failures, respecting grace period
 	failoverThreshold := 3 // Configurable threshold
 	if hc.consecutiveFails >= failoverThreshold {
@@ -264,36 +318,14 @@ func (hc *HealthChecker) handleFailedCheck(ws *models.Webstream, err error) {
 
 		if time.Now().Before(hc.failoverEligibleAt) {
 			// Still within grace period — mark unhealthy but don't failover yet
-			ws.MarkUnhealthy()
-			if saveErr := hc.db.Save(ws).Error; saveErr != nil {
-				hc.logger.Error().Err(saveErr).Msg("failed to update health status")
-			}
-			telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(0)
-			hc.bus.Publish(events.EventWebstreamHealth, events.Payload{
-				"webstream_id": ws.ID,
-				"station_id":   ws.StationID,
-				"status":       ws.HealthStatus,
-				"url":          ws.GetCurrentURL(),
-			})
+			hc.recordUnhealthy(ws)
 			return
 		}
 
 		hc.failoverEligibleAt = time.Time{} // Reset for next cycle
 		hc.triggerFailover(ws)
 	} else {
-		// Update status but don't failover yet
-		ws.MarkUnhealthy()
-		if err := hc.db.Save(ws).Error; err != nil {
-			hc.logger.Error().Err(err).Msg("failed to update health status")
-		}
-		// Update health status metric (0=unhealthy)
-		telemetry.WebstreamHealthStatus.WithLabelValues(ws.ID, ws.StationID).Set(0)
-		hc.bus.Publish(events.EventWebstreamHealth, events.Payload{
-			"webstream_id": ws.ID,
-			"station_id":   ws.StationID,
-			"status":       ws.HealthStatus,
-			"url":          ws.GetCurrentURL(),
-		})
+		hc.recordUnhealthy(ws)
 	}
 }
 

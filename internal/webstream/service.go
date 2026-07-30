@@ -44,6 +44,10 @@ type Service struct {
 	// broadcast server exists; nil leaves every URL alone.
 	localURLResolver func(string) string
 
+	// localMountIdle reports that a URL targets one of this instance's own mounts
+	// and that mount has no feed attached right now.
+	localMountIdle func(string) bool
+
 	mu             sync.RWMutex
 	healthCheckers map[string]*HealthChecker // webstream_id -> health checker
 	ctx            context.Context
@@ -411,6 +415,7 @@ func (s *Service) startHealthCheckerLocked(id string) {
 
 	checker := NewHealthChecker(id, s.db, s.bus, s.logger)
 	checker.localURLResolver = s.localURLResolver
+	checker.localMountIdle = s.localMountIdle
 	s.healthCheckers[id] = checker
 
 	s.wg.Add(1)
@@ -567,5 +572,17 @@ func (s *Service) SetLocalURLResolver(fn func(string) string) {
 	s.localURLResolver = fn
 	for _, checker := range s.healthCheckers {
 		checker.localURLResolver = fn
+	}
+}
+
+// SetLocalMountIdleFunc installs the predicate that tells the health checkers a
+// URL points at one of this instance's own mounts which currently has no feed.
+// Those are idle, not unhealthy, and are skipped entirely.
+func (s *Service) SetLocalMountIdleFunc(fn func(string) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.localMountIdle = fn
+	for _, checker := range s.healthCheckers {
+		checker.localMountIdle = fn
 	}
 }
