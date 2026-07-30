@@ -546,7 +546,7 @@ function loadConfigToForm() {
     document.getElementById('heroHeight').value = config.hero?.height || 'large';
     document.getElementById('heroShowListen').checked = config.hero?.showListen !== false;
     document.getElementById('heroShowSchedule').checked = config.hero?.showSchedule !== false;
-    document.getElementById('heroShowArchive').checked = config.hero?.showArchive === true;
+    document.getElementById('heroShowArchive').checked = config.hero?.showArchive !== false;
 
     // Content
     document.getElementById('gridColumns').value = config.content?.columns || '3';

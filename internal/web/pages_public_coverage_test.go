@@ -1075,11 +1075,11 @@ func renderLandingHero(t *testing.T, h *Handler) string {
 	return body[start : start+end]
 }
 
-// A config with none of the button keys must render exactly as before: the two
-// original buttons shown, and the newly added Archive button hidden until it is
-// explicitly switched on. Every already-published config on disk looks like
-// this, so getting the defaults wrong would change live pages.
-func TestLandingHeroButtons_DefaultsPreserveExistingPages(t *testing.T) {
+// A config with none of the button keys shows all three. Every already-published
+// config on disk looks like this, so Browse Archive appears on existing landing
+// pages the moment this deploys, with nobody opting in. That is the intended
+// behaviour and this test is what pins it.
+func TestLandingHeroButtons_AllShownWhenKeysAbsent(t *testing.T) {
 	db := newPublicTestDB(t)
 	h := newLandingTestHandler(t, db)
 	seedPublicStation(t, db, "st1", "Test FM")
@@ -1092,20 +1092,21 @@ func TestLandingHeroButtons_DefaultsPreserveExistingPages(t *testing.T) {
 	if !strings.Contains(hero, `href="/schedule"`) {
 		t.Error("View Schedule must default to shown")
 	}
-	if strings.Contains(hero, `href="/archive"`) {
-		t.Error("Browse Archive must stay hidden until explicitly enabled")
+	if !strings.Contains(hero, `href="/archive"`) {
+		t.Error("Browse Archive must default to shown")
 	}
 }
 
-func TestLandingHeroButtons_ArchiveShownWhenEnabled(t *testing.T) {
+// The only way Browse Archive disappears is an explicit false.
+func TestLandingHeroButtons_ArchiveHiddenOnlyWhenExplicitlyOff(t *testing.T) {
 	db := newPublicTestDB(t)
 	h := newLandingTestHandler(t, db)
 	seedPublicStation(t, db, "st1", "Test FM")
-	seedPlatformLanding(t, db, map[string]any{"showArchive": true})
+	seedPlatformLanding(t, db, map[string]any{"showArchive": false})
 
 	hero := renderLandingHero(t, h)
-	if !strings.Contains(hero, `href="/archive"`) {
-		t.Error("Browse Archive must render when showArchive is true")
+	if strings.Contains(hero, `href="/archive"`) {
+		t.Error("Browse Archive must be hidden when showArchive is explicitly false")
 	}
 }
 
@@ -1121,7 +1122,7 @@ func TestLandingHeroButtons_EachToggleIndependently(t *testing.T) {
 		{"all on", map[string]any{"showListen": true, "showSchedule": true, "showArchive": true}, true, true, true},
 		{"archive only", map[string]any{"showListen": false, "showSchedule": false, "showArchive": true}, false, false, true},
 		{"listen only", map[string]any{"showListen": true, "showSchedule": false, "showArchive": false}, true, false, false},
-		{"schedule hidden, listen default", map[string]any{"showSchedule": false}, true, false, false},
+		{"schedule off, others left at their defaults", map[string]any{"showSchedule": false}, true, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := newPublicTestDB(t)
