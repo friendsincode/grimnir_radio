@@ -205,13 +205,25 @@
             {{if and (ne .Data.Config.hero.showDescription false) .Data.Config.hero.description}}
             <p class="lead mb-4">{{.Data.Config.hero.description}}</p>
             {{end}}
-            <div class="d-flex justify-content-center gap-3">
+            {{/* All three default to shown when the key is absent. Browse Archive
+                 is new, so on the first deploy it appears on every existing
+                 landing page without anyone opting in. That is deliberate. */}}
+            <div class="d-flex justify-content-center gap-3 flex-wrap">
+                {{if ne .Data.Config.hero.showListen false}}
                 <a href="/listen" class="btn btn-light btn-lg">
                     <i class="bi bi-headphones me-2"></i>Listen Now
                 </a>
+                {{end}}
+                {{if ne .Data.Config.hero.showSchedule false}}
                 <a href="/schedule" class="btn btn-outline-light btn-lg">
                     <i class="bi bi-calendar3 me-2"></i>View Schedule
                 </a>
+                {{end}}
+                {{if ne .Data.Config.hero.showArchive false}}
+                <a href="/archive" class="btn btn-outline-light btn-lg">
+                    <i class="bi bi-archive me-2"></i>Browse Archive
+                </a>
+                {{end}}
             </div>
         </div>
     </section>
