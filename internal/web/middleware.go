@@ -19,6 +19,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/friendsincode/grimnir_radio/internal/config"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -558,9 +559,14 @@ func isSecureCookieEnv() bool {
 		return v
 	}
 
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("GRIMNIR_ENV")))
-	if env == "" {
-		env = strings.ToLower(strings.TrimSpace(os.Getenv("RLM_ENV")))
+	// Same key list Load() uses, so the cookie flag cannot disagree with the
+	// environment the rest of the process believes it is running in.
+	var env string
+	for _, k := range config.EnvironmentEnvKeys {
+		if v := strings.ToLower(strings.TrimSpace(os.Getenv(k))); v != "" {
+			env = v
+			break
+		}
 	}
 	return env == "production" || env == "prod"
 }

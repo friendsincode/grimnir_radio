@@ -83,10 +83,20 @@ type Config struct {
 	LegacyEnvWarnings   []string
 }
 
+// EnvironmentEnvKeys are the variable names that select the deployment
+// environment, in precedence order. GRIMNIR_ENV is canonical; the _ENVIRONMENT
+// spellings are accepted because prod was found running with
+// GRIMNIR_ENVIRONMENT=production set and silently falling back to
+// "development", which turned on debug logging (roughly 250MB of container log
+// every 3.5 hours, so rotation kept under four hours of history) and left
+// session cookies without the Secure flag. A name this easy to get wrong should
+// not fail silently.
+var EnvironmentEnvKeys = []string{"GRIMNIR_ENV", "RLM_ENV", "GRIMNIR_ENVIRONMENT", "RLM_ENVIRONMENT"}
+
 // Load reads environment variables, applies defaults, and validates the result.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Environment:        getEnvAny([]string{"GRIMNIR_ENV", "RLM_ENV"}, "development"),
+		Environment:        getEnvAny(EnvironmentEnvKeys, "development"),
 		HTTPBind:           getEnvAny([]string{"GRIMNIR_HTTP_BIND", "RLM_HTTP_BIND"}, "0.0.0.0"),
 		HTTPPort:           getEnvIntAny([]string{"GRIMNIR_HTTP_PORT", "RLM_HTTP_PORT"}, 8080),
 		BaseURL:            getEnvAny([]string{"GRIMNIR_BASE_URL", "RLM_BASE_URL"}, ""),

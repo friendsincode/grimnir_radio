@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/friendsincode/grimnir_radio/internal/config"
 )
 
 func TestIsSecureCookieEnv_ProductionDefaultsSecure(t *testing.T) {
@@ -113,5 +115,24 @@ func TestAuthMiddleware_InvalidCookieUsesSecureClearingAttributes(t *testing.T) 
 	}
 	if !strings.Contains(joined, "HttpOnly") || !strings.Contains(joined, "Secure") || !strings.Contains(joined, "SameSite=Lax") {
 		t.Fatalf("expected HttpOnly+Secure+SameSite=Lax on clearing cookie, got %q", joined)
+	}
+}
+
+// The exact prod misconfiguration: GRIMNIR_ENVIRONMENT=production set,
+// GRIMNIR_ENV unset. Before the shared key list this returned false and prod
+// issued session cookies without Secure.
+func TestIsSecureCookieEnv_AcceptsEnvironmentSpellings(t *testing.T) {
+	for _, key := range []string{"GRIMNIR_ENV", "RLM_ENV", "GRIMNIR_ENVIRONMENT", "RLM_ENVIRONMENT"} {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv("GRIMNIR_COOKIE_SECURE", "")
+			t.Setenv("RLM_COOKIE_SECURE", "")
+			for _, k := range config.EnvironmentEnvKeys {
+				t.Setenv(k, "")
+			}
+			t.Setenv(key, "production")
+			if !isSecureCookieEnv() {
+				t.Fatalf("%s=production did not yield secure cookies", key)
+			}
+		})
 	}
 }

@@ -8,6 +8,8 @@ package db
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/friendsincode/grimnir_radio/internal/config"
@@ -17,6 +19,20 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+// gormStdLogger writes gorm's output to stdout, where the container log
+// collector reads it, matching where gorm's own default writer sends it.
+var gormStdLogger = log.New(os.Stdout, "", log.LstdFlags)
+
+// gormLogWriter satisfies gorm's logger.Writer. It exists to drop the "\r\n"
+// prefix gorm's default writer carries, which emitted a blank line ahead of
+// every gorm message: 75,090 of the 930,783 lines in the 2026-08-11 prod
+// capture were those blanks.
+type gormLogWriter struct{}
+
+func (gormLogWriter) Printf(format string, args ...any) {
+	gormStdLogger.Printf(format, args...)
+}
 
 // Connect establishes a gorm DB connection for the configured backend.
 func Connect(cfg *config.Config) (*gorm.DB, error) {
@@ -37,7 +53,20 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 		// Warn level: logs slow queries and errors only.
 		// Info would log every SQL statement, generating ~500K lines/day in
 		// production and evicting useful log entries from Docker's ring buffer.
-		Logger: logger.Default.LogMode(logger.Warn),
+		//
+		// Warn alone was not enough. gorm treats ErrRecordNotFound as an error
+		// and logs it regardless of level unless told otherwise, and a miss is
+		// normal here: the live-session lookup polls for a row that usually does
+		// not exist. In a 3.5h prod capture (2026-08-11) that one query wrote
+		// 104,492 of 930,783 lines, a "record not found" plus the full SELECT
+		// every time, at about four per second. Slow queries and real errors are
+		// still logged.
+		Logger: logger.New(gormLogWriter{}, logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		}),
 	}
 
 	db, err := gorm.Open(dialector, gormConfig)
