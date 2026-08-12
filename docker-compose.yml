@@ -124,7 +124,10 @@ services:
       GRIMNIR_OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
       GRIMNIR_TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-0.1}
 
-      # Environment
+      # Environment. GRIMNIR_ENV is the name the loader looks for first;
+      # GRIMNIR_ENVIRONMENT stays so an older image on this compose file keeps
+      # whatever it was already reading.
+      GRIMNIR_ENV: ${ENVIRONMENT:-production}
       GRIMNIR_ENVIRONMENT: ${ENVIRONMENT:-production}
       GRIMNIR_LOG_LEVEL: ${LOG_LEVEL:-info}
     # Ports defined in docker-compose.override.yml to avoid merge conflicts
@@ -140,6 +143,15 @@ services:
     networks:
       - grimnir-network
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        # The daemon default on prod (50m x 5) held 3.5 hours of this
+        # container, so the 2026-08-11 drop investigation had nothing from
+        # before mid-afternoon. 200m x 5 is about a day at the current line
+        # rate. Override with LOG_MAX_SIZE / LOG_MAX_FILE on a small disk.
+        max-size: ${LOG_MAX_SIZE:-200m}
+        max-file: ${LOG_MAX_FILE:-5}
 
 volumes:
   postgres-data:

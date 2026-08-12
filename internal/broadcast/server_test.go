@@ -365,3 +365,54 @@ func TestClassifyWriteErr(t *testing.T) {
 		}
 	})
 }
+
+// The per-client fan-out channel has to be deep enough in *time*, not just in
+// chunks. A chunk is one partial read off the encoder pipe, measured at 418
+// bytes on prod (2026-08-11, n=20,000 across four mounts, ~38/s at 128kbps),
+// so the old depth of 256 was 6.7 seconds and mobile clients that stalled
+// longer than that got gapped audio and were then dropped. This pins the depth
+// a real connection gets from ServeHTTP, and the seconds it buys.
+func TestMount_ClientChannelDepthCoversMobileStall(t *testing.T) {
+	bus := events.NewBus()
+	m := NewMount("depth", "audio/mpeg", 128, zerolog.Nop(), bus)
+
+	srv := httptest.NewServer(http.HandlerFunc(m.ServeHTTP))
+	defer srv.Close()
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("GET /live HTTP/1.1\r\nHost: x\r\n\r\n")); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	_, _ = conn.Read(make([]byte, 1024))
+
+	if !waitFor(t, 2*time.Second, func() bool { return m.ConnectionCount() == 1 }) {
+		t.Fatalf("client never registered; ConnectionCount=%d", m.ConnectionCount())
+	}
+
+	m.mu.Lock()
+	var got int
+	for c := range m.clients {
+		got = cap(c.ch)
+	}
+	m.mu.Unlock()
+
+	if got != clientChannelChunks {
+		t.Fatalf("client channel cap = %d, want clientChannelChunks (%d)", got, clientChannelChunks)
+	}
+
+	// The number that actually matters to a listener. Uses the measured chunk
+	// size rather than the channel's byte capacity, because the channel holds
+	// slices whose size is set by the encoder pipe read, not by the channel.
+	const measuredChunkBytes = 418
+	const bytesPerSecond = 128 * 1000 / 8
+	buffered := float64(got*measuredChunkBytes) / float64(bytesPerSecond)
+	if buffered < 20 {
+		t.Fatalf("fan-out buffer holds %.1fs of audio at the measured chunk size; want >=20s "+
+			"so a mobile radio rebuffer does not gap the listener", buffered)
+	}
+}

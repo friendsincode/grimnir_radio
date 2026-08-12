@@ -206,6 +206,11 @@ func mp3SilenceFrame(contentType string, bitrateKbps int) []byte {
 // pulling real audio for real time.
 const establishSeconds = 10
 
+// clientChannelChunks is the per-client fan-out channel depth, in chunks. See
+// the sizing note at the make(chan) call in serveClient for why 1024 and what
+// it buys in seconds.
+const clientChannelChunks = 1024
+
 // establishThresholdBytes converts establishSeconds to a byte count at this
 // mount's bitrate (kbps). Zero/unset bitrate assumes 128.
 func (m *Mount) establishThresholdBytes() int {
@@ -628,10 +633,22 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
-	// Create client with larger buffer for stability
-	// 256 chunks * ~4KB = ~1MB buffer, helps prevent drops during network hiccups
+	// Create client with a buffer deep enough to ride out a mobile radio stall.
+	//
+	// Depth is in chunks, but what protects a listener is the *time* those chunks
+	// represent, and a chunk is one partial read off the encoder pipe rather than
+	// a fixed block. Measured on prod 2026-08-11 across four mounts (n=20,000
+	// each): 418 bytes per chunk, ~38/s at 128 kbps. The old depth of 256 was
+	// commented as "~4KB per chunk = ~1MB", which overstated it by ~10x: it was
+	// really 107KB, or 6.7 seconds of audio. Mobile clients (iOS AppleCoreMedia,
+	// Android Chrome) routinely stall reads for longer than that while their
+	// radio rebuffers, so they were being gapped and then dropped.
+	//
+	// 1024 chunks is ~428KB, ~27 seconds at the measured chunk size. Sized in
+	// chunks, not bytes, because Broadcast's select-default skip works on channel
+	// slots; see the skip counter on client.skipped.
 	c := &client{
-		ch:         make(chan []byte, 256),
+		ch:         make(chan []byte, clientChannelChunks),
 		done:       make(chan struct{}),
 		remoteAddr: clientAddr(r),
 		userAgent:  r.UserAgent(),
