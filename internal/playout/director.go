@@ -2839,11 +2839,8 @@ func (d *Director) startWebstreamByID(ctx context.Context, entry models.Schedule
 func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, extraPayload map[string]any) error {
 	resume := d.computePlaybackResume(entry, media, extraPayload)
 
-	// Close out the previous track's play history with its actual end time and position.
-	var prevState models.MountPlayoutState
-	if err := d.db.WithContext(ctx).First(&prevState, "mount_id = ? AND station_id = ?", entry.MountID, entry.StationID).Error; err == nil && prevState.MediaID != "" {
-		d.closeCurrentPlayHistory(ctx, entry.StationID, entry.MountID, prevState.TrackPositionMS)
-	}
+	// Close out the previous track's play history with its actual end time.
+	d.closePreviousPlay(ctx, entry.StationID, entry.MountID)
 
 	// Check for interrupted play resume; overrides schedule-based resume for non-crossfade path.
 	var resumeOffsetMS int64
@@ -3067,11 +3064,8 @@ func (d *Director) playMedia(ctx context.Context, entry models.ScheduleEntry, me
 func (d *Director) playMediaWithState(ctx context.Context, entry models.ScheduleEntry, media models.MediaItem, sourceType, sourceID string, position int, items []string, extraPayload map[string]any) error {
 	resume := d.computePlaybackResume(entry, media, extraPayload)
 
-	// Close out the previous track's play history with its actual end time and position.
-	var prevState models.MountPlayoutState
-	if err := d.db.WithContext(ctx).First(&prevState, "mount_id = ? AND station_id = ?", entry.MountID, entry.StationID).Error; err == nil && prevState.MediaID != "" {
-		d.closeCurrentPlayHistory(ctx, entry.StationID, entry.MountID, prevState.TrackPositionMS)
-	}
+	// Close out the previous track's play history with its actual end time.
+	d.closePreviousPlay(ctx, entry.StationID, entry.MountID)
 
 	// Check for interrupted play resume; overrides schedule-based resume for non-crossfade path.
 	var resumeOffsetMS int64
@@ -4343,6 +4337,30 @@ func (d *Director) recordPlayHistory(entry models.ScheduleEntry, extra map[strin
 	if err := tx.Create(&history).Error; err != nil {
 		d.logger.Warn().Err(err).Msg("failed to record play history")
 	}
+}
+
+// closePreviousPlay closes the mount's open play-history row before a new track
+// starts, so its end time reflects what actually aired.
+//
+// The MountPlayoutState lookup used to gate the close: no state row meant no
+// close. That is rarer than it looks. On prod 2026-08-12 only 3 of 39 mounts had
+// a state row, so 36 mounts never closed a history row and every play kept the
+// full-length end time that recordPlayHistory projects when a track starts. 1 of
+// 3,212 plays in 24h was marked interrupted. That is why a show cut off after
+// twelve seconds still reported as a complete hour, which misleads the operator's
+// reports and the separation rules that read this history back when picking what
+// to play next.
+//
+// The state row only supplies cut_offset_ms, a resume nicety, so its absence
+// must not stop the end time being corrected. Position falls back to 0.
+func (d *Director) closePreviousPlay(ctx context.Context, stationID, mountID string) {
+	var prevState models.MountPlayoutState
+	var positionMS int64
+	if err := d.db.WithContext(ctx).
+		First(&prevState, "mount_id = ? AND station_id = ?", mountID, stationID).Error; err == nil {
+		positionMS = prevState.TrackPositionMS
+	}
+	d.closeCurrentPlayHistory(ctx, stationID, mountID, positionMS)
 }
 
 // closeCurrentPlayHistory finds the currently-playing history row for the mount and marks it as
