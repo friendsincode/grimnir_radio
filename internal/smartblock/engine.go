@@ -45,6 +45,12 @@ type GenerateRequest struct {
 	StationID    string
 	MountID      string
 	LoopToFill   bool // repeat tracks to reach target duration when candidates are exhausted
+	// MinTailSlotMS is the least airtime a track may be clamped down to when it
+	// overruns the end of the block. A track that cannot get at least this much
+	// is left out, so the residue goes to tailFillBumpers rather than airing a
+	// few seconds of a long show. Zero disables the floor and restores the
+	// always-clamp behaviour.
+	MinTailSlotMS int64
 }
 
 // SequenceItem is a planned track with cue data.
@@ -121,7 +127,7 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 		loopToFill := req.LoopToFill || def.LoopToFill
 
 		rng := rand.New(rand.NewSource(req.Seed))
-		result := e.selectSequence(ctx, rng, candidates, relaxed, target, loopToFill)
+		result := e.selectSequence(ctx, rng, candidates, relaxed, target, loopToFill, req.MinTailSlotMS)
 		if len(result.Items) == 0 {
 			continue
 		}
@@ -956,7 +962,7 @@ func deriveEnergy(item models.MediaItem) float64 {
 	return 100
 }
 
-func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates []candidate, def Definition, targetMS int64, loopToFill bool) GenerateResult {
+func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates []candidate, def Definition, targetMS int64, loopToFill bool, minTailSlotMS int64) GenerateResult {
 	remaining := make([]candidate, len(candidates))
 	copy(remaining, candidates)
 
@@ -1047,6 +1053,21 @@ func (e *Engine) selectSequence(ctx context.Context, rng *rand.Rand, candidates 
 		durMS := dur.Milliseconds()
 		endsAtMS := cursor + durMS
 		if endsAtMS > targetMS {
+			// Clamping a track to the slot boundary trades a silence gap for a
+			// hard cut, which is the right trade for a song losing its last few
+			// seconds. It is the wrong trade when the residual time is tiny and
+			// the pool is long-form: prod on 2026-08-12 had 121 entries clamped
+			// this way in a 36h window, every one ending exactly on the hour, 81
+			// of them under a minute, including a 35,537-second reading clamped
+			// into a 0-second slot. To an operator that is the stream playing a
+			// moment of a show and jumping to a promo.
+			//
+			// Below the floor, stop instead. tailFillBumpers runs after this and
+			// fills the residue with tracks that genuinely are short, which is
+			// what belongs in the last few seconds of a block.
+			if minTailSlotMS > 0 && targetMS-cursor < minTailSlotMS {
+				break
+			}
 			endsAtMS = targetMS // clamp to slot boundary; executor hard-cuts
 		}
 

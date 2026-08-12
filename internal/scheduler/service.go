@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,17 +32,56 @@ import (
 
 // Service orchestrates the rolling playout plan.
 type Service struct {
-	db          *gorm.DB
-	planner     *clock.Planner
-	engine      *smartblock.Engine
-	stateStore  *state.Store
-	cache       *cache.Cache
-	logger      zerolog.Logger
-	lookahead   time.Duration
-	warnMu      sync.Mutex
-	warnedKeys  map[string]struct{}
-	mu          sync.Mutex
-	lastCleanup time.Time
+	db         *gorm.DB
+	planner    *clock.Planner
+	engine     *smartblock.Engine
+	stateStore *state.Store
+	cache      *cache.Cache
+	logger     zerolog.Logger
+	lookahead  time.Duration
+	// minTrimmedSlot is the least airtime a smart block item must still receive
+	// after being trimmed to its block boundary; below it the item is skipped
+	// rather than aired as a fragment. See the use site in createSmartBlockEntries.
+	minTrimmedSlot time.Duration
+	warnMu         sync.Mutex
+	warnedKeys     map[string]struct{}
+	mu             sync.Mutex
+	lastCleanup    time.Time
+}
+
+// MinTrimmedSlotEnvKeys name the variable that tunes the floor, in precedence
+// order. Exposed as an environment knob so the threshold can be adjusted on a
+// running station without a rebuild.
+var MinTrimmedSlotEnvKeys = []string{
+	"GRIMNIR_SCHEDULER_MIN_TRIMMED_SLOT_SECONDS",
+	"RLM_SCHEDULER_MIN_TRIMMED_SLOT_SECONDS",
+}
+
+// defaultMinTrimmedSlot is the shipped floor. 60s clears the 81 sub-minute
+// fragments measured on prod on 2026-08-12 while leaving genuine tail trims
+// (a music bed losing its last few seconds at the boundary) alone.
+const defaultMinTrimmedSlot = 60 * time.Second
+
+// resolveMinTrimmedSlot reads the floor from the environment, falling back to
+// the default. A zero or negative value disables the floor and restores the
+// old always-trim behaviour; an unparseable one falls back rather than failing
+// startup, since losing the scheduler over a typo is worse than a wrong floor.
+func resolveMinTrimmedSlot() time.Duration {
+	for _, k := range MinTrimmedSlotEnvKeys {
+		raw := strings.TrimSpace(os.Getenv(k))
+		if raw == "" {
+			continue
+		}
+		secs, err := strconv.Atoi(raw)
+		if err != nil {
+			continue
+		}
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	return defaultMinTrimmedSlot
 }
 
 // New constructs the scheduler service.
@@ -50,13 +90,14 @@ func New(db *gorm.DB, planner *clock.Planner, engine *smartblock.Engine, stateSt
 		lookahead = 24 * time.Hour
 	}
 	return &Service{
-		db:         db,
-		planner:    planner,
-		engine:     engine,
-		stateStore: stateStore,
-		lookahead:  lookahead,
-		logger:     logger,
-		warnedKeys: make(map[string]struct{}),
+		db:             db,
+		planner:        planner,
+		engine:         engine,
+		stateStore:     stateStore,
+		lookahead:      lookahead,
+		minTrimmedSlot: resolveMinTrimmedSlot(),
+		logger:         logger,
+		warnedKeys:     make(map[string]struct{}),
 	}
 }
 
@@ -1069,6 +1110,10 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		StationID:    stationID,
 		MountID:      mountID,
 		LoopToFill:   loopToFill,
+		// The engine clamps an overrunning track to the block boundary, so the
+		// floor has to be enforced there; by the time entries are built below,
+		// the item already ends exactly at the boundary and looks deliberate.
+		MinTailSlotMS: s.minTrimmedSlot.Milliseconds(),
 	})
 
 	// Record smart block materialization duration
@@ -1158,9 +1203,33 @@ func (s *Service) materializeSmartBlock(ctx context.Context, stationID string, p
 		// trim tracks whose tail overflows into the next block.
 		if !plan.EndsAt.IsZero() {
 			if !entry.StartsAt.Before(plan.EndsAt) {
-				continue // starts at or after block end — skip entirely
+				continue // starts at or after block end, skip entirely
 			}
 			if entry.EndsAt.After(plan.EndsAt) {
+				// Trimming to the boundary used to be unconditional, which let an
+				// item that started a second before the block end air for one
+				// second. Measured on prod 2026-08-12: 121 entries in a 36h
+				// window were trimmed, every one of them ending exactly on the
+				// hour, and 81 of those aired under a minute. A 35,537-second
+				// reading was scheduled into a 0-second slot. That is what an
+				// operator sees as "it plays a few seconds of my show then jumps
+				// to a promo".
+				//
+				// So a trimmed item has to still get a worthwhile amount of air.
+				// The floor gates only this branch: an item that fits inside the
+				// block is never affected, so a 20-second bumper still schedules
+				// normally.
+				if remaining := plan.EndsAt.Sub(entry.StartsAt); remaining < s.minTrimmedSlot {
+					s.logger.Info().
+						Str("smart_block", blockID).
+						Str("station", stationID).
+						Str("media", item.MediaID).
+						Dur("remaining", remaining).
+						Dur("floor", s.minTrimmedSlot).
+						Dur("item_length", time.Duration(item.EndsAtMS-item.StartsAtMS)*time.Millisecond).
+						Msg("skipping smart block item: too little time left in block to be worth airing")
+					continue
+				}
 				entry.EndsAt = plan.EndsAt // trim tail to boundary
 			}
 		}
