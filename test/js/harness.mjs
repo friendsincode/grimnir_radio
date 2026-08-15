@@ -12,6 +12,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { mock } from 'node:test';
 import vm from 'node:vm';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -191,6 +192,41 @@ export function loadPlayer({ elements = {} } = {}) {
 
     const player = new sandbox.__GlobalPlayer();
     return { sandbox, player, document: documentStub, window: windowStub, elements: els, dispose };
+}
+
+// Puts the player in the state a listener is in mid-broadcast: live, intending
+// to listen, audio rolling.
+export function goLive(player, { url = 'https://rlmradio.xyz/live/main' } = {}) {
+    player.currentTrack = { url, lqUrl: url + '-lq', title: 'Live', type: 'live' };
+    player.isLive = true;
+    player.wantsLivePlayback = true;
+    player.audio.paused = false;
+    player.audio.readyState = 4;
+    player.audio.currentTime = 10;
+    player.noteLiveProgress();
+}
+
+// node:test's mock timers do NOT run timers scheduled during a tick, and the
+// player chains them (stall timer -> reconnect timer -> retry timer). Advance in
+// small steps, yielding to the microtask queue between them so the promise
+// callbacks that schedule the next timer actually run.
+export async function advance(ms, step = 250) {
+    for (let elapsed = 0; elapsed < ms; elapsed += step) {
+        mock.timers.tick(step);
+        await Promise.resolve();
+        await Promise.resolve();
+    }
+}
+
+export async function withPlayer(fn) {
+    mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+    const ctx = loadPlayer();
+    try {
+        await fn(ctx);
+    } finally {
+        ctx.dispose();
+        mock.timers.reset();
+    }
 }
 
 export { makeElement, FakeAudio };
