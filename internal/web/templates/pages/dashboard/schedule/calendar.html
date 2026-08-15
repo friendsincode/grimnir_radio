@@ -354,7 +354,7 @@
 
 <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h6 class="mb-0"><i class="bi bi-broadcast me-2"></i>Now Playing (IRT)</h6>
+        <h6 class="mb-0"><i class="bi bi-broadcast me-2"></i>Now Playing</h6>
         <button class="btn btn-sm btn-outline-secondary" id="irtRefreshBtn"><i class="bi bi-arrow-clockwise"></i></button>
     </div>
     <div class="card-body py-2">
@@ -858,38 +858,6 @@
                         </button>
                     </div>
                 </div>
-
-                <div class="row g-3 mb-3">
-                    <div class="col-lg-6">
-                        <div class="border rounded p-3 h-100">
-                            <div class="small text-body-secondary mb-2">Current Saved Trust View</div>
-                            <div id="editSavedTrustPanel" class="small text-body-secondary">Loading current resolution...</div>
-                        </div>
-                    </div>
-                    <div class="col-lg-6">
-                        <div class="border rounded p-3 h-100">
-                            <div class="small text-body-secondary mb-2">Before You Save</div>
-                            <div id="editPendingTrustPanel" class="small text-body-secondary">Adjust the entry to compare before saving.</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="border rounded p-3 mb-3">
-                    <div class="small text-body-secondary mb-2">Edit Preflight</div>
-                    <div id="editPreflightPanel" class="small text-body-secondary">Review pending timing, recurrence impact, and overlap risk before saving.</div>
-                </div>
-
-                <!-- Queued tracks for this entry -->
-                <div class="d-none mb-3" id="editQueuedTracks">
-                    <div class="d-flex align-items-center justify-content-between mb-2">
-                        <h6 class="mb-0"><i class="bi bi-music-note-list me-2"></i>Queued Tracks</h6>
-                        <small class="text-body-secondary" id="editTrackSummary"></small>
-                    </div>
-                    <div id="editTrackListContent">
-                        <div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading tracks...</div>
-                    </div>
-                </div>
-
                 <!-- Source selection (hidden by default) -->
                 <div class="d-none" id="editSourceSelection">
                     <div class="mb-3">
@@ -925,9 +893,9 @@
                         </select>
                     </div>
                 </div>
-
                 <hr>
 
+                <h6 class="mb-3"><i class="bi bi-calendar-event me-2"></i>When it airs</h6>
                 <!-- Date Selection -->
                 <div class="row g-3 mb-3">
                     <div class="col-md-6">
@@ -973,7 +941,6 @@
                     <i class="bi bi-clock me-2"></i>
                     <span id="editDurationText">Duration: --</span>
                 </div>
-
                 <!-- Crossfade -->
                 <div class="mb-3">
                     <label class="form-label"><i class="bi bi-music-note-beamed me-1"></i>Crossfade</label>
@@ -1000,7 +967,6 @@
                     </div>
                     <div class="form-text">Crossfade overlaps and fades between items at schedule transitions.</div>
                 </div>
-
                 <hr>
 
                 <!-- Recurrence Options (shown for "all occurrences" mode) -->
@@ -1060,6 +1026,50 @@
                                 <option value="date">On date</option>
                             </select>
                             <input type="date" class="form-control d-none" id="editRecurrenceEndDate" style="width: auto;">
+                        </div>
+                    </div>
+                </div>
+                <!-- Preview and checks: collapsed so the edit fields stay at the top -->
+                <div class="accordion mt-3" id="editPreviewAccordion">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#editPreviewCollapse"
+                                    aria-expanded="false" aria-controls="editPreviewCollapse">
+                                <i class="bi bi-list-check me-2"></i>Preview and checks
+                            </button>
+                        </h2>
+                        <div id="editPreviewCollapse" class="accordion-collapse collapse"
+                             data-bs-parent="#editPreviewAccordion">
+                            <div class="accordion-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="border rounded p-3 h-100">
+                            <div class="small text-body-secondary mb-2">What is scheduled now</div>
+                            <div id="editSavedTrustPanel" class="small text-body-secondary">Loading current resolution...</div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="border rounded p-3 h-100">
+                            <div class="small text-body-secondary mb-2">What changes when you save</div>
+                            <div id="editPendingTrustPanel" class="small text-body-secondary">Adjust the entry to compare before saving.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="border rounded p-3 mb-3">
+                    <div class="small text-body-secondary mb-2">Checks before saving</div>
+                    <div id="editPreflightPanel" class="small text-body-secondary">Timing, recurrence impact and overlap risk are checked here before you save.</div>
+                </div>
+                <div class="d-none mb-3" id="editQueuedTracks">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <h6 class="mb-0"><i class="bi bi-music-note-list me-2"></i>Queued Tracks</h6>
+                        <small class="text-body-secondary" id="editTrackSummary"></small>
+                    </div>
+                    <div id="editTrackListContent">
+                        <div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading tracks...</div>
+                    </div>
+                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2177,7 +2187,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="border-top pt-3 mb-3">
                 <div class="d-flex justify-content-between align-items-start gap-2">
                     <div>
-                        <h6 class="mb-1"><i class="bi bi-search me-2"></i>Operator Readback</h6>
+                        <h6 class="mb-1"><i class="bi bi-search me-2"></i>How this entry resolves</h6>
                         <div class="small text-body-secondary">${escapeHtml(summary.headline || 'Review how this entry resolves before air.')}</div>
                     </div>
                     <span class="badge bg-${state.badge}">${state.label}</span>
@@ -2210,7 +2220,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const sections = Array.isArray(preview.sections) ? preview.sections : [];
         let html = `
             <div class="border-top pt-3 mb-3">
-                <h6 class="mb-1"><i class="bi bi-diagram-3 me-2"></i>Effective Preview</h6>
+                <h6 class="mb-1"><i class="bi bi-diagram-3 me-2"></i>What will play</h6>
                 <div class="small text-body-secondary mb-2">What the system currently expects to play in this time block.</div>`;
 
         if (sections.length === 0) {
@@ -4494,7 +4504,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 openEntryForDetails(pendingDetailsEntryId);
             }
         } catch (err) {
-            nowPlayingEl.innerHTML = '<span class="text-danger">Failed to load IRT state.</span>';
+            nowPlayingEl.innerHTML = '<span class="text-danger">Failed to load current playback.</span>';
         }
     }
 
@@ -4658,7 +4668,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.removeIRTEntry = async function(entryID) {
-        if (!await grimnirConfirm('Remove this scheduled entry from the IRT list?')) return;
+        if (!await grimnirConfirm('Remove this entry from the upcoming playback queue?')) return;
         try {
             const resp = await fetch(`/dashboard/schedule/entries/${entryID}`, { method: 'DELETE' });
             if (!resp.ok) throw new Error('delete_failed');
