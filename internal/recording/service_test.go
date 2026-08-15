@@ -24,6 +24,15 @@ func newSvc(t *testing.T) (*Service, *gorm.DB) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	// A bare ":memory:" DSN gives every pooled connection its own empty
+	// database, so AutoMigrate can land on one connection while a later query
+	// gets handed another and reports "no such table". Pinning the pool to a
+	// single connection keeps the schema and the queries in the same database.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sql db handle: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(&models.Station{}, &models.StationUser{}, &models.Recording{}, &models.RecordingChapter{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
