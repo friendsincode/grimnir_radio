@@ -573,8 +573,8 @@ function derivePossibleCauses(entry) {
     ];
 }
 
-function clearLogs() {
-    if (!confirm('Are you sure you want to clear all logs from the buffer?')) return;
+async function clearLogs() {
+    if (!await grimnirConfirm('Are you sure you want to clear all logs from the buffer?')) return;
 
     fetch('/api/v1/system/logs', {
         method: 'DELETE',

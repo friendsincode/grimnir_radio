@@ -384,10 +384,10 @@ function updateMediaCount() {
 }
 
 // Check if media is duplicate and confirm with user
-function checkDuplicateAndAdd(mediaId, title) {
+async function checkDuplicateAndAdd(mediaId, title) {
     const existingIds = getExistingMediaIds();
     if (existingIds.has(mediaId)) {
-        if (!confirm(`"${title}" is already in this playlist. Add it again?`)) {
+        if (!await grimnirConfirm(`"${title}" is already in this playlist. Add it again?`)) {
             return false;
         }
     }
@@ -395,8 +395,8 @@ function checkDuplicateAndAdd(mediaId, title) {
 }
 
 // Add media to playlist
-function addMediaToPlaylist(mediaId, title) {
-    if (!checkDuplicateAndAdd(mediaId, title)) {
+async function addMediaToPlaylist(mediaId, title) {
+    if (!await checkDuplicateAndAdd(mediaId, title)) {
         return;
     }
 
@@ -417,7 +417,7 @@ function addMediaToPlaylist(mediaId, title) {
             // Reload to show the new track in the playlist
             window.location.reload();
         } else {
-            alert('Failed to add track to playlist');
+            grimnirNotify('Failed to add track to playlist', 'error');
         }
     });
 }
@@ -478,7 +478,7 @@ function addSelectedMediaToPlaylist() {
         if (res.ok) {
             window.location.reload();
         } else {
-            alert('Failed to add selected tracks to playlist');
+            grimnirNotify('Failed to add selected tracks to playlist', 'error');
         }
     });
 }
@@ -605,23 +605,24 @@ function shufflePlaylistNow() {
 // so edits take effect immediately instead of at the next source change.
 // transition "cut" hard-reloads the station (brief restart); "crossfade" bleeds
 // off into the new source using the station's crossfade setting. (#55/#56)
-function requeuePlaylistNow(transition) {
+async function requeuePlaylistNow(transition) {
     const cut = transition !== 'crossfade';
     const msg = cut
         ? "Instant re-queue: hard-cut to your edited playlist now?\n\nThis briefly restarts the stream on any station playing it."
         : "Crossfade re-queue: bleed the current track into your edited playlist now?\n\nUses this station's crossfade setting.";
-    if (!confirm(msg)) return;
+    if (!await grimnirConfirm(msg)) return;
     const btn = document.getElementById('requeuePlaylistBtn');
     if (btn) btn.disabled = true;
     fetch(`/dashboard/playlists/${playlistId}/requeue?transition=${cut ? 'cut' : 'crossfade'}`, { method: 'POST' })
         .then(res => res.ok ? res.json() : Promise.reject(res))
         .then(data => {
             const n = data.requeued || 0;
-            alert(n > 0
+            grimnirNotify(n > 0
                 ? `Re-queued ${n} ${n === 1 ? 'target' : 'targets'} now playing this playlist (${data.transition}).`
-                : 'This playlist is not currently on air — nothing to re-queue.');
+                : 'This playlist is not currently on air, so there was nothing to re-queue.',
+                n > 0 ? 'success' : 'info');
         })
-        .catch(() => alert('Failed to re-queue. Please try again.'))
+        .catch(() => grimnirNotify('Failed to re-queue. Please try again.', 'error'))
         .finally(() => { if (btn) btn.disabled = false; });
 }
 
@@ -638,7 +639,7 @@ function saveOrder() {
         body: JSON.stringify(order)
     }).then(res => {
         if (!res.ok) {
-            alert('Failed to save order. Please refresh the page.');
+            grimnirNotify('Failed to save order. Please refresh the page.', 'error');
         }
     });
 }
@@ -968,10 +969,10 @@ document.getElementById('selectAllItems')?.addEventListener('change', function (
     updateRemoveSelected();
 });
 
-function removeSelectedItems() {
+async function removeSelectedItems() {
     const ids = selectedItemIDs();
     if (ids.length === 0) return;
-    if (!confirm('Remove ' + ids.length + ' track(s) from this playlist? The files stay in the media library.')) return;
+    if (!await grimnirConfirm('Remove ' + ids.length + ' track(s) from this playlist? The files stay in the media library.')) return;
     fetch(`/dashboard/playlists/${playlistId}/items/bulk-remove`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -979,7 +980,7 @@ function removeSelectedItems() {
     }).then(resp => {
         if (!resp.ok) throw new Error('remove failed: ' + resp.status);
         window.location.reload();
-    }).catch(err => alert('Failed to remove tracks: ' + err.message));
+    }).catch(err => grimnirNotifyError(err, 'Failed to remove tracks'));
 }
 </script>
 

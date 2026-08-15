@@ -883,9 +883,9 @@ function deselectWidget() {
     updateAddedWidgetsList();
 }
 
-function deleteSelectedWidget() {
+async function deleteSelectedWidget() {
     if (!selectedWidget) return;
-    if (!confirm('Remove this widget?')) return;
+    if (!await grimnirConfirm('Remove this widget?')) return;
 
     const widgets = config.content?.widgets || [];
     const index = widgets.findIndex(w => w.id === selectedWidget);
@@ -1124,8 +1124,8 @@ async function uploadLogo(input) {
     }
 }
 
-function removeLogo() {
-    if (!confirm('Remove the platform logo?')) return;
+async function removeLogo() {
+    if (!await grimnirConfirm('Remove the platform logo?')) return;
 
     config.header = config.header || {};
     delete config.header.logoUrl;
@@ -1189,7 +1189,7 @@ window.saveDraft = async function(silent = false) {
 };
 
 window.publishPage = async function() {
-    if (!confirm('Publish the platform landing page? It will be visible to all visitors.')) return;
+    if (!await grimnirConfirm('Publish the platform landing page? It will be visible to all visitors.')) return;
 
     try {
         await saveDraft(true);
@@ -1213,7 +1213,7 @@ window.publishPage = async function() {
 };
 
 window.discardDraft = async function() {
-    if (!confirm('Discard all changes and revert to published version?')) return;
+    if (!await grimnirConfirm('Discard all changes and revert to published version?')) return;
 
     try {
         const response = await fetch('/dashboard/admin/landing-page/discard', {

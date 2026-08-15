@@ -188,10 +188,11 @@
                 <form method="POST" action="/dashboard/profile/logout-all-devices"
                       hx-post="/dashboard/profile/logout-all-devices"
                       hx-target="#logoutAllResult"
-                      hx-swap="innerHTML">
+                      hx-swap="innerHTML"
+                      hx-confirm="This will log you out of all other browsers and devices. Continue?"
+                      data-confirm-label="Log out everywhere">
                     <input type="hidden" name="grimnir_csrf" value="{{.CSRFToken}}">
-                    <button type="submit" class="btn btn-outline-danger"
-                            onclick="return confirm('This will log you out of all other browsers and devices. Continue?')">
+                    <button type="submit" class="btn btn-outline-danger">
                         <i class="bi bi-box-arrow-right me-1"></i>Log Out All Other Devices
                     </button>
                 </form>

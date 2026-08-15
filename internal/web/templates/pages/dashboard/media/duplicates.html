@@ -81,7 +81,7 @@
     <div class="tab-pane fade show active" id="hash-pane" role="tabpanel">
         {{if gt $data.HashGroupCount 0}}
         <form method="post" action="/dashboard/media/duplicates/purge"
-              onsubmit="return confirm('Delete selected duplicate files? References (playlists, schedules) will be removed. This cannot be undone.')">
+              data-confirm="Delete selected duplicate files? References in playlists and schedules will be removed. This cannot be undone." data-confirm-label="Delete duplicates">
             <div class="card mb-3">
                 <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <div class="d-flex align-items-center gap-2">
@@ -179,7 +179,7 @@
     <div class="tab-pane fade" id="meta-pane" role="tabpanel">
         {{if gt $data.MetaGroupCount 0}}
         <form method="post" action="/dashboard/media/duplicates/purge"
-              onsubmit="return confirm('Delete selected duplicate files? References (playlists, schedules) will be removed. This cannot be undone.')">
+              data-confirm="Delete selected duplicate files? References in playlists and schedules will be removed. This cannot be undone." data-confirm-label="Delete duplicates">
             <div class="card mb-3">
                 <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <div class="d-flex align-items-center gap-2">

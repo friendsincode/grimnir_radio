@@ -3562,7 +3562,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    function deleteEvent(event) {
+    async function deleteEvent(event) {
         const isRecurring = event.extendedProps && event.extendedProps.recurrence && event.extendedProps.recurrence.type;
         if (isRecurring) {
             // Ask for scope: this occurrence (an EXDATE that sticks), this and
@@ -3576,7 +3576,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             return;
         }
-        if (!confirm('Delete this schedule entry?')) return;
+        if (!await grimnirConfirm('Delete this schedule entry?')) return;
         performDelete(event, false, null);
     }
 
@@ -4014,9 +4014,9 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('editCrossfadeOverride')?.addEventListener('change', updateEditCrossfadeUI);
 
     // Delete from edit modal
-    document.getElementById('editDeleteBtn')?.addEventListener('click', function() {
+    document.getElementById('editDeleteBtn')?.addEventListener('click', async function() {
         const entryId = document.getElementById('editEntryId').value;
-        if (!confirm('Delete this schedule entry?')) return;
+        if (!await grimnirConfirm('Delete this schedule entry?')) return;
 
         fetch(`/dashboard/schedule/entries/${entryId}`, {
             method: 'DELETE'
@@ -4200,11 +4200,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Cancel a show instance
-    function cancelShowInstance(event) {
+    async function cancelShowInstance(event) {
         const props = event.extendedProps;
         const instanceId = props.instance_id;
 
-        if (!confirm('Cancel this show instance?')) return;
+        if (!await grimnirConfirm('Cancel this show instance?')) return;
 
         fetch(`/dashboard/shows/instances/${instanceId}`, {
             method: 'DELETE'
@@ -4658,7 +4658,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.removeIRTEntry = async function(entryID) {
-        if (!confirm('Remove this scheduled entry from the IRT list?')) return;
+        if (!await grimnirConfirm('Remove this scheduled entry from the IRT list?')) return;
         try {
             const resp = await fetch(`/dashboard/schedule/entries/${entryID}`, { method: 'DELETE' });
             if (!resp.ok) throw new Error('delete_failed');
@@ -4852,7 +4852,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Delete template
     document.getElementById('deleteTemplateBtn')?.addEventListener('click', async function() {
         if (!selectedTemplateId) return;
-        if (!confirm('Delete this template?')) return;
+        if (!await grimnirConfirm('Delete this template?')) return;
 
         try {
             const response = await fetch(`/api/v1/schedule-templates/${selectedTemplateId}`, {
@@ -4985,7 +4985,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Restore version
     document.getElementById('restoreVersionBtn')?.addEventListener('click', async function() {
         if (!selectedVersionId) return;
-        if (!confirm('Restore to this version? This will replace current schedule entries.')) return;
+        if (!await grimnirConfirm('Restore to this version? This will replace current schedule entries.')) return;
 
         try {
             const response = await fetch(`/api/v1/schedule/versions/${selectedVersionId}/restore`, {

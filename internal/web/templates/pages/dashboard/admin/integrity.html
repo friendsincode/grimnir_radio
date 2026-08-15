@@ -135,10 +135,10 @@ function renderFindings() {
     `).join('');
 }
 
-function repairFinding(idx) {
+async function repairFinding(idx) {
     const finding = findings[idx];
     if (!finding) return;
-    if (!confirm(`Run repair for ${finding.type}?`)) return;
+    if (!await grimnirConfirm(`Run repair for ${finding.type}?`)) return;
 
     fetch('/api/v1/integrity/repair', {
         method: 'POST',

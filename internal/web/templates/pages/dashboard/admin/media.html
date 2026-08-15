@@ -401,7 +401,7 @@ function showSingleMoveModal(id, title) {
 function confirmMove() {
     const targetStation = document.getElementById('targetStation').value;
     if (!targetStation) {
-        alert('Please select a target station');
+        grimnirNotify('Please select a target station', 'warning');
         return;
     }
 
@@ -425,7 +425,7 @@ function confirmMove() {
     }
 }
 
-function bulkAction(action, value) {
+async function bulkAction(action, value) {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
 
@@ -437,7 +437,7 @@ function bulkAction(action, value) {
         case 'delete': message = `DELETE ${ids.length} item(s)? This cannot be undone!`; break;
     }
 
-    if (action !== 'move_to_station' && !confirm(message)) return;
+    if (action !== 'move_to_station' && !await grimnirConfirm(message)) return;
 
     const body = { action: action, ids: ids };
     if (value) body.value = value;
@@ -452,10 +452,10 @@ function bulkAction(action, value) {
     }).then(response => {
         if (response.ok) {
             window.location.reload();
-        } else {
-            response.text().then(text => alert('Error: ' + text));
+            return;
         }
-    }).catch(err => alert('Error: ' + err));
+        grimnirNotifyError(response, 'Bulk action failed');
+    }).catch(err => grimnirNotifyError(err, 'Bulk action failed'));
 }
 </script>
 {{end}}
