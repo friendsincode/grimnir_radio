@@ -815,7 +815,7 @@
 
     // Publish
     window.publishPage = async function() {
-        if (!confirm('Publish this landing page? It will be visible to visitors.')) return;
+        if (!await grimnirConfirm('Publish this landing page? It will be visible to visitors.')) return;
 
         try {
             // Save first
@@ -841,7 +841,7 @@
 
     // Discard draft
     window.discardDraft = async function() {
-        if (!confirm('Discard all changes and revert to published version?')) return;
+        if (!await grimnirConfirm('Discard all changes and revert to published version?')) return;
 
         try {
             const response = await fetch('/dashboard/station/landing-page/discard', {
@@ -951,9 +951,9 @@
     };
 
     // Delete selected widget
-    window.deleteSelectedWidget = function() {
+    window.deleteSelectedWidget = async function() {
         if (!selectedWidget) return;
-        if (!confirm('Remove this widget?')) return;
+        if (!await grimnirConfirm('Remove this widget?')) return;
 
         const widgets = config.content?.widgets || [];
         const index = widgets.findIndex(w => w.id === selectedWidget);

@@ -83,7 +83,7 @@
                 {{end}}
                 {{if ne $rec.Status "active"}}
                 <form method="POST" action="/dashboard/recordings/{{$rec.ID}}/delete" class="d-inline"
-                      onsubmit="return confirm('Delete this recording permanently?')">
+                      data-confirm="Delete this recording permanently? This cannot be undone." data-confirm-label="Delete recording">
                     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                     <button type="submit" class="btn btn-outline-danger">
                         <i class="bi bi-trash me-1"></i>Delete

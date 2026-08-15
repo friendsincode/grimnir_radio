@@ -363,21 +363,21 @@ function getSelectedOrphanIds() {
     return ids;
 }
 
-function bulkAdopt() {
+async function bulkAdopt() {
     var ids = getSelectedOrphanIds();
     if (!_selectAllFlag && ids.length === 0) {
-        alert('Please select at least one orphan');
+        grimnirNotify('Please select at least one orphan', 'warning');
         return;
     }
 
     var stationId = document.getElementById('bulk-station').value;
     if (!stationId) {
-        alert('Please select a station');
+        grimnirNotify('Please select a station', 'warning');
         return;
     }
 
     var count = _selectAllFlag ? {{ .Data.Total }} : ids.length;
-    if (!confirm('Adopt ' + count + ' selected orphan(s) to the chosen station?')) {
+    if (!await grimnirConfirm('Adopt ' + count + ' selected orphan(s) to the chosen station?')) {
         return;
     }
 
@@ -399,16 +399,16 @@ function bulkAdopt() {
     hideBanners();
 }
 
-function bulkDelete(deleteFiles) {
+async function bulkDelete(deleteFiles) {
     var ids = getSelectedOrphanIds();
     if (!_selectAllFlag && ids.length === 0) {
-        alert('Please select at least one orphan');
+        grimnirNotify('Please select at least one orphan', 'warning');
         return;
     }
 
     var count = _selectAllFlag ? {{ .Data.Total }} : ids.length;
     var action = deleteFiles ? 'delete ' + count + ' file(s) from disk' : 'remove ' + count + ' record(s)';
-    if (!confirm('Are you sure you want to ' + action + '?')) {
+    if (!await grimnirConfirm('Are you sure you want to ' + action + '?')) {
         return;
     }
 

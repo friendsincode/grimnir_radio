@@ -139,7 +139,7 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
-	router.Use(middleware.Logger)
+	router.Use(requestLogger())
 	router.Use(middleware.Recoverer)
 	router.Use(securityHeadersMiddleware)
 	router.Use(telemetry.TracingMiddleware("grimnir-radio-api")) // Add OpenTelemetry tracing

@@ -482,35 +482,40 @@ function promptGenre() {
     }
 }
 
-function bulkAction(action, value) {
+async function bulkAction(action, value) {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
 
     let message = '';
+    let confirmLabel = 'Apply';
     switch(action) {
-        case 'set_genre': message = `Set genre to "${value}" for ${ids.length} track(s)?`; break;
-        case 'toggle_explicit': message = `Toggle explicit flag for ${ids.length} track(s)?`; break;
-        case 'add_to_playlist': message = `Add ${ids.length} track(s) to playlist?`; break;
-        case 'delete': message = `DELETE ${ids.length} track(s)? This cannot be undone!`; break;
+        case 'set_genre': message = `Set genre to "${value}" for ${ids.length} track(s)?`; confirmLabel = 'Set genre'; break;
+        case 'toggle_explicit': message = `Toggle explicit flag for ${ids.length} track(s)?`; confirmLabel = 'Toggle'; break;
+        case 'add_to_playlist': message = `Add ${ids.length} track(s) to playlist?`; confirmLabel = 'Add'; break;
+        case 'delete': message = `Delete ${ids.length} track(s)? This cannot be undone.`; confirmLabel = 'Delete tracks'; break;
         default: message = `Apply action to ${ids.length} track(s)?`;
     }
 
-    if (!confirm(message)) return;
+    if (!await grimnirConfirm({ message, confirmLabel })) return;
 
-    fetch('/dashboard/media/bulk', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'HX-Request': 'true'
-        },
-        body: JSON.stringify({ action: action, ids: ids, value: value || '' })
-    }).then(response => {
+    try {
+        const response = await fetch('/dashboard/media/bulk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'HX-Request': 'true'
+            },
+            body: JSON.stringify({ action: action, ids: ids, value: value || '' })
+        });
+
         if (response.ok) {
             window.location.reload();
-        } else {
-            response.text().then(text => alert('Error: ' + text));
+            return;
         }
-    }).catch(err => alert('Error: ' + err));
+        await grimnirNotifyError(response, 'Bulk action failed');
+    } catch (err) {
+        await grimnirNotifyError(err, 'Bulk action failed');
+    }
 }
 
 // ==================== VIEW TOGGLE ====================

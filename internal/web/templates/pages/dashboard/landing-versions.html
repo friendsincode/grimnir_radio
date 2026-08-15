@@ -92,7 +92,7 @@
 
 <script>
 async function restoreVersion(versionId, versionNumber) {
-    if (!confirm(`Restore to version ${versionNumber}? This will replace the current published configuration.`)) {
+    if (!await grimnirConfirm(`Restore to version ${versionNumber}? This will replace the current published configuration.`)) {
         return;
     }
 
@@ -102,15 +102,15 @@ async function restoreVersion(versionId, versionNumber) {
         });
 
         if (response.ok) {
-            alert('Version restored successfully!');
+            grimnirNotify('Version restored', 'success');
             window.location.href = '/dashboard/station/landing-page/editor';
         } else {
             const data = await response.json();
-            alert('Failed to restore version: ' + (data.error || 'Unknown error'));
+            grimnirNotify('Failed to restore version: ' + (data.error || 'Unknown error'), 'error');
         }
     } catch (error) {
         console.error('Restore error:', error);
-        alert('Failed to restore version');
+        grimnirNotify('Failed to restore version', 'error');
     }
 }
 </script>

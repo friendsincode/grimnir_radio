@@ -491,7 +491,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Cancel own request
     document.querySelectorAll('.cancel-request-btn').forEach(btn => {
         btn.addEventListener('click', async function() {
-            if (!confirm('Cancel this request?')) return;
+            if (!await grimnirConfirm('Cancel this request?')) return;
 
             try {
                 const response = await fetch(`/api/v1/schedule-requests/${this.dataset.id}`, {

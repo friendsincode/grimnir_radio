@@ -259,32 +259,36 @@ function clearSelection() {
     updateSelection();
 }
 
-function bulkAction(action) {
+async function bulkAction(action) {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
 
     let message = '';
     switch(action) {
-        case 'delete': message = `DELETE ${ids.length} playlist(s) and ALL tracks inside them? This cannot be undone!`; break;
+        case 'delete': message = `Delete ${ids.length} playlist(s) and all tracks inside them? This cannot be undone.`; break;
         default: message = `Apply action to ${ids.length} playlist(s)?`;
     }
 
-    if (!confirm(message)) return;
+    if (!await grimnirConfirm({ message, confirmLabel: action === 'delete' ? 'Delete playlists' : 'Apply' })) return;
 
-    fetch('/dashboard/playlists/bulk', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'HX-Request': 'true'
-        },
-        body: JSON.stringify({ action: action, ids: ids })
-    }).then(response => {
+    try {
+        const response = await fetch('/dashboard/playlists/bulk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'HX-Request': 'true'
+            },
+            body: JSON.stringify({ action: action, ids: ids })
+        });
+
         if (response.ok) {
             window.location.reload();
-        } else {
-            response.text().then(text => alert('Error: ' + text));
+            return;
         }
-    }).catch(err => alert('Error: ' + err));
+        await grimnirNotifyError(response, 'Bulk action failed');
+    } catch (err) {
+        await grimnirNotifyError(err, 'Bulk action failed');
+    }
 }
 </script>
 

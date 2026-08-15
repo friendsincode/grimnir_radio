@@ -10,43 +10,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mock } from 'node:test';
-import { loadPlayer } from './harness.mjs';
-
-// Puts the player in the state a listener is in mid-broadcast: live, intending
-// to listen, audio rolling.
-function goLive(player, { url = 'https://rlmradio.xyz/live/main' } = {}) {
-    player.currentTrack = { url, lqUrl: url + '-lq', title: 'Live', type: 'live' };
-    player.isLive = true;
-    player.wantsLivePlayback = true;
-    player.audio.paused = false;
-    player.audio.readyState = 4;
-    player.audio.currentTime = 10;
-    player.noteLiveProgress();
-}
-
-// node:test's mock timers do NOT run timers scheduled during a tick, and the
-// player chains them (stall timer -> reconnect timer -> retry timer). Advance in
-// small steps, yielding to the microtask queue between them so the promise
-// callbacks that schedule the next timer actually run.
-async function advance(ms, step = 250) {
-    for (let elapsed = 0; elapsed < ms; elapsed += step) {
-        mock.timers.tick(step);
-        await Promise.resolve();
-        await Promise.resolve();
-    }
-}
-
-async function withPlayer(fn) {
-    mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
-    const ctx = loadPlayer();
-    try {
-        await fn(ctx);
-    } finally {
-        ctx.dispose();
-        mock.timers.reset();
-    }
-}
+import { advance, goLive, withPlayer } from './harness.mjs';
 
 // ---------------------------------------------------------------------------
 // intent

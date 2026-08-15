@@ -54,7 +54,8 @@
       {{else}}
       hx-put="/dashboard/clocks/{{$clock.ID}}"
       {{end}}
-      hx-swap="none">
+      hx-swap="none"
+      data-dirty-guard>
 
     <div class="row g-4">
         <!-- Clock Settings -->
@@ -392,7 +393,7 @@
 
         if (type === 'smart_block') {
             if (!newSmartBlockId.value) {
-                alert('Please select a smart block');
+                grimnirNotify('Please select a smart block', 'warning');
                 return;
             }
             payload.smart_block_id = newSmartBlockId.value;
@@ -402,13 +403,13 @@
         } else if (type === 'playlist') {
             const playlistId = document.getElementById('newPlaylistId').value;
             if (!playlistId) {
-                alert('Please select a playlist');
+                grimnirNotify('Please select a playlist', 'warning');
                 return;
             }
             payload.playlist_id = playlistId;
         } else if (type === 'webstream') {
             if (!newWebstreamId.value) {
-                alert('Please select a webstream');
+                grimnirNotify('Please select a webstream', 'warning');
                 return;
             }
             payload.webstream_id = newWebstreamId.value;
@@ -597,9 +598,9 @@
     }
 
     slotFilter.addEventListener('input', renderSlots);
-    clearSlotsBtn.addEventListener('click', function() {
+    clearSlotsBtn.addEventListener('click', async function() {
         if (!slots.length) return;
-        if (!confirm('Remove all slots from this clock template?')) return;
+        if (!await grimnirConfirm('Remove all slots from this clock template?')) return;
         slots = [];
         renderSlots();
     });

@@ -282,8 +282,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // For slots, require confirm; for delete buttons, proceed
             if (this.classList.contains('availability-slot')) {
-                if (!confirm('Delete this availability slot?')) return;
-            } else if (!confirm('Delete this availability?')) {
+                if (!await grimnirConfirm('Delete this availability slot?')) return;
+            } else if (!await grimnirConfirm('Delete this availability?')) {
                 return;
             }
 

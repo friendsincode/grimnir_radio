@@ -1678,7 +1678,7 @@
     }
 
     window.removeWebDJIRTEntry = async function(entryID) {
-        if (!confirm('Remove this scheduled entry from the IRT list?')) return;
+        if (!await grimnirConfirm('Remove this entry from the upcoming playback queue?')) return;
         try {
             const resp = await fetch(`/dashboard/schedule/entries/${entryID}`, { method: 'DELETE' });
             if (!resp.ok) throw new Error('delete_failed');

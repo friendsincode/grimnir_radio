@@ -154,7 +154,7 @@
                                     </a>
                                     {{if ne .Status "active"}}
                                     <form method="POST" action="/dashboard/recordings/{{.ID}}/delete" class="d-inline"
-                                          onsubmit="return confirm('Delete this recording?')">
+                                          data-confirm="Delete this recording?" data-confirm-label="Delete recording">
                                         <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                                         <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
                                             <i class="bi bi-trash"></i>

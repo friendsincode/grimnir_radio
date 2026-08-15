@@ -742,6 +742,32 @@ class GlobalPlayer {
         this.lastCurrentTime = -1;
         // How long currentTime may stand still before we treat it as dead.
         this.liveNoProgressMs = 12000;
+        // Standby connection. A dropped live socket is silent only once the
+        // element runs out of buffered audio, and that drain time is the window
+        // to rebuild the stream out of earshot: open a second element, let it
+        // buffer while the first one finishes what it has, and swap when the
+        // listener would otherwise hear the gap.
+        this.standbyAudio = null;
+        this.standbyReady = false;
+        this.standbyTimer = null;
+        // Wait before opening the standby so a rebuffer that recovers on its own
+        // never costs a second connection to the station.
+        this.standbyPrewarmDelayMs = 1200;
+        // Set if a promoted standby was stopped by autoplay policy on unmute.
+        // Safari can do this, and once it does the trick is off for the session.
+        this.standbySwapBlocked = false;
+        this.standbyFadeMs = 180;
+        this.lastStallAt = 0;
+        // How long audio must flow after the last sign of trouble before the
+        // spare connection is written off. Deliberately under the broadcast
+        // server's 10s establishment threshold (establishSeconds in
+        // internal/broadcast/server.go), so a standby that never gets used is
+        // gone before it could be counted as a second listener.
+        this.standbyIdleDropMs = 8000;
+        // Delay before the second line admits to buffering. Flipping the text on
+        // every 300ms rebuffer is more noticeable than the rebuffer.
+        this.bufferingTextTimer = null;
+        this.bufferingTextDelayMs = 1200;
         this.webrtcFailureUntil = Number(localStorage.getItem('grimnir-webrtc-disabled-until') || '0') || 0;
         // Default to plain HTTP streaming. WebRTC is still selectable from the
         // transport menu, but it needs a signaling WebSocket, and the websocket
@@ -797,20 +823,24 @@ class GlobalPlayer {
     init() {
         if (!this.container) return;
 
-        // Set up audio event listeners
-        this.audio.addEventListener('play', () => this.onPlay());
-        this.audio.addEventListener('pause', () => this.onPause());
-        this.audio.addEventListener('ended', () => this.onEnded());
-        this.audio.addEventListener('timeupdate', () => this.onTimeUpdate());
-        this.audio.addEventListener('loadedmetadata', () => this.onLoadedMetadata());
-        this.audio.addEventListener('error', (e) => this.onError(e));
-        this.audio.addEventListener('stalled', () => this.onStalled());
-        this.audio.addEventListener('waiting', () => this.onWaiting());
-        this.audio.addEventListener('playing', () => this.onPlaying());
-        // suspend/abort are the quieter cousins of stalled/waiting: the browser
-        // stopped fetching. For a live stream that is still a stall.
-        this.audio.addEventListener('suspend', () => this.onSuspend());
-        this.audio.addEventListener('abort', () => this.onSuspend());
+        // Held as one map so the whole set can move to the standby element when
+        // it takes over. suspend/abort are the quieter cousins of stalled and
+        // waiting: the browser stopped fetching, which for a live stream is a
+        // stall no matter what the element calls it.
+        this.audioHandlers = {
+            play: () => this.onPlay(),
+            pause: () => this.onPause(),
+            ended: () => this.onEnded(),
+            timeupdate: () => this.onTimeUpdate(),
+            loadedmetadata: () => this.onLoadedMetadata(),
+            error: (e) => this.onError(e),
+            stalled: () => this.onStalled(),
+            waiting: () => this.onWaiting(),
+            playing: () => this.onPlaying(),
+            suspend: () => this.onSuspend(),
+            abort: () => this.onSuspend(),
+        };
+        this.bindAudioElement(this.audio);
 
         // A backgrounded tab gets its timers throttled and its socket may be
         // dropped entirely; a sleeping laptop wakes with a dead stream. Re-check
@@ -1184,6 +1214,9 @@ class GlobalPlayer {
 
     play(track) {
         // track: { url, title, artist, artwork, id, type: 'media'|'live'|'playlist' }
+        // Whatever is being played now, a standby held for the previous one is
+        // pointed at a stream nobody is listening to.
+        this.dropStandbyStream('new track');
         this.currentTrack = track;
         this.isLive = track.type === 'live';
         this.isLiveDJ = false;
@@ -1212,6 +1245,10 @@ class GlobalPlayer {
             console.warn('playLive called with empty URL');
             return;
         }
+
+        // A standby opened for the station being left behind must not survive the
+        // switch; it streams the old mount and would be promoted onto it.
+        this.dropStandbyStream('station changed');
 
         // Check if this is already an LQ stream (user selected LQ quality)
         // Simple check: URL contains -lq in the path
@@ -1905,6 +1942,7 @@ class GlobalPlayer {
         this.stopLiveWatchdog();
         this.audio.pause();
         this.audio.src = '';
+        this.dropStandbyStream('player closed');
         this.closeWebRTC();  // Clean up WebRTC connection
         this.stopTitleAutoScroll();
         this.stopArtistAutoScroll();
@@ -1998,6 +2036,7 @@ class GlobalPlayer {
         // upstream connection dropped, so treat it as a disconnect and reconnect
         // rather than silently stopping.
         if (this.isLive) {
+            if (this.promoteStandbyStream()) return;
             this.reconnectLiveStream({ force: true });
             return;
         }
@@ -2038,30 +2077,28 @@ class GlobalPlayer {
             return;
         }
 
-        // A live stream that errors has lost its connection. Reconnect instead of
-        // going silent and waiting for the listener to notice and hit play.
+        // A live stream that errors has lost its connection. Take over from the
+        // standby if one is already playing, otherwise reconnect instead of going
+        // silent and waiting for the listener to notice and hit play.
+        if (this.promoteStandbyStream()) return;
         this.reconnectLiveStream({ force: true });
     }
 
+    // stalled means the network stopped delivering. Audio usually keeps coming
+    // out of the element for a few more seconds off what is already buffered,
+    // so this fires before the listener can hear anything: the moment to start
+    // rebuilding the connection, and too early to put "Buffering" on screen.
     onStalled() {
-        if (this.isLive && this.artistEl && this.currentTrack) {
-            if (!this.artistEl.textContent.includes('Buffering')) {
-                this._savedArtist = this.artistEl.textContent;
-            }
-            this.setSecondaryText('Buffering...');
-        }
+        this.armStandbyStream('stalled');
         this.scheduleLiveStallReconnect();
     }
 
+    // waiting means the buffer ran dry. The gap is audible from here on, so the
+    // standby goes up without waiting out the prewarm delay.
     onWaiting() {
-        // Buffering - show subtle indicator
-        if (this.isLive && this.artistEl && this.currentTrack) {
-            // Store current text if not already buffering
-            if (!this.artistEl.textContent.includes('Buffering')) {
-                this._savedArtist = this.artistEl.textContent;
-            }
-            this.setSecondaryText('Buffering...');
-        }
+        if (this.promoteStandbyStream()) return;
+        this.startStandbyStream('waiting');
+        this.showBufferingSoon();
         this.scheduleLiveStallReconnect();
     }
 
@@ -2089,6 +2126,11 @@ class GlobalPlayer {
             clearTimeout(this.stalledTimer);
             this.stalledTimer = null;
         }
+        // The element that is live recovered on its own, so the spare connection
+        // is dead weight; holding it would keep a second listener slot open on
+        // the station for as long as the tab stayed open.
+        this.dropStandbyStream('primary recovered');
+        this.cancelBufferingText();
 
         // Mark successful connection time for cooldown
         this.lastSuccessfulConnect = Date.now();
@@ -2108,6 +2150,7 @@ class GlobalPlayer {
     onSuspend() {
         if (!this.isLive || !this.wantsLivePlayback) return;
         if (this.audio.paused) return;
+        this.armStandbyStream('suspend');
         this.scheduleLiveStallReconnect();
     }
 
@@ -2141,11 +2184,36 @@ class GlobalPlayer {
         const t = this.audio.currentTime;
         if (t !== this.lastCurrentTime) {
             this.noteLiveProgress();
+            // Audio has been flowing for a while since the last sign of trouble,
+            // so the spare is not going to be needed. Holding it past the
+            // broadcast server's establishment threshold would have this listener
+            // counted twice on the station.
+            if (this.standbyAudio && Date.now() - this.lastStallAt >= this.standbyIdleDropMs) {
+                this.dropStandbyStream('primary healthy');
+            }
             return;
         }
-        if (Date.now() - this.lastProgressAt >= this.liveNoProgressMs) {
+        const frozenForMs = Date.now() - this.lastProgressAt;
+
+        // Long enough that the element is not coming back. Hand over if a standby
+        // is playing, otherwise fall back to the audible reconnect.
+        if (frozenForMs >= this.liveNoProgressMs) {
+            if (this.promoteStandbyStream()) return;
             console.log('Live stream stopped advancing; reconnecting');
             this.reconnectLiveStream({ force: true });
+            return;
+        }
+
+        // Half the timeout, with a standby already playing. Taking it costs the
+        // listener nothing (the handover is silent) and being wrong costs one
+        // discarded connection, so there is no reason to sit out the full
+        // timeout listening to nothing.
+        if (frozenForMs >= this.liveNoProgressMs / 2 && this.promoteStandbyStream()) return;
+
+        // One tick with no movement is enough to start building the replacement.
+        // It needs a head start to have buffered by the time it is wanted.
+        if (frozenForMs >= this.liveWatchdogIntervalMs) {
+            this.armStandbyStream('no progress');
         }
     }
 
@@ -2164,6 +2232,219 @@ class GlobalPlayer {
         this.noteLiveProgress();
     }
 
+    bindAudioElement(el) {
+        if (!el || !this.audioHandlers) return;
+        Object.entries(this.audioHandlers).forEach(([type, fn]) => el.addEventListener(type, fn));
+    }
+
+    unbindAudioElement(el) {
+        if (!el || !this.audioHandlers) return;
+        Object.entries(this.audioHandlers).forEach(([type, fn]) => el.removeEventListener(type, fn));
+    }
+
+    // The URL a reconnect or a standby connection should open. LQ when the
+    // station publishes one, and always cache-busted so no proxy along the way
+    // replays the response body that just died.
+    liveStreamUrl() {
+        const streamUrl = this.currentTrack?.lqUrl || this.currentTrack?.url;
+        if (!streamUrl) return null;
+        return streamUrl.split('?')[0] + '?_t=' + Date.now();
+    }
+
+    // Open the standby only if the trouble outlasts the prewarm delay. Most
+    // stalls clear in well under a second and deserve no second connection.
+    armStandbyStream(reason) {
+        this.lastStallAt = Date.now();
+        if (!this.canUseStandby()) return;
+        if (this.standbyAudio || this.standbyTimer) return;
+        this.standbyTimer = setTimeout(() => {
+            this.standbyTimer = null;
+            if (!this.audio.paused && this.audio.readyState >= 3 && this.audioIsAdvancing()) return;
+            this.startStandbyStream(reason);
+        }, this.standbyPrewarmDelayMs);
+    }
+
+    // True while currentTime has moved recently. A stalled element draining its
+    // buffer still advances, which is exactly when the standby should be built.
+    audioIsAdvancing() {
+        return this.audio.currentTime !== this.lastCurrentTime;
+    }
+
+    canUseStandby() {
+        if (!this.isLive || !this.currentTrack || !this.wantsLivePlayback) return false;
+        // WebRTC carries its own connection in srcObject; there is nothing to
+        // reopen by URL, and its recovery path is the signaling socket.
+        if (this.useWebRTC) return false;
+        if (this.standbySwapBlocked) return false;
+        return typeof Audio === 'function';
+    }
+
+    // Build the replacement connection silently. Muted playback is the one form
+    // of autoplay every browser allows without a fresh gesture, which is what
+    // lets this start while the listener is doing nothing at all.
+    startStandbyStream(reason) {
+        this.lastStallAt = Date.now();
+        if (!this.canUseStandby() || this.standbyAudio) return;
+        const url = this.liveStreamUrl();
+        if (!url) return;
+
+        let el;
+        try {
+            el = new Audio();
+        } catch (e) {
+            return;
+        }
+        el.preload = 'auto';
+        el.muted = true;
+        el.volume = 0;
+        el.src = url;
+
+        this.standbyAudio = el;
+        this.standbyReady = false;
+        el.addEventListener('playing', () => this.onStandbyPlaying());
+        el.addEventListener('error', () => this.dropStandbyStream('standby failed'));
+        console.log(`Opening standby live connection (${reason})`);
+
+        const started = el.play();
+        if (started && typeof started.catch === 'function') {
+            started.catch(() => this.dropStandbyStream('standby refused'));
+        }
+    }
+
+    // The standby is producing audio. Take over now if the listener is already
+    // hearing nothing; otherwise hold it and let the live element finish its
+    // buffer, which is what makes the handover inaudible.
+    onStandbyPlaying() {
+        this.standbyReady = true;
+        if (this.audio.paused || this.audio.readyState < 3) this.promoteStandbyStream();
+    }
+
+    // Swap the standby in as the live element. Returns whether it happened, so
+    // callers can skip the audible reconnect path.
+    promoteStandbyStream() {
+        const next = this.standbyAudio;
+        if (!next || !this.standbyReady) return false;
+        if (!this.isLive || !this.currentTrack || !this.wantsLivePlayback) return false;
+
+        const previous = this.audio;
+        if (previous === next) return false;
+
+        this.standbyAudio = null;
+        this.standbyReady = false;
+        this.clearStandbyTimer();
+
+        this.unbindAudioElement(previous);
+        this.bindAudioElement(next);
+        this.audio = next;
+
+        const target = previous.volume;
+        next.muted = false;
+        this.fadeInAudio(next, target);
+
+        // Let go of the dead connection. Left open it keeps counting against the
+        // station's listener total and holds a socket the browser will not reuse.
+        this.releaseAudioElement(previous);
+
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        if (this.stalledTimer) {
+            clearTimeout(this.stalledTimer);
+            this.stalledTimer = null;
+        }
+        this.isReconnecting = false;
+        this.reconnectAttempts = 0;
+        this.cancelBufferingText();
+        this.lastCurrentTime = -1;
+        this.noteLiveProgress();
+        if (this.isLive && this.artistEl) this.setSecondaryText(this.getLiveSecondaryText());
+        console.log('Live stream handed over to the standby connection');
+
+        this.verifyPromotedStandby(next);
+        return true;
+    }
+
+    // Unmuting a muted-autoplay element is allowed in Chrome once the page has
+    // played audio, and can be refused in Safari. A refusal shows up as the
+    // element pausing itself, so check, and drop back to the visible reconnect
+    // path rather than leaving a silent player that looks fine.
+    verifyPromotedStandby(el) {
+        setTimeout(() => {
+            if (this.audio !== el || !this.wantsLivePlayback) return;
+            if (!el.paused) return;
+            this.standbySwapBlocked = true;
+            console.log('Standby handover was blocked by autoplay policy; reconnecting directly');
+            this.reconnectLiveStream({ force: true });
+        }, 600);
+    }
+
+    // Ramp rather than jump. The splice between two independent connections
+    // lands mid-waveform, and a hard volume step there is a click.
+    fadeInAudio(el, target) {
+        const steps = 6;
+        const stepMs = Math.max(1, Math.round(this.standbyFadeMs / steps));
+        el.volume = 0;
+        for (let i = 1; i <= steps; i++) {
+            setTimeout(() => {
+                if (this.audio !== el) return;
+                el.volume = Math.min(target, (target * i) / steps);
+            }, stepMs * i);
+        }
+    }
+
+    releaseAudioElement(el) {
+        if (!el) return;
+        try {
+            el.pause();
+            if (el.srcObject) el.srcObject = null;
+            el.removeAttribute('src');
+            el.load();
+        } catch (e) {
+            /* an element that refuses to be torn down is still being replaced */
+        }
+    }
+
+    dropStandbyStream(reason) {
+        this.clearStandbyTimer();
+        const el = this.standbyAudio;
+        if (!el) return;
+        this.standbyAudio = null;
+        this.standbyReady = false;
+        console.log(`Dropping standby live connection (${reason})`);
+        this.releaseAudioElement(el);
+    }
+
+    clearStandbyTimer() {
+        if (this.standbyTimer) {
+            clearTimeout(this.standbyTimer);
+            this.standbyTimer = null;
+        }
+    }
+
+    // A rebuffer of a few hundred milliseconds is not worth telling the listener
+    // about; the text flipping draws more attention than the gap it describes.
+    showBufferingSoon() {
+        if (!this.isLive || !this.artistEl || !this.currentTrack) return;
+        if (this.bufferingTextTimer) return;
+        this.bufferingTextTimer = setTimeout(() => {
+            this.bufferingTextTimer = null;
+            if (!this.isLive || !this.currentTrack || !this.artistEl) return;
+            if (!this.audio.paused && this.audio.readyState >= 3) return;
+            if (!this.artistEl.textContent.includes('Buffering')) {
+                this._savedArtist = this.artistEl.textContent;
+            }
+            this.setSecondaryText('Buffering...');
+        }, this.bufferingTextDelayMs);
+    }
+
+    cancelBufferingText() {
+        if (this.bufferingTextTimer) {
+            clearTimeout(this.bufferingTextTimer);
+            this.bufferingTextTimer = null;
+        }
+    }
+
     // Cancel any armed stall timer or pending reconnect and reset the backoff.
     cancelLiveReconnect() {
         if (this.stalledTimer) {
@@ -2174,6 +2455,8 @@ class GlobalPlayer {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
+        this.dropStandbyStream('recovery cancelled');
+        this.cancelBufferingText();
         this.isReconnecting = false;
         this.reconnectAttempts = 0;
     }
@@ -2223,16 +2506,20 @@ class GlobalPlayer {
                 return;
             }
 
-            // Get LQ URL for HTTP reconnection (bandwidth friendly)
-            const streamUrl = this.currentTrack.lqUrl || this.currentTrack.url;
-            if (!streamUrl) {
+            // A standby that came up while this retry was armed is already
+            // playing the station; taking it is both faster and silent.
+            if (this.promoteStandbyStream()) return;
+            // Otherwise it is not going to help, and holding it open would keep a
+            // second listener slot on the station for the whole retry sequence.
+            this.dropStandbyStream('reconnecting directly');
+
+            // LQ URL when there is one, for a bandwidth-friendly reconnect.
+            const baseUrl = this.liveStreamUrl();
+            if (!baseUrl) {
                 console.warn('No valid stream URL for reconnection');
                 this.isReconnecting = false;
                 return;
             }
-            let baseUrl = streamUrl.split('?')[0];
-            // Add cache buster
-            baseUrl += '?_t=' + Date.now();
 
             this.audio.src = baseUrl;
             this.audio.play().then(() => {
