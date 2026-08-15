@@ -25,7 +25,7 @@
             </div>
             <div class="card-body">
                 <div id="settingsAlert"></div>
-                <form hx-put="/dashboard/station/settings" hx-target="#settingsAlert" hx-swap="innerHTML">
+                <form hx-put="/dashboard/station/settings" hx-target="#settingsAlert" hx-swap="innerHTML" data-dirty-guard>
                     <div class="mb-3">
                         <label for="name" class="form-label">Station Name <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="name" name="name"

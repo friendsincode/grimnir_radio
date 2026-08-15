@@ -54,7 +54,8 @@
       {{else}}
       hx-put="/dashboard/clocks/{{$clock.ID}}"
       {{end}}
-      hx-swap="none">
+      hx-swap="none"
+      data-dirty-guard>
 
     <div class="row g-4">
         <!-- Clock Settings -->

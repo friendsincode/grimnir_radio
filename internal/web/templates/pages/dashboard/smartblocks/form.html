@@ -35,7 +35,8 @@
         <form id="smartBlockForm" method="POST"
               action="{{if $isNew}}/dashboard/smart-blocks{{else}}/dashboard/smart-blocks/{{$block.ID}}{{end}}"
               {{if $isNew}}hx-post="/dashboard/smart-blocks"{{else}}hx-put="/dashboard/smart-blocks/{{$block.ID}}"{{end}}
-              hx-swap="none">
+              hx-swap="none"
+              data-dirty-guard>
 
             <!-- Header -->
             <div class="d-flex justify-content-between align-items-center mb-4">
