@@ -13,9 +13,29 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog"
 )
+
+// lockedBuffer is a bytes.Buffer safe for the concurrent access decoderProc
+// needs: os/exec's stderr-copy goroutine writes it while streamAudio reads it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // decoderProc wraps a GStreamer subprocess that decodes compressed audio
 // (MP3, Ogg, AAC, etc.) from stdin into raw S16LE PCM on stdout.
@@ -24,7 +44,7 @@ type decoderProc struct {
 	stdin     io.WriteCloser
 	stdout    io.ReadCloser
 	cancel    context.CancelFunc
-	stderrBuf *bytes.Buffer
+	stderrBuf *lockedBuffer
 }
 
 // startDecoder launches a GStreamer pipeline that reads compressed audio from stdin
@@ -51,8 +71,8 @@ func startDecoder(ctx context.Context, gstreamerBin string, contentType string, 
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", shellCmd)
 
 	// Capture stderr for diagnostic output from GStreamer.
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
+	stderrBuf := &lockedBuffer{}
+	cmd.Stderr = stderrBuf
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -83,7 +103,7 @@ func startDecoder(ctx context.Context, gstreamerBin string, contentType string, 
 		stdin:     stdin,
 		stdout:    stdout,
 		cancel:    cancel,
-		stderrBuf: &stderrBuf,
+		stderrBuf: stderrBuf,
 	}, nil
 }
 

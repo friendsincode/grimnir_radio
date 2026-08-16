@@ -28,6 +28,14 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 )
 
+// liveInjector is the one slice of the playout director harbor needs: hand a
+// mount's encoder a live PCM writer and a release. *playout.Director satisfies
+// it; taking the interface keeps streamAudio testable without standing up the
+// director's broadcast/xfade/pipeline machinery.
+type liveInjector interface {
+	InjectLiveSource(ctx context.Context, stationID, mountID string) (io.WriteCloser, func(), error)
+}
+
 // SourceConnection tracks an active source connection.
 type SourceConnection struct {
 	SessionID   string
@@ -56,7 +64,7 @@ type Server struct {
 	cfg      Config
 	db       *gorm.DB
 	liveSvc  *live.Service
-	director *playout.Director
+	director liveInjector
 	bus      *events.Bus
 	logger   zerolog.Logger
 
