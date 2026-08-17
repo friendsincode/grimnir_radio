@@ -171,7 +171,7 @@ func (s *SyndicationAPI) handleUpdateNetwork(w http.ResponseWriter, r *http.Requ
 func (s *SyndicationAPI) handleDeleteNetwork(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	if err := s.db.Delete(&models.Network{}, "id = ?", id).Error; err != nil {
+	if err := s.syndicationSvc.DeleteNetwork(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete network")
 		return
 	}

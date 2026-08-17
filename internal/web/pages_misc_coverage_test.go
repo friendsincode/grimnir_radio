@@ -61,6 +61,11 @@ func newMiscTestDB(t *testing.T) *gorm.DB {
 		&models.LiveSession{},
 		&models.AuditLog{},
 		&models.Notification{},
+		&models.NotificationPreference{},
+		&models.APIKey{},
+		&models.PlatformGroupMember{},
+		&models.ScheduleTemplate{},
+		&models.ScheduleVersion{},
 		&migration.Job{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)

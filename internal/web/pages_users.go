@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package web
 
 import (
+	"gorm.io/gorm"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -266,12 +267,13 @@ func (h *Handler) UserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete user's station associations first
-	if err := h.db.Where("user_id = ?", user.ID).Delete(&models.StationUser{}).Error; err != nil {
-		h.logger.Error().Err(err).Str("user_id", user.ID).Msg("failed to delete station associations")
-	}
-
-	if err := h.db.Delete(&user).Error; err != nil {
+	// Clean up everything that references the user before deleting it. Postgres
+	// enforces the foreign keys (all ON DELETE NO ACTION), so a bare delete of a
+	// user with any activity fails; on sqlite it silently orphaned those rows.
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		return cascadeDeleteUser(tx, &user)
+	}); err != nil {
+		h.logger.Error().Err(err).Str("user_id", user.ID).Msg("failed to delete user")
 		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
 		return
 	}
@@ -282,4 +284,47 @@ func (h *Handler) UserDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/dashboard/users", http.StatusSeeOther)
+}
+
+// cascadeDeleteUser removes a user and everything that references it. Every
+// user foreign key is ON DELETE NO ACTION, so each child must be handled here:
+// rows the user owns are deleted; optional references from surviving rows
+// (a show's host, a template's author, another user's request reviewer) are
+// nulled so those rows outlive the user.
+func cascadeDeleteUser(tx *gorm.DB, user *models.User) error {
+	uid := user.ID
+
+	// Null optional references so the parent rows survive.
+	nulls := []struct {
+		model any
+		col   string
+	}{
+		{&models.Show{}, "host_user_id"},
+		{&models.ShowInstance{}, "host_user_id"},
+		{&models.ScheduleTemplate{}, "created_by_id"},
+		{&models.ScheduleVersion{}, "changed_by_id"},
+		{&models.ScheduleRequest{}, "reviewed_by"},
+		{&models.ScheduleRequest{}, "swap_with_user_id"},
+	}
+	for _, n := range nulls {
+		if err := tx.Model(n.model).Where(n.col+" = ?", uid).Update(n.col, nil).Error; err != nil {
+			return err
+		}
+	}
+
+	// Delete rows the user owns.
+	if err := tx.Where("requester_id = ?", uid).Delete(&models.ScheduleRequest{}).Error; err != nil {
+		return err
+	}
+	owned := []any{
+		&models.APIKey{}, &models.Notification{}, &models.NotificationPreference{},
+		&models.DJAvailability{}, &models.PlatformGroupMember{}, &models.StationUser{},
+	}
+	for _, m := range owned {
+		if err := tx.Where("user_id = ?", uid).Delete(m).Error; err != nil {
+			return err
+		}
+	}
+
+	return tx.Delete(user).Error
 }

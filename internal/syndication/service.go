@@ -132,6 +132,30 @@ func (s *Service) DeleteNetworkShow(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeleteNetwork removes a network and everything under it. network_shows FK to
+// the network (ON DELETE NO ACTION), and subscriptions FK to those shows, so on
+// Postgres a bare network delete fails once the network has any show; sqlite
+// silently orphaned them. Clean the whole tree in one transaction.
+func (s *Service) DeleteNetwork(ctx context.Context, id string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var showIDs []string
+		tx.Model(&models.NetworkShow{}).Where("network_id = ?", id).Pluck("id", &showIDs)
+		if len(showIDs) > 0 {
+			if err := tx.Where("network_show_id IN ?", showIDs).Delete(&models.NetworkSubscription{}).Error; err != nil {
+				return fmt.Errorf("failed to delete subscriptions: %w", err)
+			}
+		}
+		if err := tx.Where("network_id = ?", id).Delete(&models.NetworkShow{}).Error; err != nil {
+			return fmt.Errorf("failed to delete network shows: %w", err)
+		}
+		if err := tx.Delete(&models.Network{}, "id = ?", id).Error; err != nil {
+			return fmt.Errorf("failed to delete network: %w", err)
+		}
+		s.logger.Info().Str("network", id).Msg("network deleted")
+		return nil
+	})
+}
+
 // Subscribe adds a station subscription to a network show.
 func (s *Service) Subscribe(ctx context.Context, stationID, networkShowID string, localTime, localDays string) (*models.NetworkSubscription, error) {
 	// Check if already subscribed
