@@ -300,7 +300,7 @@ func (h *Handler) SmartBlockDelete(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Where("station_id = ? AND id != ?", station.ID, id).Find(&others).Error; err == nil {
 			for _, other := range others {
 				if cleaned := removeSmartBlockFallbackRef(other.Rules, id); cleaned {
-					tx.Model(&other).Update("rules", other.Rules)
+					_ = writeSmartBlockRules(tx, other.ID, other.Rules)
 				}
 			}
 		}
@@ -435,7 +435,7 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 		if useFormValues {
 			origRules = block.Rules
 			block.Rules = rules
-			_ = h.db.Model(&block).Update("rules", rules).Error
+			_ = writeSmartBlockRules(h.db, block.ID, rules)
 		}
 
 		cfg := h.extractPreviewConfig(rules, sequence)
@@ -489,7 +489,7 @@ func (h *Handler) SmartBlockPreview(w http.ResponseWriter, r *http.Request) {
 
 		// Restore original rules if we temporarily updated them.
 		if useFormValues && origRules != nil {
-			_ = h.db.Model(&block).Update("rules", origRules).Error
+			_ = writeSmartBlockRules(h.db, block.ID, origRules)
 		}
 
 		h.RenderPartial(w, r, "partials/smartblock-preview", map[string]any{
@@ -2058,6 +2058,17 @@ func parseSeparationMinutes(value, unit string) int {
 
 // removeSmartBlockFallbackRef removes references to targetID from fallback rules
 // stored in a smart block's rules map. Returns true if any changes were made.
+// writeSmartBlockRules persists a smart block's Rules JSON. gorm's
+// serializer:json only runs on struct-field writes, so Update("rules", map)
+// skips it and fails at database/sql, silently persisting nothing. Select +
+// Updates(&struct) serializes correctly.
+func writeSmartBlockRules(db *gorm.DB, blockID string, rules map[string]any) error {
+	return db.Model(&models.SmartBlock{}).
+		Where("id = ?", blockID).
+		Select("rules").
+		Updates(&models.SmartBlock{Rules: rules}).Error
+}
+
 func removeSmartBlockFallbackRef(rules map[string]any, targetID string) bool {
 	if rules == nil {
 		return false

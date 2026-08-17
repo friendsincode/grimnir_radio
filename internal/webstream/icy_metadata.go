@@ -105,6 +105,24 @@ func (p *ICYPoller) FetchOnce(ctx context.Context) (title, artist string, err er
 	return p.parseICYMetadata(ctx, p.url)
 }
 
+// writeHistoryMetadata stamps the current ICY stream title/artist onto a
+// PlayHistory row. It writes through the struct field so gorm's serializer:json
+// runs — Update("metadata", map) / Updates(map{"metadata": map}) skip the
+// serializer and fail at database/sql. Select limits the write to these columns
+// so the row's empty media_id (a webstream row) is never re-serialized as an
+// invalid uuid.
+func (p *ICYPoller) writeHistoryMetadata(history *models.PlayHistory, title, artist string) error {
+	if history.Metadata == nil {
+		history.Metadata = make(map[string]any)
+	}
+	history.Metadata["icy_metadata"] = true
+	history.Metadata["stream_title"] = title
+	history.Metadata["stream_artist"] = artist
+	return p.db.Model(history).
+		Select("artist", "title", "metadata").
+		Updates(&models.PlayHistory{Artist: artist, Title: title, Metadata: history.Metadata}).Error
+}
+
 func (p *ICYPoller) poll(ctx context.Context) {
 	title, artist, err := p.parseICYMetadata(ctx, p.url)
 	if err != nil {
@@ -130,21 +148,7 @@ func (p *ICYPoller) poll(ctx context.Context) {
 			Order("started_at DESC").
 			First(&history).Error
 		if err == nil {
-			if history.Metadata == nil {
-				history.Metadata = make(map[string]any)
-			}
-			history.Metadata["icy_metadata"] = true
-			history.Metadata["stream_title"] = title
-			history.Metadata["stream_artist"] = artist
-			// Use Updates with an explicit column map instead of Save: webstream
-			// PlayHistory rows have empty media_id, and Save would re-serialize
-			// it as "" which Postgres rejects as an invalid uuid (SQLSTATE 22P02).
-			updateErr := p.db.Model(&history).Updates(map[string]any{
-				"artist":   artist,
-				"title":    title,
-				"metadata": history.Metadata,
-			}).Error
-			if updateErr != nil {
+			if updateErr := p.writeHistoryMetadata(&history, title, artist); updateErr != nil {
 				p.logger.Warn().Err(updateErr).Msg("failed to update play history with ICY metadata")
 			}
 		}
