@@ -123,11 +123,12 @@ func TestHandleSource_HappyPath_StreamsAndDisconnects(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// NOTE: handleSource also writes an initial "Live DJ" PlayHistory row, but
-	// that write currently fails on Postgres — PlayHistory.MediaID is a
-	// non-pointer uuid and a live source has no media, so the create sends '' and
-	// hits SQLSTATE 22P02. The create is best-effort (logged, non-fatal), so the
-	// stream lifecycle above still works; the row is not asserted here. This is a
-	// real bug the Postgres harness surfaced (same class as the webstream ICY
-	// metadata fix) and should be fixed separately by making MediaID nullable.
+	// handleSource writes an initial "Live DJ" PlayHistory row. It has no media,
+	// so MediaID is empty; the nulluuid serializer stores that as NULL (before the
+	// fix it sent '' and failed on Postgres with 22P02, dropping the row).
+	var histCount int64
+	db.Model(&models.PlayHistory{}).Where("station_id = ?", stationID).Count(&histCount)
+	if histCount == 0 {
+		t.Error("expected an initial Live DJ play-history row")
+	}
 }

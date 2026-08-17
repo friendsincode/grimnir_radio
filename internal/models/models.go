@@ -736,8 +736,8 @@ type ScheduleSuppression struct {
 type PlayHistory struct {
 	ID         string         `gorm:"type:uuid;primaryKey" json:"id"`
 	StationID  string         `gorm:"type:uuid;index:idx_history_station_time" json:"station_id"`
-	MountID    string         `gorm:"type:uuid;index" json:"mount_id"`
-	MediaID    string         `gorm:"type:uuid;index" json:"media_id"`
+	MountID    string         `gorm:"type:uuid;index;serializer:nulluuid" json:"mount_id"`
+	MediaID    string         `gorm:"type:uuid;index;serializer:nulluuid" json:"media_id"`
 	Artist     string         `gorm:"index" json:"artist"`
 	Title      string         `gorm:"index" json:"title"`
 	Album      string         `gorm:"index" json:"album"`
