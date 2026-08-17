@@ -84,7 +84,7 @@ type Network struct {
 	ID          string `gorm:"type:uuid;primaryKey" json:"id"`
 	Name        string `gorm:"type:varchar(255);not null" json:"name"`
 	Description string `gorm:"type:text" json:"description,omitempty"`
-	OwnerID     string `gorm:"type:uuid" json:"owner_id,omitempty"` // User who owns the network
+	OwnerID     string `gorm:"type:uuid;serializer:nulluuid" json:"owner_id,omitempty"` // User who owns the network
 	Active      bool   `gorm:"not null;default:true" json:"active"`
 
 	// Relationships

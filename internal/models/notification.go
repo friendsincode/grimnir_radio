@@ -79,7 +79,7 @@ type Notification struct {
 
 	// Reference to related entity (show instance, request, etc.)
 	ReferenceType string `gorm:"type:varchar(64)" json:"reference_type,omitempty"`
-	ReferenceID   string `gorm:"type:uuid" json:"reference_id,omitempty"`
+	ReferenceID   string `gorm:"type:uuid;serializer:nulluuid" json:"reference_id,omitempty"`
 
 	// Additional metadata
 	Metadata map[string]any `gorm:"type:jsonb;serializer:json" json:"metadata,omitempty"`
