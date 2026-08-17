@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package db
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -142,8 +143,12 @@ func TestMigrationsErrorOnClosedDB(t *testing.T) {
 }
 
 func TestConnect_Variants(t *testing.T) {
-	// Happy path against the test Postgres.
-	dsn := "host=localhost port=15432 user=postgres password=postgres dbname=postgres sslmode=disable"
+	// Happy path against the test Postgres. Use the same DSN dbtest uses so this
+	// works both locally (:15432) and in CI (TEST_DB_DSN, default :5432).
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		dsn = "host=localhost port=15432 user=postgres password=postgres dbname=postgres sslmode=disable"
+	}
 	good, err := Connect(&config.Config{DBBackend: config.DatabasePostgres, DBDSN: dsn})
 	if err != nil {
 		t.Fatalf("Connect(postgres): %v", err)
