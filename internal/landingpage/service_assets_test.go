@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -20,7 +21,7 @@ func strptr(s string) *string { return &s }
 func TestUploadAsset_StationLifecycle(t *testing.T) {
 	svc, _ := newLPService(t)
 
-	asset, err := svc.UploadAsset(bg(), strptr("st1"), models.AssetTypeLogo, "logo.png", strings.NewReader("PNGDATA"), strptr("user-1"))
+	asset, err := svc.UploadAsset(bg(), strptr(dbtest.UUID("st1")), models.AssetTypeLogo, "logo.png", strings.NewReader("PNGDATA"), strptr(dbtest.UUID("user-1")))
 	if err != nil {
 		t.Fatalf("UploadAsset: %v", err)
 	}
@@ -38,12 +39,12 @@ func TestUploadAsset_StationLifecycle(t *testing.T) {
 	if got, err := svc.GetAsset(bg(), asset.ID); err != nil || got.ID != asset.ID {
 		t.Fatalf("GetAsset: got %+v err %v", got, err)
 	}
-	if got, err := svc.GetAssetByType(bg(), strptr("st1"), models.AssetTypeLogo); err != nil || got.ID != asset.ID {
+	if got, err := svc.GetAssetByType(bg(), strptr(dbtest.UUID("st1")), models.AssetTypeLogo); err != nil || got.ID != asset.ID {
 		t.Fatalf("GetAssetByType: got %+v err %v", got, err)
 	}
 
 	// Listing includes it.
-	list, err := svc.ListAssets(bg(), "st1")
+	list, err := svc.ListAssets(bg(), dbtest.UUID("st1"))
 	if err != nil || len(list) != 1 {
 		t.Fatalf("ListAssets: len=%d err=%v", len(list), err)
 	}
@@ -78,17 +79,17 @@ func TestUploadAsset_PlatformScope(t *testing.T) {
 func TestUploadAsset_Rejections(t *testing.T) {
 	svc, _ := newLPService(t)
 
-	if _, err := svc.UploadAsset(bg(), strptr("st1"), "not-a-type", "x.png", strings.NewReader("d"), nil); !errors.Is(err, ErrInvalidAssetType) {
+	if _, err := svc.UploadAsset(bg(), strptr(dbtest.UUID("st1")), "not-a-type", "x.png", strings.NewReader("d"), nil); !errors.Is(err, ErrInvalidAssetType) {
 		t.Fatalf("invalid type err = %v, want ErrInvalidAssetType", err)
 	}
-	if _, err := svc.UploadAsset(bg(), strptr("st1"), models.AssetTypeLogo, "x.bmp", strings.NewReader("d"), nil); err == nil {
+	if _, err := svc.UploadAsset(bg(), strptr(dbtest.UUID("st1")), models.AssetTypeLogo, "x.bmp", strings.NewReader("d"), nil); err == nil {
 		t.Fatal("expected error for unsupported extension")
 	}
 }
 
 func TestGetAssetByType_NotFound(t *testing.T) {
 	svc, _ := newLPService(t)
-	if _, err := svc.GetAssetByType(bg(), strptr("st1"), models.AssetTypeHero); !errors.Is(err, ErrAssetNotFound) {
+	if _, err := svc.GetAssetByType(bg(), strptr(dbtest.UUID("st1")), models.AssetTypeHero); !errors.Is(err, ErrAssetNotFound) {
 		t.Fatalf("missing asset err = %v, want ErrAssetNotFound", err)
 	}
 }

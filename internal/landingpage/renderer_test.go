@@ -11,21 +11,15 @@ import (
 	"strings"
 	"testing"
 
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
 func newRenderer(t *testing.T) (*Renderer, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&models.Station{}, &models.PlayHistory{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := dbtest.Open(t, &models.Station{}, &models.PlayHistory{})
 	r, err := NewRenderer(db)
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
@@ -42,7 +36,7 @@ func TestNewRenderer_ParsesTemplates(t *testing.T) {
 
 func TestRenderWidget_StaticText(t *testing.T) {
 	r, _ := newRenderer(t)
-	station := &models.Station{ID: "st1", Name: "Test FM"}
+	station := &models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "Test FM"}
 	theme := &BuiltInThemes[0]
 
 	widget := WidgetConfig{ID: "w1", Type: WidgetText, Config: map[string]any{"content": "hello world"}}
@@ -57,7 +51,7 @@ func TestRenderWidget_StaticText(t *testing.T) {
 
 func TestRenderWidget_InvalidType(t *testing.T) {
 	r, _ := newRenderer(t)
-	station := &models.Station{ID: "st1"}
+	station := &models.Station{ID: dbtest.UUID("st1")}
 	theme := &BuiltInThemes[0]
 
 	_, err := r.RenderWidget(bg(), station, WidgetConfig{Type: "no-such-widget"}, theme)
@@ -68,7 +62,7 @@ func TestRenderWidget_InvalidType(t *testing.T) {
 
 func TestRenderPage_RendersWidgets(t *testing.T) {
 	r, _ := newRenderer(t)
-	station := &models.Station{ID: "st1", Name: "Test FM"}
+	station := &models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "Test FM"}
 	theme := &BuiltInThemes[0]
 
 	config := map[string]any{
@@ -90,11 +84,11 @@ func TestRenderPage_RendersWidgets(t *testing.T) {
 
 func TestRenderWidget_RecentTracks_FetchesFromDB(t *testing.T) {
 	r, db := newRenderer(t)
-	station := &models.Station{ID: "st1", Name: "Test FM"}
+	station := &models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "Test FM"}
 	theme := &BuiltInThemes[0]
 
 	if err := db.Create(&models.PlayHistory{
-		ID: "h1", StationID: "st1", Artist: "Artist", Title: "Song",
+		ID: dbtest.UUID("h1"), StationID: dbtest.UUID("st1"), MountID: dbtest.UUID("m1"), MediaID: dbtest.UUID("md1"), Artist: "Artist", Title: "Song",
 	}).Error; err != nil {
 		t.Fatalf("seed history: %v", err)
 	}

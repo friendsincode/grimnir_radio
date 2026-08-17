@@ -10,6 +10,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -18,10 +19,10 @@ func TestSaveDraft_Publish_Versions_Lifecycle(t *testing.T) {
 
 	// Draft is stored but not yet published.
 	draft := map[string]any{"hero": map[string]any{"title": "Coming soon"}}
-	if err := svc.SaveDraft(bg(), "st1", draft); err != nil {
+	if err := svc.SaveDraft(bg(), dbtest.UUID("st1"), draft); err != nil {
 		t.Fatalf("SaveDraft: %v", err)
 	}
-	page, err := svc.Get(bg(), "st1")
+	page, err := svc.Get(bg(), dbtest.UUID("st1"))
 	if err != nil {
 		t.Fatalf("Get after draft: %v", err)
 	}
@@ -30,10 +31,10 @@ func TestSaveDraft_Publish_Versions_Lifecycle(t *testing.T) {
 	}
 
 	// Publish promotes the draft, clears it, and records a version.
-	if err := svc.Publish(bg(), "st1", "user-1", "launch"); err != nil {
+	if err := svc.Publish(bg(), dbtest.UUID("st1"), dbtest.UUID("user-1"), "launch"); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
-	page, _ = svc.Get(bg(), "st1")
+	page, _ = svc.Get(bg(), dbtest.UUID("st1"))
 	if page.PublishedConfig["hero"] == nil {
 		t.Fatal("published config not set from draft")
 	}
@@ -41,7 +42,7 @@ func TestSaveDraft_Publish_Versions_Lifecycle(t *testing.T) {
 		t.Fatalf("draft should be cleared after publish, got %v", page.DraftConfig)
 	}
 
-	versions, total, err := svc.ListVersions(bg(), "st1", 10, 0)
+	versions, total, err := svc.ListVersions(bg(), dbtest.UUID("st1"), 10, 0)
 	if err != nil {
 		t.Fatalf("ListVersions: %v", err)
 	}
@@ -63,34 +64,34 @@ func TestSaveDraft_Publish_Versions_Lifecycle(t *testing.T) {
 	}
 
 	// Publish a second config, then restore the first version.
-	if err := svc.SaveDraft(bg(), "st1", map[string]any{"hero": map[string]any{"title": "v2"}}); err != nil {
+	if err := svc.SaveDraft(bg(), dbtest.UUID("st1"), map[string]any{"hero": map[string]any{"title": "v2"}}); err != nil {
 		t.Fatalf("SaveDraft 2: %v", err)
 	}
-	if err := svc.Publish(bg(), "st1", "user-1", "second"); err != nil {
+	if err := svc.Publish(bg(), dbtest.UUID("st1"), dbtest.UUID("user-1"), "second"); err != nil {
 		t.Fatalf("Publish 2: %v", err)
 	}
-	if err := svc.RestoreVersion(bg(), "st1", v.ID, "user-1"); err != nil {
+	if err := svc.RestoreVersion(bg(), dbtest.UUID("st1"), v.ID, dbtest.UUID("user-1")); err != nil {
 		t.Fatalf("RestoreVersion: %v", err)
 	}
-	page, _ = svc.Get(bg(), "st1")
+	page, _ = svc.Get(bg(), dbtest.UUID("st1"))
 	hero, _ := page.PublishedConfig["hero"].(map[string]any)
 	if hero["title"] != "Coming soon" {
 		t.Fatalf("restore did not bring back v1 config, got %v", page.PublishedConfig["hero"])
 	}
 	// Restore adds a version tagged as a restore.
-	_, total, _ = svc.ListVersions(bg(), "st1", 10, 0)
+	_, total, _ = svc.ListVersions(bg(), dbtest.UUID("st1"), 10, 0)
 	if total != 3 {
 		t.Fatalf("expected 3 versions after publish+publish+restore, got %d", total)
 	}
 
 	// DiscardDraft clears a pending draft.
-	if err := svc.SaveDraft(bg(), "st1", map[string]any{"x": 1}); err != nil {
+	if err := svc.SaveDraft(bg(), dbtest.UUID("st1"), map[string]any{"x": 1}); err != nil {
 		t.Fatalf("SaveDraft 3: %v", err)
 	}
-	if err := svc.DiscardDraft(bg(), "st1"); err != nil {
+	if err := svc.DiscardDraft(bg(), dbtest.UUID("st1")); err != nil {
 		t.Fatalf("DiscardDraft: %v", err)
 	}
-	page, _ = svc.Get(bg(), "st1")
+	page, _ = svc.Get(bg(), dbtest.UUID("st1"))
 	if len(page.DraftConfig) != 0 {
 		t.Fatalf("draft not discarded, got %v", page.DraftConfig)
 	}
@@ -112,7 +113,7 @@ func TestPlatform_SaveDraft_Publish_Discard(t *testing.T) {
 		t.Fatal("platform draft not persisted")
 	}
 
-	if err := svc.PublishPlatform(bg(), "admin", "go live"); err != nil {
+	if err := svc.PublishPlatform(bg(), dbtest.UUID("admin"), "go live"); err != nil {
 		t.Fatalf("PublishPlatform: %v", err)
 	}
 	pub, err := svc.GetPlatformPublished(bg())
@@ -141,7 +142,7 @@ func TestPlatform_SaveDraft_Publish_Discard(t *testing.T) {
 
 func TestGetVersion_NotFound(t *testing.T) {
 	svc, _ := newLPService(t)
-	if _, err := svc.GetVersion(bg(), "does-not-exist"); !errors.Is(err, ErrVersionNotFound) {
+	if _, err := svc.GetVersion(bg(), dbtest.UUID("does-not-exist")); !errors.Is(err, ErrVersionNotFound) {
 		t.Fatalf("GetVersion(unknown) err = %v, want ErrVersionNotFound", err)
 	}
 }
@@ -150,14 +151,14 @@ func TestRestoreVersion_WrongPage_Rejected(t *testing.T) {
 	svc, _ := newLPService(t)
 
 	// One version on st1.
-	_ = svc.SaveDraft(bg(), "st1", map[string]any{"a": 1})
-	_ = svc.Publish(bg(), "st1", "u", "s")
-	versions, _, _ := svc.ListVersions(bg(), "st1", 10, 0)
+	_ = svc.SaveDraft(bg(), dbtest.UUID("st1"), map[string]any{"a": 1})
+	_ = svc.Publish(bg(), dbtest.UUID("st1"), dbtest.UUID("u"), "s")
+	versions, _, _ := svc.ListVersions(bg(), dbtest.UUID("st1"), 10, 0)
 	otherVersionID := versions[0].ID
 
 	// st2 exists but that version belongs to st1 → mismatch rejected.
-	_, _ = svc.GetOrCreate(bg(), "st2")
-	if err := svc.RestoreVersion(bg(), "st2", otherVersionID, "u"); !errors.Is(err, ErrVersionNotFound) {
+	_, _ = svc.GetOrCreate(bg(), dbtest.UUID("st2"))
+	if err := svc.RestoreVersion(bg(), dbtest.UUID("st2"), otherVersionID, dbtest.UUID("u")); !errors.Is(err, ErrVersionNotFound) {
 		t.Fatalf("cross-page restore err = %v, want ErrVersionNotFound", err)
 	}
 }
