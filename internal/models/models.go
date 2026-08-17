@@ -788,8 +788,8 @@ type AnalysisJob struct {
 type MountPlayoutState struct {
 	MountID   string `gorm:"type:uuid;primaryKey"`
 	StationID string `gorm:"type:uuid;index"`
-	EntryID   string `gorm:"type:uuid;index"`
-	MediaID   string `gorm:"type:uuid;index"`
+	EntryID   string `gorm:"type:uuid;index;serializer:nulluuid"`
+	MediaID   string `gorm:"type:uuid;index;serializer:nulluuid"`
 
 	SourceType string `gorm:"type:varchar(32);index"` // "media", "playlist", "smart_block", "clock", "clock_playlist", "webstream"
 	SourceID   string `gorm:"type:varchar(64);index"` // UUID in most cases; webstream_id or clock_id

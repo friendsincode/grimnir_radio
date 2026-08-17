@@ -14,8 +14,8 @@ import (
 type LiveSession struct {
 	ID        string        `gorm:"type:uuid;primaryKey"`
 	StationID string        `gorm:"type:uuid;index:idx_live_session_station_active"`
-	MountID   string        `gorm:"type:uuid;index"`
-	UserID    string        `gorm:"type:uuid;index"` // DJ user ID
+	MountID   string        `gorm:"type:uuid;index;serializer:nulluuid"`
+	UserID    string        `gorm:"type:uuid;index;serializer:nulluuid"` // DJ user ID
 	Username  string        `gorm:"type:varchar(255)"`
 	Priority  PriorityLevel `gorm:"type:int"` // Live override (1) or scheduled (2)
 

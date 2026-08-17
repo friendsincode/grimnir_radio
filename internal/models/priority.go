@@ -48,7 +48,7 @@ type PrioritySource struct {
 	MountID       string         `gorm:"type:uuid;index"`
 	Priority      PriorityLevel  `gorm:"type:int;index:idx_station_active"`
 	SourceType    SourceType     `gorm:"type:varchar(32)"`
-	SourceID      string         `gorm:"type:uuid"` // ID of media, webstream, etc.
+	SourceID      string         `gorm:"type:uuid;serializer:nulluuid"` // ID of media, webstream, etc.
 	Metadata      map[string]any `gorm:"serializer:json"`
 	Active        bool           `gorm:"index:idx_station_active"` // Is this source currently active?
 	ActivatedAt   time.Time
@@ -76,8 +76,8 @@ type ExecutorState struct {
 	MountID         string            `gorm:"type:uuid"`
 	State           ExecutorStateEnum `gorm:"type:varchar(32)"`
 	CurrentPriority PriorityLevel     `gorm:"type:int"`
-	CurrentSourceID string            `gorm:"type:uuid"` // ID of active PrioritySource
-	NextSourceID    string            `gorm:"type:uuid"` // ID of preloaded PrioritySource
+	CurrentSourceID string            `gorm:"type:uuid;serializer:nulluuid"` // ID of active PrioritySource
+	NextSourceID    string            `gorm:"type:uuid;serializer:nulluuid"` // ID of preloaded PrioritySource
 
 	// Telemetry data
 	AudioLevelL   float64 `gorm:"type:float"` // Left channel RMS level (-60 to 0 dBFS)
