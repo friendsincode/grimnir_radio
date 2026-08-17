@@ -28,6 +28,14 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/playout"
 )
 
+// liveInjector is the one slice of the playout director harbor needs: hand a
+// mount's encoder a live PCM writer and a release. *playout.Director satisfies
+// it; taking the interface keeps streamAudio testable without standing up the
+// director's broadcast/xfade/pipeline machinery.
+type liveInjector interface {
+	InjectLiveSource(ctx context.Context, stationID, mountID string) (io.WriteCloser, func(), error)
+}
+
 // SourceConnection tracks an active source connection.
 type SourceConnection struct {
 	SessionID   string
@@ -56,7 +64,7 @@ type Server struct {
 	cfg      Config
 	db       *gorm.DB
 	liveSvc  *live.Service
-	director *playout.Director
+	director liveInjector
 	bus      *events.Bus
 	logger   zerolog.Logger
 
@@ -86,7 +94,7 @@ func (s *Server) ListenAndServe() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleSource)
 
-	s.httpServer = &http.Server{
+	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -97,9 +105,13 @@ func (s *Server) ListenAndServe() error {
 		// Accept the non-standard SOURCE method used by legacy Icecast clients.
 		ConnState: func(conn net.Conn, state http.ConnState) {},
 	}
+	// Publish under the lock: Shutdown reads s.httpServer from another goroutine.
+	s.mu.Lock()
+	s.httpServer = srv
+	s.mu.Unlock()
 
 	s.logger.Info().Str("addr", addr).Msg("harbor server starting")
-	err := s.httpServer.ListenAndServe()
+	err := srv.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
 	}
@@ -117,10 +129,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			conn.cancel()
 		}
 	}
+	srv := s.httpServer
 	s.mu.Unlock()
 
-	if s.httpServer != nil {
-		return s.httpServer.Shutdown(ctx)
+	if srv != nil {
+		return srv.Shutdown(ctx)
 	}
 	return nil
 }
@@ -651,13 +664,17 @@ func (s *Server) ListenAndServeWithSOURCE() error {
 	mux.HandleFunc("/admin/metadata", s.handleMetadataUpdate)
 	mux.HandleFunc("/", s.handleSource)
 
-	s.httpServer = &http.Server{
+	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0,
 		WriteTimeout:      0,
 		IdleTimeout:       60 * time.Second,
 	}
+	// Publish under the lock: Shutdown reads s.httpServer from another goroutine.
+	s.mu.Lock()
+	s.httpServer = srv
+	s.mu.Unlock()
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -665,7 +682,7 @@ func (s *Server) ListenAndServeWithSOURCE() error {
 	}
 
 	s.logger.Info().Str("addr", addr).Msg("harbor server starting (with SOURCE method support)")
-	err = s.httpServer.Serve(&sourceMethodListener{Listener: ln})
+	err = srv.Serve(&sourceMethodListener{Listener: ln})
 	if err == http.ErrServerClosed {
 		return nil
 	}

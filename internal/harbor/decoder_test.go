@@ -7,7 +7,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 package harbor
 
 import (
-	"bytes"
 	"io"
 	"testing"
 
@@ -37,7 +36,8 @@ func TestDecoderProc_Stderr_Empty(t *testing.T) {
 }
 
 func TestDecoderProc_Stderr_Content(t *testing.T) {
-	buf := bytes.NewBufferString("  GStreamer warning: something  \n")
+	buf := &lockedBuffer{}
+	buf.buf.WriteString("  GStreamer warning: something  \n")
 	d := &decoderProc{stderrBuf: buf}
 	got := d.Stderr()
 	if got != "GStreamer warning: something" {
