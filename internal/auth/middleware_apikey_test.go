@@ -12,13 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
 func TestMiddleware_APIKeyHeader(t *testing.T) {
 	db := newAuthDB(t)
-	db.Create(&models.User{ID: "u1", PlatformRole: models.PlatformRoleAdmin})
-	plaintext, _ := storeKey(t, db, "u1", "ci", time.Hour)
+	db.Create(&models.User{ID: dbtest.UUID("u1"), PlatformRole: models.PlatformRoleAdmin, Email: "u1@t.local"})
+	plaintext, _ := storeKey(t, db, dbtest.UUID("u1"), "ci", time.Hour)
 
 	var gotUser string
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +38,7 @@ func TestMiddleware_APIKeyHeader(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("valid key status = %d, want 200", rec.Code)
 	}
-	if gotUser != "u1" {
+	if gotUser != dbtest.UUID("u1") {
 		t.Fatalf("claims not propagated to handler: got %q", gotUser)
 	}
 
