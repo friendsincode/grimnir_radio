@@ -13,6 +13,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	meclient "github.com/friendsincode/grimnir_radio/internal/mediaengine/client"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -46,9 +47,9 @@ func newSvcWithME(t *testing.T, me MediaEngine) (*Service, *gorm.DB) {
 func TestStartRecording_Success(t *testing.T) {
 	me := &fakeME{}
 	svc, db := newSvcWithME(t, me)
-	db.Create(&models.Station{ID: "st1", Name: "S", RecordingQuotaBytes: 0})
+	db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "S", RecordingQuotaBytes: 0})
 
-	rec, err := svc.StartRecording(bg(), StartRequest{StationID: "st1", UserID: "u1", Title: "Live Set"})
+	rec, err := svc.StartRecording(bg(), StartRequest{StationID: dbtest.UUID("st1"), MountID: dbtest.UUID("m1"), UserID: dbtest.UUID("u1"), Title: "Live Set"})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -68,9 +69,9 @@ func TestStartRecording_Success(t *testing.T) {
 func TestStartRecording_MediaEngineError_CleansUp(t *testing.T) {
 	me := &fakeME{startErr: errors.New("engine down")}
 	svc, db := newSvcWithME(t, me)
-	db.Create(&models.Station{ID: "st1", Name: "S"})
+	db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "S"})
 
-	if _, err := svc.StartRecording(bg(), StartRequest{StationID: "st1", UserID: "u1"}); err == nil {
+	if _, err := svc.StartRecording(bg(), StartRequest{StationID: dbtest.UUID("st1"), MountID: dbtest.UUID("m1"), UserID: dbtest.UUID("u1")}); err == nil {
 		t.Fatal("expected error when the media engine fails")
 	}
 	// The DB entry must be rolled back so no orphan recording is left behind.
@@ -82,13 +83,13 @@ func TestStartRecording_MediaEngineError_CleansUp(t *testing.T) {
 }
 
 func TestStopRecording_Success_UpdatesQuota(t *testing.T) {
-	me := &fakeME{stopResult: &meclient.StopRecordingResult{RecordingID: "r1", FileSizeBytes: 2048, DurationMs: 60000}}
+	me := &fakeME{stopResult: &meclient.StopRecordingResult{RecordingID: dbtest.UUID("r1"), FileSizeBytes: 2048, DurationMs: 60000}}
 	svc, db := newSvcWithME(t, me)
-	db.Create(&models.Station{ID: "st1", Name: "S", RecordingStorageUsed: 100})
-	db.Create(&models.StationUser{UserID: "u1", StationID: "st1", RecordingStorageUsed: 100})
-	seedRecording(t, db, "r1", "st1", models.RecordingStatusActive, 0)
+	db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "S", RecordingStorageUsed: 100})
+	db.Create(&models.StationUser{ID: dbtest.UUID("su"), UserID: dbtest.UUID("u1"), StationID: dbtest.UUID("st1"), RecordingStorageUsed: 100})
+	seedRecording(t, db, dbtest.UUID("r1"), dbtest.UUID("st1"), models.RecordingStatusActive, 0)
 
-	rec, err := svc.StopRecording(bg(), "r1")
+	rec, err := svc.StopRecording(bg(), dbtest.UUID("r1"))
 	if err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestStopRecording_Success_UpdatesQuota(t *testing.T) {
 
 	// Station quota usage grows by the recorded size.
 	var station models.Station
-	db.First(&station, "id = ?", "st1")
+	db.First(&station, "id = ?", dbtest.UUID("st1"))
 	if station.RecordingStorageUsed != 100+2048 {
 		t.Fatalf("station storage used = %d, want %d", station.RecordingStorageUsed, 100+2048)
 	}
@@ -112,8 +113,8 @@ func TestStopRecording_Success_UpdatesQuota(t *testing.T) {
 
 func TestStopRecording_NotActive(t *testing.T) {
 	svc, db := newSvcWithME(t, &fakeME{})
-	seedRecording(t, db, "r1", "st1", models.RecordingStatusComplete, 0)
-	if _, err := svc.StopRecording(bg(), "r1"); err == nil {
+	seedRecording(t, db, dbtest.UUID("r1"), dbtest.UUID("st1"), models.RecordingStatusComplete, 0)
+	if _, err := svc.StopRecording(bg(), dbtest.UUID("r1")); err == nil {
 		t.Fatal("expected error stopping a non-active recording")
 	}
 }
@@ -121,14 +122,14 @@ func TestStopRecording_NotActive(t *testing.T) {
 func TestStopRecording_MediaEngineError_MarksFailed(t *testing.T) {
 	me := &fakeME{stopErr: errors.New("engine down")}
 	svc, db := newSvcWithME(t, me)
-	db.Create(&models.Station{ID: "st1", Name: "S"})
-	seedRecording(t, db, "r1", "st1", models.RecordingStatusActive, 0)
+	db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "S"})
+	seedRecording(t, db, dbtest.UUID("r1"), dbtest.UUID("st1"), models.RecordingStatusActive, 0)
 
-	if _, err := svc.StopRecording(bg(), "r1"); err == nil {
+	if _, err := svc.StopRecording(bg(), dbtest.UUID("r1")); err == nil {
 		t.Fatal("expected error when the media engine stop fails")
 	}
 	var rec models.Recording
-	db.First(&rec, "id = ?", "r1")
+	db.First(&rec, "id = ?", dbtest.UUID("r1"))
 	if rec.Status != models.RecordingStatusFailed {
 		t.Fatalf("status = %s, want failed", rec.Status)
 	}
