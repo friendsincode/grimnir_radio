@@ -89,6 +89,22 @@ proto-clean:
 	@find $(PROTO_OUT) -name '*.pb.go' -delete
 	@echo "Cleaned generated protobuf files"
 
+# Throwaway Postgres for the test suite (internal/dbtest). Matches the local
+# default DSN in internal/dbtest/dbtest.go (port 15432). Tests are Postgres-only;
+# sqlite is banned. CI provides its own postgres:16 service via TEST_DB_DSN.
+testdb:
+	@docker run -d --rm --name grimnir-pgtest \
+		-e POSTGRES_USER=postgres \
+		-e POSTGRES_PASSWORD=postgres \
+		-e POSTGRES_DB=postgres \
+		-p 15432:5432 \
+		postgres:16 >/dev/null 2>&1 || docker start grimnir-pgtest >/dev/null 2>&1
+	@echo "Test PostgreSQL running on localhost:15432 (grimnir-pgtest)"
+
+testdb-stop:
+	@docker stop grimnir-pgtest >/dev/null 2>&1 || true
+	@echo "Stopped grimnir-pgtest"
+
 # Development targets
 dev-db:
 	@docker run -d --name grimnir-postgres \
