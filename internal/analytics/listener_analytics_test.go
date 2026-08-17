@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -33,14 +33,7 @@ func (f *fakeCounter) ListenerCount(ctx context.Context, stationID string) (int,
 
 func newListenerDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&models.Station{}, &models.ListenerSample{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	return db
+	return dbtest.Open(t, &models.Station{}, &models.ListenerSample{})
 }
 
 func sampleCount(t *testing.T, db *gorm.DB, stationID string) int64 {
@@ -52,21 +45,24 @@ func sampleCount(t *testing.T, db *gorm.DB, stationID string) int64 {
 
 func TestCaptureSnapshot_RecordsActiveStationsOnly(t *testing.T) {
 	db := newListenerDB(t)
-	db.Create(&models.Station{ID: "s1", Active: true})
-	db.Create(&models.Station{ID: "s2", Active: true})
-	db.Create(&models.Station{ID: "s3", Active: false})
+	db.Create(&models.Station{ID: dbtest.UUID("s1"), OwnerID: dbtest.UUID("owner"), Name: "s1", Active: true})
+	db.Create(&models.Station{ID: dbtest.UUID("s2"), OwnerID: dbtest.UUID("owner"), Name: "s2", Active: true})
+	// Force active=false: gorm skips the false zero-value on Create, so the
+	// column's default:true would otherwise win.
+	db.Create(&models.Station{ID: dbtest.UUID("s3"), OwnerID: dbtest.UUID("owner"), Name: "s3"})
+	db.Model(&models.Station{}).Where("id = ?", dbtest.UUID("s3")).Update("active", false)
 
-	svc := NewListenerAnalyticsService(db, &fakeCounter{counts: map[string]int{"s1": 10, "s2": 5}}, zerolog.Nop())
+	svc := NewListenerAnalyticsService(db, &fakeCounter{counts: map[string]int{dbtest.UUID("s1"): 10, dbtest.UUID("s2"): 5}}, zerolog.Nop())
 	svc.captureSnapshot(context.Background(), time.Now())
 
-	if got := sampleCount(t, db, "s1"); got != 1 {
+	if got := sampleCount(t, db, dbtest.UUID("s1")); got != 1 {
 		t.Fatalf("s1 samples = %d, want 1", got)
 	}
-	if got := sampleCount(t, db, "s3"); got != 0 {
+	if got := sampleCount(t, db, dbtest.UUID("s3")); got != 0 {
 		t.Fatalf("inactive station should not be sampled, got %d", got)
 	}
 	var s1 models.ListenerSample
-	db.Where("station_id = ?", "s1").First(&s1)
+	db.Where("station_id = ?", dbtest.UUID("s1")).First(&s1)
 	if s1.Listeners != 10 {
 		t.Fatalf("s1 listeners = %d, want 10", s1.Listeners)
 	}
@@ -74,19 +70,19 @@ func TestCaptureSnapshot_RecordsActiveStationsOnly(t *testing.T) {
 
 func TestCaptureSnapshot_CounterErrorSkipsStation(t *testing.T) {
 	db := newListenerDB(t)
-	db.Create(&models.Station{ID: "s1", Active: true})
-	db.Create(&models.Station{ID: "s2", Active: true})
+	db.Create(&models.Station{ID: dbtest.UUID("s1"), OwnerID: dbtest.UUID("owner"), Name: "s1", Active: true})
+	db.Create(&models.Station{ID: dbtest.UUID("s2"), OwnerID: dbtest.UUID("owner"), Name: "s2", Active: true})
 
 	svc := NewListenerAnalyticsService(db, &fakeCounter{
-		counts: map[string]int{"s1": 3},
-		errFor: map[string]bool{"s2": true},
+		counts: map[string]int{dbtest.UUID("s1"): 3},
+		errFor: map[string]bool{dbtest.UUID("s2"): true},
 	}, zerolog.Nop())
 	svc.captureSnapshot(context.Background(), time.Now())
 
-	if got := sampleCount(t, db, "s1"); got != 1 {
+	if got := sampleCount(t, db, dbtest.UUID("s1")); got != 1 {
 		t.Fatalf("s1 samples = %d, want 1", got)
 	}
-	if got := sampleCount(t, db, "s2"); got != 0 {
+	if got := sampleCount(t, db, dbtest.UUID("s2")); got != 0 {
 		t.Fatalf("s2 (counter error) samples = %d, want 0", got)
 	}
 }
@@ -94,18 +90,18 @@ func TestCaptureSnapshot_CounterErrorSkipsStation(t *testing.T) {
 func TestPruneOldSamples_DeletesBeyondRetention(t *testing.T) {
 	db := newListenerDB(t)
 	now := time.Now().UTC()
-	db.Create(&models.ListenerSample{ID: "old", StationID: "s1", CapturedAt: now.Add(-40 * 24 * time.Hour)})
-	db.Create(&models.ListenerSample{ID: "recent", StationID: "s1", CapturedAt: now.Add(-1 * time.Hour)})
+	db.Create(&models.ListenerSample{ID: dbtest.UUID("old"), StationID: dbtest.UUID("s1"), CapturedAt: now.Add(-40 * 24 * time.Hour)})
+	db.Create(&models.ListenerSample{ID: dbtest.UUID("recent"), StationID: dbtest.UUID("s1"), CapturedAt: now.Add(-1 * time.Hour)})
 
 	svc := NewListenerAnalyticsService(db, &fakeCounter{}, zerolog.Nop())
 	svc.pruneOldSamples(context.Background(), now) // retention is 30 days
 
-	if got := sampleCount(t, db, "s1"); got != 1 {
+	if got := sampleCount(t, db, dbtest.UUID("s1")); got != 1 {
 		t.Fatalf("after prune, s1 samples = %d, want 1 (recent only)", got)
 	}
 	var remaining models.ListenerSample
 	db.First(&remaining)
-	if remaining.ID != "recent" {
+	if remaining.ID != dbtest.UUID("recent") {
 		t.Fatalf("wrong sample survived prune: %q", remaining.ID)
 	}
 }
@@ -129,9 +125,9 @@ func TestStart_CapturesImmediatelyAndOnTick(t *testing.T) {
 	if sqlDB, err := db.DB(); err == nil {
 		sqlDB.SetMaxOpenConns(1)
 	}
-	db.Create(&models.Station{ID: "s1", Active: true})
+	db.Create(&models.Station{ID: dbtest.UUID("s1"), OwnerID: dbtest.UUID("owner"), Name: "s1", Active: true})
 
-	svc := NewListenerAnalyticsService(db, &fakeCounter{counts: map[string]int{"s1": 7}}, zerolog.Nop())
+	svc := NewListenerAnalyticsService(db, &fakeCounter{counts: map[string]int{dbtest.UUID("s1"): 7}}, zerolog.Nop())
 	svc.interval = 15 * time.Millisecond // exercise the ticker branch quickly
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -140,9 +136,9 @@ func TestStart_CapturesImmediatelyAndOnTick(t *testing.T) {
 
 	// Immediate capture + at least one tick.
 	deadline := time.Now().Add(2 * time.Second)
-	for sampleCount(t, db, "s1") < 2 {
+	for sampleCount(t, db, dbtest.UUID("s1")) < 2 {
 		if time.Now().After(deadline) {
-			t.Fatalf("expected >=2 samples from immediate + tick, got %d", sampleCount(t, db, "s1"))
+			t.Fatalf("expected >=2 samples from immediate + tick, got %d", sampleCount(t, db, dbtest.UUID("s1")))
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
