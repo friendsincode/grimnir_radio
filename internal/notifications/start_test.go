@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -43,11 +44,13 @@ func TestStart_DispatchesEventsAndStopsOnCancel(t *testing.T) {
 		sqlDB.SetMaxOpenConns(1)
 	}
 	migrateExtras(t, db)
+	db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "st1"})
 
-	db.Create(&models.User{ID: "mgr", Email: "mgr@example.com"})
-	db.Create(&models.StationUser{UserID: "mgr", StationID: "st1", Role: models.StationRoleOwner})
+	db.Create(&models.User{ID: dbtest.UUID("mgr"), Email: "mgr@example.com"})
+	db.Create(&models.StationUser{ID: dbtest.UUID("su"), UserID: dbtest.UUID("mgr"), StationID: dbtest.UUID("st1"), Role: models.StationRoleOwner})
 	db.Create(&models.NotificationPreference{
-		UserID: "mgr", NotificationType: models.NotificationTypeScheduleChange,
+		ID:     dbtest.UUID("pref"),
+		UserID: dbtest.UUID("mgr"), NotificationType: models.NotificationTypeScheduleChange,
 		Channel: models.NotificationChannelInApp, Enabled: true,
 	})
 
@@ -59,9 +62,9 @@ func TestStart_DispatchesEventsAndStopsOnCancel(t *testing.T) {
 	// subscribe settle before publishing onto the (buffered) bus.
 	waitFor(t, svc.isRunning)
 	time.Sleep(20 * time.Millisecond)
-	svc.bus.Publish(events.EventDJConnect, events.Payload{"station_id": "st1", "dj_name": "DJ X"})
+	svc.bus.Publish(events.EventDJConnect, events.Payload{"station_id": dbtest.UUID("st1"), "dj_name": "DJ X"})
 
-	waitFor(t, func() bool { return countNotifications(t, db, "mgr") == 1 })
+	waitFor(t, func() bool { return countNotifications(t, db, dbtest.UUID("mgr")) == 1 })
 
 	cancel()
 	select {

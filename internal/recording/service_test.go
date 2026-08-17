@@ -12,30 +12,15 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
 func newSvc(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	// A bare ":memory:" DSN gives every pooled connection its own empty
-	// database, so AutoMigrate can land on one connection while a later query
-	// gets handed another and reports "no such table". Pinning the pool to a
-	// single connection keeps the schema and the queries in the same database.
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("sql db handle: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	if err := db.AutoMigrate(&models.Station{}, &models.StationUser{}, &models.Recording{}, &models.RecordingChapter{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := dbtest.Open(t, &models.Station{}, &models.StationUser{}, &models.Recording{}, &models.RecordingChapter{})
 	// meClient is nil: only DB paths and quota rejections are exercised here.
 	return NewService(db, nil, t.TempDir(), zerolog.Nop()), db
 }
@@ -81,24 +66,24 @@ func TestFormatChapterName(t *testing.T) {
 
 func TestStartRecording_StationNotFound(t *testing.T) {
 	svc, _ := newSvc(t)
-	if _, err := svc.StartRecording(bg(), StartRequest{StationID: "missing", UserID: "u1"}); err == nil {
+	if _, err := svc.StartRecording(bg(), StartRequest{StationID: dbtest.UUID("missing"), UserID: dbtest.UUID("u1")}); err == nil {
 		t.Fatal("expected error for missing station")
 	}
 }
 
 func TestStartRecording_StationQuotaExceeded(t *testing.T) {
 	svc, db := newSvc(t)
-	db.Create(&models.Station{ID: "st1", Name: "S", RecordingQuotaBytes: 1000, RecordingStorageUsed: 1000})
-	if _, err := svc.StartRecording(bg(), StartRequest{StationID: "st1", UserID: "u1"}); err == nil {
+	db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "S", RecordingQuotaBytes: 1000, RecordingStorageUsed: 1000})
+	if _, err := svc.StartRecording(bg(), StartRequest{StationID: dbtest.UUID("st1"), UserID: dbtest.UUID("u1")}); err == nil {
 		t.Fatal("expected station quota-exceeded error")
 	}
 }
 
 func TestStartRecording_DJQuotaExceeded(t *testing.T) {
 	svc, db := newSvc(t)
-	db.Create(&models.Station{ID: "st1", Name: "S", RecordingQuotaBytes: 0})
-	db.Create(&models.StationUser{UserID: "u1", StationID: "st1", RecordingQuotaBytes: 500, RecordingStorageUsed: 500})
-	if _, err := svc.StartRecording(bg(), StartRequest{StationID: "st1", UserID: "u1"}); err == nil {
+	db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "S", RecordingQuotaBytes: 0})
+	db.Create(&models.StationUser{ID: dbtest.UUID("su"), UserID: dbtest.UUID("u1"), StationID: dbtest.UUID("st1"), RecordingQuotaBytes: 500, RecordingStorageUsed: 500})
+	if _, err := svc.StartRecording(bg(), StartRequest{StationID: dbtest.UUID("st1"), UserID: dbtest.UUID("u1")}); err == nil {
 		t.Fatal("expected DJ quota-exceeded error")
 	}
 }
@@ -109,8 +94,9 @@ func TestStartRecording_DJQuotaExceeded(t *testing.T) {
 
 func seedRecording(t *testing.T, db *gorm.DB, id, station string, status string, size int64) {
 	t.Helper()
+	db.Where("id = ?", station).FirstOrCreate(&models.Station{ID: station, OwnerID: dbtest.UUID("owner"), Name: station})
 	r := &models.Recording{
-		ID: id, StationID: station, UserID: "u1", Status: status,
+		ID: id, StationID: station, UserID: dbtest.UUID("u1"), Status: status, MountID: dbtest.UUID("m1"),
 		StartedAt: time.Now().Add(-time.Minute), SizeBytes: size,
 	}
 	if err := db.Create(r).Error; err != nil {
@@ -120,35 +106,35 @@ func seedRecording(t *testing.T, db *gorm.DB, id, station string, status string,
 
 func TestAddChapter(t *testing.T) {
 	svc, db := newSvc(t)
-	seedRecording(t, db, "r1", "st1", models.RecordingStatusActive, 0)
+	seedRecording(t, db, dbtest.UUID("r1"), dbtest.UUID("st1"), models.RecordingStatusActive, 0)
 
-	if err := svc.AddChapter(bg(), "r1", "Song A", "Artist A", "Album"); err != nil {
+	if err := svc.AddChapter(bg(), dbtest.UUID("r1"), "Song A", "Artist A", "Album"); err != nil {
 		t.Fatalf("add chapter 1: %v", err)
 	}
-	if err := svc.AddChapter(bg(), "r1", "Song B", "Artist B", "Album"); err != nil {
+	if err := svc.AddChapter(bg(), dbtest.UUID("r1"), "Song B", "Artist B", "Album"); err != nil {
 		t.Fatalf("add chapter 2: %v", err)
 	}
 	var chapters []models.RecordingChapter
-	db.Where("recording_id = ?", "r1").Order("position ASC").Find(&chapters)
+	db.Where("recording_id = ?", dbtest.UUID("r1")).Order("position ASC").Find(&chapters)
 	if len(chapters) != 2 || chapters[0].Position != 0 || chapters[1].Position != 1 {
 		t.Fatalf("chapter positions wrong: %+v", chapters)
 	}
 
 	// Chapters can't be added to an inactive/missing recording.
-	seedRecording(t, db, "r2", "st1", models.RecordingStatusComplete, 0)
-	if err := svc.AddChapter(bg(), "r2", "x", "y", "z"); err == nil {
+	seedRecording(t, db, dbtest.UUID("r2"), dbtest.UUID("st1"), models.RecordingStatusComplete, 0)
+	if err := svc.AddChapter(bg(), dbtest.UUID("r2"), "x", "y", "z"); err == nil {
 		t.Fatal("expected error adding chapter to a non-active recording")
 	}
 }
 
 func TestListAndGetRecording(t *testing.T) {
 	svc, db := newSvc(t)
-	for _, id := range []string{"r1", "r2", "r3"} {
-		seedRecording(t, db, id, "st1", models.RecordingStatusComplete, 100)
+	for _, id := range []string{dbtest.UUID("r1"), dbtest.UUID("r2"), dbtest.UUID("r3")} {
+		seedRecording(t, db, id, dbtest.UUID("st1"), models.RecordingStatusComplete, 100)
 	}
-	seedRecording(t, db, "other", "st2", models.RecordingStatusComplete, 100)
+	seedRecording(t, db, dbtest.UUID("other"), dbtest.UUID("st2"), models.RecordingStatusComplete, 100)
 
-	recs, total, err := svc.ListRecordings(bg(), "st1", 2, 0)
+	recs, total, err := svc.ListRecordings(bg(), dbtest.UUID("st1"), 2, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -157,48 +143,48 @@ func TestListAndGetRecording(t *testing.T) {
 	}
 
 	// GetRecording preloads chapters.
-	db.Create(&models.RecordingChapter{ID: "c1", RecordingID: "r1", Position: 0, Title: "T"})
-	got, err := svc.GetRecording(bg(), "r1")
+	db.Create(&models.RecordingChapter{ID: dbtest.UUID("c1"), RecordingID: dbtest.UUID("r1"), Position: 0, Title: "T"})
+	got, err := svc.GetRecording(bg(), dbtest.UUID("r1"))
 	if err != nil || len(got.Chapters) != 1 {
 		t.Fatalf("get with chapters: %v / %+v", err, got)
 	}
-	if _, err := svc.GetRecording(bg(), "missing"); err == nil {
+	if _, err := svc.GetRecording(bg(), dbtest.UUID("missing")); err == nil {
 		t.Fatal("expected error for missing recording")
 	}
 }
 
 func TestUpdateAndDeleteRecording(t *testing.T) {
 	svc, db := newSvc(t)
-	seedRecording(t, db, "r1", "st1", models.RecordingStatusComplete, 0)
-	db.Create(&models.RecordingChapter{ID: "c1", RecordingID: "r1", Position: 0})
+	seedRecording(t, db, dbtest.UUID("r1"), dbtest.UUID("st1"), models.RecordingStatusComplete, 0)
+	db.Create(&models.RecordingChapter{ID: dbtest.UUID("c1"), RecordingID: dbtest.UUID("r1"), Position: 0})
 
-	if err := svc.UpdateRecording(bg(), "r1", map[string]any{"title": "Renamed"}); err != nil {
+	if err := svc.UpdateRecording(bg(), dbtest.UUID("r1"), map[string]any{"title": "Renamed"}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	var reloaded models.Recording
-	db.First(&reloaded, "id = ?", "r1")
+	db.First(&reloaded, "id = ?", dbtest.UUID("r1"))
 	if reloaded.Title != "Renamed" {
 		t.Fatalf("title = %q", reloaded.Title)
 	}
 
 	// Active recordings can't be deleted.
-	seedRecording(t, db, "active", "st1", models.RecordingStatusActive, 0)
-	if err := svc.DeleteRecording(bg(), "active"); err == nil {
+	seedRecording(t, db, dbtest.UUID("active"), dbtest.UUID("st1"), models.RecordingStatusActive, 0)
+	if err := svc.DeleteRecording(bg(), dbtest.UUID("active")); err == nil {
 		t.Fatal("expected error deleting an active recording")
 	}
 
 	// Zero-size complete recording deletes cleanly and cascades chapters.
-	if err := svc.DeleteRecording(bg(), "r1"); err != nil {
+	if err := svc.DeleteRecording(bg(), dbtest.UUID("r1")); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	var recs, chaps int64
-	db.Model(&models.Recording{}).Where("id = ?", "r1").Count(&recs)
-	db.Model(&models.RecordingChapter{}).Where("recording_id = ?", "r1").Count(&chaps)
+	db.Model(&models.Recording{}).Where("id = ?", dbtest.UUID("r1")).Count(&recs)
+	db.Model(&models.RecordingChapter{}).Where("recording_id = ?", dbtest.UUID("r1")).Count(&chaps)
 	if recs != 0 || chaps != 0 {
 		t.Fatalf("delete left rows: recs=%d chaps=%d", recs, chaps)
 	}
 
-	if err := svc.DeleteRecording(bg(), "missing"); err == nil {
+	if err := svc.DeleteRecording(bg(), dbtest.UUID("missing")); err == nil {
 		t.Fatal("expected error deleting a missing recording")
 	}
 }
@@ -206,11 +192,11 @@ func TestUpdateAndDeleteRecording(t *testing.T) {
 func TestGetQuotaUsage(t *testing.T) {
 	svc, db := newSvc(t)
 	db.Create(&models.Station{
-		ID: "st1", Name: "S",
+		ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "S",
 		RecordingQuotaBytes: 5000, RecordingQuotaMode: "block",
 		RecordingStorageUsed: 1200, RecordingDefaultFormat: "flac",
 	})
-	q, err := svc.GetQuotaUsage(bg(), "st1")
+	q, err := svc.GetQuotaUsage(bg(), dbtest.UUID("st1"))
 	if err != nil {
 		t.Fatalf("quota: %v", err)
 	}
@@ -219,8 +205,8 @@ func TestGetQuotaUsage(t *testing.T) {
 	}
 
 	// A station with a zero quota reports QuotaEnabled=false.
-	db.Create(&models.Station{ID: "st2", Name: "S2", RecordingQuotaBytes: 0})
-	q2, _ := svc.GetQuotaUsage(bg(), "st2")
+	db.Create(&models.Station{ID: dbtest.UUID("st2"), OwnerID: dbtest.UUID("owner"), Name: "S2", RecordingQuotaBytes: 0})
+	q2, _ := svc.GetQuotaUsage(bg(), dbtest.UUID("st2"))
 	if q2.QuotaEnabled {
 		t.Fatal("zero quota should report disabled")
 	}

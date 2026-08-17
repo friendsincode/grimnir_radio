@@ -12,23 +12,21 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
 func newScheduleAnalytics(t *testing.T) (*ScheduleAnalyticsService, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(
+	db := dbtest.Open(t,
 		&models.Station{}, &models.Show{}, &models.ShowInstance{},
 		&models.ScheduleAnalytics{}, &models.ScheduleAnalyticsDaily{},
-	); err != nil {
-		t.Fatalf("migrate: %v", err)
+	)
+	// Station must exist before shows/instances/analytics reference it (FK).
+	if err := db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "Test"}).Error; err != nil {
+		t.Fatalf("seed station: %v", err)
 	}
 	return NewScheduleAnalyticsService(db, zerolog.Nop()), db
 }
@@ -55,13 +53,13 @@ func TestRecordHourlyStats(t *testing.T) {
 	svc, db := newScheduleAnalytics(t)
 	date := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 	// A show instance covering hour 9 links the analytics row to the show.
-	db.Create(&models.Show{ID: "sh1", StationID: "st1", Name: "Morning"})
+	db.Create(&models.Show{ID: dbtest.UUID("sh1"), StationID: dbtest.UUID("st1"), Name: "Morning"})
 	db.Create(&models.ShowInstance{
-		ID: "i1", ShowID: "sh1", StationID: "st1",
+		ID: dbtest.UUID("i1"), ShowID: dbtest.UUID("sh1"), StationID: dbtest.UUID("st1"),
 		StartsAt: date.Add(9 * time.Hour), EndsAt: date.Add(11 * time.Hour), Status: models.ShowInstanceScheduled,
 	})
 
-	err := svc.RecordHourlyStats(context.Background(), "st1", date, 9, HourlyStats{
+	err := svc.RecordHourlyStats(context.Background(), dbtest.UUID("st1"), date, 9, HourlyStats{
 		AvgListeners: 42, PeakListeners: 80, TuneIns: 10, TuneOuts: 5, TotalMinutes: 2520,
 	})
 	if err != nil {
@@ -69,10 +67,10 @@ func TestRecordHourlyStats(t *testing.T) {
 	}
 
 	var row models.ScheduleAnalytics
-	if err := db.First(&row, "station_id = ? AND hour = ?", "st1", 9).Error; err != nil {
+	if err := db.First(&row, "station_id = ? AND hour = ?", dbtest.UUID("st1"), 9).Error; err != nil {
 		t.Fatalf("row not created: %v", err)
 	}
-	if row.ShowID == nil || *row.ShowID != "sh1" {
+	if row.ShowID == nil || *row.ShowID != dbtest.UUID("sh1") {
 		t.Fatalf("row should link to the covering show: %+v", row.ShowID)
 	}
 	if row.AvgListeners != 42 || row.PeakListeners != 80 {
@@ -84,7 +82,7 @@ func seedHourly(t *testing.T, db *gorm.DB, id, showID string, date time.Time, ho
 	t.Helper()
 	sid := showID
 	row := &models.ScheduleAnalytics{
-		ID: id, StationID: "st1", ShowID: &sid, Date: date, Hour: hour,
+		ID: id, StationID: dbtest.UUID("st1"), ShowID: &sid, Date: date, Hour: hour,
 		AvgListeners: avg, PeakListeners: peak, TuneIns: 3, TotalMinutes: avg * 60,
 	}
 	if err := db.Create(row).Error; err != nil {
@@ -95,11 +93,11 @@ func seedHourly(t *testing.T, db *gorm.DB, id, showID string, date time.Time, ho
 func TestGetShowPerformance(t *testing.T) {
 	svc, db := newScheduleAnalytics(t)
 	date := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
-	db.Create(&models.Show{ID: "sh1", StationID: "st1", Name: "Morning Drive"})
-	seedHourly(t, db, "a1", "sh1", date, 9, 40, 70)
-	seedHourly(t, db, "a2", "sh1", date, 10, 60, 90)
+	db.Create(&models.Show{ID: dbtest.UUID("sh1"), StationID: dbtest.UUID("st1"), Name: "Morning Drive"})
+	seedHourly(t, db, dbtest.UUID("a1"), dbtest.UUID("sh1"), date, 9, 40, 70)
+	seedHourly(t, db, dbtest.UUID("a2"), dbtest.UUID("sh1"), date, 10, 60, 90)
 
-	perf, err := svc.GetShowPerformance(context.Background(), "st1", date, date.AddDate(0, 0, 1))
+	perf, err := svc.GetShowPerformance(context.Background(), dbtest.UUID("st1"), date, date.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("show performance: %v", err)
 	}

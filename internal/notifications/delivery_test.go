@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -59,7 +60,7 @@ func TestSendSMS_ConfiguredDelivers(t *testing.T) {
 	t.Setenv("GRIMNIR_SMS_WEBHOOK_URL", srv.URL)
 
 	n := &models.Notification{Subject: "s", Body: "b", Metadata: map[string]any{"phone": "+15550001111"}}
-	if err := svc.sendSMS(bg(), n, &models.User{ID: "u1"}); err != nil {
+	if err := svc.sendSMS(bg(), n, &models.User{ID: dbtest.UUID("u1")}); err != nil {
 		t.Fatalf("sendSMS: %v", err)
 	}
 	if n.Status != models.NotificationStatusSent {
@@ -75,12 +76,12 @@ func TestSendSMS_Rejections(t *testing.T) {
 		t.Fatal("expected error for nil user")
 	}
 	// No webhook configured.
-	if err := svc.sendSMS(bg(), n, &models.User{ID: "u1"}); err == nil {
+	if err := svc.sendSMS(bg(), n, &models.User{ID: dbtest.UUID("u1")}); err == nil {
 		t.Fatal("expected error when SMS webhook unconfigured")
 	}
 	// Configured but no destination in metadata.
 	t.Setenv("GRIMNIR_SMS_WEBHOOK_URL", "http://example.invalid")
-	if err := svc.sendSMS(bg(), &models.Notification{}, &models.User{ID: "u1"}); err == nil {
+	if err := svc.sendSMS(bg(), &models.Notification{}, &models.User{ID: dbtest.UUID("u1")}); err == nil {
 		t.Fatal("expected error for missing sms destination")
 	}
 }
@@ -94,7 +95,7 @@ func TestSendPush_ConfiguredDelivers(t *testing.T) {
 	t.Setenv("GRIMNIR_PUSH_WEBHOOK_URL", srv.URL)
 
 	n := &models.Notification{Subject: "s", Body: "b", Metadata: map[string]any{"device_token": "tok-123"}}
-	if err := svc.sendPush(bg(), n, &models.User{ID: "u1"}); err != nil {
+	if err := svc.sendPush(bg(), n, &models.User{ID: dbtest.UUID("u1")}); err != nil {
 		t.Fatalf("sendPush: %v", err)
 	}
 	if n.Status != models.NotificationStatusSent {
@@ -107,11 +108,11 @@ func TestSendPush_Rejections(t *testing.T) {
 	if err := svc.sendPush(bg(), &models.Notification{}, nil); err == nil {
 		t.Fatal("expected error for nil user")
 	}
-	if err := svc.sendPush(bg(), &models.Notification{}, &models.User{ID: "u1"}); err == nil {
+	if err := svc.sendPush(bg(), &models.Notification{}, &models.User{ID: dbtest.UUID("u1")}); err == nil {
 		t.Fatal("expected error when push webhook unconfigured")
 	}
 	t.Setenv("GRIMNIR_PUSH_WEBHOOK_URL", "http://example.invalid")
-	if err := svc.sendPush(bg(), &models.Notification{}, &models.User{ID: "u1"}); err == nil {
+	if err := svc.sendPush(bg(), &models.Notification{}, &models.User{ID: dbtest.UUID("u1")}); err == nil {
 		t.Fatal("expected error for missing device token")
 	}
 }

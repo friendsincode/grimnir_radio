@@ -12,21 +12,15 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
 func newLPService(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&models.LandingPage{}, &models.LandingPageVersion{}, &models.LandingPageAsset{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := dbtest.Open(t, &models.LandingPage{}, &models.LandingPageVersion{}, &models.LandingPageAsset{})
 	return NewService(db, nil, t.TempDir(), zerolog.Nop()), db
 }
 
@@ -34,14 +28,14 @@ func bg() context.Context { return context.Background() }
 
 func TestGetOrCreate_Idempotent(t *testing.T) {
 	svc, db := newLPService(t)
-	p1, err := svc.GetOrCreate(bg(), "st1")
+	p1, err := svc.GetOrCreate(bg(), dbtest.UUID("st1"))
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if p1.Theme != "default" || p1.PublishedConfig == nil {
 		t.Fatalf("new page not seeded with defaults: %+v", p1)
 	}
-	p2, _ := svc.GetOrCreate(bg(), "st1")
+	p2, _ := svc.GetOrCreate(bg(), dbtest.UUID("st1"))
 	if p2.ID != p1.ID {
 		t.Fatal("GetOrCreate should return the existing page, not a new one")
 	}
@@ -81,11 +75,11 @@ func TestConfigGetters(t *testing.T) {
 	svc, _ := newLPService(t)
 
 	// Station getters seed via GetOrCreate; with no draft, draft falls back to published.
-	pub, err := svc.GetPublished(bg(), "st1")
+	pub, err := svc.GetPublished(bg(), dbtest.UUID("st1"))
 	if err != nil || pub == nil {
 		t.Fatalf("GetPublished: %v", err)
 	}
-	draft, err := svc.GetDraft(bg(), "st1")
+	draft, err := svc.GetDraft(bg(), dbtest.UUID("st1"))
 	if err != nil {
 		t.Fatalf("GetDraft: %v", err)
 	}
@@ -104,36 +98,36 @@ func TestConfigGetters(t *testing.T) {
 
 func TestGet_NotFoundThenFound(t *testing.T) {
 	svc, _ := newLPService(t)
-	if _, err := svc.Get(bg(), "missing"); !errors.Is(err, ErrNotFound) {
+	if _, err := svc.Get(bg(), dbtest.UUID("missing")); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get missing = %v, want ErrNotFound", err)
 	}
-	svc.GetOrCreate(bg(), "st1")
-	if _, err := svc.Get(bg(), "st1"); err != nil {
+	svc.GetOrCreate(bg(), dbtest.UUID("st1"))
+	if _, err := svc.Get(bg(), dbtest.UUID("st1")); err != nil {
 		t.Fatalf("Get existing: %v", err)
 	}
 }
 
 func TestUpdateThemeCSSHead(t *testing.T) {
 	svc, db := newLPService(t)
-	svc.GetOrCreate(bg(), "st1")
+	svc.GetOrCreate(bg(), dbtest.UUID("st1"))
 
 	// Unknown theme is rejected.
-	if err := svc.UpdateTheme(bg(), "st1", "no-such-theme"); err == nil {
+	if err := svc.UpdateTheme(bg(), dbtest.UUID("st1"), "no-such-theme"); err == nil {
 		t.Fatal("expected error for unknown theme")
 	}
 	valid := BuiltInThemes[0].ID
-	if err := svc.UpdateTheme(bg(), "st1", valid); err != nil {
+	if err := svc.UpdateTheme(bg(), dbtest.UUID("st1"), valid); err != nil {
 		t.Fatalf("update theme: %v", err)
 	}
-	if err := svc.UpdateCustomCSS(bg(), "st1", "body{color:red}"); err != nil {
+	if err := svc.UpdateCustomCSS(bg(), dbtest.UUID("st1"), "body{color:red}"); err != nil {
 		t.Fatalf("update css: %v", err)
 	}
-	if err := svc.UpdateCustomHead(bg(), "st1", "<meta>"); err != nil {
+	if err := svc.UpdateCustomHead(bg(), dbtest.UUID("st1"), "<meta>"); err != nil {
 		t.Fatalf("update head: %v", err)
 	}
 
 	var page models.LandingPage
-	db.Where("station_id = ?", "st1").First(&page)
+	db.Where("station_id = ?", dbtest.UUID("st1")).First(&page)
 	if page.Theme != valid || page.CustomCSS != "body{color:red}" || page.CustomHead != "<meta>" {
 		t.Fatalf("updates not persisted: %+v", page)
 	}
@@ -154,8 +148,8 @@ func TestListAndGetTheme(t *testing.T) {
 
 func TestListVersions_Empty(t *testing.T) {
 	svc, _ := newLPService(t)
-	svc.GetOrCreate(bg(), "st1")
-	versions, total, err := svc.ListVersions(bg(), "st1", 10, 0)
+	svc.GetOrCreate(bg(), dbtest.UUID("st1"))
+	versions, total, err := svc.ListVersions(bg(), dbtest.UUID("st1"), 10, 0)
 	if err != nil {
 		t.Fatalf("list versions: %v", err)
 	}

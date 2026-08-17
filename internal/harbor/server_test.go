@@ -16,9 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/friendsincode/grimnir_radio/internal/dbtest"
 	"github.com/friendsincode/grimnir_radio/internal/models"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestParseBasicAuth(t *testing.T) {
@@ -222,16 +221,10 @@ func TestAddr(t *testing.T) {
 }
 
 func TestResolveSessionAndMount_UsesTokenSessionWhenMountNamesOverlap(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := dbtest.Open(t, &models.Station{}, &models.Mount{}, &models.LiveSession{})
 
-	stationA := models.Station{ID: "station-a", Name: "A", Timezone: "UTC", Active: true}
-	stationB := models.Station{ID: "station-b", Name: "B", Timezone: "UTC", Active: true}
+	stationA := models.Station{ID: dbtest.UUID(dbtest.UUID("station-a")), OwnerID: dbtest.UUID("owner"), Name: "A", Timezone: "UTC", Active: true}
+	stationB := models.Station{ID: dbtest.UUID("station-b"), OwnerID: dbtest.UUID("owner"), Name: "B", Timezone: "UTC", Active: true}
 	if err := db.Create(&stationA).Error; err != nil {
 		t.Fatalf("create station A: %v", err)
 	}
@@ -239,8 +232,8 @@ func TestResolveSessionAndMount_UsesTokenSessionWhenMountNamesOverlap(t *testing
 		t.Fatalf("create station B: %v", err)
 	}
 
-	mountA := models.Mount{ID: "mount-a", StationID: stationA.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
-	mountB := models.Mount{ID: "mount-b", StationID: stationB.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	mountA := models.Mount{ID: dbtest.UUID(dbtest.UUID("mount-a")), StationID: stationA.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	mountB := models.Mount{ID: dbtest.UUID("mount-b"), StationID: stationB.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
 	if err := db.Create(&mountA).Error; err != nil {
 		t.Fatalf("create mount A: %v", err)
 	}
@@ -249,10 +242,10 @@ func TestResolveSessionAndMount_UsesTokenSessionWhenMountNamesOverlap(t *testing
 	}
 
 	session := models.LiveSession{
-		ID:          "session-b",
+		ID:          dbtest.UUID("session-b"),
 		StationID:   stationB.ID,
 		MountID:     mountB.ID,
-		UserID:      "user-1",
+		UserID:      dbtest.UUID(dbtest.UUID("user-1")),
 		Username:    "dj",
 		Priority:    models.PriorityLiveScheduled,
 		Token:       "token-b",
@@ -276,43 +269,31 @@ func TestResolveSessionAndMount_UsesTokenSessionWhenMountNamesOverlap(t *testing
 }
 
 func TestResolveSessionAndMount_InvalidToken(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := dbtest.Open(t, &models.Station{}, &models.Mount{}, &models.LiveSession{})
 
 	s := &Server{db: db}
-	_, _, err = s.resolveSessionAndMount(context.Background(), "nonexistent-token", "/live")
+	_, _, err := s.resolveSessionAndMount(context.Background(), "nonexistent-token", "/live")
 	if err == nil {
 		t.Fatal("resolveSessionAndMount() should fail for invalid token")
 	}
 }
 
 func TestResolveSessionAndMount_MountMismatch(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := dbtest.Open(t, &models.Station{}, &models.Mount{}, &models.LiveSession{})
 
-	station := models.Station{ID: "station-1", Name: "S1", Timezone: "UTC", Active: true}
+	station := models.Station{ID: dbtest.UUID(dbtest.UUID("station-1")), OwnerID: dbtest.UUID("owner"), Name: "S1", Timezone: "UTC", Active: true}
 	db.Create(&station)
-	mount := models.Mount{ID: "mount-1", StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	mount := models.Mount{ID: dbtest.UUID(dbtest.UUID("mount-1")), StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
 	db.Create(&mount)
 	session := models.LiveSession{
-		ID: "session-1", StationID: station.ID, MountID: mount.ID,
-		UserID: "user-1", Username: "dj", Priority: models.PriorityLiveScheduled,
+		ID: dbtest.UUID(dbtest.UUID("session-1")), StationID: station.ID, MountID: mount.ID,
+		UserID: dbtest.UUID(dbtest.UUID("user-1")), Username: "dj", Priority: models.PriorityLiveScheduled,
 		Token: "token-1", ConnectedAt: time.Now(),
 	}
 	db.Create(&session)
 
 	s := &Server{db: db}
-	_, _, err = s.resolveSessionAndMount(context.Background(), "token-1", "/wrong-mount")
+	_, _, err := s.resolveSessionAndMount(context.Background(), "token-1", "/wrong-mount")
 	if err == nil {
 		t.Fatal("resolveSessionAndMount() should fail for wrong mount path")
 	}
@@ -327,21 +308,15 @@ func TestResolveSessionAndMount_EmptyPath(t *testing.T) {
 }
 
 func TestResolveSessionAndMount_FileExtensionStripping(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := dbtest.Open(t, &models.Station{}, &models.Mount{}, &models.LiveSession{})
 
-	station := models.Station{ID: "station-1", Name: "S1", Timezone: "UTC", Active: true}
+	station := models.Station{ID: dbtest.UUID(dbtest.UUID("station-1")), OwnerID: dbtest.UUID("owner"), Name: "S1", Timezone: "UTC", Active: true}
 	db.Create(&station)
-	mount := models.Mount{ID: "mount-1", StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	mount := models.Mount{ID: dbtest.UUID(dbtest.UUID("mount-1")), StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
 	db.Create(&mount)
 	session := models.LiveSession{
-		ID: "session-1", StationID: station.ID, MountID: mount.ID,
-		UserID: "user-1", Username: "dj", Priority: models.PriorityLiveScheduled,
+		ID: dbtest.UUID(dbtest.UUID("session-1")), StationID: station.ID, MountID: mount.ID,
+		UserID: dbtest.UUID(dbtest.UUID("user-1")), Username: "dj", Priority: models.PriorityLiveScheduled,
 		Token: "token-1", ConnectedAt: time.Now(),
 	}
 	db.Create(&session)
@@ -487,19 +462,19 @@ func TestHandleMetadataUpdate_NoActiveConnection(t *testing.T) {
 func TestSourceConnection_Fields(t *testing.T) {
 	now := time.Now()
 	conn := &SourceConnection{
-		SessionID:   "sess-1",
-		StationID:   "station-1",
-		MountID:     "mount-1",
+		SessionID:   dbtest.UUID("sess-1"),
+		StationID:   dbtest.UUID(dbtest.UUID("station-1")),
+		MountID:     dbtest.UUID(dbtest.UUID("mount-1")),
 		MountName:   "live",
 		ConnectedAt: now,
 		Metadata:    map[string]string{"Ice-Name": "Test"},
 	}
 
-	if conn.SessionID != "sess-1" {
-		t.Errorf("SessionID = %q, want %q", conn.SessionID, "sess-1")
+	if conn.SessionID != dbtest.UUID("sess-1") {
+		t.Errorf("SessionID = %q, want %q", conn.SessionID, dbtest.UUID("sess-1"))
 	}
-	if conn.StationID != "station-1" {
-		t.Errorf("StationID = %q, want %q", conn.StationID, "station-1")
+	if conn.StationID != dbtest.UUID(dbtest.UUID("station-1")) {
+		t.Errorf("StationID = %q, want %q", conn.StationID, dbtest.UUID(dbtest.UUID("station-1")))
 	}
 	if conn.Metadata["Ice-Name"] != "Test" {
 		t.Errorf("Metadata[Ice-Name] = %q, want %q", conn.Metadata["Ice-Name"], "Test")
@@ -535,27 +510,21 @@ func (p *pipeNetConn) SetReadDeadline(time.Time) error  { return nil }
 func (p *pipeNetConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestResolveSessionAndMount_StripsMountPrefix(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&models.Station{}, &models.Mount{}, &models.LiveSession{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := dbtest.Open(t, &models.Station{}, &models.Mount{}, &models.LiveSession{})
 
-	station := models.Station{ID: "station-1", Name: "S1", Timezone: "UTC", Active: true}
+	station := models.Station{ID: dbtest.UUID(dbtest.UUID("station-1")), OwnerID: dbtest.UUID("owner"), Name: "S1", Timezone: "UTC", Active: true}
 	if err := db.Create(&station).Error; err != nil {
 		t.Fatalf("create station: %v", err)
 	}
-	mount := models.Mount{ID: "mount-1", StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
+	mount := models.Mount{ID: dbtest.UUID(dbtest.UUID("mount-1")), StationID: station.ID, Name: "live", Format: "mp3", Bitrate: 128, Channels: 2, SampleRate: 44100}
 	if err := db.Create(&mount).Error; err != nil {
 		t.Fatalf("create mount: %v", err)
 	}
 	session := models.LiveSession{
-		ID:          "session-1",
+		ID:          dbtest.UUID(dbtest.UUID("session-1")),
 		StationID:   station.ID,
 		MountID:     mount.ID,
-		UserID:      "user-1",
+		UserID:      dbtest.UUID(dbtest.UUID("user-1")),
 		Username:    "dj",
 		Priority:    models.PriorityLiveScheduled,
 		Token:       "token-1",
