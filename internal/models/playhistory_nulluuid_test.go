@@ -15,8 +15,8 @@ import (
 
 // TestPlayHistory_EmptyMediaMount_PersistsAsNull guards the live/webstream bug:
 // a media-less PlayHistory (live DJ, webstream) has empty MediaID/MountID, which
-// Postgres rejects as '' for a uuid column (SQLSTATE 22P02). The nulluuid
-// serializer must store '' as NULL and read NULL back as "".
+// Postgres rejects as an empty string for a uuid column (SQLSTATE 22P02). The
+// nulluuid serializer must store empty as NULL and read NULL back as empty.
 func TestPlayHistory_EmptyMediaMount_PersistsAsNull(t *testing.T) {
 	db := dbtest.Open(t, &models.PlayHistory{})
 
