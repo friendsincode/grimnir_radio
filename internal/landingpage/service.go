@@ -155,7 +155,9 @@ func (s *Service) SavePlatformDraft(ctx context.Context, config map[string]any) 
 		return err
 	}
 
-	if err := s.db.WithContext(ctx).Model(page).Update("draft_config", config).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(page).
+		Select("draft_config").
+		Updates(&models.LandingPage{DraftConfig: config}).Error; err != nil {
 		return fmt.Errorf("save platform draft: %w", err)
 	}
 
@@ -181,14 +183,14 @@ func (s *Service) PublishPlatform(ctx context.Context, userID, summary string) e
 	}
 
 	now := time.Now()
-	updates := map[string]any{
-		"published_config": configToPublish,
-		"draft_config":     nil,
-		"published_at":     now,
-		"published_by":     userID,
-	}
-
-	if err := s.db.WithContext(ctx).Model(page).Updates(updates).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(page).
+		Select("published_config", "draft_config", "published_at", "published_by").
+		Updates(&models.LandingPage{
+			PublishedConfig: configToPublish,
+			DraftConfig:     nil,
+			PublishedAt:     &now,
+			PublishedBy:     &userID,
+		}).Error; err != nil {
 		return fmt.Errorf("publish platform: %w", err)
 	}
 
@@ -256,8 +258,13 @@ func (s *Service) SaveDraft(ctx context.Context, stationID string, config map[st
 		return err
 	}
 
-	// Update draft
-	if err := s.db.WithContext(ctx).Model(page).Update("draft_config", config).Error; err != nil {
+	// Write through the struct field: gorm's serializer:json is applied on
+	// struct-field writes, but NOT on Update(column, rawMap), which passes the
+	// map straight to database/sql and fails on every driver. Select forces the
+	// column to be written even when config is empty.
+	if err := s.db.WithContext(ctx).Model(page).
+		Select("draft_config").
+		Updates(&models.LandingPage{DraftConfig: config}).Error; err != nil {
 		return fmt.Errorf("save draft: %w", err)
 	}
 
@@ -284,16 +291,17 @@ func (s *Service) Publish(ctx context.Context, stationID, userID, summary string
 		return fmt.Errorf("create version: %w", err)
 	}
 
-	// Update landing page
+	// Write through the struct field so serializer:json applies to the map
+	// config; Select forces draft_config to clear to NULL alongside it.
 	now := time.Now()
-	updates := map[string]any{
-		"published_config": configToPublish,
-		"draft_config":     nil,
-		"published_at":     now,
-		"published_by":     userID,
-	}
-
-	if err := s.db.WithContext(ctx).Model(page).Updates(updates).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(page).
+		Select("published_config", "draft_config", "published_at", "published_by").
+		Updates(&models.LandingPage{
+			PublishedConfig: configToPublish,
+			DraftConfig:     nil,
+			PublishedAt:     &now,
+			PublishedBy:     &userID,
+		}).Error; err != nil {
 		return fmt.Errorf("publish: %w", err)
 	}
 
@@ -468,16 +476,16 @@ func (s *Service) RestoreVersion(ctx context.Context, stationID, versionID, user
 		return fmt.Errorf("create restore version: %w", err)
 	}
 
-	// Update landing page with restored config
+	// Write through the struct field (serializer:json) rather than a raw map.
 	now := time.Now()
-	updates := map[string]any{
-		"published_config": version.Config,
-		"draft_config":     nil,
-		"published_at":     now,
-		"published_by":     userID,
-	}
-
-	if err := s.db.WithContext(ctx).Model(page).Updates(updates).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(page).
+		Select("published_config", "draft_config", "published_at", "published_by").
+		Updates(&models.LandingPage{
+			PublishedConfig: version.Config,
+			DraftConfig:     nil,
+			PublishedAt:     &now,
+			PublishedBy:     &userID,
+		}).Error; err != nil {
 		return fmt.Errorf("restore version: %w", err)
 	}
 
