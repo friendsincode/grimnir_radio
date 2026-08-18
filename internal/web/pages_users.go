@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/friendsincode/grimnir_radio/internal/db"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
 
@@ -107,6 +108,12 @@ func (h *Handler) UserCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.db.Create(&user).Error; err != nil {
+		// email is unique; a concurrent create can slip past the check above, so
+		// turn the duplicate into the same clean message rather than a 500.
+		if db.IsUniqueViolation(err) {
+			http.Error(w, "Email already in use", http.StatusBadRequest)
+			return
+		}
 		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}

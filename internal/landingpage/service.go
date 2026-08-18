@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/friendsincode/grimnir_radio/internal/media"
 	"github.com/friendsincode/grimnir_radio/internal/models"
@@ -74,13 +75,32 @@ func (s *Service) GetOrCreate(ctx context.Context, stationID string) (*models.La
 		DraftConfig:     nil,
 	}
 
-	if err := s.db.WithContext(ctx).Create(&page).Error; err != nil {
+	// Race-safe insert: station_id is unique and a concurrent caller can create
+	// the row between our SELECT and Create. OnConflict-DoNothing makes the
+	// loser's insert a no-op; then re-load by station_id so every caller returns
+	// the one canonical row instead of a 23505 error.
+	if err := s.db.WithContext(ctx).
+		Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "station_id"}}, DoNothing: true}).
+		Create(&page).Error; err != nil {
 		return nil, fmt.Errorf("create landing page: %w", err)
+	}
+	var loaded models.LandingPage
+	if err := s.db.WithContext(ctx).Where("station_id = ?", stationID).Take(&loaded).Error; err != nil {
+		return nil, fmt.Errorf("load landing page: %w", err)
 	}
 
 	s.logger.Info().Str("station_id", stationID).Msg("created landing page")
-	return &page, nil
+	return &loaded, nil
 }
+
+// platformPageID is the fixed primary key of the singleton platform landing
+// page (the one row with station_id IS NULL). A unique index on the nullable
+// station_id column does not constrain multiple NULL rows in Postgres, so
+// concurrent cold-start creators would each insert a duplicate. Pinning the
+// primary key lets them converge via OnConflict on id instead. Installs that
+// already have a random-id platform page keep it: the SELECT below finds it and
+// this constant is never used.
+const platformPageID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
 // GetOrCreatePlatform retrieves or creates the platform landing page (no station).
 func (s *Service) GetOrCreatePlatform(ctx context.Context) (*models.LandingPage, error) {
@@ -96,19 +116,28 @@ func (s *Service) GetOrCreatePlatform(ctx context.Context) (*models.LandingPage,
 
 	// Create new platform landing page with default config
 	page = models.LandingPage{
-		ID:              uuid.NewString(),
+		ID:              platformPageID,
 		StationID:       nil,
 		Theme:           "default",
 		PublishedConfig: GetPlatformThemeDefaults(),
 		DraftConfig:     nil,
 	}
 
-	if err := s.db.WithContext(ctx).Create(&page).Error; err != nil {
+	// Race-safe insert: concurrent callers all use the same primary key, so
+	// OnConflict-DoNothing collapses the losers to a no-op; then re-load the one
+	// platform row rather than returning a duplicate or a 23505.
+	if err := s.db.WithContext(ctx).
+		Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).
+		Create(&page).Error; err != nil {
 		return nil, fmt.Errorf("create platform landing page: %w", err)
+	}
+	var loaded models.LandingPage
+	if err := s.db.WithContext(ctx).Where("station_id IS NULL").Take(&loaded).Error; err != nil {
+		return nil, fmt.Errorf("load platform landing page: %w", err)
 	}
 
 	s.logger.Info().Msg("created platform landing page")
-	return &page, nil
+	return &loaded, nil
 }
 
 // GetPlatform retrieves the platform landing page.

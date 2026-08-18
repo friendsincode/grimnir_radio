@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/friendsincode/grimnir_radio/internal/db"
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/models"
 )
@@ -106,6 +107,10 @@ func (h *Handler) StationCreate(w http.ResponseWriter, r *http.Request) {
 
 	if err := tx.Create(&station).Error; err != nil {
 		tx.Rollback()
+		if db.IsUniqueViolation(err) {
+			h.renderStationFormError(w, r, station, true, "A station with that name already exists")
+			return
+		}
 		h.logger.Error().Err(err).Msg("failed to create station")
 		h.renderStationFormError(w, r, station, true, "Failed to create station")
 		return

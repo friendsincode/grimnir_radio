@@ -64,10 +64,10 @@ func TestOptionalUUIDColumns_AcceptEmpty(t *testing.T) {
 			},
 		},
 		{
-			name:    "ExecutorState.Current/NextSourceID",
+			name:    "ExecutorState.MountID/Current/NextSourceID",
 			migrate: []any{&models.ExecutorState{}},
 			make: func() any {
-				return &models.ExecutorState{ID: dbtest.UUID("es"), StationID: dbtest.UUID("st"), MountID: dbtest.UUID("mnt")}
+				return &models.ExecutorState{ID: dbtest.UUID("es"), StationID: dbtest.UUID("st")}
 			},
 		},
 		{

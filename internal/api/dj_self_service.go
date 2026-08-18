@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/friendsincode/grimnir_radio/internal/auth"
 	"github.com/friendsincode/grimnir_radio/internal/models"
@@ -736,46 +737,56 @@ func (a *API) handleUpdateScheduleLock(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var lock models.ScheduleLock
-	result := a.db.WithContext(r.Context()).Where("station_id = ?", req.StationID).First(&lock)
-
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		// Create new
-		lock = models.ScheduleLock{
-			ID:             uuid.NewString(),
-			StationID:      req.StationID,
-			LockBeforeDays: req.LockBeforeDays,
-			MinBypassRole:  models.RoleName(req.MinBypassRole),
-			LockedDates:    lockedDates,
-		}
-		if lock.LockBeforeDays == 0 {
-			lock.LockBeforeDays = 7
-		}
-		if lock.MinBypassRole == "" {
-			lock.MinBypassRole = models.RoleManager
-		}
-		if err := a.db.WithContext(r.Context()).Create(&lock).Error; err != nil {
-			writeError(w, http.StatusInternalServerError, "db_error")
-			return
-		}
-	} else if result.Error != nil {
+	lock, err := upsertScheduleLock(r.Context(), a.db, req.StationID, req.LockBeforeDays, req.MinBypassRole, lockedDates)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
-	} else {
-		// Update existing
-		updates := map[string]any{
-			"lock_before_days": req.LockBeforeDays,
-			"locked_dates":     lockedDates,
-		}
-		if req.MinBypassRole != "" {
-			updates["min_bypass_role"] = req.MinBypassRole
-		}
-		if err := a.db.WithContext(r.Context()).Model(&lock).Updates(updates).Error; err != nil {
-			writeError(w, http.StatusInternalServerError, "update_failed")
-			return
-		}
-		a.db.WithContext(r.Context()).First(&lock, "id = ?", lock.ID)
 	}
 
 	writeJSON(w, http.StatusOK, lock)
+}
+
+// upsertScheduleLock creates the station's schedule lock or updates the existing
+// one. station_id is unique and LockedDates is a serializer:json column, so it
+// must be race-safe and write LockedDates through a struct field.
+func upsertScheduleLock(ctx context.Context, db *gorm.DB, stationID string, lockBeforeDays int, minBypassRole string, lockedDates []time.Time) (models.ScheduleLock, error) {
+	// Ensure a row exists, race-safe: station_id is unique, so concurrent first
+	// touches collapse to one row via OnConflict-DoNothing instead of a 23505.
+	// The seed carries the column defaults; caller-supplied values are applied
+	// in the update below.
+	seed := models.ScheduleLock{
+		ID:             uuid.NewString(),
+		StationID:      stationID,
+		LockBeforeDays: 7,
+		MinBypassRole:  models.RoleManager,
+	}
+	if err := db.WithContext(ctx).
+		Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "station_id"}}, DoNothing: true}).
+		Create(&seed).Error; err != nil {
+		return models.ScheduleLock{}, err
+	}
+
+	var lock models.ScheduleLock
+	if err := db.WithContext(ctx).Where("station_id = ?", stationID).Take(&lock).Error; err != nil {
+		return models.ScheduleLock{}, err
+	}
+
+	// Apply the requested changes through struct fields so serializer:json runs
+	// on LockedDates; a raw-map Update would skip it and corrupt the column.
+	// Only overwrite the scalar settings the caller actually supplied.
+	lock.LockedDates = lockedDates
+	cols := []string{"locked_dates"}
+	if lockBeforeDays != 0 {
+		lock.LockBeforeDays = lockBeforeDays
+		cols = append(cols, "lock_before_days")
+	}
+	if minBypassRole != "" {
+		lock.MinBypassRole = models.RoleName(minBypassRole)
+		cols = append(cols, "min_bypass_role")
+	}
+	if err := db.WithContext(ctx).Model(&lock).Select(cols).Updates(&lock).Error; err != nil {
+		return models.ScheduleLock{}, err
+	}
+
+	return lock, nil
 }
