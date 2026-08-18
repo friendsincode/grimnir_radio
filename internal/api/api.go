@@ -1269,9 +1269,9 @@ func (a *API) handleScheduleUpdate(w http.ResponseWriter, r *http.Request) {
 		updates["mount_id"] = req.MountID
 	}
 
-	if req.Metadata != nil {
+	metadataSet := req.Metadata != nil
+	if metadataSet {
 		entry.Metadata = req.Metadata
-		updates["metadata"] = req.Metadata
 	}
 
 	if req.Shuffle != nil {
@@ -1283,14 +1283,25 @@ func (a *API) handleScheduleUpdate(w http.ResponseWriter, r *http.Request) {
 		entry.Metadata = map[string]any{}
 	}
 
-	if len(updates) == 0 {
+	if len(updates) == 0 && !metadataSet {
 		writeJSON(w, http.StatusOK, entry)
 		return
 	}
 
-	if err := a.db.WithContext(r.Context()).Model(&models.ScheduleEntry{}).Where("id = ?", entry.ID).Updates(updates).Error; err != nil {
-		writeError(w, http.StatusInternalServerError, "update_failed")
-		return
+	if len(updates) > 0 {
+		if err := a.db.WithContext(r.Context()).Model(&models.ScheduleEntry{}).Where("id = ?", entry.ID).Updates(updates).Error; err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed")
+			return
+		}
+	}
+	// metadata is serializer:json; write it through the struct field so the
+	// serializer runs (a raw-map Updates skips it and fails to encode on jsonb).
+	if metadataSet {
+		if err := a.db.WithContext(r.Context()).Model(&models.ScheduleEntry{}).Where("id = ?", entry.ID).
+			Select("metadata").Updates(&models.ScheduleEntry{Metadata: entry.Metadata}).Error; err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed")
+			return
+		}
 	}
 
 	entryMap := events.Payload{

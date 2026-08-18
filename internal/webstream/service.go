@@ -170,17 +170,41 @@ func (s *Service) UpdateWebstream(ctx context.Context, id string, updates map[st
 		return fmt.Errorf("query webstream: %w", err)
 	}
 
-	// When the URL list changes, reset current_url/current_index so the
-	// health checker and relay use the new primary URL immediately.
+	// urls and custom_metadata are serializer:json columns. A raw-map Updates
+	// hands the []string / map straight to the driver for a jsonb column, which
+	// fails to encode, so pull them out and write them through struct fields.
+	serialized := models.Webstream{}
+	var serializedCols []string
 	if raw, ok := updates["urls"]; ok {
-		if urls, ok := raw.([]string); ok && len(urls) > 0 {
-			updates["current_url"] = urls[0]
-			updates["current_index"] = 0
+		if urls, ok := raw.([]string); ok {
+			serialized.URLs = urls
+			serializedCols = append(serializedCols, "urls")
+			// When the URL list changes, reset current_url/current_index so the
+			// health checker and relay use the new primary URL immediately.
+			if len(urls) > 0 {
+				updates["current_url"] = urls[0]
+				updates["current_index"] = 0
+			}
 		}
+		delete(updates, "urls")
+	}
+	if raw, ok := updates["custom_metadata"]; ok {
+		if cm, ok := raw.(map[string]any); ok {
+			serialized.CustomMetadata = cm
+			serializedCols = append(serializedCols, "custom_metadata")
+		}
+		delete(updates, "custom_metadata")
 	}
 
-	if err := s.db.WithContext(ctx).Model(&ws).Updates(updates).Error; err != nil {
-		return fmt.Errorf("update webstream: %w", err)
+	if len(updates) > 0 {
+		if err := s.db.WithContext(ctx).Model(&ws).Updates(updates).Error; err != nil {
+			return fmt.Errorf("update webstream: %w", err)
+		}
+	}
+	if len(serializedCols) > 0 {
+		if err := s.db.WithContext(ctx).Model(&ws).Select(serializedCols).Updates(&serialized).Error; err != nil {
+			return fmt.Errorf("update webstream serialized fields: %w", err)
+		}
 	}
 
 	// Restart health checker if health-check settings changed.
