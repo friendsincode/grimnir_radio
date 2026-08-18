@@ -192,8 +192,9 @@ func (a *API) handleScheduleRulesUpdate(w http.ResponseWriter, r *http.Request) 
 	if req.Name != nil {
 		updates["name"] = *req.Name
 	}
-	if req.Config != nil {
-		updates["config"] = req.Config
+	configSet := req.Config != nil
+	if configSet {
+		rule.Config = req.Config
 	}
 	if req.Severity != nil {
 		updates["severity"] = *req.Severity
@@ -202,14 +203,24 @@ func (a *API) handleScheduleRulesUpdate(w http.ResponseWriter, r *http.Request) 
 		updates["active"] = *req.Active
 	}
 
-	if len(updates) == 0 {
+	if len(updates) == 0 && !configSet {
 		writeJSON(w, http.StatusOK, rule)
 		return
 	}
 
-	if err := a.db.WithContext(r.Context()).Model(&rule).Updates(updates).Error; err != nil {
-		writeError(w, http.StatusInternalServerError, "update_failed")
-		return
+	if len(updates) > 0 {
+		if err := a.db.WithContext(r.Context()).Model(&rule).Updates(updates).Error; err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed")
+			return
+		}
+	}
+	// config is serializer:json; write it through the struct field so the
+	// serializer runs (a raw-map Updates skips it and fails to encode on jsonb).
+	if configSet {
+		if err := a.db.WithContext(r.Context()).Model(&rule).Select("config").Updates(&rule).Error; err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed")
+			return
+		}
 	}
 
 	a.db.WithContext(r.Context()).First(&rule, "id = ?", ruleID)

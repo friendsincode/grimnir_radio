@@ -401,12 +401,21 @@ func (h *Handler) ShowUpdate(w http.ResponseWriter, r *http.Request) {
 	if input.Active != nil {
 		updates["active"] = *input.Active
 	}
-	if input.Metadata != nil {
-		updates["metadata"] = input.Metadata
+	metadataSet := input.Metadata != nil
+	if metadataSet {
+		show.Metadata = input.Metadata
 	}
 
 	if len(updates) > 0 {
 		if err := h.db.Model(&show).Updates(updates).Error; err != nil {
+			http.Error(w, "Failed to update show", http.StatusInternalServerError)
+			return
+		}
+	}
+	// metadata is serializer:json; write it through the struct field so the
+	// serializer runs (a raw-map Updates skips it and fails to encode on jsonb).
+	if metadataSet {
+		if err := h.db.Model(&show).Select("metadata").Updates(&show).Error; err != nil {
 			http.Error(w, "Failed to update show", http.StatusInternalServerError)
 			return
 		}
@@ -604,9 +613,25 @@ func (h *Handler) ShowInstanceUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if err := h.db.Model(&instance).Updates(updates).Error; err != nil {
-			http.Error(w, "Failed to update instance", http.StatusInternalServerError)
-			return
+		// metadata is serializer:json; a raw-map Updates skips the serializer and
+		// fails to encode on jsonb, so pull it out and write it through the struct
+		// field. (The isVirtual branch above already copies it into a struct field.)
+		metadataSet := input.Metadata != nil
+		if metadataSet {
+			instance.Metadata = input.Metadata
+			delete(updates, "metadata")
+		}
+		if len(updates) > 0 {
+			if err := h.db.Model(&instance).Updates(updates).Error; err != nil {
+				http.Error(w, "Failed to update instance", http.StatusInternalServerError)
+				return
+			}
+		}
+		if metadataSet {
+			if err := h.db.Model(&instance).Select("metadata").Updates(&instance).Error; err != nil {
+				http.Error(w, "Failed to update instance", http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 

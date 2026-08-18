@@ -312,18 +312,29 @@ func (a *API) handleShowsUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.Active != nil {
 		updates["active"] = *req.Active
 	}
-	if req.Metadata != nil {
-		updates["metadata"] = req.Metadata
+	metadataSet := req.Metadata != nil
+	if metadataSet {
+		show.Metadata = req.Metadata
 	}
 
-	if len(updates) == 0 {
+	if len(updates) == 0 && !metadataSet {
 		writeJSON(w, http.StatusOK, show)
 		return
 	}
 
-	if err := a.db.WithContext(r.Context()).Model(&show).Updates(updates).Error; err != nil {
-		writeError(w, http.StatusInternalServerError, "update_failed")
-		return
+	if len(updates) > 0 {
+		if err := a.db.WithContext(r.Context()).Model(&show).Updates(updates).Error; err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed")
+			return
+		}
+	}
+	// metadata is serializer:json; write it through the struct field so the
+	// serializer runs (a raw-map Updates skips it and fails to encode on jsonb).
+	if metadataSet {
+		if err := a.db.WithContext(r.Context()).Model(&show).Select("metadata").Updates(&show).Error; err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed")
+			return
+		}
 	}
 
 	// Reload show with updated values
@@ -652,18 +663,29 @@ func (a *API) handleInstancesUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.Status != nil {
 		updates["status"] = *req.Status
 	}
-	if req.Metadata != nil {
-		updates["metadata"] = req.Metadata
+	metadataSet := req.Metadata != nil
+	if metadataSet {
+		instance.Metadata = req.Metadata
 	}
 
-	if len(updates) == 0 {
+	if len(updates) == 0 && !metadataSet {
 		writeJSON(w, http.StatusOK, instance)
 		return
 	}
 
-	if err := a.db.WithContext(r.Context()).Model(&instance).Updates(updates).Error; err != nil {
-		writeError(w, http.StatusInternalServerError, "update_failed")
-		return
+	if len(updates) > 0 {
+		if err := a.db.WithContext(r.Context()).Model(&instance).Updates(updates).Error; err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed")
+			return
+		}
+	}
+	// metadata is serializer:json; write it through the struct field so the
+	// serializer runs (a raw-map Updates skips it and fails to encode on jsonb).
+	if metadataSet {
+		if err := a.db.WithContext(r.Context()).Model(&instance).Select("metadata").Updates(&instance).Error; err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed")
+			return
+		}
 	}
 
 	// Reload with relationships
