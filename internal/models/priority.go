@@ -72,8 +72,8 @@ const (
 // ExecutorState tracks the runtime state of a station's executor.
 type ExecutorState struct {
 	ID              string            `gorm:"type:uuid;primaryKey"`
-	StationID       string            `gorm:"type:uuid;uniqueIndex"` // One state per station
-	MountID         string            `gorm:"type:uuid"`
+	StationID       string            `gorm:"type:uuid;uniqueIndex"`         // One state per station
+	MountID         string            `gorm:"type:uuid;serializer:nulluuid"` // empty until an executor binds a mount
 	State           ExecutorStateEnum `gorm:"type:varchar(32)"`
 	CurrentPriority PriorityLevel     `gorm:"type:int"`
 	CurrentSourceID string            `gorm:"type:uuid;serializer:nulluuid"` // ID of active PrioritySource

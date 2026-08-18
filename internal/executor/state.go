@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // StateManager manages executor state for all stations.
@@ -61,9 +62,23 @@ func (sm *StateManager) GetState(ctx context.Context, stationID string) (*models
 			LastHeartbeat: time.Now(),
 			Metadata:      make(map[string]any),
 		}
-		if err := sm.db.WithContext(ctx).Create(&state).Error; err != nil {
+		// Race-safe insert: a concurrent caller can create the row between our
+		// SELECT and Create, and station_id is unique. OnConflict-DoNothing turns
+		// the loser's insert into a no-op; then re-load so every caller returns
+		// the one canonical row rather than a 23505 error.
+		if err := sm.db.WithContext(ctx).
+			Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "station_id"}}, DoNothing: true}).
+			Create(&state).Error; err != nil {
 			return nil, fmt.Errorf("create executor state: %w", err)
 		}
+		// Re-load into a fresh struct: on a conflict our Create was a no-op, so
+		// the canonical row is a concurrent caller's. Reusing &state here would
+		// let gorm add its stale primary key as a WHERE clause and miss the row.
+		var loaded models.ExecutorState
+		if err := sm.db.WithContext(ctx).Where("station_id = ?", stationID).Take(&loaded).Error; err != nil {
+			return nil, fmt.Errorf("load executor state: %w", err)
+		}
+		state = loaded
 	}
 
 	// Cache it

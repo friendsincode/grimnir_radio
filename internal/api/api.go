@@ -28,6 +28,7 @@ import (
 	"github.com/friendsincode/grimnir_radio/internal/audit"
 	"github.com/friendsincode/grimnir_radio/internal/auth"
 	"github.com/friendsincode/grimnir_radio/internal/broadcast"
+	"github.com/friendsincode/grimnir_radio/internal/db"
 	"github.com/friendsincode/grimnir_radio/internal/events"
 	"github.com/friendsincode/grimnir_radio/internal/executor"
 	"github.com/friendsincode/grimnir_radio/internal/integrity"
@@ -551,6 +552,10 @@ func (a *API) handleStationsCreate(w http.ResponseWriter, r *http.Request) {
 
 	if err := tx.Create(&station).Error; err != nil {
 		tx.Rollback()
+		if db.IsUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "station_name_taken")
+			return
+		}
 		a.logger.Error().Err(err).Msg("create station failed")
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
