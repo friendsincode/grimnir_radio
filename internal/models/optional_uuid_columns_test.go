@@ -50,6 +50,11 @@ func TestOptionalUUIDColumns_AcceptEmpty(t *testing.T) {
 			make:    func() any { return &models.Network{ID: dbtest.UUID("net"), Name: "N"} },
 		},
 		{
+			name:    "Station.OwnerID",
+			migrate: []any{&models.Station{}},
+			make:    func() any { return &models.Station{ID: dbtest.UUID("st"), Name: "Ownerless"} },
+		},
+		{
 			name:    "PrioritySource.SourceID",
 			migrate: []any{&models.PrioritySource{}},
 			make: func() any {

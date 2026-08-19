@@ -378,7 +378,7 @@ type Station struct {
 	Timezone    string `gorm:"type:varchar(32)"`
 
 	// Ownership
-	OwnerID string `gorm:"type:uuid;index"` // User who created/owns the station
+	OwnerID string `gorm:"type:uuid;index;serializer:nulluuid"` // User who created/owns the station; empty for ownerless/API-created
 
 	// Platform admin controls
 	Active    bool `gorm:"default:true"`  // Station is enabled (admin can disable)
