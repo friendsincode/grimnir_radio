@@ -77,9 +77,9 @@ jobs:
       - name: player JS tests
         run: node --test test/js/*.test.mjs
 
-      - name: Coverage gate (enforced floor 65%)
+      - name: Coverage gate (enforced floor 68%)
         run: |
-          COVERAGE_MIN=65 COVERAGE_ENFORCE=1 make coverage-check
+          COVERAGE_MIN=68 COVERAGE_ENFORCE=1 make coverage-check
 
       - name: Upload coverage profile
         uses: actions/upload-artifact@v4
