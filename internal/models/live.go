@@ -30,8 +30,9 @@ type LiveSession struct {
 	DisconnectedAt *time.Time // NULL if still connected
 
 	// Authorization token (one-time use)
-	Token     string `gorm:"type:varchar(255);uniqueIndex"`
-	TokenUsed bool   `gorm:"default:false"`
+	Token     string    `gorm:"type:varchar(255);uniqueIndex"`
+	TokenUsed bool      `gorm:"default:false"`
+	ExpiresAt time.Time // Token is invalid after this time; zero means no expiry
 
 	// Metadata
 	Metadata map[string]any `gorm:"serializer:json"`
