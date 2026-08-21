@@ -26,8 +26,10 @@ import (
 
 // Client provides a high-level interface to the MediaEngine gRPC service
 type Client struct {
-	addr   string
-	logger zerolog.Logger
+	addr          string
+	maxRetries    int
+	retryInterval time.Duration
+	logger        zerolog.Logger
 
 	mu         sync.RWMutex
 	conn       *grpc.ClientConn
@@ -56,10 +58,20 @@ func DefaultConfig(address string) *Config {
 
 // New creates a new media engine client
 func New(cfg *Config, logger zerolog.Logger) *Client {
+	maxRetries := cfg.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	retryInterval := cfg.RetryInterval
+	if retryInterval <= 0 {
+		retryInterval = 2 * time.Second
+	}
 	return &Client{
-		addr:       cfg.Address,
-		logger:     logger.With().Str("component", "mediaengine_client").Logger(),
-		reconnectC: make(chan struct{}, 1),
+		addr:          cfg.Address,
+		maxRetries:    maxRetries,
+		retryInterval: retryInterval,
+		logger:        logger.With().Str("component", "mediaengine_client").Logger(),
+		reconnectC:    make(chan struct{}, 1),
 	}
 }
 
@@ -482,8 +494,8 @@ func (c *Client) GenerateWaveform(ctx context.Context, filePath string, samplesP
 
 // Retry wraps an operation with retry logic
 func (c *Client) Retry(ctx context.Context, operation func() error) error {
-	maxRetries := 3
-	retryInterval := 2 * time.Second
+	maxRetries := c.maxRetries
+	retryInterval := c.retryInterval
 
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {

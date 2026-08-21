@@ -9,6 +9,7 @@ package scheduling
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -475,7 +476,7 @@ func (v *Validator) checkGaps(rule models.ScheduleRule, items []ScheduleItem, st
 				RuleType: models.RuleTypeGap,
 				RuleName: rule.Name,
 				Severity: rule.Severity,
-				Message:  "Schedule gap exceeds " + string(rune(maxGapMinutes)) + " minutes",
+				Message:  "Schedule gap exceeds " + strconv.Itoa(maxGapMinutes) + " minutes",
 				StartsAt: gapStart,
 				EndsAt:   gapEnd,
 				Details: map[string]any{

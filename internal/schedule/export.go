@@ -237,15 +237,25 @@ func parseICalEvents(content string) []ICalEvent {
 				currentEvent.Summary = unescapeICalText(strings.TrimPrefix(line, "SUMMARY:"))
 			} else if strings.HasPrefix(line, "DESCRIPTION:") {
 				currentEvent.Description = unescapeICalText(strings.TrimPrefix(line, "DESCRIPTION:"))
-			} else if strings.HasPrefix(line, "DTSTART:") {
-				currentEvent.Start = parseICalTime(strings.TrimPrefix(line, "DTSTART:"))
-			} else if strings.HasPrefix(line, "DTEND:") {
-				currentEvent.End = parseICalTime(strings.TrimPrefix(line, "DTEND:"))
+			} else if icalProp(line, "DTSTART") {
+				// Pass the whole line; parseICalTime strips the property and any
+				// TZID/VALUE parameters (DTSTART;TZID=America/New_York:...).
+				currentEvent.Start = parseICalTime(line)
+			} else if icalProp(line, "DTEND") {
+				currentEvent.End = parseICalTime(line)
 			}
 		}
 	}
 
 	return events
+}
+
+// icalProp reports whether an unfolded iCal line is the named property, with or
+// without property parameters: "DTSTART:..." or "DTSTART;TZID=...:...". Matching
+// only "NAME:" (as the code used to) drops every event exported by Google or
+// Apple Calendar, which always send DTSTART with a TZID parameter.
+func icalProp(line, name string) bool {
+	return strings.HasPrefix(line, name+":") || strings.HasPrefix(line, name+";")
 }
 
 // parseICalTime parses an iCal time string.
