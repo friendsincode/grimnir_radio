@@ -53,7 +53,7 @@ func TestShowUpdate_PersistsMetadata(t *testing.T) {
 	}
 
 	rr := httptest.NewRecorder()
-	h.ShowUpdate(rr, webReqWithID("PUT", showID, []byte(`{"metadata":{"color":"blue"}}`)))
+	h.ShowUpdate(rr, withStationCtx(webReqWithID("PUT", showID, []byte(`{"metadata":{"color":"blue"}}`)), &models.Station{ID: stationID}))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ShowUpdate: got %d, body=%s", rr.Code, rr.Body.String())
 	}

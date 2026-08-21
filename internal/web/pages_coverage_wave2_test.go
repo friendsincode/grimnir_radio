@@ -1236,8 +1236,9 @@ func TestLoadMediaUsage_WithMediaIDs_NoUsage(t *testing.T) {
 func TestShowDelete_NotFound_Returns404_Wave2(t *testing.T) {
 	db := newWave2DB(t)
 	h := newWave2Handler(t, db)
+	s := seedWave2Station(t, db)
 
-	req := wave2ReqWithID(http.MethodDelete, "/api/shows/nonexistent", nil, nil, "id", "nonexistent")
+	req := wave2ReqWithID(http.MethodDelete, "/api/shows/nonexistent", nil, &s, "id", "nonexistent")
 	rr := httptest.NewRecorder()
 	h.ShowDelete(rr, req)
 	if rr.Code != http.StatusNotFound {
@@ -1260,7 +1261,7 @@ func TestShowDelete_ExistingShow_Returns204(t *testing.T) {
 	}
 	db.Create(&show)
 
-	req := wave2ReqWithID(http.MethodDelete, "/api/shows/del-show1", nil, nil, "id", "del-show1")
+	req := wave2ReqWithID(http.MethodDelete, "/api/shows/del-show1", nil, &s, "id", "del-show1")
 	rr := httptest.NewRecorder()
 	h.ShowDelete(rr, req)
 	if rr.Code != http.StatusNoContent {
@@ -1285,6 +1286,7 @@ func TestShowMaterialize_ShowNotFound_Returns404(t *testing.T) {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "nonexistent")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	req = withStationCtx(req, &models.Station{ID: "11111111-1111-1111-1111-111111111111"})
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 	if rr.Code != http.StatusNotFound {
@@ -1375,6 +1377,7 @@ func TestShowMaterialize_NonRecurringShow_Success(t *testing.T) {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "mat-show3")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	req = withStationCtx(req, &s)
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 	if rr.Code != http.StatusOK {
@@ -1389,8 +1392,9 @@ func TestShowMaterialize_NonRecurringShow_Success(t *testing.T) {
 func TestShowInstanceCancel_RealInstance_NotFound(t *testing.T) {
 	db := newWave2DB(t)
 	h := newWave2Handler(t, db)
+	s := seedWave2Station(t, db)
 
-	req := wave2ReqWithID(http.MethodPost, "/api/shows/instances/nonexistent/cancel", nil, nil, "id", "nonexistent")
+	req := wave2ReqWithID(http.MethodPost, "/api/shows/instances/nonexistent/cancel", nil, &s, "id", "nonexistent")
 	rr := httptest.NewRecorder()
 	h.ShowInstanceCancel(rr, req)
 	if rr.Code != http.StatusNotFound {

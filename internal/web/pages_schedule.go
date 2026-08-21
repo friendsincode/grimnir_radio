@@ -1171,7 +1171,7 @@ func (h *Handler) ScheduleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var entry models.ScheduleEntry
-	if err := h.db.First(&entry, "id = ?", realID).Error; err != nil {
+	if err := h.db.First(&entry, "id = ? AND station_id = ?", realID, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -1880,6 +1880,12 @@ func (h *Handler) ScheduleEntryDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := *resolved
+
+	// Scope to the selected station: never leak another station's entry details.
+	if station := h.GetStation(r); station == nil || entry.StationID != station.ID {
+		http.Error(w, "Entry not found", http.StatusNotFound)
+		return
+	}
 
 	response := map[string]any{
 		"id":          entry.ID,
