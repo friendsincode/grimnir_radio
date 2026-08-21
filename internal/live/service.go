@@ -37,6 +37,10 @@ var (
 	ErrUnauthorized = errors.New("unauthorized for live access")
 )
 
+// defaultTokenTTL bounds a live token's lifetime when the caller does not set
+// GenerateTokenRequest.ExpiresIn, so a token is never valid indefinitely.
+const defaultTokenTTL = time.Hour
+
 // Service handles live input authorization and session management.
 type Service struct {
 	db          *gorm.DB
@@ -79,6 +83,12 @@ func (s *Service) GenerateToken(ctx context.Context, req GenerateTokenRequest) (
 	}
 	token := hex.EncodeToString(tokenBytes)
 
+	// A token must never be valid forever; default the lifetime when unset.
+	ttl := req.ExpiresIn
+	if ttl <= 0 {
+		ttl = defaultTokenTTL
+	}
+
 	// Create session record
 	session := &models.LiveSession{
 		ID:          uuid.New().String(),
@@ -91,6 +101,7 @@ func (s *Service) GenerateToken(ctx context.Context, req GenerateTokenRequest) (
 		TokenUsed:   false,
 		Active:      false,
 		ConnectedAt: time.Now(), // Will be updated on actual connect
+		ExpiresAt:   time.Now().Add(ttl),
 		Metadata:    make(map[string]any),
 	}
 
@@ -127,6 +138,15 @@ func (s *Service) AuthorizeSource(ctx context.Context, stationID, mountID, token
 		return false, fmt.Errorf("query session: %w", err)
 	}
 
+	// A one-time token is invalid once used or past its expiry. This is a
+	// pre-check and does not consume the token; HandleConnect consumes it.
+	if session.TokenUsed {
+		return false, ErrTokenAlreadyUsed
+	}
+	if !session.ExpiresAt.IsZero() && time.Now().After(session.ExpiresAt) {
+		return false, ErrInvalidToken
+	}
+
 	s.logger.Info().
 		Str("session_id", session.ID).
 		Str("station_id", stationID).
@@ -161,20 +181,30 @@ func (s *Service) HandleConnect(ctx context.Context, req ConnectRequest) (*model
 		return nil, fmt.Errorf("query session: %w", err)
 	}
 
-	// Update session with connection details
-	now := time.Now()
-	updates := map[string]any{
-		"active":       true,
-		"connected_at": now,
-		"source_ip":    req.SourceIP,
-		"source_port":  req.SourcePort,
-		"user_agent":   req.UserAgent,
+	// Enforce token expiry and single-use. The token is consumed here, on the
+	// actual connect (AuthorizeSource is a non-consuming pre-check). The
+	// token_used = false guard makes the consume atomic against a replay race.
+	if !session.ExpiresAt.IsZero() && time.Now().After(session.ExpiresAt) {
+		return nil, ErrInvalidToken
 	}
 
-	if err := s.db.WithContext(ctx).
-		Model(&session).
-		Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("update session: %w", err)
+	now := time.Now()
+	res := s.db.WithContext(ctx).
+		Model(&models.LiveSession{}).
+		Where("id = ? AND token_used = false", session.ID).
+		Updates(map[string]any{
+			"active":       true,
+			"connected_at": now,
+			"token_used":   true,
+			"source_ip":    req.SourceIP,
+			"source_port":  req.SourcePort,
+			"user_agent":   req.UserAgent,
+		})
+	if res.Error != nil {
+		return nil, fmt.Errorf("update session: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return nil, ErrTokenAlreadyUsed
 	}
 
 	// Reload to get updated values

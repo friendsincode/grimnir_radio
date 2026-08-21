@@ -551,9 +551,10 @@ func TestShowCreate_WithDTEnd_Returns200(t *testing.T) {
 func TestShowUpdate_NotFound_Returns404(t *testing.T) {
 	db := newShowsTestDB(t)
 	h := newShowsTestHandler(t, db)
+	s := seedShowsStation(t, db)
 
 	payload := `{"name":"Updated"}`
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/nonexistent", nil, "id", "nonexistent", strings.NewReader(payload))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/nonexistent", &s, "id", "nonexistent", strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -568,7 +569,7 @@ func TestShowUpdate_InvalidJSON_Returns400(t *testing.T) {
 	s := seedShowsStation(t, db)
 	show := seedShow(t, db, s.ID)
 
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader("{not valid json"))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader("{not valid json"))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -585,7 +586,7 @@ func TestShowUpdate_Name_Returns200(t *testing.T) {
 
 	name := "Updated Show Name"
 	payload, _ := json.Marshal(map[string]any{"name": name})
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader(string(payload)))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader(string(payload)))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -608,7 +609,7 @@ func TestShowUpdate_Active_Returns200(t *testing.T) {
 
 	active := false
 	payload, _ := json.Marshal(map[string]any{"active": active})
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader(string(payload)))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader(string(payload)))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -625,7 +626,7 @@ func TestShowUpdate_InvalidRRule_Returns400(t *testing.T) {
 
 	badRRule := "INVALID=RULE"
 	payload, _ := json.Marshal(map[string]any{"rrule": badRRule})
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader(string(payload)))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader(string(payload)))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -642,7 +643,7 @@ func TestShowUpdate_InvalidDTStart_Returns400(t *testing.T) {
 
 	badDTStart := "not-a-date"
 	payload, _ := json.Marshal(map[string]any{"dtstart": badDTStart})
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader(string(payload)))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader(string(payload)))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -659,7 +660,7 @@ func TestShowUpdate_InvalidDTEnd_Returns400(t *testing.T) {
 
 	badDTEnd := "not-a-date"
 	payload, _ := json.Marshal(map[string]any{"dtend": badDTEnd})
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader(string(payload)))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader(string(payload)))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -691,7 +692,7 @@ func TestShowUpdate_ClearDTEnd_Returns200(t *testing.T) {
 	// Note: SQLite maps DTEnd → dt_end, but this handler uses "dtend" (PostgreSQL convention).
 	// Accept either 200 (PostgreSQL) or 500 (SQLite column mismatch) to keep test DB-agnostic.
 	payload, _ := json.Marshal(map[string]any{"dtend": ""})
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader(string(payload)))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader(string(payload)))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -718,7 +719,7 @@ func TestShowUpdate_AllFields_Returns200(t *testing.T) {
 		"timezone":                 "America/New_York",
 		"active":                   true,
 	})
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader(string(payload)))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader(string(payload)))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -738,7 +739,7 @@ func TestShowUpdate_ValidRRule_Validates(t *testing.T) {
 	// SQLite may fail at column naming ("rrule" vs "r_rule") so we accept 200 or 500.
 	validRRule := "FREQ=DAILY"
 	payload, _ := json.Marshal(map[string]any{"rrule": validRRule})
-	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, strings.NewReader(string(payload)))
+	req := showsReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, strings.NewReader(string(payload)))
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 
@@ -755,8 +756,9 @@ func TestShowUpdate_ValidRRule_Validates(t *testing.T) {
 func TestShowDelete_NotFound_Returns404(t *testing.T) {
 	db := newShowsTestDB(t)
 	h := newShowsTestHandler(t, db)
+	s := seedShowsStation(t, db)
 
-	req := showsReqWithStationAndID(http.MethodDelete, "/api/shows/nonexistent", nil, "id", "nonexistent", nil)
+	req := showsReqWithStationAndID(http.MethodDelete, "/api/shows/nonexistent", &s, "id", "nonexistent", nil)
 	rr := httptest.NewRecorder()
 	h.ShowDelete(rr, req)
 
@@ -771,7 +773,7 @@ func TestShowDelete_Success_Returns204(t *testing.T) {
 	s := seedShowsStation(t, db)
 	show := seedShow(t, db, s.ID)
 
-	req := showsReqWithStationAndID(http.MethodDelete, "/api/shows/"+show.ID, nil, "id", show.ID, nil)
+	req := showsReqWithStationAndID(http.MethodDelete, "/api/shows/"+show.ID, &s, "id", show.ID, nil)
 	rr := httptest.NewRecorder()
 	h.ShowDelete(rr, req)
 
@@ -796,7 +798,7 @@ func TestShowDelete_WithFutureInstances_DeletesInstancesToo(t *testing.T) {
 		Status:    models.ShowInstanceScheduled,
 	})
 
-	req := showsReqWithStationAndID(http.MethodDelete, "/api/shows/"+show.ID, nil, "id", show.ID, nil)
+	req := showsReqWithStationAndID(http.MethodDelete, "/api/shows/"+show.ID, &s, "id", show.ID, nil)
 	rr := httptest.NewRecorder()
 	h.ShowDelete(rr, req)
 
@@ -1038,8 +1040,9 @@ func TestShowInstanceUpdate_VirtualInstance_Creates(t *testing.T) {
 func TestShowInstanceCancel_RealInstance_NotFound_Returns404(t *testing.T) {
 	db := newShowsTestDB(t)
 	h := newShowsTestHandler(t, db)
+	s := seedShowsStation(t, db)
 
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/instances/nonexistent/cancel", nil, "id", "nonexistent", nil)
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/instances/nonexistent/cancel", &s, "id", "nonexistent", nil)
 	rr := httptest.NewRecorder()
 	h.ShowInstanceCancel(rr, req)
 
@@ -1136,9 +1139,10 @@ func TestShowInstanceCancel_VirtualInstance_Creates(t *testing.T) {
 func TestShowMaterialize_NotFound_Returns404(t *testing.T) {
 	db := newShowsTestDB(t)
 	h := newShowsTestHandler(t, db)
+	s := seedShowsStation(t, db)
 
 	payload := `{"start":"2026-06-01T00:00:00Z","end":"2026-07-01T00:00:00Z"}`
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/nonexistent/materialize", nil, "id", "nonexistent", strings.NewReader(payload))
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/nonexistent/materialize", &s, "id", "nonexistent", strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 
@@ -1153,7 +1157,7 @@ func TestShowMaterialize_InvalidJSON_Returns400(t *testing.T) {
 	s := seedShowsStation(t, db)
 	show := seedShow(t, db, s.ID)
 
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", nil, "id", show.ID, strings.NewReader("{invalid"))
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", &s, "id", show.ID, strings.NewReader("{invalid"))
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 
@@ -1169,7 +1173,7 @@ func TestShowMaterialize_InvalidStart_Returns400(t *testing.T) {
 	show := seedShow(t, db, s.ID)
 
 	payload := `{"start":"not-a-date","end":"2026-07-01T00:00:00Z"}`
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", nil, "id", show.ID, strings.NewReader(payload))
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", &s, "id", show.ID, strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 
@@ -1185,7 +1189,7 @@ func TestShowMaterialize_InvalidEnd_Returns400(t *testing.T) {
 	show := seedShow(t, db, s.ID)
 
 	payload := `{"start":"2026-06-01T00:00:00Z","end":"not-a-date"}`
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", nil, "id", show.ID, strings.NewReader(payload))
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", &s, "id", show.ID, strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 
@@ -1212,7 +1216,7 @@ func TestShowMaterialize_NonRecurringInRange_Creates(t *testing.T) {
 	db.Create(&show)
 
 	payload := `{"start":"2026-06-01T00:00:00Z","end":"2026-07-01T00:00:00Z"}`
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", nil, "id", show.ID, strings.NewReader(payload))
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", &s, "id", show.ID, strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 
@@ -1246,7 +1250,7 @@ func TestShowMaterialize_RecurringInRange_CreatesMultiple(t *testing.T) {
 	db.Create(&show)
 
 	payload := `{"start":"2026-06-01T00:00:00Z","end":"2026-07-01T00:00:00Z"}`
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", nil, "id", show.ID, strings.NewReader(payload))
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", &s, "id", show.ID, strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 
@@ -1269,7 +1273,7 @@ func TestShowMaterialize_LargeRangeClamped_Returns200(t *testing.T) {
 
 	// Request 2 years — should be clamped to 1 year
 	payload := `{"start":"2026-01-01T00:00:00Z","end":"2028-01-01T00:00:00Z"}`
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", nil, "id", show.ID, strings.NewReader(payload))
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", &s, "id", show.ID, strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 
@@ -1306,7 +1310,7 @@ func TestShowMaterialize_ExistingInstance_NotDuplicated(t *testing.T) {
 	})
 
 	payload := `{"start":"2026-06-01T00:00:00Z","end":"2026-07-01T00:00:00Z"}`
-	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", nil, "id", show.ID, strings.NewReader(payload))
+	req := showsReqWithStationAndID(http.MethodPost, "/api/shows/"+show.ID+"/materialize", &s, "id", show.ID, strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	h.ShowMaterialize(rr, req)
 
@@ -1396,7 +1400,7 @@ func TestShowUpdate_EmptyUpdates_StillReturns200(t *testing.T) {
 
 	// Empty JSON object — no updates, but should still return the show
 	payload := []byte(`{}`)
-	req := showsBytesReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, nil, "id", show.ID, payload)
+	req := showsBytesReqWithStationAndID(http.MethodPut, "/api/shows/"+show.ID, &s, "id", show.ID, payload)
 	rr := httptest.NewRecorder()
 	h.ShowUpdate(rr, req)
 

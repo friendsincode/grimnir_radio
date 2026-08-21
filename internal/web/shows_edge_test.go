@@ -26,7 +26,7 @@ func TestShowWebHandlers_EdgeCases(t *testing.T) {
 
 	t.Run("ShowUpdate not found", func(t *testing.T) {
 		rr := httptest.NewRecorder()
-		h.ShowUpdate(rr, webReqWithID("PUT", dbtest.UUID("missing"), []byte(`{"name":"x"}`)))
+		h.ShowUpdate(rr, withStationCtx(webReqWithID("PUT", dbtest.UUID("missing"), []byte(`{"name":"x"}`)), &models.Station{ID: stationID}))
 		if rr.Code != http.StatusNotFound {
 			t.Fatalf("got %d, want 404", rr.Code)
 		}
@@ -34,7 +34,7 @@ func TestShowWebHandlers_EdgeCases(t *testing.T) {
 
 	t.Run("ShowUpdate bad json", func(t *testing.T) {
 		rr := httptest.NewRecorder()
-		h.ShowUpdate(rr, webReqWithID("PUT", showID, []byte(`{`)))
+		h.ShowUpdate(rr, withStationCtx(webReqWithID("PUT", showID, []byte(`{`)), &models.Station{ID: stationID}))
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("got %d, want 400 (body=%s)", rr.Code, rr.Body.String())
 		}
@@ -42,7 +42,7 @@ func TestShowWebHandlers_EdgeCases(t *testing.T) {
 
 	t.Run("ShowUpdate invalid rrule", func(t *testing.T) {
 		rr := httptest.NewRecorder()
-		h.ShowUpdate(rr, webReqWithID("PUT", showID, []byte(`{"rrule":"NOT-A-RRULE"}`)))
+		h.ShowUpdate(rr, withStationCtx(webReqWithID("PUT", showID, []byte(`{"rrule":"NOT-A-RRULE"}`)), &models.Station{ID: stationID}))
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("got %d, want 400 (body=%s)", rr.Code, rr.Body.String())
 		}
@@ -58,7 +58,7 @@ func TestShowWebHandlers_EdgeCases(t *testing.T) {
 
 	t.Run("ShowDelete not found", func(t *testing.T) {
 		rr := httptest.NewRecorder()
-		h.ShowDelete(rr, webReqWithID("DELETE", dbtest.UUID("missing"), nil))
+		h.ShowDelete(rr, withStationCtx(webReqWithID("DELETE", dbtest.UUID("missing"), nil), &models.Station{ID: stationID}))
 		if rr.Code != http.StatusNotFound {
 			t.Fatalf("got %d, want 404", rr.Code)
 		}
@@ -70,7 +70,7 @@ func TestShowWebHandlers_EdgeCases(t *testing.T) {
 			t.Fatalf("seed: %v", err)
 		}
 		rr := httptest.NewRecorder()
-		h.ShowDelete(rr, webReqWithID("DELETE", delID, nil))
+		h.ShowDelete(rr, withStationCtx(webReqWithID("DELETE", delID, nil), &models.Station{ID: stationID}))
 		if rr.Code != http.StatusNoContent {
 			t.Fatalf("got %d, want 204 (body=%s)", rr.Code, rr.Body.String())
 		}

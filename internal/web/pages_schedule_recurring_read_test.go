@@ -46,6 +46,7 @@ func TestScheduleEntryDetails_VirtualRecurringID_ResolvesToParent(t *testing.T) 
 
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/schedule/entries/"+virtualID+"/details", nil)
 	req = withScheduleRouteID(req, virtualID)
+	req = withStationCtx(req, &station)
 	rec := httptest.NewRecorder()
 
 	h.ScheduleEntryDetails(rec, req)
@@ -102,6 +103,7 @@ func TestScheduleEntryDetails_VirtualRecurringID_PrefersOverride(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/schedule/entries/"+virtualID+"/details", nil)
 	req = withScheduleRouteID(req, virtualID)
+	req = withStationCtx(req, &station)
 	rec := httptest.NewRecorder()
 
 	h.ScheduleEntryDetails(rec, req)

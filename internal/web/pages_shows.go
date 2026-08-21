@@ -323,9 +323,14 @@ func (h *Handler) ShowCreate(w http.ResponseWriter, r *http.Request) {
 // ShowUpdate updates a show
 func (h *Handler) ShowUpdate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
 
 	var show models.Show
-	if err := h.db.First(&show, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&show, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -429,9 +434,14 @@ func (h *Handler) ShowUpdate(w http.ResponseWriter, r *http.Request) {
 // ShowDelete deletes a show and future instances
 func (h *Handler) ShowDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
 
 	var show models.Show
-	if err := h.db.First(&show, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&show, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -511,7 +521,7 @@ func (h *Handler) ShowInstanceUpdate(w http.ResponseWriter, r *http.Request) {
 
 		// Get the show
 		var show models.Show
-		if err := h.db.First(&show, "id = ?", showID).Error; err != nil {
+		if err := h.db.First(&show, "id = ? AND station_id = ?", showID, station.ID).Error; err != nil {
 			http.NotFound(w, r)
 			return
 		}
@@ -534,7 +544,7 @@ func (h *Handler) ShowInstanceUpdate(w http.ResponseWriter, r *http.Request) {
 			Status:     models.ShowInstanceScheduled,
 		}
 	} else {
-		if err := h.db.First(&instance, "id = ?", id).Error; err != nil {
+		if err := h.db.First(&instance, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 			http.NotFound(w, r)
 			return
 		}
@@ -666,7 +676,7 @@ func (h *Handler) ShowInstanceCancel(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var show models.Show
-		if err := h.db.First(&show, "id = ?", showID).Error; err != nil {
+		if err := h.db.First(&show, "id = ? AND station_id = ?", showID, station.ID).Error; err != nil {
 			http.NotFound(w, r)
 			return
 		}
@@ -694,8 +704,14 @@ func (h *Handler) ShowInstanceCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
+
 	var instance models.ShowInstance
-	if err := h.db.First(&instance, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&instance, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -717,9 +733,14 @@ func (h *Handler) ShowInstanceCancel(w http.ResponseWriter, r *http.Request) {
 // ShowMaterialize generates instances for a show in a date range
 func (h *Handler) ShowMaterialize(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	station := h.GetStation(r)
+	if station == nil {
+		http.Error(w, "No station selected", http.StatusBadRequest)
+		return
+	}
 
 	var show models.Show
-	if err := h.db.First(&show, "id = ?", id).Error; err != nil {
+	if err := h.db.First(&show, "id = ? AND station_id = ?", id, station.ID).Error; err != nil {
 		http.NotFound(w, r)
 		return
 	}

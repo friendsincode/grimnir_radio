@@ -218,6 +218,13 @@ func (h *Handler) UserUpdate(w http.ResponseWriter, r *http.Request) {
 	// Only platform admins can change roles
 	if newRole := models.PlatformRole(r.FormValue("platform_role")); newRole != "" {
 		if currentUser.IsPlatformAdmin() {
+			// Never demote the last platform admin (AdminUserUpdate guards this too).
+			if user.PlatformRole == models.PlatformRoleAdmin && newRole != models.PlatformRoleAdmin {
+				if errMsg := h.ensureAtLeastOneAdmin([]string{user.ID}); errMsg != "" {
+					http.Error(w, errMsg, http.StatusBadRequest)
+					return
+				}
+			}
 			user.PlatformRole = newRole
 		}
 	}
