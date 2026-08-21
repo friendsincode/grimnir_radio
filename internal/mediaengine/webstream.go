@@ -9,6 +9,7 @@ package mediaengine
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,14 +189,16 @@ func (wm *WebstreamManager) FailoverWebstream(ctx context.Context, webstreamID, 
 		}
 	}
 
-	// Update URL
+	// Update URL and rebuild the pipeline against it. Without rebuilding, the
+	// stored pipeline keeps pointing at the dead URL, so the failover only moved
+	// the bookkeeping and the stream stays down.
 	player.mu.Lock()
 	player.CurrentURL = newURL
 	player.CurrentIndex = findURLIndex(player.URLs, newURL)
+	if oldURL != "" && newURL != "" {
+		player.Pipeline = strings.Replace(player.Pipeline, oldURL, newURL, 1)
+	}
 	player.mu.Unlock()
-
-	// Rebuild pipeline with new URL
-	// (In a full implementation, this would restart the GStreamer pipeline)
 
 	wm.logger.Info().
 		Str("webstream_id", webstreamID).

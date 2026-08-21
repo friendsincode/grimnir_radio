@@ -120,6 +120,11 @@ func TestFailoverWebstream(t *testing.T) {
 	if p.CurrentURL != "http://b" || p.CurrentIndex != 1 {
 		t.Errorf("after failover CurrentURL=%q CurrentIndex=%d, want http://b/1", p.CurrentURL, p.CurrentIndex)
 	}
+	// #83: the pipeline must be rebuilt against the new URL, not left pointing at
+	// the dead one — otherwise failover only moves the bookkeeping.
+	if strings.Contains(p.Pipeline, "http://a") || !strings.Contains(p.Pipeline, "http://b") {
+		t.Errorf("pipeline not rebuilt for the new URL: %q", p.Pipeline)
+	}
 }
 
 func TestGetWebstreamMetadata(t *testing.T) {

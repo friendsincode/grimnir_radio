@@ -42,6 +42,7 @@ type SourceConnection struct {
 	StationID   string
 	MountID     string
 	MountName   string
+	Token       string // the source auth token; used to route metadata updates
 	ConnectedAt time.Time
 	Metadata    map[string]string
 	cancel      context.CancelFunc
@@ -250,6 +251,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		StationID:   mount.StationID,
 		MountID:     mount.ID,
 		MountName:   mountPath,
+		Token:       token,
 		ConnectedAt: time.Now(),
 		Metadata:    meta,
 		cancel:      connCancel,
@@ -538,12 +540,16 @@ func (s *Server) handleMetadataUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the active source connection matching this token.
+	// Find the active source connection matching this token. Matching by token
+	// (not just the first connection) routes the metadata to the DJ who sent it
+	// when more than one source is connected.
 	s.mu.Lock()
 	var conn *SourceConnection
 	for _, c := range s.conns {
-		conn = c
-		break
+		if c.Token == token {
+			conn = c
+			break
+		}
 	}
 	s.mu.Unlock()
 
