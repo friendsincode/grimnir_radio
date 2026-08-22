@@ -86,6 +86,34 @@ func TestLogAuditEntry_ExtractsPayload(t *testing.T) {
 	}
 }
 
+// TestLogAuditEntry_EmptyIDsStayNil guards #86: user_id and station_id are only
+// promoted to their nullable FK columns when non-empty (the `&& id != ""`
+// guards). An empty string must leave the pointer nil, not log a bogus ""
+// foreign key. Drop the guards and this pins the regression.
+func TestLogAuditEntry_EmptyIDsStayNil(t *testing.T) {
+	svc, db, _ := newAuditService(t)
+	svc.logAuditEntry(context.Background(), models.AuditActionStationCreate, events.Payload{
+		"user_id":    "",
+		"station_id": "",
+		"user_email": "system@grimnir.fm",
+	})
+
+	var log models.AuditLog
+	if err := db.First(&log, "action = ?", models.AuditActionStationCreate).Error; err != nil {
+		t.Fatalf("no audit row: %v", err)
+	}
+	if log.UserID != nil {
+		t.Errorf("empty user_id should leave UserID nil, got %q", *log.UserID)
+	}
+	if log.StationID != nil {
+		t.Errorf("empty station_id should leave StationID nil, got %q", *log.StationID)
+	}
+	// A non-ID scalar with an empty-ish value is unaffected; email still lands.
+	if log.UserEmail != "system@grimnir.fm" {
+		t.Errorf("user_email = %q, want system@grimnir.fm", log.UserEmail)
+	}
+}
+
 func TestQuery_FiltersAndPagination(t *testing.T) {
 	svc, _, _ := newAuditService(t)
 	ctx := context.Background()
