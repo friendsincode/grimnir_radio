@@ -99,6 +99,49 @@ func TestRequireRoles_Forbidden(t *testing.T) {
 	}
 }
 
+// TestRequireRoles_DBFallbackGrant guards #86: when the JWT carries no allowed
+// role, requireRoles falls back to the StationUser table. A user whose token
+// omits the role but who holds an allowed station role must still pass. Without
+// this, freshly-granted station roles wouldn't take effect until re-login.
+func TestRequireRoles_DBFallbackGrant(t *testing.T) {
+	a := newMiddlewareAPITest(t)
+	a.db.Create(&models.StationUser{ID: "su1", UserID: "u1", StationID: "st1", Role: models.StationRoleAdmin})
+	h := a.requireRoles(models.RoleAdmin)(okHandler)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req = req.WithContext(auth.WithClaims(req.Context(), &auth.Claims{
+		UserID:    "u1",
+		StationID: "st1",
+		Roles:     []string{string(models.RoleDJ)}, // not allowed via JWT
+	}))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DB station-role fallback should grant access, got %d", rr.Code)
+	}
+}
+
+// TestRequireRoles_DBFallbackWrongRole guards #86: the fallback must check the
+// station role against the allowed set, not merely that a StationUser row
+// exists. A DJ station role against an admin-only route stays forbidden.
+func TestRequireRoles_DBFallbackWrongRole(t *testing.T) {
+	a := newMiddlewareAPITest(t)
+	a.db.Create(&models.StationUser{ID: "su1", UserID: "u1", StationID: "st1", Role: models.StationRoleDJ})
+	h := a.requireRoles(models.RoleAdmin)(okHandler)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req = req.WithContext(auth.WithClaims(req.Context(), &auth.Claims{
+		UserID:    "u1",
+		StationID: "st1",
+		Roles:     []string{string(models.RoleDJ)},
+	}))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("a non-allowed station role must stay forbidden, got %d", rr.Code)
+	}
+}
+
 func TestRequirePlatformAdmin_NoAuth(t *testing.T) {
 	a := newMiddlewareAPITest(t)
 	h := a.requirePlatformAdmin()(okHandler)

@@ -87,3 +87,68 @@ func TestUpsertScheduleLock_UpdatePersistsLockedDates(t *testing.T) {
 		t.Fatalf("LockBeforeDays = %d, want 3", lock.LockBeforeDays)
 	}
 }
+
+// TestUpsertScheduleLock_PreservesUnsuppliedScalars guards the selective-column
+// update: a zero lockBeforeDays or empty minBypassRole means "unchanged", so a
+// later call that only edits the locked dates must not clobber the scalar
+// settings back to zero. Drop the `!= 0` / `!= ""` guards and this fails.
+func TestUpsertScheduleLock_PreservesUnsuppliedScalars(t *testing.T) {
+	db := dbtest.Open(t, &models.Station{}, &models.ScheduleLock{})
+	ctx := context.Background()
+	stationID := dbtest.UUID("st")
+	if err := db.Create(&models.Station{ID: stationID, OwnerID: dbtest.UUID("owner"), Name: "S"}).Error; err != nil {
+		t.Fatalf("seed station: %v", err)
+	}
+	d1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	// Establish explicit non-default settings.
+	if _, err := upsertScheduleLock(ctx, db, stationID, 5, string(models.RoleDJ), []time.Time{d1}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// Edit only the dates: 0 days and "" role must leave the scalars intact.
+	if _, err := upsertScheduleLock(ctx, db, stationID, 0, "", []time.Time{d1, d2}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	var lock models.ScheduleLock
+	if err := db.Where("station_id = ?", stationID).Take(&lock).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if lock.LockBeforeDays != 5 {
+		t.Errorf("LockBeforeDays = %d, want 5 preserved", lock.LockBeforeDays)
+	}
+	if lock.MinBypassRole != models.RoleDJ {
+		t.Errorf("MinBypassRole = %q, want dj preserved", lock.MinBypassRole)
+	}
+	if len(lock.LockedDates) != 2 {
+		t.Errorf("LockedDates = %d, want 2 (the supplied edit)", len(lock.LockedDates))
+	}
+}
+
+// TestUpsertScheduleLock_ColdStartKeepsSeedDefaults guards the cold-start
+// branch: a first touch with no scalar settings must land the seed defaults
+// (7 days, manager) rather than zeroing them.
+func TestUpsertScheduleLock_ColdStartKeepsSeedDefaults(t *testing.T) {
+	db := dbtest.Open(t, &models.Station{}, &models.ScheduleLock{})
+	ctx := context.Background()
+	stationID := dbtest.UUID("st")
+	if err := db.Create(&models.Station{ID: stationID, OwnerID: dbtest.UUID("owner"), Name: "S"}).Error; err != nil {
+		t.Fatalf("seed station: %v", err)
+	}
+
+	if _, err := upsertScheduleLock(ctx, db, stationID, 0, "", nil); err != nil {
+		t.Fatalf("cold start: %v", err)
+	}
+
+	var lock models.ScheduleLock
+	if err := db.Where("station_id = ?", stationID).Take(&lock).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if lock.LockBeforeDays != 7 {
+		t.Errorf("LockBeforeDays = %d, want seed default 7", lock.LockBeforeDays)
+	}
+	if lock.MinBypassRole != models.RoleManager {
+		t.Errorf("MinBypassRole = %q, want seed default manager", lock.MinBypassRole)
+	}
+}
