@@ -169,8 +169,18 @@ func TestHandleTrackEnded_PlaylistType_AdvancesPosition(t *testing.T) {
 		EndsAt:    time.Now().UTC().Add(5 * time.Minute),
 	}
 
-	// Should advance to position 1.
+	// Should advance to position 1 (the second playlist item).
 	d.handleTrackEnded(entry, mountName)
+
+	d.mu.Lock()
+	got, ok := d.active[mountID]
+	d.mu.Unlock()
+	if !ok {
+		t.Fatalf("mount is no longer active after track ended")
+	}
+	if got.Position != 1 || got.MediaID != mediaID2 {
+		t.Fatalf("playlist did not advance: position=%d media=%s, want position=1 media=%s", got.Position, got.MediaID, mediaID2)
+	}
 }
 
 // ── playRandomNextTrack ───────────────────────────────────────────────────
