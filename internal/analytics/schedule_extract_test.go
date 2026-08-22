@@ -83,6 +83,12 @@ func TestAggregateDaily_RollsUpAndUpserts(t *testing.T) {
 	if station.PeakListeners != 90 || station.HoursCovered != 2 {
 		t.Fatalf("station rollup wrong: %+v", station)
 	}
+	// Derived average = total listener-minutes / (hoursCovered*60). The two hours
+	// seed TotalMinutes 40*60 + 60*60 = 6000, over 2 hours => 6000/120 = 50. This
+	// is the headline daily number and feeds the trend math, so pin it.
+	if station.AvgListeners != 50 {
+		t.Fatalf("derived AvgListeners = %v, want 50", station.AvgListeners)
+	}
 
 	// Re-running upserts (ON CONFLICT), not duplicates.
 	if err := svc.AggregateDaily(context.Background(), dbtest.UUID("st1"), date); err != nil {
