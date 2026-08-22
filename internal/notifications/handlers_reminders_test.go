@@ -148,3 +148,73 @@ func TestProcessReminders_SendsOnceWithinWindow(t *testing.T) {
 		t.Fatalf("reminder sent twice, got %d", got)
 	}
 }
+
+// seedReminderFixture wires a host, show, upcoming instance and reminder pref so
+// each window-boundary case only varies the two knobs that matter.
+func seedReminderFixture(t *testing.T, db *gorm.DB, startIn time.Duration, reminderMinutes int, enabled bool) {
+	t.Helper()
+	db.Create(&models.Station{ID: dbtest.UUID("st1"), OwnerID: dbtest.UUID("owner"), Name: "st1"})
+	db.Create(&models.User{ID: dbtest.UUID("host"), Email: "host@example.com"})
+	db.Create(&models.Show{ID: dbtest.UUID("sh1"), StationID: dbtest.UUID("st1"), Name: "Morning Drive"})
+	hostID := dbtest.UUID("host")
+	db.Create(&models.ShowInstance{
+		ID: dbtest.UUID("si1"), ShowID: dbtest.UUID("sh1"), StationID: dbtest.UUID("st1"),
+		StartsAt: time.Now().Add(startIn), EndsAt: time.Now().Add(startIn + time.Hour),
+		HostUserID: &hostID, Status: models.ShowInstanceScheduled,
+	})
+	db.Create(&models.NotificationPreference{
+		ID:     dbtest.UUID("pref"),
+		UserID: dbtest.UUID("host"), NotificationType: models.NotificationTypeShowReminder,
+		Channel: models.NotificationChannelInApp, Enabled: true,
+		Config: map[string]any{"reminder_minutes": float64(reminderMinutes)},
+	})
+	// Enabled carries a gorm `default:true`, so a false zero-value is dropped on
+	// Create and the DB default wins. Force the disabled state with an explicit
+	// column write.
+	if !enabled {
+		db.Model(&models.NotificationPreference{}).
+			Where("id = ?", dbtest.UUID("pref")).Update("enabled", false)
+	}
+}
+
+// TestProcessReminders_TooEarly_NoSend guards #86: the reminder fires only once
+// now has reached start-reminderMinutes. With a 5-minute lead on a show 30
+// minutes out, the reminder time is still 25 minutes away, so nothing sends.
+func TestProcessReminders_TooEarly_NoSend(t *testing.T) {
+	svc, db := newNotifService(t, Config{ReminderCheckInterval: 5 * time.Minute})
+	migrateExtras(t, db)
+	seedReminderFixture(t, db, 30*time.Minute, 5, true)
+
+	svc.processReminders(bg())
+	if got := countNotifications(t, db, dbtest.UUID("host")); got != 0 {
+		t.Fatalf("reminder sent before its window opened, got %d", got)
+	}
+}
+
+// TestProcessReminders_TooLate_NoSend guards #86: once now is past
+// reminderTime + ReminderCheckInterval the window has closed. A 90-minute lead
+// on a show 30 minutes out puts the reminder time an hour in the past, so the
+// scan must skip it rather than fire a stale reminder.
+func TestProcessReminders_TooLate_NoSend(t *testing.T) {
+	svc, db := newNotifService(t, Config{ReminderCheckInterval: 5 * time.Minute})
+	migrateExtras(t, db)
+	seedReminderFixture(t, db, 30*time.Minute, 90, true)
+
+	svc.processReminders(bg())
+	if got := countNotifications(t, db, dbtest.UUID("host")); got != 0 {
+		t.Fatalf("stale reminder fired after its window closed, got %d", got)
+	}
+}
+
+// TestProcessReminders_DisabledPref_NoSend guards #86: a disabled reminder
+// preference must gate the scan out entirely, even squarely inside the window.
+func TestProcessReminders_DisabledPref_NoSend(t *testing.T) {
+	svc, db := newNotifService(t, Config{ReminderCheckInterval: 5 * time.Minute})
+	migrateExtras(t, db)
+	seedReminderFixture(t, db, 30*time.Minute, 30, false)
+
+	svc.processReminders(bg())
+	if got := countNotifications(t, db, dbtest.UUID("host")); got != 0 {
+		t.Fatalf("reminder sent despite disabled preference, got %d", got)
+	}
+}
