@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,18 +149,7 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 	router.Use(func(next http.Handler) http.Handler {
 		timeout := middleware.Timeout(60 * time.Second)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip timeout middleware for WebSocket upgrade requests
-			if r.Header.Get("Upgrade") == "websocket" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// Skip timeout for broadcast streams (long-running connections)
-			if len(r.URL.Path) >= 6 && r.URL.Path[:6] == "/live/" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// Skip timeout for large uploads that can legitimately exceed request middleware timeout.
-			if r.URL.Path == "/dashboard/media/upload" || r.URL.Path == "/dashboard/settings/migrations/import" {
+			if skipRequestTimeout(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -197,6 +187,24 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 	}
 
 	return srv, nil
+}
+
+// skipRequestTimeout reports whether r is a long-lived or large-body request
+// that must bypass the 60s request-timeout middleware: WebSocket upgrades,
+// /live/ broadcast streams, and the media/migration upload endpoints. Every
+// other route keeps the deadline.
+func skipRequestTimeout(r *http.Request) bool {
+	if r.Header.Get("Upgrade") == "websocket" {
+		return true
+	}
+	if strings.HasPrefix(r.URL.Path, "/live/") {
+		return true
+	}
+	switch r.URL.Path {
+	case "/dashboard/media/upload", "/dashboard/settings/migrations/import":
+		return true
+	}
+	return false
 }
 
 func securityHeadersMiddleware(next http.Handler) http.Handler {
