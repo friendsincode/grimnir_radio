@@ -259,37 +259,11 @@ func (b *Broadcaster) readRTP(ctx context.Context) {
 			b.lastSourceAt = now
 		}
 
-		if !b.seqInitialized {
-			// First packet - initialize tracking
-			b.seqInitialized = true
-			b.lastInSeq = packet.SequenceNumber
-			b.lastInTS = packet.Timestamp
-			b.lastOutTS = packet.Timestamp
-			b.logger.Debug().Uint16("seq", packet.SequenceNumber).Msg("RTP stream initialized")
-		} else {
-			// Detect sequence discontinuity (new GStreamer pipeline)
-			seqDiff := int(packet.SequenceNumber) - int(b.lastInSeq)
-			if seqDiff < -30000 || seqDiff > 30000 || (seqDiff < 0 && seqDiff > -100) {
-				// Large jump or backward jump = new pipeline started
-				// Calculate timestamp offset to maintain continuity
-				// Add ~20ms (960 samples at 48kHz) gap for smooth transition
-				b.tsOffset = b.lastOutTS + 960 - packet.Timestamp
-				b.logger.Info().
-					Uint16("old_seq", b.lastInSeq).
-					Uint16("new_seq", packet.SequenceNumber).
-					Uint32("ts_offset", b.tsOffset).
-					Msg("RTP stream discontinuity detected, adjusting")
-			}
-			b.lastInSeq = packet.SequenceNumber
-			b.lastInTS = packet.Timestamp
-		}
-
-		// Rewrite packet with continuous values
-		b.seqNum++
-		packet.SequenceNumber = b.seqNum
-		packet.Timestamp = packet.Timestamp + b.tsOffset
+		// Rewrite packet with continuous values across pipeline restarts.
+		outSeq, outTS := b.rewriteContinuity(packet.SequenceNumber, packet.Timestamp)
+		packet.SequenceNumber = outSeq
+		packet.Timestamp = outTS
 		packet.SSRC = b.ssrc
-		b.lastOutTS = packet.Timestamp
 		b.mu.Unlock()
 
 		// Re-marshal the modified packet
@@ -304,6 +278,41 @@ func (b *Broadcaster) readRTP(ctx context.Context) {
 			b.logger.Debug().Err(err).Msg("track write error")
 		}
 	}
+}
+
+// rewriteContinuity updates the broadcaster's RTP continuity state for one
+// incoming packet (identified by its sequence number and timestamp) and returns
+// the outgoing sequence number and timestamp to stamp on it. Outgoing sequence
+// numbers increment by one per packet. When a pipeline restart is detected — a
+// large forward/backward jump or a small backward jump in the incoming sequence
+// — the timestamp offset shifts so the outgoing timestamp stays monotonic with a
+// ~20ms (960-sample at 48kHz) gap. The caller must hold b.mu.
+func (b *Broadcaster) rewriteContinuity(inSeq uint16, inTS uint32) (uint16, uint32) {
+	if !b.seqInitialized {
+		// First packet - initialize tracking.
+		b.seqInitialized = true
+		b.lastInSeq = inSeq
+		b.lastInTS = inTS
+		b.lastOutTS = inTS
+	} else {
+		// Detect sequence discontinuity (new GStreamer pipeline).
+		seqDiff := int(inSeq) - int(b.lastInSeq)
+		if seqDiff < -30000 || seqDiff > 30000 || (seqDiff < 0 && seqDiff > -100) {
+			b.tsOffset = b.lastOutTS + 960 - inTS
+			b.logger.Info().
+				Uint16("old_seq", b.lastInSeq).
+				Uint16("new_seq", inSeq).
+				Uint32("ts_offset", b.tsOffset).
+				Msg("RTP stream discontinuity detected, adjusting")
+		}
+		b.lastInSeq = inSeq
+		b.lastInTS = inTS
+	}
+
+	b.seqNum++
+	outTS := inTS + b.tsOffset
+	b.lastOutTS = outTS
+	return b.seqNum, outTS
 }
 
 // HandleSignaling handles WebSocket signaling for a new peer.
