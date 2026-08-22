@@ -189,6 +189,27 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 	return srv, nil
 }
 
+// handleHealthz is the liveness probe. It always answers 200 with a JSON status
+// body, adding a leader field only when leader-aware scheduling is configured.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	response := `{"status":"ok"`
+
+	// Add leader status if leader election is enabled
+	if s.leaderAwareScheduler != nil {
+		if s.leaderAwareScheduler.IsLeader() {
+			response += `,"leader":true`
+		} else {
+			response += `,"leader":false`
+		}
+	}
+
+	response += `}`
+	_, _ = w.Write([]byte(response))
+}
+
 // skipRequestTimeout reports whether r is a long-lived or large-body request
 // that must bypass the 60s request-timeout middleware: WebSocket upgrades,
 // /live/ broadcast streams, and the media/migration upload endpoints. Every
@@ -833,25 +854,7 @@ func (s *Server) stopBackgroundWorkers() {
 }
 
 func (s *Server) configureRoutes() {
-	s.router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-
-		response := `{"status":"ok"`
-
-		// Add leader status if leader election is enabled
-		if s.leaderAwareScheduler != nil {
-			isLeader := s.leaderAwareScheduler.IsLeader()
-			if isLeader {
-				response += `,"leader":true`
-			} else {
-				response += `,"leader":false`
-			}
-		}
-
-		response += `}`
-		_, _ = w.Write([]byte(response))
-	})
+	s.router.Get("/healthz", s.handleHealthz)
 
 	// The Prometheus Metrics setting gates the /metrics endpoint (read once at
 	// startup; toggling it takes effect on restart). Default-on: a settings read
