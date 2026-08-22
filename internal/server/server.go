@@ -189,6 +189,19 @@ func New(cfg *config.Config, logBuf *logbuffer.Buffer, logger zerolog.Logger) (*
 	return srv, nil
 }
 
+// metricsEnabled reports whether the /metrics endpoint should be registered.
+// It is default-on: a settings read error still enables metrics so a transient
+// DB hiccup at startup can't blackhole monitoring; only an explicit
+// MetricsEnabled=false disables it.
+func metricsEnabled(db *gorm.DB, logger zerolog.Logger) bool {
+	settings, err := models.GetSystemSettings(db)
+	if err != nil || settings.MetricsEnabled {
+		return true
+	}
+	logger.Info().Msg("Prometheus /metrics endpoint disabled by system settings")
+	return false
+}
+
 // handleHealthz is the liveness probe. It always answers 200 with a JSON status
 // body, adding a leader field only when leader-aware scheduling is configured.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -857,12 +870,9 @@ func (s *Server) configureRoutes() {
 	s.router.Get("/healthz", s.handleHealthz)
 
 	// The Prometheus Metrics setting gates the /metrics endpoint (read once at
-	// startup; toggling it takes effect on restart). Default-on: a settings read
-	// error still registers it.
-	if settings, err := models.GetSystemSettings(s.db); err != nil || settings.MetricsEnabled {
+	// startup; toggling it takes effect on restart).
+	if metricsEnabled(s.db, s.logger) {
 		s.router.Handle("/metrics", telemetry.Handler())
-	} else {
-		s.logger.Info().Msg("Prometheus /metrics endpoint disabled by system settings")
 	}
 
 	// Audio broadcast streams (served directly by Go, no Icecast needed)
