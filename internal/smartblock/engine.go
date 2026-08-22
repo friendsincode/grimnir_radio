@@ -196,15 +196,7 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 				continue
 			}
 
-			if fb.Limit > 0 && len(result.Items) > fb.Limit {
-				result.Items = result.Items[:fb.Limit]
-				// Recalculate TotalMS from truncated items.
-				if len(result.Items) > 0 {
-					result.TotalMS = result.Items[len(result.Items)-1].EndsAtMS
-				} else {
-					result.TotalMS = 0
-				}
-			}
+			result = applyFallbackLimit(result, fb.Limit)
 
 			result.Warnings = append(result.Warnings, "used_fallback:"+fb.SmartBlockID)
 			return result, nil
@@ -212,6 +204,21 @@ func (e *Engine) generateWithDepth(ctx context.Context, req GenerateRequest, dep
 	}
 
 	return GenerateResult{}, ErrUnresolved
+}
+
+// applyFallbackLimit truncates a fallback result to at most limit items and
+// recomputes TotalMS from the last surviving item. A zero or negative limit
+// leaves the result untouched.
+func applyFallbackLimit(result GenerateResult, limit int) GenerateResult {
+	if limit > 0 && len(result.Items) > limit {
+		result.Items = result.Items[:limit]
+		if len(result.Items) > 0 {
+			result.TotalMS = result.Items[len(result.Items)-1].EndsAtMS
+		} else {
+			result.TotalMS = 0
+		}
+	}
+	return result
 }
 
 // relaxDefinition returns a copy of def with constraints removed according to the level.
