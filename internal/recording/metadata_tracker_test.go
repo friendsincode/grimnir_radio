@@ -79,3 +79,23 @@ func TestHandleNowPlaying_DedupsIdenticalMetadata(t *testing.T) {
 		t.Fatalf("expected 1 chapter after duplicate metadata, got %d", n)
 	}
 }
+
+// TestHandleNowPlaying_ChangedTrackAddsChapter guards #86: the dedup is by
+// content, not "seen this station before." When the now-playing title changes,
+// a second chapter must be written — this is the complement of the dedup test,
+// and without it a stuck lastMeta comparison would suppress every later track.
+func TestHandleNowPlaying_ChangedTrackAddsChapter(t *testing.T) {
+	svc, db := newSvc(t)
+	seedRecording(t, db, dbtest.UUID("r1"), dbtest.UUID("st1"), models.RecordingStatusActive, 0)
+	mt := NewMetadataTracker(db, svc, events.NewBus(), zerolog.Nop())
+
+	station := dbtest.UUID("st1")
+	mt.handleNowPlaying(bg(), events.Payload{"station_id": station, "title": "Song A", "artist": "Artist A"})
+	mt.handleNowPlaying(bg(), events.Payload{"station_id": station, "title": "Song B", "artist": "Artist A"})
+
+	var n int64
+	db.Model(&models.RecordingChapter{}).Where("recording_id = ?", dbtest.UUID("r1")).Count(&n)
+	if n != 2 {
+		t.Fatalf("a changed track should add a second chapter, got %d", n)
+	}
+}
