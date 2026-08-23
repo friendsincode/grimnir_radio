@@ -182,8 +182,20 @@ func (h *Handler) MigrationsImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// LibreTime only supports API import, not backup files. Reject here, before
+	// buffering the whole upload to disk — saving a 100MB file just to delete it
+	// is wasteful, and it made this path's failure depend on a shared temp dir.
+	if migrationSourceType == migration.SourceTypeLibreTime {
+		if r.Header.Get("HX-Request") == "true" {
+			w.Write([]byte(`<div class="alert alert-warning">LibreTime file import is not yet supported. Use API import instead.</div>`))
+			return
+		}
+		http.Error(w, "LibreTime file import not supported", http.StatusBadRequest)
+		return
+	}
+
 	// Save uploaded file to temp directory
-	tempDir := filepath.Join(os.TempDir(), "grimnir-imports")
+	tempDir := h.importStagingRoot()
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		h.logger.Error().Err(err).Msg("failed to create temp directory")
 		if r.Header.Get("HX-Request") == "true" {
@@ -234,20 +246,8 @@ func (h *Handler) MigrationsImport(w http.ResponseWriter, r *http.Request) {
 		ImportingUserID: userID,
 	}
 
-	switch migrationSourceType {
-	case migration.SourceTypeAzuraCast:
-		options.AzuraCastBackupPath = tempFile
-	case migration.SourceTypeLibreTime:
-		// LibreTime file imports would need different handling
-		// For now, we support AzuraCast backup files
-		os.Remove(tempFile)
-		if r.Header.Get("HX-Request") == "true" {
-			w.Write([]byte(`<div class="alert alert-warning">LibreTime file import is not yet supported. Use API import instead.</div>`))
-			return
-		}
-		http.Error(w, "LibreTime file import not supported", http.StatusBadRequest)
-		return
-	}
+	// Only AzuraCast backup-file imports reach here; LibreTime was rejected above.
+	options.AzuraCastBackupPath = tempFile
 
 	// Create job through migration service
 	ctx := r.Context()

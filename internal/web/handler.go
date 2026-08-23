@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -85,6 +86,7 @@ type Handler struct {
 	liveSvc          LiveService                   // Live service for token/session management
 	recordingSvc     *recording.Service            // Recording service for start/stop recordings
 	maxUploadBytes   int64                         // Optional global upload limit override (bytes)
+	importStagingDir string                        // Optional override for the migration upload staging dir (tests)
 
 	// WebRTC ICE server config (passed to client)
 	webrtcEnabled      bool
@@ -199,6 +201,16 @@ func (h *Handler) multipartLimit(defaultBytes int64) int64 {
 		return h.maxUploadBytes
 	}
 	return defaultBytes
+}
+
+// importStagingRoot is the directory migration uploads are buffered to. It
+// defaults to a shared subdir of the system temp dir; tests override it so each
+// run stages into its own isolated directory.
+func (h *Handler) importStagingRoot() string {
+	if h.importStagingDir != "" {
+		return h.importStagingDir
+	}
+	return filepath.Join(os.TempDir(), "grimnir-imports")
 }
 
 // StartUpdateChecker starts the background version checker.
