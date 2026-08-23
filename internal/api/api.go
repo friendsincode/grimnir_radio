@@ -403,6 +403,7 @@ func (a *API) Routes(r chi.Router) {
 				r.Get("/status", a.handleSystemStatus)
 				r.Post("/test-media-engine", a.handleTestMediaEngine)
 				r.Post("/reanalyze-missing-artwork", a.handleReanalyzeMissingArtwork)
+				r.Post("/reanalyze-missing-samplerate", a.handleReanalyzeMissingSampleRate)
 				r.Get("/logs", a.handleSystemLogs)
 				r.Get("/logs/components", a.handleLogComponents)
 				r.Get("/logs/stats", a.handleLogStats)
@@ -2061,6 +2062,70 @@ func (a *API) handleReanalyzeMissingArtwork(w http.ResponseWriter, r *http.Reque
 		a.db.WithContext(ctx).Model(&models.MediaItem{}).Where("id = ?", mediaID).Update("analysis_state", models.AnalysisPending)
 		if _, err := a.analyzer.Enqueue(ctx, mediaID); err != nil {
 			a.logger.Warn().Err(err).Str("media_id", mediaID).Msg("failed to queue media for re-analysis")
+			continue
+		}
+		queued++
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":      true,
+		"total_found":  len(mediaIDs),
+		"queued":       queued,
+		"already_done": len(mediaIDs) - queued,
+	})
+}
+
+// handleReanalyzeMissingSampleRate backfills tracks left with samplerate=0 by a
+// case-sensitivity bug in the gst-discoverer parser (fixed): those rows finished
+// analysis but never got their real sample rate. Re-queue only the analyzed
+// samplerate=0 rows through the normal analysis path so it recomputes the value;
+// never-analyzed rows get their sample rate through the ordinary flow.
+func (a *API) handleReanalyzeMissingSampleRate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if a.analyzer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"success": false,
+			"error":   "Analyzer service not available",
+		})
+		return
+	}
+
+	if !a.analysisEnabled() {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"success": false,
+			"error":   "Media Analysis is disabled in system settings",
+		})
+		return
+	}
+
+	// Only rows that completed analysis yet carry a bogus samplerate=0 — the
+	// exact population the parser bug affected.
+	var mediaIDs []string
+	err := a.db.WithContext(ctx).
+		Model(&models.MediaItem{}).
+		Select("id").
+		Where("samplerate = 0 AND analysis_state = ?", models.AnalysisComplete).
+		Pluck("id", &mediaIDs).Error
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	queued := 0
+	for _, mediaID := range mediaIDs {
+		// Skip anything already queued or running.
+		var existingJob models.AnalysisJob
+		if err := a.db.WithContext(ctx).Where("media_id = ? AND status IN ?", mediaID, []string{"pending", "running"}).First(&existingJob).Error; err == nil {
+			continue
+		}
+
+		a.db.WithContext(ctx).Model(&models.MediaItem{}).Where("id = ?", mediaID).Update("analysis_state", models.AnalysisPending)
+		if _, err := a.analyzer.Enqueue(ctx, mediaID); err != nil {
+			a.logger.Warn().Err(err).Str("media_id", mediaID).Msg("failed to queue media for sample-rate re-analysis")
 			continue
 		}
 		queued++
