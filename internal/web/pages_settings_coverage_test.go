@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -321,6 +322,11 @@ func TestMigrationsImport_UnsupportedSourceType_HTMX(t *testing.T) {
 func TestMigrationsImport_LibreTime_NotSupported(t *testing.T) {
 	db := newSettingsTestDB(t)
 	h := newSettingsTestHandler(t, db)
+	// Stage into an isolated dir so the assertion below can prove the reject
+	// path never touched disk, and so the test never races on the shared
+	// os.TempDir()/grimnir-imports directory under parallel runs.
+	staging := t.TempDir()
+	h.importStagingDir = staging
 	u := seedSettingsAdminUser(t, db)
 
 	body := "--testboundary\r\n" +
@@ -340,6 +346,16 @@ func TestMigrationsImport_LibreTime_NotSupported(t *testing.T) {
 	h.MigrationsImport(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for LibreTime file import, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// LibreTime is rejected before the upload is buffered, so nothing is staged.
+	// This is what removes the flaky dependency on a successful disk write.
+	entries, err := os.ReadDir(staging)
+	if err != nil {
+		t.Fatalf("read staging dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("LibreTime reject staged %d file(s); it must reject before writing to disk", len(entries))
 	}
 }
 
