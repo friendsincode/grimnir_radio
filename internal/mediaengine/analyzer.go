@@ -102,9 +102,12 @@ func (a *Analyzer) parseDiscovererOutput(output string, resp *pb.AnalyzeMediaRes
 	// gst-discoverer prints fractional seconds with variable precision (often nanoseconds, 9 digits).
 	// Example: "Duration: 0:58:12.345000000" (the .345000000 is 345ms, not 345000000ms).
 	durationRegex := regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+)(?:\.(\d+))?`)
-	bitrateRegex := regexp.MustCompile(`bitrate:\s*(\d+)`)
-	samplerateRegex := regexp.MustCompile(`sample rate:\s*(\d+)`)
-	channelsRegex := regexp.MustCompile(`channels:\s*(\d+)`)
+	bitrateRegex := regexp.MustCompile(`(?i)bitrate:\s*(\d+)`)
+	// gst-discoverer capitalises these ("Sample rate: 44100", "Channels: 2"),
+	// so the patterns must be case-insensitive or they silently never match and
+	// every analysed track reports 0 channels / 0 sample rate.
+	samplerateRegex := regexp.MustCompile(`(?i)sample rate:\s*(\d+)`)
+	channelsRegex := regexp.MustCompile(`(?i)channels:\s*(\d+)`)
 	codecRegex := regexp.MustCompile(`(?i)audio:\s*(\w+)`)
 
 	// Tag patterns
