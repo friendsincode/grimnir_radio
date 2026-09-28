@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -45,6 +46,8 @@ type decoderProc struct {
 	stdout    io.ReadCloser
 	cancel    context.CancelFunc
 	stderrBuf *lockedBuffer
+	closeOnce sync.Once
+	done      chan struct{} // closed by the sole cmd.Wait owner
 }
 
 // startDecoder launches a GStreamer pipeline that reads compressed audio from stdin
@@ -67,44 +70,62 @@ func startDecoder(ctx context.Context, gstreamerBin string, contentType string, 
 	)
 
 	cmdCtx, cancel := context.WithCancel(ctx)
-	shellCmd := fmt.Sprintf("%s -e %s", gstreamerBin, pipeline)
+	shellCmd := fmt.Sprintf("exec %s -q -e %s", gstreamerBin, pipeline)
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", shellCmd)
 
 	// Capture stderr for diagnostic output from GStreamer.
 	stderrBuf := &lockedBuffer{}
 	cmd.Stderr = stderrBuf
 
-	stdin, err := cmd.StdinPipe()
+	input, stdin, err := os.Pipe()
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("decoder stdin pipe: %w", err)
 	}
 
-	stdout, err := cmd.StdoutPipe()
+	// Keep buffered PCM readable after Wait; StdoutPipe would be closed by it.
+	stdout, output, err := os.Pipe()
 	if err != nil {
 		cancel()
+		_ = input.Close()
+		_ = stdin.Close()
 		return nil, fmt.Errorf("decoder stdout pipe: %w", err)
 	}
 
+	cmd.Stdin = input
+	cmd.Stdout = output
 	if err := cmd.Start(); err != nil {
+		_ = input.Close()
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = output.Close()
 		cancel()
 		return nil, fmt.Errorf("start decoder: %w", err)
 	}
 
+	_ = input.Close()  // only the child keeps the read end
+	_ = output.Close() // only the child keeps the write end
+	d := &decoderProc{
+		cmd:       cmd,
+		stdin:     stdin,
+		stdout:    stdout,
+		cancel:    cancel,
+		stderrBuf: stderrBuf,
+		done:      make(chan struct{}),
+	}
+	go func() {
+		_ = cmd.Wait() // reaps natural exits even before Close is called
+		_ = stdin.Close()
+		cancel()
+		close(d.done)
+	}()
 	logger.Debug().
 		Int("pid", cmd.Process.Pid).
 		Str("content_type", contentType).
 		Int("sample_rate", sampleRate).
 		Int("channels", channels).
 		Msg("harbor decoder started")
-
-	return &decoderProc{
-		cmd:       cmd,
-		stdin:     stdin,
-		stdout:    stdout,
-		cancel:    cancel,
-		stderrBuf: stderrBuf,
-	}, nil
+	return d, nil
 }
 
 // Stderr returns any accumulated stderr output from the decoder process.
@@ -120,14 +141,19 @@ func (d *decoderProc) Close() error {
 	if d == nil {
 		return nil
 	}
-	if d.stdin != nil {
-		_ = d.stdin.Close()
-	}
-	if d.cancel != nil {
-		d.cancel()
-	}
-	if d.cmd != nil && d.cmd.Process != nil {
-		_ = d.cmd.Process.Kill()
-	}
+	d.closeOnce.Do(func() {
+		if d.stdin != nil {
+			_ = d.stdin.Close()
+		}
+		if d.cancel != nil {
+			d.cancel()
+		}
+		if d.stdout != nil {
+			_ = d.stdout.Close()
+		}
+		if d.done != nil {
+			<-d.done
+		}
+	})
 	return nil
 }

@@ -132,8 +132,9 @@ func (p *Pipeline) StartWithOutput(ctx context.Context, launch string, outputHan
 		}
 	}
 
-	// Use shell to properly parse the GStreamer pipeline string
-	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
+	// Parse the pipeline with a shell, then replace it with GStreamer so
+	// context cancellation kills the actual pipeline and Wait reaps it.
+	shellCmd := fmt.Sprintf("exec %s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
 	cmd.WaitDelay = 3 * time.Second             // don't block cmd.Wait forever on orphaned subprocesses
 	cmd.SysProcAttr = newPipelineProcessGroup() // kill entire group on Stop, not just the sh wrapper
@@ -206,8 +207,9 @@ func (p *Pipeline) StartWithDualOutputAndInput(ctx context.Context, launch strin
 		return nil, fmt.Errorf("create LQ pipe: %w", err)
 	}
 
-	// Use shell to properly parse the GStreamer pipeline string
-	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
+	// Parse the pipeline with a shell, then replace it with GStreamer so
+	// context cancellation kills the actual pipeline and Wait reaps it.
+	shellCmd := fmt.Sprintf("exec %s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
 	cmd.WaitDelay = 3 * time.Second             // don't block cmd.Wait forever on orphaned subprocesses
 	cmd.SysProcAttr = newPipelineProcessGroup() // kill entire group on Stop, not just the sh wrapper
@@ -307,8 +309,9 @@ func (p *Pipeline) StartWithDualOutput(ctx context.Context, launch string, seekF
 		return fmt.Errorf("create LQ pipe: %w", err)
 	}
 
-	// Use shell to properly parse the GStreamer pipeline string
-	shellCmd := fmt.Sprintf("%s -e %s", p.cfg.GStreamerBin, launch)
+	// Parse the pipeline with a shell, then replace it with GStreamer so
+	// context cancellation kills the actual pipeline and Wait reaps it.
+	shellCmd := fmt.Sprintf("exec %s -e %s", p.cfg.GStreamerBin, launch)
 	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
 	cmd.WaitDelay = 3 * time.Second             // don't block cmd.Wait forever on orphaned subprocesses
 	cmd.SysProcAttr = newPipelineProcessGroup() // kill entire group on Stop, not just the sh wrapper
