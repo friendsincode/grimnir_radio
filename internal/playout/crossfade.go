@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -43,9 +43,11 @@ type sessionConfig struct {
 }
 
 type decoderProc struct {
-	cmd    *exec.Cmd
-	stdout io.ReadCloser
-	cancel context.CancelFunc
+	cmd      *exec.Cmd
+	stdout   io.ReadCloser
+	cancel   context.CancelFunc
+	stopOnce sync.Once
+	done     chan struct{} // closed by the sole cmd.Wait owner
 }
 
 type xfadeState struct {
@@ -113,6 +115,12 @@ func (s *pcmCrossfadeSession) Play(ctx context.Context, filePath string, fade ti
 	}
 
 	s.mu.Lock()
+	// Close may have raced the subprocess startup outside the lock.
+	if s.closing {
+		s.mu.Unlock()
+		_ = dec.stop()
+		return fmt.Errorf("session closing")
+	}
 	if s.cur == nil {
 		s.cur = dec
 		s.mu.Unlock()
@@ -162,12 +170,12 @@ func (s *pcmCrossfadeSession) startDecoder(ctx context.Context, filePath string,
 			"-hide_banner",
 			"-loglevel", "error",
 			"-ss", fmt.Sprintf("%.3f", startOffset.Seconds()),
+			"-re", // input pacing must precede -i
 			"-i", filePath,
 			"-f", "s16le",
 			"-acodec", "pcm_s16le",
 			"-ac", strconv.Itoa(ch),
 			"-ar", strconv.Itoa(rate),
-			"-re",
 			"pipe:1",
 		)
 		pipeline = fmt.Sprintf("ffmpeg decode with seek %.3fs", startOffset.Seconds())
@@ -177,49 +185,54 @@ func (s *pcmCrossfadeSession) startDecoder(ctx context.Context, filePath string,
 			`filesrc location=%q ! decodebin ! audioconvert ! audioresample ! audio/x-raw,format=S16LE,rate=%d,channels=%d ! identity sync=true ! fdsink fd=1`,
 			filePath, rate, ch,
 		)
-		shellCmd := fmt.Sprintf("%s -e %s", s.cfg.GStreamerBin, pipeline)
+		shellCmd := fmt.Sprintf("exec %s -q -e %s", s.cfg.GStreamerBin, pipeline)
 		cmd = exec.CommandContext(cmdCtx, "sh", "-c", shellCmd)
 	}
-	// Same process-group trick as pipeline.go: without this, d.cmd.Process.Kill()
-	// in stop() only reaps the `sh -c` wrapper while the gst-launch grandchild
-	// orphans to PID 1 and keeps producing PCM bytes — accumulating ~170 leaked
-	// decoder processes per ~24h on a busy station and causing the audible echo
-	// (multiple decoders feeding the same encoder stdin).
-	cmd.SysProcAttr = newPipelineProcessGroup()
+	// exec replaces the shell with GStreamer: the decoder is our direct child,
+	// so cancellation kills it and Wait reaps it rather than orphaning it.
 	cmd.Stderr = nil
 
-	stdout, err := cmd.StdoutPipe()
+	// Own the read pipe ourselves. Cmd.Wait closes StdoutPipe too early if
+	// the decoder exits while the mixer still has buffered PCM to consume.
+	stdout, output, err := os.Pipe()
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("decoder stdout pipe: %w", err)
 	}
+	cmd.Stdout = output
 	if err := cmd.Start(); err != nil {
+		_ = stdout.Close()
+		_ = output.Close()
 		cancel()
 		return nil, fmt.Errorf("start decoder: %w", err)
 	}
 
+	_ = output.Close() // only the child keeps the write end
+	d := &decoderProc{cmd: cmd, stdout: stdout, cancel: cancel, done: make(chan struct{})}
+	go func() {
+		_ = cmd.Wait() // exactly once, including natural exit and cancellation
+		cancel()
+		close(d.done)
+	}()
 	s.logger.Debug().Int("pid", cmd.Process.Pid).Str("pipeline", pipeline).Msg("decoder started")
-
-	return &decoderProc{cmd: cmd, stdout: stdout, cancel: cancel}, nil
+	return d, nil
 }
 
 func (d *decoderProc) stop() error {
 	if d == nil {
 		return nil
 	}
-	if d.cancel != nil {
-		d.cancel()
-	}
-	if d.stdout != nil {
-		_ = d.stdout.Close()
-	}
-	if d.cmd != nil && d.cmd.Process != nil {
-		// Kill the entire process group so the sh wrapper AND its gst-launch
-		// grandchild both die. cmd.Process.Kill() alone leaves gst-launch
-		// orphaned, which was the root cause of the v1.40.x audible echo:
-		// orphan decoders kept feeding the mount's encoder pipe.
-		killProcessGroup(d.cmd, syscall.SIGKILL)
-	}
+	d.stopOnce.Do(func() {
+		if d.cancel != nil {
+			d.cancel()
+		}
+		if d.stdout != nil {
+			_ = d.stdout.Close()
+		}
+		if d.done != nil {
+			<-d.done
+		}
+	})
 	return nil
 }
 

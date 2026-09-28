@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.40.44 — 2026-09-28
+
+### Fix: Decoder processes are reaped
+
+- Scheduled crossfade/seek decoders and Harbor decoders now have exactly one background wait owner. Normal exit and cancellation reap the child immediately; concurrent cleanup waits for reaping and idempotently closes owned pipes. Failed startup closes allocated pipes.
+- GStreamer replaces its launch shell with exec, avoiding an orphaned decoder grandchild. Decoder stdout stays readable after exit so buffered PCM is not truncated.
+- All three broadcast pipeline launch paths also replace their shell with GStreamer, so context cancellation terminates and reaps the actual worker. Linux regression tests verify worker PID ownership and removal after cancellation.
+- A crossfade decoder that finishes starting after its session closes is stopped rather than installed into the closed session.
+- GStreamer decoder launches use quiet mode so status messages do not contaminate PCM. FFmpeg seek decoding places the input pacing option before the input, where FFmpeg requires it.
+- Linux regression tests verify reaping with wait4/ECHILD, repeated start/stop and cancellation, concurrent cleanup, startup descriptor cleanup, nonzero exits, buffered PCM, and real GStreamer/FFmpeg decoding.
+
+Operational note: this prevents new decoder zombies; it does not clear zombies already accumulated in a running process. Plan a separately authorized replacement of the affected process when deploying. No schema or environment-variable changes are required. An init/subreaper can protect against unrelated orphan descendants, but is not a substitute for waiting on directly owned children.
+
 ## 1.31.1 — 2026-03-06
 
 ### Change: Schedule Status Labels and Operator Copy
