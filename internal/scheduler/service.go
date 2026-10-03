@@ -589,6 +589,17 @@ func (s *Service) fillStationHoles(ctx context.Context, stationID string, start,
 
 	const minGap = time.Minute
 	gaps := subtractCovered(window, covered, minGap)
+
+	// A tail gap that runs to horizonEnd is open: the hole continues past the horizon
+	// and Run slides horizonEnd forward one tick at a time, so filling it on every tick
+	// writes one tick-length fill row per run, each holding a full-length track, and
+	// the director relaunches a track every minute. Defer an open tail until it is at
+	// least half the window. It either becomes bounded once the next real entry enters
+	// the horizon, or it gets filled in one large chunk well before it airs.
+	if n := len(gaps); n > 0 && gaps[n-1].End.Equal(horizonEnd) &&
+		gaps[n-1].End.Sub(gaps[n-1].Start) < horizonEnd.Sub(start)/2 {
+		gaps = gaps[:n-1]
+	}
 	if len(gaps) == 0 {
 		return nil
 	}

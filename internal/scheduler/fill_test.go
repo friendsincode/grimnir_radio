@@ -386,6 +386,16 @@ func TestFillPass_RoundRobinLRU(t *testing.T) {
 		if err := db.Create(&bridge).Error; err != nil {
 			t.Fatalf("create bridge entry: %v", err)
 		}
+		// A second real entry closes hole2 at 15:00. Without it hole2 runs to the
+		// window end and is an open tail, which the fill pass defers while short.
+		closer := models.ScheduleEntry{
+			ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+			SourceType: "media", SourceID: uuid.NewString(), IsInstance: true,
+			StartsAt: hole2End, EndsAt: day.Add(16 * time.Hour),
+		}
+		if err := db.Create(&closer).Error; err != nil {
+			t.Fatalf("create closer entry: %v", err)
+		}
 
 		if err := svc.fillStationHoles(context.Background(), stationID, day.Add(11*time.Hour), day.Add(16*time.Hour)); err != nil {
 			t.Fatalf("fillStationHoles: %v", err)
@@ -496,4 +506,86 @@ func TestFillPass_RoundRobinLRU(t *testing.T) {
 			t.Fatalf("fresh hole filled by %v, want only sb-b (never-filled sorts LRU)", got)
 		}
 	})
+}
+
+// TestFillPass_SlidingHorizonDoesNotNibble reproduces the prod storm where a hole
+// entering the horizon was filled one minute per tick. Run calls fillStationHoles
+// every tick with horizonEnd = now+lookahead, so an uncovered window that straddles
+// horizonEnd shows up as a tail gap that grows by one tick each run. Filling that
+// tail on every tick wrote 60s fill rows, each holding a full-length track, and the
+// director launched a new track every minute. The pass must instead fill the hole in
+// at most two chunks and still leave no dead air once the hole is fully visible.
+func TestFillPass_SlidingHorizonDoesNotNibble(t *testing.T) {
+	svc, db := newRunTestService(t)
+	stationID, mountID := "st-slide", "mt-slide"
+	if err := db.Create(&models.Station{ID: stationID, Name: "Test", Timezone: "UTC"}).Error; err != nil {
+		t.Fatalf("create station: %v", err)
+	}
+	if err := db.Create(&models.Mount{
+		ID: mountID, StationID: stationID, Name: "Main",
+		URL: "https://example.invalid/main.mp3", Format: "mp3",
+	}).Error; err != nil {
+		t.Fatalf("create mount: %v", err)
+	}
+	poolBlockID := seedNamedSmartBlock(t, db, stationID, "sb-slide")
+	parent := models.ScheduleEntry{
+		ID: "parent-slide", StationID: stationID, MountID: mountID,
+		SourceType: "smart_block", SourceID: poolBlockID,
+		StartsAt:       time.Now().UTC().Add(-24 * time.Hour),
+		EndsAt:         time.Now().UTC().Add(-23 * time.Hour),
+		RecurrenceType: models.RecurrenceDaily, IsInstance: false,
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create pool parent: %v", err)
+	}
+
+	// Real content covers [base, base+30m) and [base+90m, base+3h); the hole is
+	// [base+30m, base+90m). The horizon edge starts just past the first real entry
+	// and advances one minute per tick until the second one is inside the window.
+	base := time.Now().UTC()
+	holeStart, holeEnd := base.Add(30*time.Minute), base.Add(90*time.Minute)
+	for _, r := range [][2]time.Time{{base, holeStart}, {holeEnd, base.Add(3 * time.Hour)}} {
+		e := models.ScheduleEntry{
+			ID: uuid.NewString(), StationID: stationID, MountID: mountID,
+			SourceType: "media", SourceID: uuid.NewString(), IsInstance: true,
+			StartsAt: r[0], EndsAt: r[1],
+		}
+		if err := db.Create(&e).Error; err != nil {
+			t.Fatalf("create real entry: %v", err)
+		}
+	}
+
+	countFill := func() int64 {
+		t.Helper()
+		var n int64
+		db.Model(&models.ScheduleEntry{}).
+			Where("station_id = ? AND source_type = 'media' AND metadata->>'fill' = 'true'", stationID).
+			Count(&n)
+		return n
+	}
+
+	ticksThatFilled := 0
+	for edge := holeStart.Add(time.Minute); !edge.After(holeEnd.Add(5 * time.Minute)); edge = edge.Add(time.Minute) {
+		before := countFill()
+		if err := svc.fillStationHoles(context.Background(), stationID, base, edge); err != nil {
+			t.Fatalf("fillStationHoles(edge=%s): %v", edge.Sub(base), err)
+		}
+		if countFill() > before {
+			ticksThatFilled++
+		}
+	}
+	if ticksThatFilled > 2 {
+		t.Errorf("fill pass wrote rows on %d ticks while the horizon slid across a 60m hole, want <= 2 (one chunk per tick is the minute-by-minute storm)", ticksThatFilled)
+	}
+
+	var rows []models.ScheduleEntry
+	db.Where("station_id = ? AND starts_at < ? AND ends_at > ?", stationID, holeEnd, holeStart).Find(&rows)
+	covered := make([]interval, 0, len(rows))
+	for _, r := range rows {
+		covered = append(covered, interval{r.StartsAt, r.EndsAt})
+	}
+	if gaps := subtractCovered(interval{holeStart, holeEnd}, covered, time.Second); len(gaps) > 0 {
+		t.Errorf("hole left uncovered after the horizon passed it: %v", gaps)
+	}
 }

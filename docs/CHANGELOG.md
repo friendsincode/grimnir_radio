@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.40.45 - 2026-10-03
+
+### Fix: Fill pass no longer relaunches a track every minute
+
+- The horizon fill pass ran every scheduler tick against a window ending at now plus the lookahead. A hole that ran past the horizon appeared as a tail gap one tick longer on each run, & the pass filled it each time, writing a 60-second fill row per tick that held a full-length track. The director started each row on its minute, so listeners heard a new track start every 60 seconds for the length of the hole.
+- A tail gap that touches the horizon end is now held back until it covers at least half the window. It fills in one piece once the next real entry enters the horizon, or as one large chunk days before air. Gaps bounded on both sides fill as before.
+- Regression test steps the horizon one minute at a time across a 60-minute hole: 60 filling ticks before the fix, 2 after, with no uncovered time.
+
+Operational note: rows written before this release stay in the schedule. Delete future fill rows of 60 seconds or less once (`metadata->>'fill' = 'true' AND ends_at - starts_at <= interval '60 seconds' AND starts_at > now()`); the next fill pass refills each hole at full length. No schema or environment-variable changes.
+
 ## 1.40.44 — 2026-09-28
 
 ### Fix: Decoder processes are reaped
